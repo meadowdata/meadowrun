@@ -2,10 +2,11 @@ import threading
 import os
 from typing import List, Tuple, Dict, Optional
 import uuid
+import bisect
 
 import pandas as pd
 
-from .readerwriter_shared import TableVersion
+from .readerwriter_shared import TableName, TableVersion
 
 
 class TableVersionsClientLocal:
@@ -32,7 +33,7 @@ class TableVersionsClientLocal:
             # List[(userspace, table_name, table_id)], maps userspace/table_name to
             # table_id. Note that more than one
             # userspace/table_name can map to a single table_id
-            self._table_names_history: List[Tuple[str, str, uuid.UUID]] = []
+            self._table_names_history: List[TableName] = []
             # Maps table_id to (table_schema_filename, data_list_filename) for a
             # specific version of that table
             self._table_versions_history: List[TableVersion] = []
@@ -45,13 +46,16 @@ class TableVersionsClientLocal:
                 self._table_versions_filename()
             )
             self._version_number = (
-                max(t.version_number for t in self._table_versions_history) + 1
+                max(
+                    max(t.version_number for t in self._table_versions_history),
+                    max(t.version_number for t in self._table_names_history),
+                )
+                + 1
             )
 
         # Keeps the latest userspace/table_name -> table_id mapping for ease of use
-        self._table_names_current: Dict[Tuple[str, str], uuid.UUID] = {
-            (userspace, table_name): table_id
-            for userspace, table_name, table_id in self._table_names_history
+        self._table_names_current: Dict[Tuple[str, str], TableName] = {
+            (t.userspace, t.table_name): t for t in self._table_names_history
         }
 
         # Keeps the latest table_id -> TableVersion mapping for ease of use
@@ -100,15 +104,18 @@ class TableVersionsClientLocal:
 
             self._add_table_version(
                 TableVersion(
+                    self._version_number,
                     table_id,
                     table_schema_filename,
                     data_list_filename,
-                    self._version_number,
                 )
             )
-            self._version_number += 1
 
-            self._add_or_update_table_names(userspace, table_name, table_id)
+            self._add_or_update_table_names(
+                TableName(self._version_number, userspace, table_name, table_id)
+            )
+
+            self._version_number += 1
 
             return True
 
@@ -127,7 +134,7 @@ class TableVersionsClientLocal:
         False if these checks fail, returns True if successful.
         """
         with self._lock:
-            if self._table_names_current[(userspace, table_name)] != table_id:
+            if self._table_names_current[(userspace, table_name)].table_id != table_id:
                 return False
 
             prev_table_version = self._table_versions_current[table_id]
@@ -136,10 +143,10 @@ class TableVersionsClientLocal:
 
             self._add_table_version(
                 TableVersion(
+                    self._version_number,
                     table_id,
                     table_schema_filename,
                     data_list_filename,
-                    self._version_number,
                 )
             )
             self._version_number += 1
@@ -151,29 +158,79 @@ class TableVersionsClientLocal:
             self._table_versions_history.append(table_version)
             self._table_versions_current[table_version.table_id] = table_version
 
-    def _add_or_update_table_names(
-        self, userspace: str, table_name: str, table_id: uuid.UUID
-    ) -> None:
+    def _add_or_update_table_names(self, table_name: TableName) -> None:
         with self._lock:
-            self._table_names_history.append((userspace, table_name, table_id))
-            self._table_names_current[(userspace, table_name)] = table_id
+            self._table_names_history.append(table_name)
+            self._table_names_current[
+                (table_name.userspace, table_name.table_name)
+            ] = table_name
 
     def get_current_table_version(
-        self, userspace: str, table_name: str
+        self, userspace: str, table_name: str, max_version_number: Optional[int]
     ) -> Optional[TableVersion]:
         """
-        Get the current version for the specified userspace/table_name. Returns None if
-        there is no data for that userspace/table_name
+        Get the current version for the specified userspace/table_name. If
+        max_version_number is specified, ignores any updates that were made after
+        max_version_number (max_version_number is inclusive). Use max_version_number =
+        None to not restrict at all. Returns None if there is no data for that
+        userspace/table_name
         """
         key = (userspace, table_name)
         if key not in self._table_names_current:
-            return None
+            if max_version_number is None:
+                return None
+            else:
+                return None  # TODO this assumes we never delete a name
 
-        table_id = self._table_names_current[key]
+        current_table_name = self._table_names_current[key]
+
+        if (
+            max_version_number is None
+            or current_table_name.version_number <= max_version_number
+        ):
+            table_id = current_table_name.table_id
+        else:
+            table_id = None
+
+            # binary search to find most recent record, and just iterate backwards
+            # until we find the userspace/table_name we're looking for.
+            # TODO probably will need to make this more efficient
+            i = bisect.bisect_right(
+                self._table_names_history, TableName.dummy(max_version_number)
+            )
+            while i >= 0:
+                el = self._table_names_history[i]
+                if el.userspace == userspace and el.table_name == table_name:
+                    table_id = el.table_id
+                    break
+                i -= 1
+
+            if table_id is None:
+                return None
+
         if table_id not in self._table_versions_current:
             raise ValueError(
                 f"Metadata is in an invalid state. {userspace}/{table_name} points to "
-                f"{table_id} but that table id does not exist. This should never "
-                f"happen!"
+                f"{table_id} as of version {max_version_number} but that table id does "
+                f"not exist. This should never happen!"
             )
-        return self._table_versions_current[table_id]
+        current_table_version = self._table_versions_current[table_id]
+
+        if (
+            max_version_number is None
+            or current_table_version.version_number <= max_version_number
+        ):
+            return current_table_version
+        else:
+            # same idea as above
+            # TODO probably will need to make this more efficient
+            i = bisect.bisect_right(
+                self._table_versions_history, TableVersion.dummy(max_version_number)
+            )
+            while i >= 0:
+                el = self._table_versions_history[i]
+                if el.table_id == table_id:
+                    return el
+                i -= 1
+
+            return None  # if we didn't find anything

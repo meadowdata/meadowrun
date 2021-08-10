@@ -27,23 +27,31 @@ def _random_df(n=100):
 
 
 def test_nextdb():
+    # set up connection
+
     test_data_dir = (
         pathlib.Path(__file__).parent.parent / "test_data" / "nextdb"
     ).resolve()
     print(f"Using {test_data_dir} for test data")
-    conn = nextdb.Connection(nextdb.TableVersionsClientLocal(test_data_dir))
+    conn = nextdb.Connection(nextdb.TableVersionsClientLocal(str(test_data_dir)))
+
+    # generate and write some data
 
     test_data1 = _random_df()
     test_data1.loc[50, "str1"] = "hello"
     test_data2 = _random_df()
+    test_data3 = _random_df()
     conn.write("temp1", test_data1)
     conn.write("temp1", test_data2)
-    test_data_combined = pd.concat([test_data1, test_data2], ignore_index=True)
-    # conn._table_versions_client._save_table_versions()
+    conn.write("temp1", test_data3)
 
+    test_data_combined = pd.concat(
+        [test_data1, test_data2, test_data3], ignore_index=True
+    )
     t = conn.read("temp1")
 
-    # various sample queries
+    # test some queries
+
     assert t.to_pd().equals(test_data_combined)
     assert (
         t[t["int1"].between(80, 120) & (t["int2"] > 500)][["int1", "int2", "str1"]]
@@ -89,6 +97,30 @@ def test_nextdb():
     t = conn.read("temp1")
     assert t.to_pd().equals(
         test_data_combined[test_data_combined["str1"] != "hello"].reset_index(drop=True)
+    )
+
+    # test reading old versions
+
+    # TODO we should have a better way of querying the version numbers
+    assert conn.read("temp1", max_version_number=0).to_pd().equals(test_data1)
+    assert (
+        conn.read("temp1", max_version_number=1)
+        .to_pd()
+        .equals(pd.concat([test_data1, test_data2], ignore_index=True))
+    )
+    assert (
+        conn.read("temp1", max_version_number=2)
+        .to_pd()
+        .equals(pd.concat([test_data1, test_data2, test_data3], ignore_index=True))
+    )
+    assert (
+        conn.read("temp1", max_version_number=3)
+        .to_pd()
+        .equals(
+            test_data_combined[test_data_combined["str1"] != "hello"].reset_index(
+                drop=True
+            )
+        )
     )
 
     # test deduplication_keys

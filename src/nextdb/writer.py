@@ -19,7 +19,7 @@ def write(
 
     # Get the table_id for this userspace/table_name, make a new one if it doesn't exist
     prev_table_version = table_versions_client.get_current_table_version(
-        userspace, table_name
+        userspace, table_name, None
     )
     if prev_table_version is None:
         table_id = uuid.uuid4()
@@ -113,7 +113,7 @@ def create_or_update_table_schema(
 
     # Get the table_id for this userspace/table_name, make a new one if it doesn't exist
     prev_table_version = table_versions_client.get_current_table_version(
-        userspace, table_name
+        userspace, table_name, None
     )
     if prev_table_version is None:
         table_id = uuid.uuid4()

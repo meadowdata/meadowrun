@@ -33,9 +33,39 @@ from dataclasses import dataclass
 import uuid
 
 
-@dataclass(frozen=True)
+_dummy_uuid = uuid.UUID(int=0)
+
+
+@dataclass(frozen=True, order=True)
+class TableName:
+    """A TableName maps a userspace/table name to a table id"""
+
+    # This needs to be the first field! We rely on this being the first field and
+    # therefore effectively defining the sort order
+    version_number: int
+    userspace: str
+    table_name: str
+    table_id: uuid.UUID
+
+    @staticmethod
+    def dummy(version_number: int) -> TableName:
+        """
+        The bisect library doesn't allow for passing in a sort key, so we just make
+        TableName sortable based on version_number (which must be the first field in the
+        class in order to make dataclass' built-in ordering functions work this way).
+        This means we sometimes need dummy TableNames to compare against. This function
+        constructs those dummy TableNames.
+        """
+        return TableName(version_number, "", "", _dummy_uuid)
+
+
+@dataclass(frozen=True, order=True)
 class TableVersion:
     """A TableVersion represents a single version of a table"""
+
+    # This needs to be the first field! We rely on this being the first field and
+    # therefore effectively defining the sort order
+    version_number: int
 
     # The table_versions server maps table_ids to a userspace/table name. A single
     # table_id can map to 0, 1, 2 or more userspace/table names.
@@ -49,8 +79,10 @@ class TableVersion:
     # Points to a file which contains an ordered list of DataFileEntry
     data_list_filename: str
 
-    # A globally unique number that represents this version of this table
-    version_number: int
+    @staticmethod
+    def dummy(version_number: int) -> TableVersion:
+        """See TableName.dummy"""
+        return TableVersion(version_number, _dummy_uuid, "", "")
 
 
 @dataclass(frozen=True)

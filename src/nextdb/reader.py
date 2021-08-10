@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import collections.abc
 import abc
-from typing import List, Iterable, Tuple, Literal, Union
+from typing import List, Iterable, Tuple, Literal, Union, Optional
 from dataclasses import dataclass
 
 import pandas as pd
@@ -14,11 +14,14 @@ from .readerwriter_shared import DataFileEntry, TableSchema
 
 
 def read(
-    table_version_client: TableVersionsClientLocal, userspace: str, table_name: str
+    table_version_client: TableVersionsClientLocal,
+    userspace: str,
+    table_name: str,
+    max_version_number: Optional[int],
 ) -> NdbTable:
     """See Connection.read for usage docstring"""
     table_version = table_version_client.get_current_table_version(
-        userspace, table_name
+        userspace, table_name, max_version_number
     )
     if table_version is None:
         raise ValueError(f"Requested table {userspace}/{table_name} does not exist")
@@ -81,7 +84,6 @@ class NdbTable:
     ):
         # a unique identifier for this version of this table
         self._version_number = version_number
-        # TODO actually do something with this
         self._table_schema = table_schema
         # a list of data files that we will read when we materialize
         self._data_list = data_list

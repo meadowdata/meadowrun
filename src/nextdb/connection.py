@@ -77,9 +77,14 @@ class Connection:
         self.write(table_name, None, userspace, delete_where_equal_df)
 
     def read(
-        self, table_name: str, userspace: str = prod_userspace_name
+        self,
+        table_name: str,
+        userspace: str = prod_userspace_name,
+        max_version_number: int = None,
     ) -> reader.NdbTable:
         """
         Returns a NdbTable object that can be used to query userspace/table_name
         """
-        return reader.read(self._table_versions_client, userspace, table_name)
+        return reader.read(
+            self._table_versions_client, userspace, table_name, max_version_number
+        )

@@ -37,7 +37,7 @@ def read(
         [
             DataFileEntry(
                 d.data_file_type,
-                table_version_client.prepend_data_dir(d.data_file_name),  # TODO ugly
+                table_version_client.prepend_data_dir(d.data_filename),  # TODO ugly
             )
             for d in data_list
         ],
@@ -160,7 +160,7 @@ class NdbTable:
                 # user specified (select_clause, where_clause), as well as any
                 # deduplication_key-based filters and deletes that we've seen so far
                 table_name = f"t{i}"
-                conn.from_parquet(data_file.data_file_name).create_view(table_name)
+                conn.from_parquet(data_file.data_filename).create_view(table_name)
                 if len(deduplication_keys_seen) == 0:  # or deduplication_keys is None
                     if len(deletes) == 0:
                         # simplest case--no deletes or deduplication_keys to filter out
@@ -249,7 +249,7 @@ class NdbTable:
 
                 # pd.read_parquet would be faster, but this way we're always using the
                 # same engine
-                conn.from_parquet(data_file.data_file_name).create_view("d")
+                conn.from_parquet(data_file.data_filename).create_view("d")
                 conn.execute("SELECT * FROM d")
                 d = conn.fetchdf()
                 d[_indicator_column_name] = 1

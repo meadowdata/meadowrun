@@ -5,7 +5,9 @@ Next Data Platform is a set of libraries and services that provides an integrate
 - nextdb: A columnar database designed to make experimentation effortless
 - nextbeat: A job scheduler that automatically manages your data dependencies 
 
-## nextdb
+## Getting started
+
+### nextdb
 
 ```python
 import nextdb
@@ -23,3 +25,5 @@ t = conn.read('my_table')
 data = t[t['date_column'].between(
     pd.Timestamp('2011-01-01'), pd.Timestamp('2011-02-01'))].to_pd()
 ```
+
+See [readerwriter_shared.py](src/nextdb/readerwriter_shared.py) for an introduction to the data layout

@@ -1,4 +1,32 @@
-"""Types/functions used by both the reader and writer"""
+"""
+Types/functions used by both the reader and writer.
+
+Overview of overall data structure layout:
+
+    TableVersionsServer:
+        # with history
+        userspace, table_name -> table_id
+        # with history
+        table_id -> TableVersion(table_schema_filename, data_list_filename,
+                                 version_number, branch_spec)
+
+    # convention is table_schema.{table_id}.{uuid}
+    table_schema_filename -> TableSchema(
+        columns_names_and_types: NOT IMPLEMENTED,
+        deduplication_keys: # list of column names to use as the key for deduplicating
+            rows
+
+    # convention is data_list.{table_id}.{uuid}
+    data_list_filename -> List[DataFileEntry(data_file_type, data_filename)]
+
+    data_file_type -> 'write' | 'delete'
+
+    #convention is {write|delete}.{table_id}.{uuid}]
+    data_filename -> DataFrame
+
+"""
+
+from __future__ import annotations
 
 from typing import List, Literal, Optional
 from dataclasses import dataclass
@@ -47,6 +75,6 @@ class DataFileEntry:
     data_file_type: Literal["write", "delete"]
 
     # Points to a parquet file
-    data_file_name: str
+    data_filename: str
 
     # TODO add some statistics here to make querying faster

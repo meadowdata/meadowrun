@@ -43,7 +43,7 @@ class Job(Generic[F]):
     # the name of the job, and the name of the Events that get generated for this job
     name: str
     # the function to execute this job
-    execute: F
+    run_func: F
     # explains what actions to take when
     trigger_actions: Tuple[Tuple[Trigger, Action], ...]
 
@@ -86,10 +86,10 @@ class Run(Action):
         ev = event_log.last_event(job.name, timestamp)
         if not ev or ev.payload.state not in ["launched", "running"]:
             launch_id = uuid.uuid4()
-            event_log.append_job_event(
+            event_log.append_event(
                 job.name, JobPayload("launched", dict(launch_id=launch_id))
             )
-            job_runner.run(launch_id, job.execute, job.args, job.kwargs)
+            job_runner.run(launch_id, job.run_func, job.args, job.kwargs)
 
 
 class Actions:
@@ -103,7 +103,7 @@ class Trigger(ABC):
     """A trigger indicates when/whether an action should happen"""
 
     @abstractmethod
-    def get_event_names(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[str]:
         """Returns the names of the events that this trigger is interested in"""
         pass
 
@@ -125,7 +125,7 @@ class JobStateChangeTrigger(Trigger):
     job_name: str
     on_states: Tuple[JobState, ...]
 
-    def get_event_names(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[str]:
         yield self.job_name
 
     def is_active(self, events: Mapping[str, Iterable[Event]]) -> bool:
@@ -144,9 +144,9 @@ class JoinTrigger(Trigger):
     left: Trigger
     right: Trigger
 
-    def get_event_names(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[str]:
         return itertools.chain(
-            self.left.get_event_names(), self.right.get_event_names()
+            self.left.topic_names_to_subscribe(), self.right.topic_names_to_subscribe()
         )
 
     def is_active(self, events: Mapping[str, Iterable[Event]]) -> bool:
@@ -158,9 +158,9 @@ class MergeTrigger(Trigger):
     left: Trigger
     right: Trigger
 
-    def get_event_names(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[str]:
         return itertools.chain(
-            self.left.get_event_names(), self.right.get_event_names()
+            self.left.topic_names_to_subscribe(), self.right.topic_names_to_subscribe()
         )
 
     def is_active(self, events: Mapping[str, Iterable[Event]]) -> bool:

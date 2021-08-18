@@ -28,7 +28,7 @@ class Scheduler:
             raise ValueError(f"Job with name {job.name} already exists.")
         self._jobs[job.name] = job
         self._outstanding_subscriptions.append(job)
-        self._event_log.append_job_event(job.name, JobPayload("waiting"))
+        self._event_log.append_event(job.name, JobPayload("waiting"))
 
     def update_subscriptions(self) -> None:
         """Should be called after all jobs are added. See comment above add_job."""
@@ -44,7 +44,7 @@ class Scheduler:
                     low_timestamp: Timestamp, high_timestamp: Timestamp
                 ) -> None:
                     events: Dict[str, Tuple[Event, ...]] = {}
-                    for name in trigger.get_event_names():
+                    for name in trigger.topic_names_to_subscribe():
                         events[name] = tuple(
                             self._event_log.events_and_state(
                                 name, low_timestamp, high_timestamp
@@ -55,7 +55,9 @@ class Scheduler:
                             job, self._job_runner, self._event_log, high_timestamp
                         )
 
-                self._event_log.subscribe(trigger.get_event_names(), subscriber)
+                self._event_log.subscribe(
+                    trigger.topic_names_to_subscribe(), subscriber
+                )
         self._outstanding_subscriptions.clear()
 
     def manual_run(self, job_name: str) -> None:
@@ -84,8 +86,8 @@ class Scheduler:
     def step(self) -> None:
         """Runs the scheduler for one step"""
 
-        # first, execute all subscriptions for events that have happened so far
-        timestamp = self._event_log.execute_subscriptions()
+        # first, call all subscribers for events that have happened so far
+        timestamp = self._event_log.call_subscribers()
 
         # second, poll launched/running jobs and create events if they've changed state
         jobs_to_poll = self._get_launched_and_running_jobs(timestamp)
@@ -94,10 +96,10 @@ class Scheduler:
             if job_result.is_done():
                 job_name = jobs_to_poll[launch_id][0]
                 if jobs_to_poll[launch_id][1] == "launched":
-                    self._event_log.append_job_event(
+                    self._event_log.append_event(
                         job_name, JobPayload("running", dict(launch_id=launch_id))
                     )
-                self._event_log.append_job_event(
+                self._event_log.append_event(
                     job_name,
                     JobPayload(
                         job_result.outcome, extra_info=dict(result=job_result.result)
@@ -105,7 +107,7 @@ class Scheduler:
                 )
 
     def is_done(self) -> bool:
-        return not self._event_log.all_subscriptions_executed() and (
+        return not self._event_log.all_subscribers_called() and (
             len(self._get_launched_and_running_jobs(self._event_log.curr_timestamp))
             == 0
         )

@@ -4,7 +4,7 @@ from nextbeat.job_runner import LocalJobRunner
 import time
 
 
-def launch(*args: Any, **kwargs: Any) -> Tuple[int, int]:
+def run_func(*args: Any, **kwargs: Any) -> Tuple[int, int]:
     return len(args), len(kwargs)
 
 
@@ -13,7 +13,7 @@ def test_run() -> None:
 
     launch_id = uuid.uuid4()
 
-    jr.run(launch_id, launch, 1, 2, 3, a=1, b=2, c=3)
+    jr.run(launch_id, run_func, 1, 2, 3, a=1, b=2, c=3)
     res = jr.poll_jobs([launch_id])
 
     assert launch_id in res

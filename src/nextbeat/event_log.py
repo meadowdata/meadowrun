@@ -20,18 +20,20 @@ T = TypeVar("T")
 @dataclass(frozen=True)
 class Event(Generic[T]):
     """
-    Currently, name is the job name, payload is the job state, and timestamp indicates
-    when the event happened. This will evolve as we add more functionality
+    timestamp indicates when the event happened, topic_name is an identifier that allows
+    subscribers to filter to a subset of events (e.g. the job name), and payload is the
+    arbitrary data (e.g. job state like "running" or "completed")
     """
 
     timestamp: Timestamp
-    name: str
+    topic_name: str
     payload: T
 
 
 class EventLog:
     """
-    EventLog keeps track of events and executes subscribers based on those events.
+    EventLog keeps track of events and calls subscribers based on those events. Think of
+    it like a pub-sub system
 
     TODO currently not threadsafe
     TODO EventLog should be persisting data (potentially create a LocalEventLog and a
@@ -41,12 +43,12 @@ class EventLog:
     def __init__(self) -> None:
         # the timestamp that is assigned to the next appended event
         self._next_timestamp: Timestamp = 0
-        # the timestamp up to which all subscriptions to changes have been executed
-        self._subscriptions_executed_timestamp: Timestamp = 0
+        # the timestamp up to which all subscribers have been called
+        self._subscribers_called_timestamp: Timestamp = 0
         # the log of events, in increasing timestamp order
         self._event_log: List[Event] = []
 
-        self._name_to_events: Dict[str, List[Event]] = {}
+        self._topic_name_to_events: Dict[str, List[Event]] = {}
         self._subscribers: Dict[str, Set[Subscriber]] = {}
 
     @property
@@ -57,12 +59,12 @@ class EventLog:
         """
         return self._next_timestamp
 
-    def append_job_event(self, name: str, payload: T) -> None:
+    def append_event(self, topic_name: str, payload: T) -> None:
         """Append a new state change to the event log, at a new and latest time"""
-        event = Event(self._next_timestamp, name, payload)
+        event = Event(self._next_timestamp, topic_name, payload)
         self._next_timestamp = self._next_timestamp + 1
         self._event_log.append(event)
-        self._name_to_events.setdefault(name, []).append(event)
+        self._topic_name_to_events.setdefault(topic_name, []).append(event)
 
     def events(
         self, low_timestamp: Timestamp, high_timestamp: Timestamp
@@ -79,14 +81,14 @@ class EventLog:
                 break
 
     def events_and_state(
-        self, name: str, low_timestamp: Timestamp, high_timestamp: Timestamp
+        self, topic_name: str, low_timestamp: Timestamp, high_timestamp: Timestamp
     ) -> Iterable[Event]:
         """
         Return all events with timestamp: low_timestamp <= timestamp < high_timestamp,
         in decreasing timestamp order. If there is an event, at least one is always
         returned to represent the current state, even if it is before the low_timestamp.
         """
-        all_events = self._name_to_events.get(name, [])
+        all_events = self._topic_name_to_events.get(topic_name, [])
         yielded_one = False
         for event in reversed(all_events):
             if low_timestamp <= event.timestamp < high_timestamp:
@@ -99,21 +101,21 @@ class EventLog:
                     yield event
                     yielded_one = True
 
-    def last_event(self, name: str, timestamp: Timestamp) -> Optional[Event]:
+    def last_event(self, topic_name: str, timestamp: Timestamp) -> Optional[Event]:
         """
         Return the most recent event with event.timestamp <= timestamp. None if no such
         event exists.
         """
-        all_events = self._name_to_events.get(name, [])
+        all_events = self._topic_name_to_events.get(topic_name, [])
         for event in reversed(all_events):
             if event.timestamp <= timestamp:
                 return event
         return None
 
-    def subscribe(self, event_names: Iterable[str], subscriber: Subscriber) -> None:
+    def subscribe(self, topic_names: Iterable[str], subscriber: Subscriber) -> None:
         """
         Subscribe subscriber to be called whenever there is an event matching one of the
-        event_names.
+        topic_names.
 
         The EventLog processes a batch of events at a time, which means that subscriber
         may be getting called once even though multiple events have happened. subscriber
@@ -125,23 +127,23 @@ class EventLog:
         high_timestamp: subscriber won't be called at all for a batch if there are no
         matching events.
         """
-        for event_name in event_names:
-            self._subscribers.setdefault(event_name, set()).add(subscriber)
+        for topic_name in topic_names:
+            self._subscribers.setdefault(topic_name, set()).add(subscriber)
 
-    def all_subscriptions_executed(self) -> bool:
-        return self._subscriptions_executed_timestamp < self._next_timestamp
+    def all_subscribers_called(self) -> bool:
+        return self._subscribers_called_timestamp < self._next_timestamp
 
-    def execute_subscriptions(self) -> Timestamp:
+    def call_subscribers(self) -> Timestamp:
         """
-        Execute all subscribers for any outstanding events. See subscribe for details on
+        Call all subscribers for any outstanding events. See subscribe for details on
         semantics.
         """
         subscribers: Set[Subscriber] = set()
-        low_timestamp = self._subscriptions_executed_timestamp
+        low_timestamp = self._subscribers_called_timestamp
         high_timestamp = self._next_timestamp
         for event in self.events(low_timestamp, high_timestamp):
-            subscribers.update(self._subscribers.get(event.name, set()))
+            subscribers.update(self._subscribers.get(event.topic_name, set()))
         for subscriber in subscribers:
             subscriber(low_timestamp, high_timestamp)
-        self._subscriptions_executed_timestamp = high_timestamp
-        return self._subscriptions_executed_timestamp
+        self._subscribers_called_timestamp = high_timestamp
+        return self._subscribers_called_timestamp

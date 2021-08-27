@@ -60,6 +60,8 @@ def test_scheduling_join() -> None:
         scheduler.step()
 
     assert 4 == len(scheduler.events_of("A"))
+    assert 1 == len(scheduler.events_of("B"))
+    assert 1 == len(scheduler.events_of("C"))
 
     scheduler.manual_run("B")
 

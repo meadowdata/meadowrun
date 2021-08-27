@@ -107,7 +107,7 @@ class Scheduler:
                 )
 
     def is_done(self) -> bool:
-        return not self._event_log.all_subscribers_called() and (
+        return self._event_log.all_subscribers_called() and (
             len(self._get_launched_and_running_jobs(self._event_log.curr_timestamp))
             == 0
         )

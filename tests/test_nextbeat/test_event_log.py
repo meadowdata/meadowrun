@@ -51,10 +51,10 @@ def test_subscribers() -> None:
     log.subscribe(["A"], call)
 
     log.append_event("B", "waiting")
-    assert log.all_subscribers_called()
+    assert not log.all_subscribers_called()
 
     log.call_subscribers()
-    assert not log.all_subscribers_called()
+    assert log.all_subscribers_called()
     assert called is False
 
     log.append_event("A", "waiting")

@@ -43,7 +43,9 @@ class EventLog:
     def __init__(self) -> None:
         # the timestamp that is assigned to the next appended event
         self._next_timestamp: Timestamp = 0
-        # the timestamp up to which all subscribers have been called
+        # the timestamp up to which all subscribers have been called. I.e. subscribers
+        # have already been called for all events with timestamp <
+        # _subscribers_called_timestamp
         self._subscribers_called_timestamp: Timestamp = 0
         # the log of events, in increasing timestamp order
         self._event_log: List[Event] = []
@@ -131,7 +133,7 @@ class EventLog:
             self._subscribers.setdefault(topic_name, set()).add(subscriber)
 
     def all_subscribers_called(self) -> bool:
-        return self._subscribers_called_timestamp < self._next_timestamp
+        return self._subscribers_called_timestamp >= self._next_timestamp
 
     def call_subscribers(self) -> Timestamp:
         """

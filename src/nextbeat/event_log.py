@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from typing import (
     Callable,
@@ -8,10 +9,11 @@ from typing import (
     Set,
     TypeVar,
     Generic,
+    Awaitable,
 )
 
 Timestamp = int
-Subscriber = Callable[[Timestamp, Timestamp], None]
+Subscriber = Callable[[Timestamp, Timestamp], Awaitable[None]]
 
 
 T = TypeVar("T")
@@ -22,7 +24,7 @@ class Event(Generic[T]):
     """
     timestamp indicates when the event happened, topic_name is an identifier that allows
     subscribers to filter to a subset of events (e.g. the job name), and payload is the
-    arbitrary data (e.g. job state like "running" or "completed")
+    arbitrary data (e.g. job state like "RUNNING" or "SUCCEEDED")
     """
 
     timestamp: Timestamp
@@ -35,12 +37,16 @@ class EventLog:
     EventLog keeps track of events and calls subscribers based on those events. Think of
     it like a pub-sub system
 
-    TODO currently not threadsafe
+    TODO there are a lot of weird assumptions about what's called "on the event loop" vs
+     from outside of it/on a different thread and what's threadsafe
+
     TODO EventLog should be persisting data (potentially create a LocalEventLog and a
      PersistedEventLog)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
+        # TODO consider preventing anything from running off of this event loop?
+        self._event_loop = event_loop
         # the timestamp that is assigned to the next appended event
         self._next_timestamp: Timestamp = 0
         # the timestamp up to which all subscribers have been called. I.e. subscribers
@@ -63,10 +69,21 @@ class EventLog:
 
     def append_event(self, topic_name: str, payload: T) -> None:
         """Append a new state change to the event log, at a new and latest time"""
+
         event = Event(self._next_timestamp, topic_name, payload)
         self._next_timestamp = self._next_timestamp + 1
         self._event_log.append(event)
         self._topic_name_to_events.setdefault(topic_name, []).append(event)
+
+        # Schedule a call to subscribers--the next time there's "time" on the asyncio
+        # event_loop, call_subscribers will get called. Importantly, there's no
+        # guarantee that call_subscribers will get called once per event--the event_loop
+        # might not "have time" until multiple events have been posted first, and then
+        # multiple call_subscribers will run (the subsequent ones will presumably do
+        # nothing.)
+        self._event_loop.call_soon_threadsafe(
+            lambda: self._event_loop.create_task(self.call_subscribers())
+        )
 
     def events(
         self, low_timestamp: Timestamp, high_timestamp: Timestamp
@@ -135,17 +152,28 @@ class EventLog:
     def all_subscribers_called(self) -> bool:
         return self._subscribers_called_timestamp >= self._next_timestamp
 
-    def call_subscribers(self) -> Timestamp:
+    async def call_subscribers(self) -> Timestamp:
         """
         Call all subscribers for any outstanding events. See subscribe for details on
         semantics.
         """
+        if asyncio.get_running_loop() != self._event_loop:
+            raise ValueError(
+                "EventLog.call_subscribers was called from a different _event_loop than"
+                " expected"
+            )
+
+        # get the list of subscribers that need to be called
         subscribers: Set[Subscriber] = set()
         low_timestamp = self._subscribers_called_timestamp
         high_timestamp = self._next_timestamp
         for event in self.events(low_timestamp, high_timestamp):
             subscribers.update(self._subscribers.get(event.topic_name, set()))
-        for subscriber in subscribers:
-            subscriber(low_timestamp, high_timestamp)
+
+        # call the subscribers
+        await asyncio.gather(
+            *(subscriber(low_timestamp, high_timestamp) for subscriber in subscribers)
+        )
+
         self._subscribers_called_timestamp = high_timestamp
         return self._subscribers_called_timestamp

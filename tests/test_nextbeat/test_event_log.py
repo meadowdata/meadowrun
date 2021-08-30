@@ -1,8 +1,12 @@
+import asyncio
+import threading
+import time
+
 from nextbeat.event_log import Event, EventLog, Timestamp
 
 
 def test_append_event() -> None:
-    log = EventLog()
+    log = EventLog(asyncio.get_event_loop())
     log.append_event("A", "waiting")
     actual = list(log.events(0, 1))
     expected = [Event(0, "A", "waiting")]
@@ -18,7 +22,7 @@ def test_append_event() -> None:
 
 
 def test_events_and_state() -> None:
-    log = EventLog()
+    log = EventLog(asyncio.get_event_loop())
     events = [
         Event(0, "A", "waiting"),
         Event(1, "B", "waiting"),
@@ -39,10 +43,13 @@ def test_events_and_state() -> None:
 
 
 def test_subscribers() -> None:
-    log = EventLog()
+    loop = asyncio.get_event_loop()
+    threading.Thread(target=lambda: loop.run_forever(), daemon=True).start()
+
+    log = EventLog(loop)
     called = False
 
-    def call(low: Timestamp, high: Timestamp) -> None:
+    async def call(low: Timestamp, high: Timestamp) -> None:
         nonlocal called
         called = True
         assert low == 1
@@ -51,12 +58,9 @@ def test_subscribers() -> None:
     log.subscribe(["A"], call)
 
     log.append_event("B", "waiting")
-    assert not log.all_subscribers_called()
-
-    log.call_subscribers()
-    assert log.all_subscribers_called()
+    time.sleep(0.05)  # wait for subscribers to get called
     assert called is False
 
     log.append_event("A", "waiting")
-    log.call_subscribers()
+    time.sleep(0.05)  # wait for subscribers to get called
     assert called is True

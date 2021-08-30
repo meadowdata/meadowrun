@@ -1,22 +1,34 @@
-from typing import Dict, List, Literal, Tuple
-import uuid
-from nextbeat.job_runner import LocalJobRunner
-from nextbeat.jobs import Actions, Job, JobPayload
+import asyncio
+import threading
+from typing import Dict, List, Tuple, Iterable
+
 from nextbeat.event_log import Event, EventLog, Timestamp
+from nextbeat.jobs import Actions, Job
+from nextbeat.jobs_common import JobPayload
+from nextbeat.job_runner import LocalJobRunner
 
 
 class Scheduler:
     """
     A scheduler gets set up with jobs, and then executes actions on jobs as per the
     triggers defined on those jobs.
+
+    TODO there are a lot of weird assumptions about what's called "on the event loop" vs
+     from outside of it/on a different thread and what's threadsafe
     """
 
-    def __init__(self) -> None:
-        self._event_log = EventLog()
+    _JOB_RUNNER_POLL_DELAY_SECONDS = 1
+
+    def __init__(
+        self, job_runner_poll_delay_seconds=_JOB_RUNNER_POLL_DELAY_SECONDS
+    ) -> None:
+        self._job_runner_poll_delay_seconds = job_runner_poll_delay_seconds
+
+        self._event_loop = asyncio.new_event_loop()
+        self._event_log = EventLog(self._event_loop)
         self._jobs: Dict[str, Job] = {}
         self._outstanding_subscriptions: List[Job] = []
-        self._launched: Dict[uuid.UUID, str] = {}
-        self._job_runner = LocalJobRunner()
+        self._job_runner = LocalJobRunner(self._event_log.append_event)
 
     # adding jobs and updating subscriptions is done in two phases to avoid order
     # dependence (otherwise can't add a job that triggers based on another without
@@ -28,7 +40,7 @@ class Scheduler:
             raise ValueError(f"Job with name {job.name} already exists.")
         self._jobs[job.name] = job
         self._outstanding_subscriptions.append(job)
-        self._event_log.append_event(job.name, JobPayload("waiting"))
+        self._event_log.append_event(job.name, JobPayload(None, "WAITING"))
 
     def update_subscriptions(self) -> None:
         """Should be called after all jobs are added. See comment above add_job."""
@@ -40,7 +52,7 @@ class Scheduler:
         for job in self._outstanding_subscriptions:
             for trigger, action in job.trigger_actions:
 
-                def subscriber(
+                async def subscriber(
                     low_timestamp: Timestamp, high_timestamp: Timestamp
                 ) -> None:
                     events: Dict[str, Tuple[Event, ...]] = {}
@@ -51,9 +63,7 @@ class Scheduler:
                             )
                         )
                     if trigger.is_active(events):
-                        action.execute(
-                            job, self._job_runner, self._event_log, high_timestamp
-                        )
+                        await action.execute(job, self._event_log, high_timestamp)
 
                 self._event_log.subscribe(
                     trigger.topic_names_to_subscribe(), subscriber
@@ -61,55 +71,70 @@ class Scheduler:
         self._outstanding_subscriptions.clear()
 
     def manual_run(self, job_name: str) -> None:
-        """Execute the Run Action on the specified job"""
+        """
+        Execute the Run Action on the specified job.
+
+        Important--when this function returns, it's possible that no events have been
+        created yet, not even RUN_REQUESTED.
+
+        TODO consider adding another function manual_run_async that DOES wait until
+         the RUN_REQUESTED event has been created
+        """
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
-        Actions.run.execute(
-            job,
-            self._job_runner,
-            self._event_log,
-            self._event_log.curr_timestamp,
+        self._event_loop.call_soon_threadsafe(
+            lambda: self._event_loop.create_task(
+                Actions.run.execute(
+                    job,
+                    self._event_log,
+                    self._event_log.curr_timestamp,
+                )
+            )
         )
 
-    def _get_launched_and_running_jobs(
+    def _get_running_and_requested_jobs(
         self, timestamp: Timestamp
-    ) -> Dict[uuid.UUID, Tuple[str, Literal["launched", "running"]]]:
-        """Returns launch_id -> (name, JobState)"""
-        result = {}
+    ) -> Iterable[Event[JobPayload]]:
+        """
+        Returns the latest event for any job that's in RUN_REQUESTED or RUNNING state
+        """
         for name in self._jobs.keys():
             ev = self._event_log.last_event(name, timestamp)
-            if ev and ev.payload.state in ["launched", "running"]:
-                result[ev.payload.extra_info["launch_id"]] = name, ev.payload.state
-        return result
+            if ev and ev.payload.state in ("RUN_REQUESTED", "RUNNING"):
+                yield ev
 
-    def step(self) -> None:
-        """Runs the scheduler for one step"""
+    def main_loop(self) -> threading.Thread:
+        """
+        This starts a daemon (background) thread that runs forever. This code just polls
+        the job runners, but other code will add callbacks to run on this event loop
+        (e.g. EventLog.call_subscribers).
+        """
 
-        # first, call all subscribers for events that have happened so far
-        timestamp = self._event_log.call_subscribers()
-
-        # second, poll launched/running jobs and create events if they've changed state
-        jobs_to_poll = self._get_launched_and_running_jobs(timestamp)
-        poll_result = self._job_runner.poll_jobs(jobs_to_poll.keys())
-        for launch_id, job_result in poll_result.items():
-            if job_result.is_done():
-                job_name = jobs_to_poll[launch_id][0]
-                if jobs_to_poll[launch_id][1] == "launched":
-                    self._event_log.append_event(
-                        job_name, JobPayload("running", dict(launch_id=launch_id))
-                    )
-                self._event_log.append_event(
-                    job_name,
-                    JobPayload(
-                        job_result.outcome, extra_info=dict(result=job_result.result)
-                    ),
+        async def main_loop_helper() -> None:
+            while True:
+                await self._job_runner.poll_jobs(
+                    self._get_running_and_requested_jobs(self._event_log.curr_timestamp)
                 )
+                await asyncio.sleep(self._job_runner_poll_delay_seconds)
 
-    def is_done(self) -> bool:
-        return self._event_log.all_subscribers_called() and (
-            len(self._get_launched_and_running_jobs(self._event_log.curr_timestamp))
-            == 0
+        t = threading.Thread(
+            target=lambda: self._event_loop.run_until_complete(main_loop_helper()),
+            daemon=True,
+        )
+        t.start()
+        return t
+
+    def all_are_waiting(self) -> bool:
+        """
+        Returns true if everything is in a "waiting" state. I.e. no jobs are running,
+        all subscribers have been processed.
+        """
+        return self._event_log.all_subscribers_called() and not any(
+            True
+            for _ in self._get_running_and_requested_jobs(
+                self._event_log.curr_timestamp
+            )
         )
 
     def events_of(self, job_name: str) -> List[Event]:

@@ -29,7 +29,7 @@ def test_scheduling_sequential_jobs() -> None:
     scheduler.add_job(
         Job("B", JobRunSpec(run_func), scheduler._job_runner, (trigger_action,))
     )
-    scheduler.update_subscriptions()
+    scheduler.create_job_subscriptions()
 
     scheduler.main_loop()
 
@@ -72,7 +72,7 @@ def test_scheduling_join() -> None:
             (trigger_action,),
         )
     )
-    scheduler.update_subscriptions()
+    scheduler.create_job_subscriptions()
 
     scheduler.main_loop()
 

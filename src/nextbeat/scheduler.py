@@ -27,29 +27,36 @@ class Scheduler:
         self._event_loop = asyncio.new_event_loop()
         self._event_log = EventLog(self._event_loop)
         self._jobs: Dict[str, Job] = {}
-        self._outstanding_subscriptions: List[Job] = []
+        # the list of jobs that we've added but haven't created subscriptions for yet
+        self._create_job_subscriptions_queue: List[Job] = []
         self._job_runner = LocalJobRunner(self._event_log.append_event)
 
-    # adding jobs and updating subscriptions is done in two phases to avoid order
-    # dependence (otherwise can't add a job that triggers based on another without
-    # adding the other first), and allows even circular dependencies. I.e. add_job
-    # should be called (repeatedly), then update_subscriptions should be called.
-
     def add_job(self, job: Job) -> None:
+        """
+        Note that create_job_subscriptions needs to be called separately (see
+        docstring).
+        """
         if job.name in self._jobs:
             raise ValueError(f"Job with name {job.name} already exists.")
         self._jobs[job.name] = job
-        self._outstanding_subscriptions.append(job)
+        self._create_job_subscriptions_queue.append(job)
         self._event_log.append_event(job.name, JobPayload(None, "WAITING"))
 
-    def update_subscriptions(self) -> None:
-        """Should be called after all jobs are added. See comment above add_job."""
+    def create_job_subscriptions(self) -> None:
+        """
+        Should be called after all jobs are added.
+
+        Adding jobs and creating subscriptions is done in two phases to avoid order
+        dependence (otherwise can't add a job that triggers based on another without
+        adding the other first), and allows even circular dependencies. I.e. add_job
+        should be called (repeatedly), then create_job_subscriptions should be called.
+        """
 
         # TODO: this should also check the new jobs' preconditions against the existing
         #  state. Perhaps they should already trigger.
         # TODO: should make sure we don't try to proceed without calling
-        #  update_subscriptions first
-        for job in self._outstanding_subscriptions:
+        #  create_job_subscriptions first
+        for job in self._create_job_subscriptions_queue:
             for trigger, action in job.trigger_actions:
 
                 async def subscriber(
@@ -68,7 +75,7 @@ class Scheduler:
                 self._event_log.subscribe(
                     trigger.topic_names_to_subscribe(), subscriber
                 )
-        self._outstanding_subscriptions.clear()
+        self._create_job_subscriptions_queue.clear()
 
     def manual_run(self, job_name: str) -> None:
         """

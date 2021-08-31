@@ -7,14 +7,14 @@ TODO checking for and restarting requested but not running jobs
 from typing import Any, Callable, Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
-from nextbeat.event_log import Event
+from nextbeat.event_log import Event, AppendEventType
 from nextbeat.jobs_common import JobRunSpec, JobPayload
 
 
 class LocalJobRunner:
     """Runs jobs on the current machine using a ProcessPoolExecutor"""
 
-    def __init__(self, append_event: Callable[[str, Any], None]):
+    def __init__(self, append_event: AppendEventType):
         self._running: Dict[str, Future] = {}
         self._executor = ProcessPoolExecutor(max_workers=5)
         self._append_event = append_event

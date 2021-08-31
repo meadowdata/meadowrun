@@ -1,9 +1,10 @@
 import asyncio
 import threading
+import traceback
 from typing import Dict, List, Tuple, Iterable
 
 from nextbeat.event_log import Event, EventLog, Timestamp
-from nextbeat.jobs import Actions, Job
+from nextbeat.jobs import Actions, Job, Action
 from nextbeat.jobs_common import JobPayload
 from nextbeat.job_runner import LocalJobRunner
 
@@ -17,10 +18,10 @@ class Scheduler:
      from outside of it/on a different thread and what's threadsafe
     """
 
-    _JOB_RUNNER_POLL_DELAY_SECONDS = 1
+    _JOB_RUNNER_POLL_DELAY_SECONDS: float = 1
 
     def __init__(
-        self, job_runner_poll_delay_seconds=_JOB_RUNNER_POLL_DELAY_SECONDS
+        self, job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS
     ) -> None:
         self._job_runner_poll_delay_seconds = job_runner_poll_delay_seconds
 
@@ -91,14 +92,16 @@ class Scheduler:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
         self._event_loop.call_soon_threadsafe(
-            lambda: self._event_loop.create_task(
-                Actions.run.execute(
-                    job,
-                    self._event_log,
-                    self._event_log.curr_timestamp,
-                )
-            )
+            lambda: self._event_loop.create_task(self._run_action(job, Actions.run))
         )
+
+    async def _run_action(self, job: Job, action: Action) -> None:
+        try:
+            await action.execute(job, self._event_log, self._event_log.curr_timestamp)
+        except Exception as e:
+            # TODO this function isn't awaited, so exceptions need to make it back into
+            #  the scheduler somehow
+            print(e)
 
     def _get_running_and_requested_jobs(
         self, timestamp: Timestamp
@@ -120,9 +123,15 @@ class Scheduler:
 
         async def main_loop_helper() -> None:
             while True:
-                await self._job_runner.poll_jobs(
-                    self._get_running_and_requested_jobs(self._event_log.curr_timestamp)
-                )
+                try:
+                    await self._job_runner.poll_jobs(
+                        self._get_running_and_requested_jobs(
+                            self._event_log.curr_timestamp
+                        )
+                    )
+                except Exception:
+                    # TODO do something smarter here...
+                    traceback.print_exc()
                 await asyncio.sleep(self._job_runner_poll_delay_seconds)
 
         t = threading.Thread(

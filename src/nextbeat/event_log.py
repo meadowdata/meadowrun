@@ -10,6 +10,7 @@ from typing import (
     TypeVar,
     Generic,
     Awaitable,
+    Any,
 )
 
 Timestamp = int
@@ -17,6 +18,7 @@ Subscriber = Callable[[Timestamp, Timestamp], Awaitable[None]]
 
 
 T = TypeVar("T")
+AppendEventType = Callable[[str, Any], None]
 
 
 @dataclass(frozen=True)
@@ -157,23 +159,31 @@ class EventLog:
         Call all subscribers for any outstanding events. See subscribe for details on
         semantics.
         """
-        if asyncio.get_running_loop() != self._event_loop:
-            raise ValueError(
-                "EventLog.call_subscribers was called from a different _event_loop than"
-                " expected"
+        try:
+            if asyncio.get_running_loop() != self._event_loop:
+                raise ValueError(
+                    "EventLog.call_subscribers was called from a different _event_loop than"
+                    " expected"
+                )
+
+            # get the list of subscribers that need to be called
+            subscribers: Set[Subscriber] = set()
+            low_timestamp = self._subscribers_called_timestamp
+            high_timestamp = self._next_timestamp
+            for event in self.events(low_timestamp, high_timestamp):
+                subscribers.update(self._subscribers.get(event.topic_name, set()))
+
+            # call the subscribers
+            await asyncio.gather(
+                *(
+                    subscriber(low_timestamp, high_timestamp)
+                    for subscriber in subscribers
+                )
             )
 
-        # get the list of subscribers that need to be called
-        subscribers: Set[Subscriber] = set()
-        low_timestamp = self._subscribers_called_timestamp
-        high_timestamp = self._next_timestamp
-        for event in self.events(low_timestamp, high_timestamp):
-            subscribers.update(self._subscribers.get(event.topic_name, set()))
-
-        # call the subscribers
-        await asyncio.gather(
-            *(subscriber(low_timestamp, high_timestamp) for subscriber in subscribers)
-        )
-
-        self._subscribers_called_timestamp = high_timestamp
-        return self._subscribers_called_timestamp
+            self._subscribers_called_timestamp = high_timestamp
+            return self._subscribers_called_timestamp
+        except Exception as e:
+            # TODO this function isn't awaited, so exceptions need to make it back into
+            #  the scheduler somehow
+            print(e)

@@ -7,9 +7,7 @@ from nextbeat.topic import JoinTrigger, MergeTrigger
 def test_job_state_change_trigger() -> None:
     trigger = JobStateChangeTrigger("A", ("SUCCEEDED", "FAILED"))
     assert not trigger.is_active({"A": [Event(0, "A", JobPayload(None, "WAITING"))]})
-    assert trigger.is_active(
-        {"A": [Event(0, "A", JobPayload(None, "SUCCEEDED"))]}
-    )
+    assert trigger.is_active({"A": [Event(0, "A", JobPayload(None, "SUCCEEDED"))]})
     assert trigger.is_active({"A": [Event(0, "A", JobPayload(None, "FAILED"))]})
 
 

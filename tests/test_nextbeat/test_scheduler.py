@@ -1,23 +1,34 @@
 from typing import Any
 
 from nextbeat.jobs import Actions, Job, JobStateChangeTrigger
-from nextbeat.jobs_common import JobRunSpec
+from nextbeat.local_job_runner import LocalJobRunner
+from nextbeat.nextrun_job_runner import NextRunJobRunner
 from nextbeat.topic import JoinTrigger
 from nextbeat.scheduler import Scheduler
 import time
+
+from nextrun.job_run_spec import JobRunSpecFunction
+from nextrun.server_main import main_in_child_process
 
 
 def run_func(*args: Any, **_kwargs: Any) -> str:
     return ", ".join(args)
 
 
-def test_scheduling_sequential_jobs() -> None:
-    scheduler = Scheduler(0.05)
+def test_scheduling_sequential_jobs_local() -> None:
+    _test_scheduling_sequential_jobs(Scheduler(LocalJobRunner, 0.05))
 
+
+def test_scheduling_sequential_jobs_nextrun() -> None:
+    with main_in_child_process():
+        _test_scheduling_sequential_jobs(Scheduler(NextRunJobRunner, 0.05))
+
+
+def _test_scheduling_sequential_jobs(scheduler: Scheduler) -> None:
     scheduler.add_job(
         Job(
             "A",
-            JobRunSpec(run_func, args=["hello", "there"]),
+            JobRunSpecFunction(run_func, args=["hello", "there"]),
             scheduler._job_runner,
             (),
         )
@@ -27,7 +38,7 @@ def test_scheduling_sequential_jobs() -> None:
         Actions.run,
     )
     scheduler.add_job(
-        Job("B", JobRunSpec(run_func), scheduler._job_runner, (trigger_action,))
+        Job("B", JobRunSpecFunction(run_func), scheduler._job_runner, (trigger_action,))
     )
     scheduler.create_job_subscriptions()
 
@@ -53,13 +64,13 @@ def test_scheduling_sequential_jobs() -> None:
 
 
 def test_scheduling_join() -> None:
-    scheduler = Scheduler(0.05)
+    scheduler = Scheduler(LocalJobRunner, 0.05)
 
     scheduler.add_job(
-        Job("A", JobRunSpec(run_func, args=["A"]), scheduler._job_runner, ())
+        Job("A", JobRunSpecFunction(run_func, args=["A"]), scheduler._job_runner, ())
     )
     scheduler.add_job(
-        Job("B", JobRunSpec(run_func, args=["B"]), scheduler._job_runner, ())
+        Job("B", JobRunSpecFunction(run_func, args=["B"]), scheduler._job_runner, ())
     )
     trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
     trigger_b = JobStateChangeTrigger("B", ("SUCCEEDED",))
@@ -67,7 +78,7 @@ def test_scheduling_join() -> None:
     scheduler.add_job(
         Job(
             "C",
-            JobRunSpec(run_func, args=["C"]),
+            JobRunSpecFunction(run_func, args=["C"]),
             scheduler._job_runner,
             (trigger_action,),
         )

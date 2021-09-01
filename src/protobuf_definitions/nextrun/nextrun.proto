@@ -1,0 +1,51 @@
+// See src/nextrun/client.py:NextRunClientAsync for docstrings
+
+syntax = "proto3";
+
+package nextrun;
+
+
+message RunPyFuncRequest {
+    string request_id = 1;
+    string interpreter_path = 2;
+    repeated string code_paths = 3;
+    string module_name = 4;
+    string function_name = 5;
+    bytes pickled_function_arguments = 6;
+    int32 result_highest_pickle_protocol = 7;
+}
+
+
+message ProcessStatesRequest {
+    repeated string request_ids = 1;
+}
+
+
+message ProcessState {
+    enum ProcessStateEnum {
+        DEFAULT = 0;
+        REQUEST_IS_DUPLICATE = 1;
+        UNKNOWN = 2;
+        ERROR_GETTING_STATE = 3;
+        SUCCEEDED = 4;
+        PYTHON_EXCEPTION = 5;
+        NON_ZERO_RETURN_CODE = 6;
+        CANCELLED = 7;
+        RUNNING = 8;
+    }
+    ProcessStateEnum state = 1;
+    int32 pid = 2;
+    bytes pickled_result = 3;
+    int32 return_code = 4;
+}
+
+message ProcessStates {
+    repeated ProcessState process_states = 1;
+}
+
+
+service NextRunServer {
+    rpc run_py_func(RunPyFuncRequest) returns (ProcessState) {};
+
+    rpc get_process_states(ProcessStatesRequest) returns (ProcessStates) {};
+}

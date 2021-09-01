@@ -1,17 +1,17 @@
 """
-TODO remote execution
 TODO capabilities
 TODO checking for and restarting requested but not running jobs
 """
 
-from typing import Any, Callable, Dict, Iterable
+from typing import Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
 from nextbeat.event_log import Event, AppendEventType
-from nextbeat.jobs_common import JobRunSpec, JobPayload
+from nextbeat.jobs_common import JobPayload, JobRunner
+from nextrun.job_run_spec import JobRunSpec, JobRunSpecFunction
 
 
-class LocalJobRunner:
+class LocalJobRunner(JobRunner):
     """Runs jobs on the current machine using a ProcessPoolExecutor"""
 
     def __init__(self, append_event: AppendEventType):
@@ -24,20 +24,19 @@ class LocalJobRunner:
     ) -> None:
         if run_request_id in self._running:
             return
-
-        self._append_event(job_name, JobPayload(run_request_id, "RUN_REQUESTED"))
-        self._running[run_request_id] = self._executor.submit(
-            job_run_spec.fn,
-            *(job_run_spec.args or []),
-            **(job_run_spec.kwargs or {}),
-        )
+        if isinstance(job_run_spec, JobRunSpecFunction):
+            self._append_event(job_name, JobPayload(run_request_id, "RUN_REQUESTED"))
+            self._running[run_request_id] = self._executor.submit(
+                job_run_spec.fn,
+                *(job_run_spec.args or []),
+                **(job_run_spec.kwargs or {}),
+            )
+        else:
+            # TODO add support for other JobRunSpecs
+            raise ValueError(f"LocalJobRunner does not support {type(job_run_spec)}")
 
     async def poll_jobs(self, last_events: Iterable[Event[JobPayload]]) -> None:
-        """
-        last_events is the last event we've recorded for the jobs that we are interested
-        in. poll_jobs will add new events to the EventLog for these jobs if there's been
-        any change in their state.
-        """
+        """See docstring on base class"""
 
         # TODO can we have more than one run_request_id going for the same job?
 

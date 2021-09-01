@@ -3,23 +3,22 @@ from dataclasses import dataclass
 from typing import Final, Iterable, Mapping, Tuple, Sequence
 
 from nextbeat.event_log import EventLog, Event, Timestamp
-from nextbeat.job_runner import LocalJobRunner
-from nextbeat.jobs_common import JobRunSpec, JobState
+from nextbeat.jobs_common import JobRunner, JobRunSpec, JobState
 from nextbeat.topic import Topic, Action, Trigger
 
 
 @dataclass(frozen=True)
 class Job(Topic):
     """
-    A job runs python code (via job_run_spec) on a job_runner. The scheduler will
-    perform actions automatically based on trigger_actions
+    A job runs python code (specified job_run_spec) on a job_runner. The scheduler will
+    also perform actions automatically based on trigger_actions.
     """
 
     # the function to execute this job
     job_run_spec: JobRunSpec
 
     # the job runner to use
-    job_runner: LocalJobRunner
+    job_runner: JobRunner
 
     # explains what actions to take when
     trigger_actions: Tuple[Tuple[Trigger, Action], ...]

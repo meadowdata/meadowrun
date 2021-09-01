@@ -1,12 +1,12 @@
 import asyncio
 import threading
 import traceback
-from typing import Dict, List, Tuple, Iterable
+from typing import Dict, List, Tuple, Iterable, Callable
 
-from nextbeat.event_log import Event, EventLog, Timestamp
-from nextbeat.jobs import Actions, Job, Action
-from nextbeat.jobs_common import JobPayload
-from nextbeat.job_runner import LocalJobRunner
+from nextbeat.event_log import Event, EventLog, Timestamp, AppendEventType
+from nextbeat.jobs import Actions, Job
+from nextbeat.jobs_common import JobPayload, JobRunner
+from nextbeat.topic import Action, Topic
 
 
 class Scheduler:
@@ -21,16 +21,22 @@ class Scheduler:
     _JOB_RUNNER_POLL_DELAY_SECONDS: float = 1
 
     def __init__(
-        self, job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS
+        self,
+        # TODO the API is a bit confusing right now--Jobs specify a job_runner, but so
+        #  do Schedulers.
+        job_runner_constructor: Callable[[AppendEventType], JobRunner],
+        job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS,
     ) -> None:
         self._job_runner_poll_delay_seconds = job_runner_poll_delay_seconds
 
         self._event_loop = asyncio.new_event_loop()
+        # the NextRunJobRunner uses gRPC.aio, which just grabs the current event_loop
+        asyncio.set_event_loop(self._event_loop)
         self._event_log = EventLog(self._event_loop)
         self._jobs: Dict[str, Job] = {}
         # the list of jobs that we've added but haven't created subscriptions for yet
         self._create_job_subscriptions_queue: List[Job] = []
-        self._job_runner = LocalJobRunner(self._event_log.append_event)
+        self._job_runner = job_runner_constructor(self._event_log.append_event)
 
     def add_job(self, job: Job) -> None:
         """
@@ -95,9 +101,9 @@ class Scheduler:
             lambda: self._event_loop.create_task(self._run_action(job, Actions.run))
         )
 
-    async def _run_action(self, job: Job, action: Action) -> None:
+    async def _run_action(self, topic: Topic, action: Action) -> None:
         try:
-            await action.execute(job, self._event_log, self._event_log.curr_timestamp)
+            await action.execute(topic, self._event_log, self._event_log.curr_timestamp)
         except Exception as e:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow

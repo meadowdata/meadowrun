@@ -6,7 +6,7 @@ from nextbeat.event_log import Event, EventLog, Timestamp
 
 
 def test_append_event() -> None:
-    log = EventLog(asyncio.get_event_loop())
+    log = EventLog(asyncio.new_event_loop())
     log.append_event("A", "waiting")
     actual = list(log.events(0, 1))
     expected = [Event(0, "A", "waiting")]
@@ -22,7 +22,7 @@ def test_append_event() -> None:
 
 
 def test_events_and_state() -> None:
-    log = EventLog(asyncio.get_event_loop())
+    log = EventLog(asyncio.new_event_loop())
     events = [
         Event(0, "A", "waiting"),
         Event(1, "B", "waiting"),
@@ -43,7 +43,7 @@ def test_events_and_state() -> None:
 
 
 def test_subscribers() -> None:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     threading.Thread(target=lambda: loop.run_forever(), daemon=True).start()
 
     log = EventLog(loop)

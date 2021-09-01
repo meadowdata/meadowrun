@@ -162,8 +162,8 @@ class EventLog:
         try:
             if asyncio.get_running_loop() != self._event_loop:
                 raise ValueError(
-                    "EventLog.call_subscribers was called from a different _event_loop than"
-                    " expected"
+                    "EventLog.call_subscribers was called from a different _event_loop "
+                    "than expected"
                 )
 
             # get the list of subscribers that need to be called

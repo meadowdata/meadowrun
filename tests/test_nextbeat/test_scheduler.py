@@ -16,12 +16,14 @@ def run_func(*args: Any, **_kwargs: Any) -> str:
 
 
 def test_scheduling_sequential_jobs_local() -> None:
-    _test_scheduling_sequential_jobs(Scheduler(LocalJobRunner, 0.05))
+    with Scheduler(LocalJobRunner, 0.05) as s:
+        _test_scheduling_sequential_jobs(s)
 
 
 def test_scheduling_sequential_jobs_nextrun() -> None:
     with main_in_child_process():
-        _test_scheduling_sequential_jobs(Scheduler(NextRunJobRunner, 0.05))
+        with Scheduler(NextRunJobRunner, 0.05) as s:
+            _test_scheduling_sequential_jobs(s)
 
 
 def _test_scheduling_sequential_jobs(scheduler: Scheduler) -> None:
@@ -64,52 +66,58 @@ def _test_scheduling_sequential_jobs(scheduler: Scheduler) -> None:
 
 
 def test_scheduling_join() -> None:
-    scheduler = Scheduler(LocalJobRunner, 0.05)
-
-    scheduler.add_job(
-        Job("A", JobRunSpecFunction(run_func, args=["A"]), scheduler._job_runner, ())
-    )
-    scheduler.add_job(
-        Job("B", JobRunSpecFunction(run_func, args=["B"]), scheduler._job_runner, ())
-    )
-    trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
-    trigger_b = JobStateChangeTrigger("B", ("SUCCEEDED",))
-    trigger_action = (JoinTrigger(trigger_a, trigger_b), Actions.run)
-    scheduler.add_job(
-        Job(
-            "C",
-            JobRunSpecFunction(run_func, args=["C"]),
-            scheduler._job_runner,
-            (trigger_action,),
+    with Scheduler(LocalJobRunner, 0.05) as scheduler:
+        scheduler.add_job(
+            Job(
+                "A", JobRunSpecFunction(run_func, args=["A"]), scheduler._job_runner, ()
+            )
         )
-    )
-    scheduler.create_job_subscriptions()
+        scheduler.add_job(
+            Job(
+                "B", JobRunSpecFunction(run_func, args=["B"]), scheduler._job_runner, ()
+            )
+        )
+        trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
+        trigger_b = JobStateChangeTrigger("B", ("SUCCEEDED",))
+        trigger_action = (JoinTrigger(trigger_a, trigger_b), Actions.run)
+        scheduler.add_job(
+            Job(
+                "C",
+                JobRunSpecFunction(run_func, args=["C"]),
+                scheduler._job_runner,
+                (trigger_action,),
+            )
+        )
+        scheduler.create_job_subscriptions()
 
-    scheduler.main_loop()
+        scheduler.main_loop()
 
-    while not scheduler.all_are_waiting():
-        time.sleep(0.01)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
 
-    assert 1 == len(scheduler.events_of("A"))
-    assert 1 == len(scheduler.events_of("B"))
-    assert 1 == len(scheduler.events_of("C"))
+        assert 1 == len(scheduler.events_of("A"))
+        assert 1 == len(scheduler.events_of("B"))
+        assert 1 == len(scheduler.events_of("C"))
 
-    scheduler.manual_run("A")
-    time.sleep(0.05)  # see docstring of manual_run for why we need to wait
+        scheduler.manual_run("A")
+        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
 
-    while not scheduler.all_are_waiting():
-        time.sleep(0.01)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
 
-    assert 4 == len(scheduler.events_of("A"))
-    assert 1 == len(scheduler.events_of("B"))
-    assert 1 == len(scheduler.events_of("C"))
+        assert 4 == len(scheduler.events_of("A"))
+        assert 1 == len(scheduler.events_of("B"))
+        assert 1 == len(scheduler.events_of("C"))
 
-    scheduler.manual_run("B")
-    time.sleep(0.05)  # see docstring of manual_run for why we need to wait
+        scheduler.manual_run("B")
+        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
 
-    while not scheduler.all_are_waiting():
-        time.sleep(0.01)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
 
-    assert 4 == len(scheduler.events_of("A"))
-    assert 4 == len(scheduler.events_of("B"))
-    assert 4 == len(scheduler.events_of("C"))
+        assert 4 == len(scheduler.events_of("A"))
+        assert 4 == len(scheduler.events_of("B"))
+        assert 4 == len(scheduler.events_of("C"))
+
+
+# TODO test adding jobs while scheduler is running

@@ -1,7 +1,8 @@
 import asyncio
 import threading
 import traceback
-from typing import Dict, List, Tuple, Iterable, Callable
+from asyncio import Task
+from typing import Dict, List, Tuple, Iterable, Callable, Optional
 
 from nextbeat.event_log import Event, EventLog, Timestamp, AppendEventType
 from nextbeat.jobs import Actions, Job
@@ -27,16 +28,25 @@ class Scheduler:
         job_runner_constructor: Callable[[AppendEventType], JobRunner],
         job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS,
     ) -> None:
-        self._job_runner_poll_delay_seconds = job_runner_poll_delay_seconds
+        self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
 
-        self._event_loop = asyncio.new_event_loop()
-        # the NextRunJobRunner uses gRPC.aio, which just grabs the current event_loop
-        asyncio.set_event_loop(self._event_loop)
-        self._event_log = EventLog(self._event_loop)
+        self._event_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+        self._event_log: EventLog = EventLog(self._event_loop)
         self._jobs: Dict[str, Job] = {}
         # the list of jobs that we've added but haven't created subscriptions for yet
         self._create_job_subscriptions_queue: List[Job] = []
-        self._job_runner = job_runner_constructor(self._event_log.append_event)
+
+        # the NextRunJobRunner uses gRPC.aio, which just grabs the current event_loop
+        # TODO this should probably get cleaned up somehow, but I'm not sure how to
+        #  do that. The symptom is that if you run a test in pytest that does this and
+        #  then run another test, that test will not be able to use
+        #  asyncio.get_event_loop
+        asyncio.set_event_loop(self._event_loop)
+        self._job_runner: JobRunner = job_runner_constructor(
+            self._event_log.append_event
+        )
+
+        self._main_loop_task: Optional[Task[None]] = None
 
     def add_job(self, job: Job) -> None:
         """
@@ -140,12 +150,23 @@ class Scheduler:
                     traceback.print_exc()
                 await asyncio.sleep(self._job_runner_poll_delay_seconds)
 
+        task = self._event_loop.create_task(main_loop_helper())
         t = threading.Thread(
-            target=lambda: self._event_loop.run_until_complete(main_loop_helper()),
+            target=lambda: self._event_loop.run_until_complete(task),
             daemon=True,
         )
         t.start()
         return t
+
+    def shutdown(self) -> None:
+        if self._main_loop_task is not None:
+            self._main_loop_task.cancel()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
 
     def all_are_waiting(self) -> bool:
         """

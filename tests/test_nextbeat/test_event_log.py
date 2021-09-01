@@ -46,21 +46,24 @@ def test_subscribers() -> None:
     loop = asyncio.new_event_loop()
     threading.Thread(target=lambda: loop.run_forever(), daemon=True).start()
 
-    log = EventLog(loop)
-    called = False
+    try:
+        log = EventLog(loop)
+        called = False
 
-    async def call(low: Timestamp, high: Timestamp) -> None:
-        nonlocal called
-        called = True
-        assert low == 1
-        assert high == 2
+        async def call(low: Timestamp, high: Timestamp) -> None:
+            nonlocal called
+            called = True
+            assert low == 1
+            assert high == 2
 
-    log.subscribe(["A"], call)
+        log.subscribe(["A"], call)
 
-    log.append_event("B", "waiting")
-    time.sleep(0.05)  # wait for subscribers to get called
-    assert called is False
+        log.append_event("B", "waiting")
+        time.sleep(0.05)  # wait for subscribers to get called
+        assert called is False
 
-    log.append_event("A", "waiting")
-    time.sleep(0.05)  # wait for subscribers to get called
-    assert called is True
+        log.append_event("A", "waiting")
+        time.sleep(0.05)  # wait for subscribers to get called
+        assert called is True
+    finally:
+        loop.stop()

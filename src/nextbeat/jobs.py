@@ -35,6 +35,8 @@ class Run(Action):
         timestamp: Timestamp,
     ) -> None:
         ev = event_log.last_event(job.name, timestamp)
+        # TODO not clear that this is the right behavior, vs queuing up another run once
+        #  the current run is done.
         if not ev or ev.payload.state not in ["RUN_REQUESTED", "RUNNING"]:
             run_request_id = str(uuid.uuid4())
             await job.job_runner.run(job.name, run_request_id, job.job_run_spec)

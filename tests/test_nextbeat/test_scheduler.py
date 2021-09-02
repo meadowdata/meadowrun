@@ -1,4 +1,7 @@
+import datetime
 from typing import Any
+
+import pytz
 
 from nextbeat.jobs import Actions, Job, JobStateChangeTrigger
 from nextbeat.local_job_runner import LocalJobRunner
@@ -9,6 +12,8 @@ import time
 
 from nextrun.job_run_spec import JobRunSpecFunction
 from nextrun.server_main import main_in_child_process
+
+from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
 
 
 def run_func(*args: Any, **_kwargs: Any) -> str:
@@ -121,3 +126,111 @@ def test_scheduling_join() -> None:
 
 
 # TODO test adding jobs while scheduler is running
+
+
+def test_time_topics_1():
+    with Scheduler(LocalJobRunner, 0.05) as s:
+        now = pytz.utc.localize(datetime.datetime.utcnow())
+
+        s.add_job(
+            Job(
+                "A",
+                JobRunSpecFunction(run_func, args=["A"]),
+                s._job_runner,
+                (
+                    (
+                        s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
+                        Actions.run,
+                    ),
+                ),
+            )
+        )
+
+        s.create_job_subscriptions()
+
+        s.main_loop()
+
+        time.sleep(_TIME_DELAY)
+
+        while not s.all_are_waiting():
+            time.sleep(0.01)
+        assert 4 == len(s.events_of("A"))
+
+
+def test_time_topics_2():
+    with Scheduler(LocalJobRunner, 0.05) as s:
+        now = pytz.utc.localize(datetime.datetime.utcnow())
+
+        s.add_job(
+            Job(
+                "A",
+                JobRunSpecFunction(run_func, args=["A"]),
+                s._job_runner,
+                (
+                    (
+                        s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
+                        Actions.run,
+                    ),
+                    (
+                        s.time.point_in_time_trigger(now - 2 * _TIME_INCREMENT),
+                        Actions.run,
+                    ),
+                ),
+            )
+        )
+
+        s.create_job_subscriptions()
+
+        s.main_loop()
+
+        time.sleep(_TIME_DELAY)
+
+        while not s.all_are_waiting():
+            time.sleep(0.01)
+        # TODO it's not clear that Job A getting run once is the right semantics. What's
+        #  happening is that as long as EventLog.call_subscribers for the second point
+        #  in time gets called while Job A is still running from the first point in
+        #  time, we'll ignore run request. See Run.execute
+        assert 4 == len(s.events_of("A"))
+
+
+def test_time_topics_3():
+    with Scheduler(LocalJobRunner, 0.05) as s:
+        now = pytz.utc.localize(datetime.datetime.utcnow())
+
+        s.add_job(
+            Job(
+                "A",
+                JobRunSpecFunction(run_func, args=["A"]),
+                s._job_runner,
+                (
+                    (
+                        s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
+                        Actions.run,
+                    ),
+                    (
+                        s.time.point_in_time_trigger(now - 2 * _TIME_INCREMENT),
+                        Actions.run,
+                    ),
+                    (s.time.point_in_time_trigger(now + _TIME_INCREMENT), Actions.run),
+                ),
+            )
+        )
+
+        s.create_job_subscriptions()
+
+        s.main_loop()
+
+        time.sleep(_TIME_DELAY)
+
+        while not s.all_are_waiting():
+            time.sleep(0.01)
+        assert 4 == len(s.events_of("A"))
+
+        # wait for the next point_in_time_trigger, which should cause another run to
+        # happen
+        time.sleep(_TIME_INCREMENT.total_seconds())
+
+        while not s.all_are_waiting():
+            time.sleep(0.01)
+        assert 7 == len(s.events_of("A"))

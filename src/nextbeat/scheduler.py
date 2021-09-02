@@ -7,7 +7,8 @@ from typing import Dict, List, Tuple, Iterable, Callable, Optional
 from nextbeat.event_log import Event, EventLog, Timestamp, AppendEventType
 from nextbeat.jobs import Actions, Job
 from nextbeat.jobs_common import JobPayload, JobRunner
-from nextbeat.topic import Action, Topic
+from nextbeat.time_event_publisher import TimeEventPublisher
+from nextbeat.topic import Action, Topic, Trigger
 
 
 class Scheduler:
@@ -47,6 +48,11 @@ class Scheduler:
         )
 
         self._main_loop_task: Optional[Task[None]] = None
+        self._time_event_publisher_task: Optional[Task[None]] = None
+
+        self.time: TimeEventPublisher = TimeEventPublisher(
+            self._event_loop, self._event_log.append_event
+        )
 
     def add_job(self, job: Job) -> None:
         """
@@ -77,7 +83,11 @@ class Scheduler:
             for trigger, action in job.trigger_actions:
 
                 async def subscriber(
-                    low_timestamp: Timestamp, high_timestamp: Timestamp
+                    low_timestamp: Timestamp,
+                    high_timestamp: Timestamp,
+                    # to avoid capturing loop variables
+                    trigger: Trigger = trigger,
+                    action: Action = action,
                 ) -> None:
                     events: Dict[str, Tuple[Event, ...]] = {}
                     for name in trigger.topic_names_to_subscribe():
@@ -150,9 +160,14 @@ class Scheduler:
                     traceback.print_exc()
                 await asyncio.sleep(self._job_runner_poll_delay_seconds)
 
-        task = self._event_loop.create_task(main_loop_helper())
+        self._main_loop_task = self._event_loop.create_task(main_loop_helper())
+        self._time_event_publisher_task = self._event_loop.create_task(
+            self.time.main_loop()
+        )
         t = threading.Thread(
-            target=lambda: self._event_loop.run_until_complete(task),
+            target=lambda: self._event_loop.run_until_complete(
+                asyncio.wait([self._main_loop_task, self._time_event_publisher_task])
+            ),
             daemon=True,
         )
         t.start()
@@ -161,6 +176,7 @@ class Scheduler:
     def shutdown(self) -> None:
         if self._main_loop_task is not None:
             self._main_loop_task.cancel()
+            self._time_event_publisher_task.cancel()
 
     def __enter__(self):
         return self

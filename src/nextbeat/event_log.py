@@ -72,6 +72,8 @@ class EventLog:
     def append_event(self, topic_name: str, payload: T) -> None:
         """Append a new state change to the event log, at a new and latest time"""
 
+        print(f"append_event {topic_name} {payload}")
+
         event = Event(self._next_timestamp, topic_name, payload)
         self._next_timestamp = self._next_timestamp + 1
         self._event_log.append(event)

@@ -5,9 +5,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import itertools
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, Sequence, List
 
 from nextbeat.event_log import EventLog, Event, Timestamp
+from nextbeat.jobs_common import JobRunner
 
 
 @dataclass(frozen=True)
@@ -39,10 +40,13 @@ class Action(ABC):
     async def execute(
         self,
         topic: Topic,
+        available_job_runners: List[JobRunner],
         event_log: EventLog,
         timestamp: Timestamp,
     ) -> None:
         """execute should call log.append_job_event"""
+        # TODO the signature of execute doesn't make that much sense for actions other
+        #  than run, we should reconsider these APIs when we add additional actions
         pass
 
 

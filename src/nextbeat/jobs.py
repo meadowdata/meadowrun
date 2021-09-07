@@ -1,10 +1,77 @@
+import abc
+import random
 import uuid
 from dataclasses import dataclass
-from typing import Final, Iterable, Mapping, Tuple, Sequence
+from typing import (
+    Final,
+    Iterable,
+    Mapping,
+    Tuple,
+    Sequence,
+    List,
+    Any,
+    Type,
+    Dict,
+    Optional,
+)
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 from nextbeat.jobs_common import JobRunner, JobRunSpec, JobState
+from nextbeat.local_job_runner import LocalJobRunner
+from nextbeat.nextrun_job_runner import NextRunJobRunner
 from nextbeat.topic import Topic, Action, Trigger
+
+
+class JobRunnerPredicate(abc.ABC):
+    """JobRunnerPredicates specify which job runners a job can run on"""
+
+    @abc.abstractmethod
+    def apply(self, job_runner: JobRunner) -> bool:
+        pass
+
+
+class AndPredicate(JobRunnerPredicate):
+    def __init__(self, a: JobRunnerPredicate, b: JobRunnerPredicate):
+        self._a = a
+        self._b = b
+
+    def apply(self, job_runner: JobRunner) -> bool:
+        return self._a.apply(job_runner) and self._b.apply(job_runner)
+
+
+class OrPredicate(JobRunnerPredicate):
+    def __init__(self, a: JobRunnerPredicate, b: JobRunnerPredicate):
+        self._a = a
+        self._b = b
+
+    def apply(self, job_runner: JobRunner) -> bool:
+        return self._a.apply(job_runner) or self._b.apply(job_runner)
+
+
+class ValueInPropertyPredicate(JobRunnerPredicate):
+    """E.g. ValueInPropertyPredicate("capabilities", "chrome")"""
+
+    def __init__(self, property_name: str, value: Any):
+        self._property_name = property_name
+        self._value = value
+
+    def apply(self, job_runner: JobRunner) -> bool:
+        return self._value in getattr(job_runner, self._property_name)
+
+
+_JOB_RUNNER_TYPES: Dict[str, Type] = {
+    "local": LocalJobRunner,
+    "nextrun": NextRunJobRunner,
+}
+
+
+class JobRunnerTypePredicate(JobRunnerPredicate):
+    def __init__(self, job_runner_type: str):
+        self._job_runner_type = _JOB_RUNNER_TYPES[job_runner_type]
+
+    def apply(self, job_runner: JobRunner) -> bool:
+        # noinspection PyTypeHints
+        return isinstance(job_runner, self._job_runner_type)
 
 
 @dataclass(frozen=True)
@@ -17,11 +84,11 @@ class Job(Topic):
     # the function to execute this job
     job_run_spec: JobRunSpec
 
-    # the job runner to use
-    job_runner: JobRunner
-
     # explains what actions to take when
     trigger_actions: Tuple[Tuple[Trigger, Action], ...]
+
+    # specifies which job runners this job can run on
+    job_runner_predicate: Optional[JobRunnerPredicate] = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +98,7 @@ class Run(Action):
     async def execute(
         self,
         job: Job,
+        available_job_runners: List[JobRunner],
         event_log: EventLog,
         timestamp: Timestamp,
     ) -> None:
@@ -39,7 +107,31 @@ class Run(Action):
         #  the current run is done.
         if not ev or ev.payload.state not in ["RUN_REQUESTED", "RUNNING"]:
             run_request_id = str(uuid.uuid4())
-            await job.job_runner.run(job.name, run_request_id, job.job_run_spec)
+            await choose_job_runner(job, available_job_runners).run(
+                job.name, run_request_id, job.job_run_spec
+            )
+
+
+def choose_job_runner(job: Job, job_runners: List[JobRunner]) -> JobRunner:
+    """
+    Chooses a job_runner that is compatible with job.
+
+    TODO this logic should be much more sophisticated, look at available resources, etc.
+    """
+    if job.job_runner_predicate is None:
+        compatible_job_runners = job_runners
+    else:
+        compatible_job_runners = [
+            jr for jr in job_runners if job.job_runner_predicate.apply(jr)
+        ]
+
+    if len(compatible_job_runners) == 0:
+        # TODO this should probably get sent to the event log somehow
+        raise ValueError(
+            f"No job runners were found that satisfy the predicates for {job.name}"
+        )
+    else:
+        return random.choice(compatible_job_runners)
 
 
 class Actions:

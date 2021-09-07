@@ -2,11 +2,12 @@ import asyncio
 import threading
 import traceback
 from asyncio import Task
-from typing import Dict, List, Tuple, Iterable, Callable, Optional
+from typing import Dict, List, Tuple, Iterable, Optional, Callable
 
 from nextbeat.event_log import Event, EventLog, Timestamp, AppendEventType
 from nextbeat.jobs import Actions, Job
 from nextbeat.jobs_common import JobPayload, JobRunner
+from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.time_event_publisher import TimeEventPublisher
 from nextbeat.topic import Action, Topic, Trigger
 
@@ -24,11 +25,11 @@ class Scheduler:
 
     def __init__(
         self,
-        # TODO the API is a bit confusing right now--Jobs specify a job_runner, but so
-        #  do Schedulers.
-        job_runner_constructor: Callable[[AppendEventType], JobRunner],
         job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS,
     ) -> None:
+        """
+        job_runner_poll_delay_seconds is primarily to make unit tests run faster.
+        """
         self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
 
         self._event_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
@@ -37,15 +38,12 @@ class Scheduler:
         # the list of jobs that we've added but haven't created subscriptions for yet
         self._create_job_subscriptions_queue: List[Job] = []
 
-        # the NextRunJobRunner uses gRPC.aio, which just grabs the current event_loop
-        # TODO this should probably get cleaned up somehow, but I'm not sure how to
-        #  do that. The symptom is that if you run a test in pytest that does this and
-        #  then run another test, that test will not be able to use
-        #  asyncio.get_event_loop
-        asyncio.set_event_loop(self._event_loop)
-        self._job_runner: JobRunner = job_runner_constructor(
+        # The local job runner is a special job runner that runs on the same machine as
+        # nextbeat via multiprocessing.
+        self._local_job_runner: LocalJobRunner = LocalJobRunner(
             self._event_log.append_event
         )
+        self._job_runners: List[JobRunner] = [self._local_job_runner]
 
         self._main_loop_task: Optional[Task[None]] = None
         self._time_event_publisher_task: Optional[Task[None]] = None
@@ -53,6 +51,34 @@ class Scheduler:
         self.time: TimeEventPublisher = TimeEventPublisher(
             self._event_loop, self._event_log.append_event
         )
+
+    def register_job_runner(
+        self, job_runner_constructor: Callable[[AppendEventType], JobRunner]
+    ) -> None:
+        """
+        Registers the job runner with the scheduler. As with manual_run, all this does
+        is schedule a callback on the event_loop, so it's possible no state has changed
+        when this function returns.
+        """
+        self._event_loop.call_soon_threadsafe(
+            self.register_job_runner_on_event_loop, job_runner_constructor
+        )
+
+    def register_job_runner_on_event_loop(
+        self, job_runner_constructor: Callable[[AppendEventType], JobRunner]
+    ) -> None:
+        """
+        Registers the job runner with the scheduler. Must be run on self._event_loop.
+
+        TODO add graceful shutdown, deal with job runners going offline, etc.
+        """
+        if asyncio.get_running_loop() != self._event_loop:
+            raise ValueError(
+                "Scheduler.register_job_runner_async was called from a different "
+                "_event_loop than expected"
+            )
+
+        self._job_runners.append(job_runner_constructor(self._event_log.append_event))
 
     def add_job(self, job: Job) -> None:
         """
@@ -97,7 +123,9 @@ class Scheduler:
                             )
                         )
                     if trigger.is_active(events):
-                        await action.execute(job, self._event_log, high_timestamp)
+                        await action.execute(
+                            job, self._job_runners, self._event_log, high_timestamp
+                        )
 
                 self._event_log.subscribe(
                     trigger.topic_names_to_subscribe(), subscriber
@@ -123,7 +151,12 @@ class Scheduler:
 
     async def _run_action(self, topic: Topic, action: Action) -> None:
         try:
-            await action.execute(topic, self._event_log, self._event_log.curr_timestamp)
+            await action.execute(
+                topic,
+                self._job_runners,
+                self._event_log,
+                self._event_log.curr_timestamp,
+            )
         except Exception as e:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow
@@ -150,10 +183,15 @@ class Scheduler:
         async def main_loop_helper() -> None:
             while True:
                 try:
-                    await self._job_runner.poll_jobs(
-                        self._get_running_and_requested_jobs(
-                            self._event_log.curr_timestamp
-                        )
+                    await asyncio.gather(
+                        *[
+                            jr.poll_jobs(
+                                self._get_running_and_requested_jobs(
+                                    self._event_log.curr_timestamp
+                                )
+                            )
+                            for jr in self._job_runners
+                        ]
                     )
                 except Exception:
                     # TODO do something smarter here...

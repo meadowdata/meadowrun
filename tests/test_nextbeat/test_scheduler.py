@@ -3,8 +3,13 @@ from typing import Any
 
 import pytz
 
-from nextbeat.jobs import Actions, Job, JobStateChangeTrigger
-from nextbeat.local_job_runner import LocalJobRunner
+from nextbeat.jobs import (
+    Actions,
+    Job,
+    JobStateChangeTrigger,
+    JobRunnerPredicate,
+    JobRunnerTypePredicate,
+)
 from nextbeat.nextrun_job_runner import NextRunJobRunner
 from nextbeat.topic import JoinTrigger
 from nextbeat.scheduler import Scheduler
@@ -21,23 +26,28 @@ def run_func(*args: Any, **_kwargs: Any) -> str:
 
 
 def test_scheduling_sequential_jobs_local() -> None:
-    with Scheduler(LocalJobRunner, 0.05) as s:
-        _test_scheduling_sequential_jobs(s)
+    with Scheduler(0.05) as s:
+        _test_scheduling_sequential_jobs(s, JobRunnerTypePredicate("local"))
 
 
 def test_scheduling_sequential_jobs_nextrun() -> None:
     with main_in_child_process():
-        with Scheduler(NextRunJobRunner, 0.05) as s:
-            _test_scheduling_sequential_jobs(s)
+        with Scheduler(0.05) as s:
+            # TODO this line is sketchy as it's not necessarily guaranteed to run before
+            #  anything in the next function
+            s.register_job_runner(NextRunJobRunner)
+            _test_scheduling_sequential_jobs(s, JobRunnerTypePredicate("nextrun"))
 
 
-def _test_scheduling_sequential_jobs(scheduler: Scheduler) -> None:
+def _test_scheduling_sequential_jobs(
+    scheduler: Scheduler, job_runner_predicate: JobRunnerPredicate
+) -> None:
     scheduler.add_job(
         Job(
             "A",
             JobRunSpecFunction(run_func, args=["hello", "there"]),
-            scheduler._job_runner,
             (),
+            job_runner_predicate,
         )
     )
     trigger_action = (
@@ -45,7 +55,7 @@ def _test_scheduling_sequential_jobs(scheduler: Scheduler) -> None:
         Actions.run,
     )
     scheduler.add_job(
-        Job("B", JobRunSpecFunction(run_func), scheduler._job_runner, (trigger_action,))
+        Job("B", JobRunSpecFunction(run_func), (trigger_action,), job_runner_predicate)
     )
     scheduler.create_job_subscriptions()
 
@@ -71,17 +81,9 @@ def _test_scheduling_sequential_jobs(scheduler: Scheduler) -> None:
 
 
 def test_scheduling_join() -> None:
-    with Scheduler(LocalJobRunner, 0.05) as scheduler:
-        scheduler.add_job(
-            Job(
-                "A", JobRunSpecFunction(run_func, args=["A"]), scheduler._job_runner, ()
-            )
-        )
-        scheduler.add_job(
-            Job(
-                "B", JobRunSpecFunction(run_func, args=["B"]), scheduler._job_runner, ()
-            )
-        )
+    with Scheduler(0.05) as scheduler:
+        scheduler.add_job(Job("A", JobRunSpecFunction(run_func, args=["A"]), ()))
+        scheduler.add_job(Job("B", JobRunSpecFunction(run_func, args=["B"]), ()))
         trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
         trigger_b = JobStateChangeTrigger("B", ("SUCCEEDED",))
         trigger_action = (JoinTrigger(trigger_a, trigger_b), Actions.run)
@@ -89,7 +91,6 @@ def test_scheduling_join() -> None:
             Job(
                 "C",
                 JobRunSpecFunction(run_func, args=["C"]),
-                scheduler._job_runner,
                 (trigger_action,),
             )
         )
@@ -129,14 +130,13 @@ def test_scheduling_join() -> None:
 
 
 def test_time_topics_1():
-    with Scheduler(LocalJobRunner, 0.05) as s:
+    with Scheduler(0.05) as s:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         s.add_job(
             Job(
                 "A",
                 JobRunSpecFunction(run_func, args=["A"]),
-                s._job_runner,
                 (
                     (
                         s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
@@ -158,14 +158,13 @@ def test_time_topics_1():
 
 
 def test_time_topics_2():
-    with Scheduler(LocalJobRunner, 0.05) as s:
+    with Scheduler(0.05) as s:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         s.add_job(
             Job(
                 "A",
                 JobRunSpecFunction(run_func, args=["A"]),
-                s._job_runner,
                 (
                     (
                         s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
@@ -195,14 +194,13 @@ def test_time_topics_2():
 
 
 def test_time_topics_3():
-    with Scheduler(LocalJobRunner, 0.05) as s:
+    with Scheduler(0.05) as s:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         s.add_job(
             Job(
                 "A",
                 JobRunSpecFunction(run_func, args=["A"]),
-                s._job_runner,
                 (
                     (
                         s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),

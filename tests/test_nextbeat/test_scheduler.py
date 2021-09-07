@@ -212,7 +212,10 @@ def test_time_topics_3():
                         s.time.point_in_time_trigger(now - 2 * _TIME_INCREMENT),
                         Actions.run,
                     ),
-                    (s.time.point_in_time_trigger(now + _TIME_INCREMENT), Actions.run),
+                    (
+                        s.time.point_in_time_trigger(now + 2 * _TIME_INCREMENT),
+                        Actions.run,
+                    ),
                 ),
             )
         )
@@ -229,7 +232,7 @@ def test_time_topics_3():
 
         # wait for the next point_in_time_trigger, which should cause another run to
         # happen
-        time.sleep(_TIME_INCREMENT.total_seconds())
+        time.sleep(2 * _TIME_INCREMENT.total_seconds())
 
         while not s.all_are_waiting():
             time.sleep(0.01)

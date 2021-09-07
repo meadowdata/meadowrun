@@ -212,7 +212,7 @@ async def start_nextrun_server(
     try:
         await server.wait_for_termination()
     except KeyboardInterrupt:
-        # Shuts down the server with 0 seconds of grace period. During the
-        # grace period, the server won't accept new connections and allow
-        # existing RPCs to continue within the grace period.
+        # Shuts down the server with 0 seconds of grace period. During the grace period,
+        # the server won't accept new connections and allow existing RPCs to continue
+        # within the grace period.
         await server.stop(0)

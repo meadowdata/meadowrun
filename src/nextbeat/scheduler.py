@@ -31,15 +31,28 @@ class Scheduler:
         """
         job_runner_poll_delay_seconds is primarily to make unit tests run faster.
         """
-        self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
 
+        # the asyncio event_loop that we will use
         if event_loop is not None:
             self._event_loop: asyncio.AbstractEventLoop = event_loop
         else:
             self._event_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+        # we hang onto these tasks to allow for graceful shutdown
+        self._main_loop_task: Optional[Task[None]] = None
+        self._time_event_publisher_task: Optional[Task[None]] = None
+
+        # the event log stores events and lets us subscribe to events
         self._event_log: EventLog = EventLog(self._event_loop)
+        # the TimeEventPublisher enables users to create time-based triggers, and
+        # creates the right events at the right time.
+        self.time: TimeEventPublisher = TimeEventPublisher(
+            self._event_loop, self._event_log.append_event
+        )
+
+        # all jobs that have been added to this scheduler
         self._jobs: Dict[str, Job] = {}
-        # the list of jobs that we've added but haven't created subscriptions for yet
+        # the list of jobs that we've added but haven't created subscriptions for yet,
+        # see create_job_subscriptions docstring. Only used temporarily when adding jobs
         self._create_job_subscriptions_queue: List[Job] = []
 
         # The local job runner is a special job runner that runs on the same machine as
@@ -47,14 +60,10 @@ class Scheduler:
         self._local_job_runner: LocalJobRunner = LocalJobRunner(
             self._event_log.append_event
         )
+        # all job runners that have been added to this scheduler
         self._job_runners: List[JobRunner] = [self._local_job_runner]
-
-        self._main_loop_task: Optional[Task[None]] = None
-        self._time_event_publisher_task: Optional[Task[None]] = None
-
-        self.time: TimeEventPublisher = TimeEventPublisher(
-            self._event_loop, self._event_log.append_event
-        )
+        # how frequently to poll the job runners
+        self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
 
     def register_job_runner(
         self, job_runner_constructor: Callable[[AppendEventType], JobRunner]

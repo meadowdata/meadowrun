@@ -219,6 +219,8 @@ async def start_nextrun_server(
     await server.start()
 
     if nextbeat_address is not None:
+        # TODO this is a little weird that we're taking a dependency on the nextbeat
+        #  code
         async with nextbeat.server.client.NextBeatClientAsync(nextbeat_address) as c:
             await c.register_job_runner("nextrun", nextrun_address)
 

@@ -3,5 +3,10 @@ REM that the generated code properly does import nextrun.nextrun_pb2 rather than
 REM import nextrun_pb2
 call poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --grpc_python_out=src nextrun/nextrun.proto
 
+call poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --grpc_python_out=src nextbeat/server/nextbeat.proto
+
 REM reformat files
 call poetry run black src/nextrun/*pb2*
+
+call poetry run black src/nextbeat/server/*pb2*
+

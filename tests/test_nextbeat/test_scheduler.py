@@ -11,12 +11,14 @@ from nextbeat.jobs import (
     JobRunnerTypePredicate,
 )
 from nextbeat.nextrun_job_runner import NextRunJobRunner
+import nextbeat.server.config
 from nextbeat.topic import JoinTrigger
 from nextbeat.scheduler import Scheduler
+import nextbeat.server.server_main
 import time
 
 from nextrun.job_run_spec import JobRunSpecFunction
-from nextrun.server_main import main_in_child_process
+import nextrun.server_main
 
 from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
 
@@ -26,13 +28,105 @@ def run_func(*args: Any, **_kwargs: Any) -> str:
 
 
 def test_scheduling_sequential_jobs_local() -> None:
-    with Scheduler(0.05) as s:
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
         _test_scheduling_sequential_jobs(s, JobRunnerTypePredicate("local"))
 
 
+def test_scheduling_sequential_jobs_nextbeat_server() -> None:
+    # to run under the debugger as separate processes, launch
+    # `nextbeat/server/server_main.py`, then `nextrun/server_main.py --nextbeat_address
+    # localhost:15321`, then run this test. The child processes we try to spawn will
+    # fail to bind to their ports, but that won't prevent the main test logic from
+    # completing successfully.
+
+    with nextbeat.server.server_main.main_in_child_process(
+        nextbeat.server.config.DEFAULT_HOST, nextbeat.server.config.DEFAULT_PORT, 0.05
+    ), nextrun.server_main.main_in_child_process(
+        nextbeat_address=nextbeat.server.config.DEFAULT_ADDRESS
+    ), nextbeat.server.client.NextBeatClientSync(
+        nextbeat.server.config.DEFAULT_ADDRESS
+    ) as client:
+        # wait for the nextrun job runner to register itself with the scheduler
+        time.sleep(2)
+
+        client.add_jobs(
+            [
+                Job(
+                    "A",
+                    JobRunSpecFunction(run_func, args=["hello", "there"]),
+                    (),
+                    JobRunnerTypePredicate("nextrun"),
+                ),
+                Job(
+                    "B",
+                    JobRunSpecFunction(run_func),
+                    (
+                        (
+                            JobStateChangeTrigger("A", ("SUCCEEDED", "FAILED")),
+                            Actions.run,
+                        ),
+                    ),
+                    JobRunnerTypePredicate("nextrun"),
+                ),
+            ]
+        )
+
+        # poll for 1s for one event of B to show up
+        start = time.time()
+        events = None
+        while time.time() - start < 1:
+            events = client.get_events(["B"])
+            if len(events) > 0:
+                break
+
+        if events is None:
+            raise ValueError(
+                "This should never happen--test process suffered a very long pause (1s)"
+            )
+
+        if len(events) == 0:
+            raise AssertionError(
+                "Waited 1 second for WAITING event on A but did not happen"
+            )
+
+        # This is a little sketchy because we aren't strictly guaranteed that A will get
+        # created before B, but this is good enough for now
+        assert 1 == len(client.get_events(["A"]))
+        assert 1 == len(client.get_events(["B"]))
+
+        # now run manually and then poll for 2s for events on A and B to show up
+        client.manual_run("A")
+
+        start = time.time()
+        events = None
+        while time.time() - start < 2:
+            events = client.get_events(["B"])
+            if len(events) > 1:
+                break
+
+        if events is None:
+            raise ValueError(
+                "This should never happen--test process suffered a very long pause (2s)"
+            )
+
+        if len(events) <= 1:
+            raise AssertionError(
+                "Waited 2 seconds for running-related events on B but did not happen"
+            )
+
+        a_events = client.get_events(["A"])
+        b_events = client.get_events(["A"])
+        assert 4 == len(a_events)
+        assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
+            e.payload.state for e in a_events
+        ]
+        assert "hello, there" == a_events[0].payload.result_value
+        assert 4 == len(b_events)
+
+
 def test_scheduling_sequential_jobs_nextrun() -> None:
-    with main_in_child_process():
-        with Scheduler(0.05) as s:
+    with nextrun.server_main.main_in_child_process():
+        with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(NextRunJobRunner)
@@ -81,7 +175,7 @@ def _test_scheduling_sequential_jobs(
 
 
 def test_scheduling_join() -> None:
-    with Scheduler(0.05) as scheduler:
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_job(Job("A", JobRunSpecFunction(run_func, args=["A"]), ()))
         scheduler.add_job(Job("B", JobRunSpecFunction(run_func, args=["B"]), ()))
         trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
@@ -130,7 +224,7 @@ def test_scheduling_join() -> None:
 
 
 def test_time_topics_1():
-    with Scheduler(0.05) as s:
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         s.add_job(
@@ -158,7 +252,7 @@ def test_time_topics_1():
 
 
 def test_time_topics_2():
-    with Scheduler(0.05) as s:
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         s.add_job(
@@ -194,7 +288,7 @@ def test_time_topics_2():
 
 
 def test_time_topics_3():
-    with Scheduler(0.05) as s:
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         s.add_job(

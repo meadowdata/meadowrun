@@ -1,12 +1,13 @@
 import os.path
 import pathlib
 import traceback
-from typing import Dict
+from typing import Dict, Optional
 import subprocess
 import string
 
 import grpc.aio
 
+import nextbeat.server.client
 from nextrun.config import DEFAULT_PORT, DEFAULT_HOST
 from nextrun.nextrun_pb2 import (
     ProcessState,
@@ -191,10 +192,16 @@ class NextRunServerHandler(NextRunServerServicer):
 
 
 async def start_nextrun_server(
-    io_folder, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
+    io_folder,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    nextbeat_address: Optional[str] = None,
 ) -> None:
     """
     Runs the nextrun server
+
+    If nextbeat_address is provided, this process will try to register itself with the
+    nextbeat server at that address.
 
     io_folder must be read/write accessible for both the server and any child processes.
     It is used for communication with the child processes
@@ -207,8 +214,14 @@ async def start_nextrun_server(
 
     server = grpc.aio.server()
     add_NextRunServerServicer_to_server(NextRunServerHandler(io_folder), server)
-    server.add_insecure_port(f"{host}:{port}")
+    nextrun_address = f"{host}:{port}"
+    server.add_insecure_port(nextrun_address)
     await server.start()
+
+    if nextbeat_address is not None:
+        async with nextbeat.server.client.NextBeatClientAsync(nextbeat_address) as c:
+            await c.register_job_runner("nextrun", nextrun_address)
+
     try:
         await server.wait_for_termination()
     except KeyboardInterrupt:

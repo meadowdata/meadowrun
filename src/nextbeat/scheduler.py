@@ -2,7 +2,7 @@ import asyncio
 import threading
 import traceback
 from asyncio import Task
-from typing import Dict, List, Tuple, Iterable, Optional, Callable
+from typing import Dict, List, Tuple, Iterable, Optional, Callable, Awaitable
 
 from nextbeat.event_log import Event, EventLog, Timestamp, AppendEventType
 from nextbeat.jobs import Actions, Job
@@ -25,6 +25,7 @@ class Scheduler:
 
     def __init__(
         self,
+        event_loop: Optional[asyncio.AbstractEventLoop] = None,
         job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS,
     ) -> None:
         """
@@ -32,7 +33,10 @@ class Scheduler:
         """
         self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
 
-        self._event_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+        if event_loop is not None:
+            self._event_loop: asyncio.AbstractEventLoop = event_loop
+        else:
+            self._event_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         self._event_log: EventLog = EventLog(self._event_loop)
         self._jobs: Dict[str, Job] = {}
         # the list of jobs that we've added but haven't created subscriptions for yet
@@ -132,15 +136,17 @@ class Scheduler:
                 )
         self._create_job_subscriptions_queue.clear()
 
+    def add_jobs(self, jobs: Iterable[Job]) -> None:
+        for job in jobs:
+            self.add_job(job)
+        self.create_job_subscriptions()
+
     def manual_run(self, job_name: str) -> None:
         """
         Execute the Run Action on the specified job.
 
         Important--when this function returns, it's possible that no events have been
         created yet, not even RUN_REQUESTED.
-
-        TODO consider adding another function manual_run_async that DOES wait until
-         the RUN_REQUESTED event has been created
         """
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
@@ -148,6 +154,14 @@ class Scheduler:
         self._event_loop.call_soon_threadsafe(
             lambda: self._event_loop.create_task(self._run_action(job, Actions.run))
         )
+
+    async def manual_run_on_event_loop(self, job_name: str) -> None:
+        """Execute the Run Action on the specified job."""
+        # TODO see if we can eliminate a little copy/paste here
+        if job_name not in self._jobs:
+            raise ValueError(f"Unknown job: {job_name}")
+        job = self._jobs[job_name]
+        await self._run_action(job, Actions.run)
 
     async def _run_action(self, topic: Topic, action: Action) -> None:
         try:
@@ -173,38 +187,41 @@ class Scheduler:
             if ev and ev.payload.state in ("RUN_REQUESTED", "RUNNING"):
                 yield ev
 
+    async def _poll_job_runners_loop(self) -> None:
+        """Periodically polls the job runners we know about"""
+        while True:
+            try:
+                await asyncio.gather(
+                    *[
+                        jr.poll_jobs(
+                            self._get_running_and_requested_jobs(
+                                self._event_log.curr_timestamp
+                            )
+                        )
+                        for jr in self._job_runners
+                    ]
+                )
+            except Exception:
+                # TODO do something smarter here...
+                traceback.print_exc()
+            await asyncio.sleep(self._job_runner_poll_delay_seconds)
+
+    def get_main_loop_tasks(self) -> Iterable[Awaitable]:
+        yield self._event_loop.create_task(self._poll_job_runners_loop())
+        yield self._event_loop.create_task(self.time.main_loop())
+
     def main_loop(self) -> threading.Thread:
         """
         This starts a daemon (background) thread that runs forever. This code just polls
         the job runners, but other code will add callbacks to run on this event loop
         (e.g. EventLog.call_subscribers).
+
+        TODO not clear that this is really necessary anymore
         """
 
-        async def main_loop_helper() -> None:
-            while True:
-                try:
-                    await asyncio.gather(
-                        *[
-                            jr.poll_jobs(
-                                self._get_running_and_requested_jobs(
-                                    self._event_log.curr_timestamp
-                                )
-                            )
-                            for jr in self._job_runners
-                        ]
-                    )
-                except Exception:
-                    # TODO do something smarter here...
-                    traceback.print_exc()
-                await asyncio.sleep(self._job_runner_poll_delay_seconds)
-
-        self._main_loop_task = self._event_loop.create_task(main_loop_helper())
-        self._time_event_publisher_task = self._event_loop.create_task(
-            self.time.main_loop()
-        )
         t = threading.Thread(
             target=lambda: self._event_loop.run_until_complete(
-                asyncio.wait([self._main_loop_task, self._time_event_publisher_task])
+                asyncio.wait(list(self.get_main_loop_tasks()))
             ),
             daemon=True,
         )

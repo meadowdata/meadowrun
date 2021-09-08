@@ -4,7 +4,7 @@ from typing import Iterable
 from nextbeat.event_log import Event, AppendEventType
 from nextbeat.jobs_common import JobPayload, JobRunner, RaisedException
 from nextrun.client import NextRunClientAsync, ProcessStateEnum
-from nextrun.config import DEFAULT_PORT, DEFAULT_HOST
+from nextrun.config import DEFAULT_ADDRESS
 from nextrun.job_run_spec import (
     JobRunSpecFunction,
     JobRunSpecDeployedFunction,
@@ -16,13 +16,8 @@ from nextrun.job_run_spec import (
 class NextRunJobRunner(JobRunner):
     """Integrates nextrun with nextbeat. Runs jobs on a nextrun server."""
 
-    def __init__(
-        self,
-        append_event: AppendEventType,
-        host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
-    ):
-        self._client = NextRunClientAsync(host, port)
+    def __init__(self, append_event: AppendEventType, address: str = DEFAULT_ADDRESS):
+        self._client = NextRunClientAsync(address)
         self._append_event = append_event
 
     async def _run_deployed_function(

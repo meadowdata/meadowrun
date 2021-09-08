@@ -140,7 +140,7 @@ class NextRunServerHandler(NextRunServerServicer):
                 results.append(ProcessState(state=ProcessStateEnum.ERROR_GETTING_STATE))
         return ProcessStates(process_states=results)
 
-    def _get_process_state(self, request_id):
+    def _get_process_state(self, request_id: str) -> ProcessState:
         """Gets the process state for a single process"""
 
         # first, see if we know about the request_id

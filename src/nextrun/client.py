@@ -4,7 +4,7 @@ from typing import List
 import grpc
 import grpc.aio
 
-from nextrun.config import DEFAULT_HOST, DEFAULT_PORT
+from nextrun.config import DEFAULT_ADDRESS
 from nextrun.job_run_spec import JobRunSpecDeployedFunction
 from nextrun.nextrun_pb2 import ProcessStatesRequest, RunPyFuncRequest, ProcessState
 from nextrun.nextrun_pb2_grpc import NextRunServerStub
@@ -42,8 +42,8 @@ def _pickle_function_arguments(job_run_spec: JobRunSpecDeployedFunction) -> byte
 class NextRunClientAsync:
     """The main API for nextrun, allows callers to run functions on a nextrun server"""
 
-    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
-        self._channel = grpc.aio.insecure_channel(f"{host}:{port}")
+    def __init__(self, address: str = DEFAULT_ADDRESS):
+        self._channel = grpc.aio.insecure_channel(address)
         self._stub = NextRunServerStub(self._channel)
 
     async def run_py_func(
@@ -153,8 +153,8 @@ class NextRunClientAsync:
 class NextRunClientSync:
     """The non-async version of NextRunClientAsync"""
 
-    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
-        self._channel = grpc.insecure_channel(f"{host}:{port}")
+    def __init__(self, address: str = DEFAULT_ADDRESS):
+        self._channel = grpc.insecure_channel(address)
         self._stub = NextRunServerStub(self._channel)
 
     def run_py_func(
@@ -187,5 +187,5 @@ class NextRunClientSync:
         self._channel.__enter__()
         return self
 
-    def __exit__(self):
-        return self._channel.__exit__()
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._channel.__exit__(exc_type, exc_val, exc_tb)

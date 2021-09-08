@@ -234,10 +234,10 @@ class Scheduler:
             )
         )
 
-    def events_of(self, job_name: str) -> List[Event]:
+    def events_of(self, topic_name: str) -> List[Event]:
         """For unit tests/debugging"""
         return list(
             self._event_log.events_and_state(
-                job_name, 0, self._event_log.curr_timestamp
+                topic_name, 0, self._event_log.curr_timestamp
             )
         )

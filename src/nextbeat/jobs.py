@@ -126,7 +126,9 @@ def choose_job_runner(job: Job, job_runners: List[JobRunner]) -> JobRunner:
         ]
 
     if len(compatible_job_runners) == 0:
-        # TODO this should probably get sent to the event log somehow
+        # TODO this should probably get sent to the event log somehow. Also, what if we
+        #  don't currently have any job runners that satisfy the predicates but one
+        #  shows up in the near future?
         raise ValueError(
             f"No job runners were found that satisfy the predicates for {job.name}"
         )

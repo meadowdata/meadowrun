@@ -7,16 +7,7 @@ import importlib
 import sys
 import types
 
-from typing import List, Callable, Any, Dict, Union, Sequence
-
-
-@dataclasses.dataclass(frozen=True)
-class JobRunSpecFunction:
-    """A function pointer with arguments for calling the function"""
-
-    fn: Callable[..., Any]
-    args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
-    kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
+from typing import List, Any, Dict, Sequence, Callable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -36,10 +27,6 @@ class JobRunSpecDeployedFunction:
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-# A JobRunSpec indicates how to run a job
-JobRunSpec = Union[JobRunSpecFunction, JobRunSpecDeployedFunction]
-
-
 def current_version_tuple():
     """
     Gets the version tuple for JobRunSpecDeployedFunction the current interpreter for
@@ -49,7 +36,9 @@ def current_version_tuple():
 
 
 def convert_function_to_deployed_function(
-    function: JobRunSpecFunction,
+    function_pointer: Callable[..., Any],
+    function_args: Sequence[Any],
+    function_kwargs: Dict[str, Any],
 ) -> JobRunSpecDeployedFunction:
     """
     TODO this should do an entire upload of the current environment, which we don't do
@@ -78,34 +67,33 @@ def convert_function_to_deployed_function(
 
     # get the module_name and function_name
 
-    if not isinstance(function.fn, types.FunctionType):
+    if not isinstance(function_pointer, types.FunctionType):
         # TODO things like a functools.partial or a C function like list.append are
         #  callable but not python functions. We should be able to support these in the
         #  cloudpickle version of this function
         raise ValueError(
-            f"Function must be a python function, not a " f"{type(function.fn)}"
+            f"Function must be a python function, not a {type(function_pointer)}"
         )
 
     # TODO none of the below concerns would not be relevant in a cloudpickle version
-    if "." in function.fn.__qualname__:
+    if "." in function_pointer.__qualname__:
         raise ValueError(
             f"Function must be a global function in a module: "
-            f"{function.fn.__qualname__}"
+            f"{function_pointer.__qualname__}"
         )
     try:
-        module = importlib.import_module(function.fn.__module__)
+        module = importlib.import_module(function_pointer.__module__)
     except ModuleNotFoundError:
         raise ValueError(
             "The specified function could not be reconstructed via "
-            f"{function.fn.__module__}.{function.fn.__qualname__}. It is "
-            "probably not a totally normal module-level global python "
-            "function"
+            f"{function_pointer.__module__}.{function_pointer.__qualname__}. It is "
+            "probably not a totally normal module-level global python function"
         )
-    if getattr(module, function.fn.__qualname__, None) is not function.fn:
+    if getattr(module, function_pointer.__qualname__, None) is not function_pointer:
         raise ValueError(
             "The specified function could not be reconstructed via "
-            f"{function.fn.__module__}.{function.fn.__qualname__}. It is probably not a"
-            f" totally normal module-level global python function"
+            f"{function_pointer.__module__}.{function_pointer.__qualname__}. It is "
+            "probably not a totally normal module-level global python function"
         )
 
     # now deal with arguments
@@ -114,8 +102,8 @@ def convert_function_to_deployed_function(
         sys.executable,
         current_version_tuple(),
         code_paths,
-        function.fn.__module__,
-        function.fn.__qualname__,
-        function.args,
-        function.kwargs,
+        function_pointer.__module__,
+        function_pointer.__qualname__,
+        function_args,
+        function_kwargs,
     )

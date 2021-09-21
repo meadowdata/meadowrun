@@ -2,13 +2,17 @@ import pickle
 from typing import Iterable
 
 from nextbeat.event_log import Event, AppendEventType
-from nextbeat.jobs_common import JobPayload, JobRunner, RaisedException
+from nextbeat.jobs_common import (
+    JobPayload,
+    JobRunner,
+    RaisedException,
+    JobRunSpecFunction,
+    JobRunSpec,
+)
 from nextrun.client import NextRunClientAsync, ProcessStateEnum
 from nextrun.config import DEFAULT_ADDRESS
 from nextrun.job_run_spec import (
-    JobRunSpecFunction,
     JobRunSpecDeployedFunction,
-    JobRunSpec,
     convert_function_to_deployed_function,
 )
 
@@ -59,7 +63,9 @@ class NextRunJobRunner(JobRunner):
             await self._run_deployed_function(
                 job_name,
                 run_request_id,
-                convert_function_to_deployed_function(job_run_spec),
+                convert_function_to_deployed_function(
+                    job_run_spec.fn, job_run_spec.args, job_run_spec.kwargs
+                ),
             )
         else:
             raise ValueError(

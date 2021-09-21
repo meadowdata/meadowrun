@@ -17,7 +17,7 @@ from nextbeat.scheduler import Scheduler
 import nextbeat.server.server_main
 import time
 
-from nextrun.job_run_spec import JobRunSpecFunction
+from nextbeat.jobs_common import JobRunSpecFunction
 import nextrun.server_main
 
 from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY

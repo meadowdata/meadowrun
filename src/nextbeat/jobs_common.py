@@ -3,12 +3,12 @@ This all thematically belongs in jobs.py but we broke it out to avoid circular i
 """
 
 import abc
+import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Iterable, Union, Literal
+from typing import Any, Optional, Iterable, Union, Literal, Callable, Sequence, Dict
 
 from nextbeat.event_log import Event
-from nextrun.job_run_spec import JobRunSpec
-
+from nextrun.job_run_spec import JobRunSpecDeployedFunction
 
 JobState = Literal[
     # Nothing is currently happening with the job
@@ -48,6 +48,19 @@ class JobPayload:
     result_value: Any = None
     raised_exception: Union[RaisedException, BaseException, None] = None
     return_code: Optional[int] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class JobRunSpecFunction:
+    """A function pointer with arguments for calling the function"""
+
+    fn: Callable[..., Any]
+    args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
+    kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
+
+
+# A JobRunSpec indicates how to run a job
+JobRunSpec = Union[JobRunSpecFunction, JobRunSpecDeployedFunction]
 
 
 class JobRunner(abc.ABC):

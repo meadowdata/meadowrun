@@ -141,9 +141,8 @@ class NextRunClientAsync:
 
         ProcessStateEnum values:
         - DEFAULT: reserved, not used
-        - UNKNOWN: We don't recognize the request_id, no other fields will be populated
-        - ERROR_GETTING_STATE: We do recognize the request_id, but there was an error
-          getting the state of the process
+        - RUN_REQUESTED: we are in the process of trying to launch the process
+        - RUNNING: Currently running. Only pid will be populated
         - SUCCEEDED: Completed normally. pickled_result, pid, will be populated
         - PYTHON_EXCEPTION: A python exception was thrown. pickled_result, pid will be
           populated. pickled_result will be a pickled tuple (exception_type,
@@ -157,7 +156,9 @@ class NextRunClientAsync:
           that a non-python exception was thrown, or some python code called os.exit()
           with a non-zero argument. pid and return_code will be populated
         - CANCELLED: Cancelled by request.
-        - RUNNING: Currently running. Only pid will be populated
+        - UNKNOWN: We don't recognize the request_id, no other fields will be populated
+        - ERROR_GETTING_STATE: We do recognize the request_id, but there was an error
+          getting the state of the process
 
         TODO add the ability to send results back to a shared location so that we don't
          need to pass through the results through the server

@@ -116,14 +116,16 @@ class NextRunServerHandler(NextRunServerServicer):
         #  rather than just waiting for requests, as the Popen objects don't seem to
         #  live forever (i.e. we shouldn't rely on the client to call get_process_state
         #  in a timely manner)
+        # TODO we should periodically clean up these handles/outputs so they don't grow
+        #  without bound
+        # request_id -> process. None means that we're in the process of constructing
+        # the process
+        self._processes: Dict[str, Optional[subprocess.Popen]] = {}
+        # request_id -> output
+        self._completed_process_states: Dict[str, ProcessState] = {}
 
         # TODO we need to periodically clean up .argument and .result files when the
         #  processes complete
-
-        # request_id -> process
-        self._processes: Dict[str, subprocess.Popen] = {}
-        # request_id -> output
-        self._completed_process_states: Dict[str, ProcessState] = {}
 
     async def run_py_func(
         self, request: RunPyFuncRequest, context: grpc.aio.ServicerContext
@@ -146,6 +148,9 @@ class NextRunServerHandler(NextRunServerServicer):
             )
         if request.request_id in self._processes:
             return ProcessState(state=ProcessStateEnum.REQUEST_IS_DUPLICATE)
+
+        # we'll replace the None later with a handle to our subprocess
+        self._processes[request.request_id] = None
 
         # TODO consider validating module_name and function_name if only to get
         #  better error messages
@@ -341,8 +346,12 @@ class NextRunServerHandler(NextRunServerServicer):
             #  has died and recovered
             return ProcessState(state=ProcessStateEnum.UNKNOWN)
 
-        # next, see if it is still running
+        # next, see if we're still in the process of constructing the process
         process = self._processes[request_id]
+        if process is None:
+            return ProcessState(state=ProcessStateEnum.RUN_REQUESTED)
+
+        # next, see if it is still running
         return_code = process.poll()
         if return_code is None:
             return ProcessState(state=ProcessStateEnum.RUNNING, pid=process.pid)

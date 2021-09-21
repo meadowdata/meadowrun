@@ -102,12 +102,14 @@ class NextRunJobRunner(JobRunner):
 
         for last_event, process_state in zip(last_events, process_states):
             request_id = last_event.payload.request_id
-            if (
-                process_state.state == ProcessStateEnum.UNKNOWN
-                or process_state.state == ProcessStateEnum.ERROR_GETTING_STATE
-            ):
-                # TODO handle this case and test it
-                raise NotImplementedError("Not sure what to do here?")
+            if process_state.state == ProcessStateEnum.RUN_REQUESTED:
+                # this should never actually get written because we should always be
+                # creating a RUN_REQUESTED event in the run function before we poll
+                new_payload = JobPayload(
+                    request_id, "RUN_REQUESTED", pid=process_state.pid
+                )
+            elif process_state.state == ProcessStateEnum.RUNNING:
+                new_payload = JobPayload(request_id, "RUNNING", pid=process_state.pid)
             elif process_state.state == ProcessStateEnum.SUCCEEDED:
                 new_payload = JobPayload(
                     request_id,
@@ -139,8 +141,12 @@ class NextRunJobRunner(JobRunner):
             elif process_state.state == ProcessStateEnum.CANCELLED:
                 # TODO handle this and test it
                 raise NotImplementedError("TBD")
-            elif process_state.state == ProcessStateEnum.RUNNING:
-                new_payload = JobPayload(request_id, "RUNNING", pid=process_state.pid)
+            elif (
+                process_state.state == ProcessStateEnum.UNKNOWN
+                or process_state.state == ProcessStateEnum.ERROR_GETTING_STATE
+            ):
+                # TODO handle this case and test it
+                raise NotImplementedError("Not sure what to do here?")
             else:
                 raise ValueError(
                     f"Did not expect ProcessStateEnum {process_state.state}"

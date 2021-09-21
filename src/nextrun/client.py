@@ -5,28 +5,41 @@ import grpc
 import grpc.aio
 
 from nextrun.config import DEFAULT_ADDRESS
-from nextrun.job_run_spec import JobRunSpecDeployedFunction
-from nextrun.nextrun_pb2 import ProcessStatesRequest, RunPyFuncRequest, ProcessState
+from nextrun.deployed_function import NextRunDeployedFunction
+from nextrun.nextrun_pb2 import (
+    ProcessStatesRequest,
+    RunPyFuncRequest,
+    ProcessState,
+    ServerAvailableFolder,
+    GitRepoCommit,
+)
 from nextrun.nextrun_pb2_grpc import NextRunServerStub
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
 
 
-def _pickle_function_arguments(job_run_spec: JobRunSpecDeployedFunction) -> bytes:
+def _create_run_py_func_request(
+    request_id: str, deployed_function: NextRunDeployedFunction
+) -> RunPyFuncRequest:
+    # first pickle the function arguments from job_run_spec
 
     # TODO add support for compressions, pickletools.optimize, possibly cloudpickle?
 
     # TODO also add the ability to write this to a shared location so that we don't need
     #  to pass it through the server.
 
+    # TODO just hard-coding the interpreter version for now, need to actually grab it
+    #  from the job_run_spec somehow
+    interpreter_version = (3, 8, 0)
+
     # based on documentation in
     # https://docs.python.org/3/library/pickle.html#data-stream-format
-    if job_run_spec.interpreter_version >= (3, 8, 0):
+    if interpreter_version >= (3, 8, 0):
         protocol = 5
-    elif job_run_spec.interpreter_version >= (3, 4, 0):
+    elif interpreter_version >= (3, 4, 0):
         protocol = 4
-    elif job_run_spec.interpreter_version >= (3, 0, 0):
+    elif interpreter_version >= (3, 0, 0):
         protocol = 3
     else:
         # TODO support for python 2 would require dealing with the string/bytes issue
@@ -34,9 +47,36 @@ def _pickle_function_arguments(job_run_spec: JobRunSpecDeployedFunction) -> byte
 
     protocol = min(protocol, pickle.HIGHEST_PROTOCOL)
 
-    return pickle.dumps(
-        (job_run_spec.function_args, job_run_spec.function_kwargs), protocol=protocol
+    pickled_function_arguments = pickle.dumps(
+        (
+            deployed_function.next_run_function.function_args,
+            deployed_function.next_run_function.function_kwargs,
+        ),
+        protocol=protocol,
     )
+
+    # next, construct the RunPyFuncRequest
+
+    result = RunPyFuncRequest(
+        request_id=request_id,
+        module_name=deployed_function.next_run_function.module_name,
+        function_name=deployed_function.next_run_function.function_name,
+        pickled_function_arguments=pickled_function_arguments,
+        result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
+    )
+
+    # finally, add the deployment to the RunPyFuncRequest and return it
+
+    if isinstance(deployed_function.deployment, ServerAvailableFolder):
+        result.server_available_folder.CopyFrom(deployed_function.deployment)
+    elif isinstance(deployed_function.deployment, GitRepoCommit):
+        result.git_repo_commit.CopyFrom(deployed_function.deployment)
+    else:
+        raise ValueError(
+            f"Unknown interpreter_and_code type {type(deployed_function.deployment)}"
+        )
+
+    return result
 
 
 class NextRunClientAsync:
@@ -47,7 +87,7 @@ class NextRunClientAsync:
         self._stub = NextRunServerStub(self._channel)
 
     async def run_py_func(
-        self, request_id: str, job_run_spec: JobRunSpecDeployedFunction
+        self, request_id: str, deployed_function: NextRunDeployedFunction
     ) -> ProcessState:
         """
         Runs a function remotely on the NextRunServer.
@@ -86,15 +126,7 @@ class NextRunClientAsync:
          notification?
         """
         return await self._stub.run_py_func(
-            RunPyFuncRequest(
-                request_id=request_id,
-                interpreter_path=job_run_spec.interpreter_path,
-                code_paths=job_run_spec.code_paths,
-                module_name=job_run_spec.module_name,
-                function_name=job_run_spec.function_name,
-                pickled_function_arguments=_pickle_function_arguments(job_run_spec),
-                result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-            )
+            _create_run_py_func_request(request_id, deployed_function)
         )
 
     async def get_process_states(self, request_ids: List[str]) -> List[ProcessState]:
@@ -158,17 +190,11 @@ class NextRunClientSync:
         self._stub = NextRunServerStub(self._channel)
 
     def run_py_func(
-        self, request_id: str, job_run_spec: JobRunSpecDeployedFunction
+        self, request_id: str, deployed_function: NextRunDeployedFunction
     ) -> ProcessState:
         """See docstring on NextRunClientAsync"""
         return self._stub.run_py_func(
-            RunPyFuncRequest(
-                request_id=request_id,
-                code_location=job_run_spec.code_paths,
-                module_path=job_run_spec.module_name,
-                function_name=job_run_spec.function_name,
-                pickled_function_arguments=_pickle_function_arguments(job_run_spec),
-            )
+            _create_run_py_func_request(request_id, deployed_function)
         )
 
     def get_process_states(self, request_ids: List[str]) -> List[ProcessState]:

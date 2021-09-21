@@ -5,10 +5,34 @@ syntax = "proto3";
 package nextrun;
 
 
+// Represents a folder (or folders) that presumably contain code that the nextrun server
+// can access directly
+message ServerAvailableFolder {
+    repeated string code_paths = 1;
+    string interpreter_path = 2;
+}
+
+
+// Represents a git repo at a specific commit. See NextRunFunctionGitRepo for docstrings
+// on repo_url and interpreter_path
+message GitRepoCommit {
+    string repo_url = 1;
+
+    // specifies the commit to use, will be provided to git checkout [commit] see
+    // https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection
+    string commit = 2;
+
+    string interpreter_path = 3;
+}
+
+
 message RunPyFuncRequest {
     string request_id = 1;
-    string interpreter_path = 2;
-    repeated string code_paths = 3;
+    oneof deployment {
+        ServerAvailableFolder server_available_folder = 2;
+        GitRepoCommit git_repo_commit = 3;
+        // TODO add more options here, e.g. S3 folder
+    }
     string module_name = 4;
     string function_name = 5;
     bytes pickled_function_arguments = 6;

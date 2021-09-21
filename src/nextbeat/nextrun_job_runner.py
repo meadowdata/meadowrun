@@ -1,4 +1,5 @@
 import pickle
+import dataclasses
 from typing import Iterable
 
 from nextbeat.event_log import Event, AppendEventType
@@ -6,15 +7,18 @@ from nextbeat.jobs_common import (
     JobPayload,
     JobRunner,
     RaisedException,
-    JobRunSpecFunction,
-    JobRunSpec,
+    LocalFunction,
+    JobRunnerFunction,
+    VersionedJobRunnerFunction,
 )
 from nextrun.client import NextRunClientAsync, ProcessStateEnum
 from nextrun.config import DEFAULT_ADDRESS
-from nextrun.job_run_spec import (
-    JobRunSpecDeployedFunction,
-    convert_function_to_deployed_function,
+from nextrun.deployed_function import (
+    NextRunFunction,
+    NextRunDeployedFunction,
+    convert_local_to_deployed_function,
 )
+from nextrun.nextrun_pb2 import GitRepoCommit
 
 
 class NextRunJobRunner(JobRunner):
@@ -28,11 +32,11 @@ class NextRunJobRunner(JobRunner):
         self,
         job_name: str,
         run_request_id: str,
-        job_run_spec: JobRunSpecDeployedFunction,
+        deployed_function: NextRunDeployedFunction,
     ) -> None:
         self._append_event(job_name, JobPayload(run_request_id, "RUN_REQUESTED"))
 
-        result = await self._client.run_py_func(run_request_id, job_run_spec)
+        result = await self._client.run_py_func(run_request_id, deployed_function)
         if result.state == ProcessStateEnum.REQUEST_IS_DUPLICATE:
             # TODO handle this case as well as other failures in requesting run
             raise NotImplementedError()
@@ -51,26 +55,31 @@ class NextRunJobRunner(JobRunner):
             raise ValueError(f"Did not expect ProcessStateEnum {result.state}")
 
     async def run(
-        self, job_name: str, run_request_id: str, job_run_spec: JobRunSpec
+        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
     ) -> None:
         """
-        Dispatches to _run_deployed_function which calls nextrun depending on the
-        job_run_spec
+        Dispatches to _run_deployed_function which calls nextrun
         """
-        if isinstance(job_run_spec, JobRunSpecDeployedFunction):
-            await self._run_deployed_function(job_name, run_request_id, job_run_spec)
-        elif isinstance(job_run_spec, JobRunSpecFunction):
+        if isinstance(job_runner_function, NextRunDeployedFunction):
+            await self._run_deployed_function(
+                job_name, run_request_id, job_runner_function
+            )
+        elif isinstance(job_runner_function, LocalFunction):
             await self._run_deployed_function(
                 job_name,
                 run_request_id,
-                convert_function_to_deployed_function(
-                    job_run_spec.fn, job_run_spec.args, job_run_spec.kwargs
+                convert_local_to_deployed_function(
+                    job_runner_function.function_pointer,
+                    job_runner_function.function_args,
+                    job_runner_function.function_kwargs,
                 ),
             )
         else:
+            # TODO this logic of what kinds of JobRunnerFunctions we accept should be
+            #  moved up to where JobRunnerPredicate is checked
             raise ValueError(
-                f"job_run_spec of type {type(job_run_spec)} is not supported by "
-                f"NextRunJobRunner"
+                f"job_runner_function of type {type(job_runner_function)} is not "
+                f"supported by NextRunJobRunner"
             )
 
     async def poll_jobs(self, last_events: Iterable[Event[JobPayload]]) -> None:
@@ -154,3 +163,39 @@ class NextRunJobRunner(JobRunner):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return await self._client.__aexit__(exc_type, exc_val, exc_tb)
+
+
+@dataclasses.dataclass(frozen=True)
+class NextRunFunctionGitRepo(VersionedJobRunnerFunction):
+    """Represents a NextRunFunction in a git repo"""
+
+    # specifies the url, will be provided to git clone, see
+    # https://git-scm.com/docs/git-clone
+    repo_url: str
+
+    default_branch: str
+
+    # TODO this should actually be the name of a file in the repository that specifies
+    #  what interpreter/libraries we should use. Currently it is just the path to the
+    #  interpreter on the local machine
+    interpreter_path: str
+
+    next_run_function: NextRunFunction
+
+    def get_job_runner_function(self) -> NextRunDeployedFunction:
+        # TODO this seems kind of silly right now, but we should move the logic for
+        #  converting from a branch name to a specific commit hash to this function from
+        #  _get_git_repo_commit_interpreter_and_code so we can show the user what commit
+        #  we actually ran with.
+        # TODO also we will add the ability to specify overrides (e.g. a specific commit
+        #  or an alternate branch)
+        return NextRunDeployedFunction(
+            GitRepoCommit(
+                repo_url=self.repo_url,
+                # TODO this is very sketchy. Need to invest time in all of the possible
+                #  revision specifications
+                commit="origin/" + self.default_branch,
+                interpreter_path=self.interpreter_path,
+            ),
+            self.next_run_function,
+        )

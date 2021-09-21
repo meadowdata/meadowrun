@@ -13,10 +13,17 @@ from typing import (
     Type,
     Dict,
     Optional,
+    Union,
 )
 
 from nextbeat.event_log import EventLog, Event, Timestamp
-from nextbeat.jobs_common import JobRunner, JobRunSpec, JobState
+from nextbeat.jobs_common import (
+    JobRunner,
+    JobState,
+    JobRunnerFunction,
+    JobRunnerFunctionTypes,
+    VersionedJobRunnerFunction,
+)
 from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.nextrun_job_runner import NextRunJobRunner
 from nextbeat.topic import Topic, Action, Trigger
@@ -74,6 +81,9 @@ class JobRunnerTypePredicate(JobRunnerPredicate):
         return isinstance(job_runner, self._job_runner_type)
 
 
+JobFunction = Union[JobRunnerFunction, VersionedJobRunnerFunction]
+
+
 @dataclass(frozen=True)
 class Job(Topic):
     """
@@ -81,8 +91,15 @@ class Job(Topic):
     also perform actions automatically based on trigger_actions.
     """
 
-    # the function to execute this job
-    job_run_spec: JobRunSpec
+    # job_function specifies "where is the codebase and interpreter" (called a
+    # "deployment" in nextrun), "how do we invoke the function/executable/script for
+    # this job" (e.g. NextRunFunction), and "what are the arguments for that
+    # function/executable/script". This can be a JobRunnerFunction, which is something
+    # that at least one job runner will know how to run, or a
+    # "VersionedJobRunnerFunction" (currently the only implementation is
+    # NextRunFunctionGitRepo) which is something that can produce different versions of
+    # a JobRunnerFunction
+    job_function: JobFunction
 
     # explains what actions to take when
     trigger_actions: Tuple[Tuple[Trigger, Action], ...]
@@ -107,8 +124,20 @@ class Run(Action):
         #  the current run is done.
         if not ev or ev.payload.state not in ["RUN_REQUESTED", "RUNNING"]:
             run_request_id = str(uuid.uuid4())
+
+            # convert a job_function into a job_runner_function
+            if isinstance(job.job_function, VersionedJobRunnerFunction):
+                job_runner_function = job.job_function.get_job_runner_function()
+            elif isinstance(job.job_function, JobRunnerFunctionTypes):
+                job_runner_function = job.job_function
+            else:
+                raise ValueError(
+                    "job_run_spec is neither VersionedJobRunnerFunction nor a "
+                    f"JobRunnerFunction, instead is a {type(job.job_function)}"
+                )
+
             await choose_job_runner(job, available_job_runners).run(
-                job.name, run_request_id, job.job_run_spec
+                job.name, run_request_id, job_runner_function
             )
 
 

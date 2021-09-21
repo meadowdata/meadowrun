@@ -1,5 +1,7 @@
 import datetime
-from typing import Any
+import pathlib
+import sys
+from typing import Any, Sequence, Callable
 
 import pytz
 
@@ -9,16 +11,18 @@ from nextbeat.jobs import (
     JobStateChangeTrigger,
     JobRunnerPredicate,
     JobRunnerTypePredicate,
+    JobFunction,
 )
-from nextbeat.nextrun_job_runner import NextRunJobRunner
+from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo
 import nextbeat.server.config
 from nextbeat.topic import JoinTrigger
 from nextbeat.scheduler import Scheduler
 import nextbeat.server.server_main
 import time
 
-from nextbeat.jobs_common import JobRunSpecFunction
+from nextbeat.jobs_common import LocalFunction
 import nextrun.server_main
+from nextrun.deployed_function import NextRunFunction
 
 from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
 
@@ -29,7 +33,11 @@ def run_func(*args: Any, **_kwargs: Any) -> str:
 
 def test_scheduling_sequential_jobs_local() -> None:
     with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
-        _test_scheduling_sequential_jobs(s, JobRunnerTypePredicate("local"))
+        _test_scheduling_sequential_jobs(
+            s,
+            lambda args: LocalFunction(run_func, args),
+            JobRunnerTypePredicate("local"),
+        )
 
 
 def test_scheduling_sequential_jobs_nextbeat_server() -> None:
@@ -53,13 +61,13 @@ def test_scheduling_sequential_jobs_nextbeat_server() -> None:
             [
                 Job(
                     "A",
-                    JobRunSpecFunction(run_func, args=["hello", "there"]),
+                    LocalFunction(run_func, ["hello", "there"]),
                     (),
                     JobRunnerTypePredicate("nextrun"),
                 ),
                 Job(
                     "B",
-                    JobRunSpecFunction(run_func),
+                    LocalFunction(run_func),
                     (
                         (
                             JobStateChangeTrigger("A", ("SUCCEEDED", "FAILED")),
@@ -130,16 +138,51 @@ def test_scheduling_sequential_jobs_nextrun() -> None:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(NextRunJobRunner)
-            _test_scheduling_sequential_jobs(s, JobRunnerTypePredicate("nextrun"))
+            _test_scheduling_sequential_jobs(
+                s,
+                lambda args: LocalFunction(run_func, args),  # TODO change to
+                # ServerAvailable
+                JobRunnerTypePredicate("nextrun"),
+            )
+
+
+def test_scheduling_sequential_jobs_nextrun_git() -> None:
+    """
+    Running this requires cloning https://github.com/nextdataplatform/test_repo next
+    to the nextdataplatform repo.
+    """
+
+    test_repo = str(
+        (pathlib.Path(__file__).parent.parent.parent.parent / "test_repo").resolve()
+    )
+
+    with nextrun.server_main.main_in_child_process():
+        with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+            # TODO this line is sketchy as it's not necessarily guaranteed to run before
+            #  anything in the next function
+            s.register_job_runner(NextRunJobRunner)
+            _test_scheduling_sequential_jobs(
+                s,
+                lambda args: NextRunFunctionGitRepo(
+                    test_repo,
+                    "main",
+                    sys.executable,
+                    NextRunFunction("example_package.example", "join_strings", args),
+                ),
+                JobRunnerTypePredicate("nextrun"),
+            )
 
 
 def _test_scheduling_sequential_jobs(
-    scheduler: Scheduler, job_runner_predicate: JobRunnerPredicate
+    scheduler: Scheduler,
+    job_function_constructor: Callable[[Sequence[Any]], JobFunction],
+    job_runner_predicate: JobRunnerPredicate,
 ) -> None:
+    """job_function_constructor takes some arguments and should return a JobFunction"""
     scheduler.add_job(
         Job(
             "A",
-            JobRunSpecFunction(run_func, args=["hello", "there"]),
+            job_function_constructor(["hello", "there"]),
             (),
             job_runner_predicate,
         )
@@ -149,7 +192,7 @@ def _test_scheduling_sequential_jobs(
         Actions.run,
     )
     scheduler.add_job(
-        Job("B", JobRunSpecFunction(run_func), (trigger_action,), job_runner_predicate)
+        Job("B", job_function_constructor([]), (trigger_action,), job_runner_predicate)
     )
     scheduler.create_job_subscriptions()
 
@@ -176,15 +219,15 @@ def _test_scheduling_sequential_jobs(
 
 def test_scheduling_join() -> None:
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
-        scheduler.add_job(Job("A", JobRunSpecFunction(run_func, args=["A"]), ()))
-        scheduler.add_job(Job("B", JobRunSpecFunction(run_func, args=["B"]), ()))
+        scheduler.add_job(Job("A", LocalFunction(run_func, ["A"]), ()))
+        scheduler.add_job(Job("B", LocalFunction(run_func, ["B"]), ()))
         trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
         trigger_b = JobStateChangeTrigger("B", ("SUCCEEDED",))
         trigger_action = (JoinTrigger(trigger_a, trigger_b), Actions.run)
         scheduler.add_job(
             Job(
                 "C",
-                JobRunSpecFunction(run_func, args=["C"]),
+                LocalFunction(run_func, ["C"]),
                 (trigger_action,),
             )
         )
@@ -230,7 +273,7 @@ def test_time_topics_1():
         s.add_job(
             Job(
                 "A",
-                JobRunSpecFunction(run_func, args=["A"]),
+                LocalFunction(run_func, ["A"]),
                 (
                     (
                         s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
@@ -258,7 +301,7 @@ def test_time_topics_2():
         s.add_job(
             Job(
                 "A",
-                JobRunSpecFunction(run_func, args=["A"]),
+                LocalFunction(run_func, ["A"]),
                 (
                     (
                         s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
@@ -294,7 +337,7 @@ def test_time_topics_3():
         s.add_job(
             Job(
                 "A",
-                JobRunSpecFunction(run_func, args=["A"]),
+                LocalFunction(run_func, ["A"]),
                 (
                     (
                         s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),

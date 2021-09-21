@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Iterable, Union, Literal, Callable, Sequence, Dict
 
 from nextbeat.event_log import Event
-from nextrun.job_run_spec import JobRunSpecDeployedFunction
+from nextrun.deployed_function import NextRunDeployedFunction
 
 JobState = Literal[
     # Nothing is currently happening with the job
@@ -51,16 +51,21 @@ class JobPayload:
 
 
 @dataclasses.dataclass(frozen=True)
-class JobRunSpecFunction:
-    """A function pointer with arguments for calling the function"""
+class LocalFunction:
+    """
+    A function pointer in the current codebase with arguments for calling the
+    function
+    """
 
-    fn: Callable[..., Any]
-    args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
-    kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
+    function_pointer: Callable[..., Any]
+    function_args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
+    function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-# A JobRunSpec indicates how to run a job
-JobRunSpec = Union[JobRunSpecFunction, JobRunSpecDeployedFunction]
+# A JobRunnerFunction is a function/executable/script that one or more JobRunners will
+# know how to run along with the arguments for that function/executable/script
+JobRunnerFunctionTypes = (LocalFunction, NextRunDeployedFunction)
+JobRunnerFunction = Union[JobRunnerFunctionTypes]
 
 
 class JobRunner(abc.ABC):
@@ -68,7 +73,7 @@ class JobRunner(abc.ABC):
 
     @abc.abstractmethod
     async def run(
-        self, job_name: str, run_request_id: str, job_run_spec: JobRunSpec
+        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
     ) -> None:
         pass
 
@@ -79,4 +84,20 @@ class JobRunner(abc.ABC):
         in. poll_jobs will add new events to the EventLog for these jobs if there's been
         any change in their state.
         """
+        pass
+
+
+class VersionedJobRunnerFunction(abc.ABC):
+    """
+    Similar to a JobRunnerFunction, but instead of a single version of the code (e.g. a
+    specific commit in a git repo), specifies a versioned codebase (e.g. a git repo),
+    along with a function/executable/script in that repo (and also including the
+    arguments to call that function/executable/script).
+
+    TODO this is not yet fully fleshed out and the interface will probably need to
+     change
+    """
+
+    @abc.abstractmethod
+    def get_job_runner_function(self) -> JobRunnerFunction:
         pass

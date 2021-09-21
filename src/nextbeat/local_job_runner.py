@@ -7,7 +7,7 @@ from typing import Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
 from nextbeat.event_log import Event, AppendEventType
-from nextbeat.jobs_common import JobPayload, JobRunner, JobRunSpecFunction, JobRunSpec
+from nextbeat.jobs_common import JobPayload, JobRunner, LocalFunction, JobRunnerFunction
 
 
 class LocalJobRunner(JobRunner):
@@ -19,20 +19,25 @@ class LocalJobRunner(JobRunner):
         self._append_event = append_event
 
     async def run(
-        self, job_name: str, run_request_id: str, job_run_spec: JobRunSpec
+        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
     ) -> None:
         if run_request_id in self._running:
             return
-        if isinstance(job_run_spec, JobRunSpecFunction):
+
+        if isinstance(job_runner_function, LocalFunction):
             self._append_event(job_name, JobPayload(run_request_id, "RUN_REQUESTED"))
             self._running[run_request_id] = self._executor.submit(
-                job_run_spec.fn,
-                *(job_run_spec.args or []),
-                **(job_run_spec.kwargs or {}),
+                job_runner_function.function_pointer,
+                *(job_runner_function.function_args or []),
+                **(job_runner_function.function_kwargs or {}),
             )
         else:
             # TODO add support for other JobRunSpecs
-            raise ValueError(f"LocalJobRunner does not support {type(job_run_spec)}")
+            # TODO this logic of what kinds of JobRunnerFunctions we accept should be
+            #  moved up to where JobRunnerPredicate is checked
+            raise ValueError(
+                f"LocalJobRunner does not support {type(job_runner_function)}"
+            )
 
     async def poll_jobs(self, last_events: Iterable[Event[JobPayload]]) -> None:
         """See docstring on base class"""

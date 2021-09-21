@@ -19,14 +19,14 @@ def main(
     """A function for running a nextrun server"""
 
     # TODO read config file and rather than using test defaults
-    test_io_folder = str(
+    test_working_folder = str(
         (
             pathlib.Path(__file__).parent.parent.parent / "test_data" / "nextrun"
         ).resolve()
     )
     asyncio.run(
         nextrun.server.start_nextrun_server(
-            test_io_folder, host, port, nextbeat_address
+            test_working_folder, host, port, nextbeat_address
         )
     )
 

@@ -1,45 +1,41 @@
-"""
-TODO this doesn't really belong here because "job" is a nextbeat concept, not a nextrun
- concept, but it's convenient to have it here
-"""
 import dataclasses
 import importlib
 import sys
 import types
 
-from typing import List, Any, Dict, Sequence, Callable
+from typing import Any, Dict, Union, Sequence, Callable
+
+from nextrun.nextrun_pb2 import GitRepoCommit, ServerAvailableFolder
 
 
 @dataclasses.dataclass(frozen=True)
-class JobRunSpecDeployedFunction:
-    """
-    Equivalent to JobRunSpecFunction, but potentially in a different codebase that is
-    not loaded in the current codebase.
-    """
-
-    interpreter_path: str
-    # we take it on faith that interpreter_path and interpreter_version line up
-    interpreter_version: (int, int, int)  # major, minor, micro
-    code_paths: List[str]
+class NextRunFunction:
     module_name: str
     function_name: str
     function_args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-def current_version_tuple():
-    """
-    Gets the version tuple for JobRunSpecDeployedFunction the current interpreter for
-    JobRunSpecDeployedFunction.interpreter_version
-    """
-    return sys.version_info.major, sys.version_info.minor, sys.version_info.micro
+Deployment = Union[ServerAvailableFolder, GitRepoCommit]
 
 
-def convert_function_to_deployed_function(
+@dataclasses.dataclass(frozen=True)
+class NextRunDeployedFunction:
+    """
+    A function that a NextRun server is able to run. Specifies a deployment that tells a
+    NextRun server where to find the codebase (and by extension the python interpreter),
+    and then specifies a function in that codebase to run (including args.)
+    """
+
+    deployment: Deployment
+    next_run_function: NextRunFunction
+
+
+def convert_local_to_deployed_function(
     function_pointer: Callable[..., Any],
     function_args: Sequence[Any],
     function_kwargs: Dict[str, Any],
-) -> JobRunSpecDeployedFunction:
+) -> NextRunDeployedFunction:
     """
     TODO this should do an entire upload of the current environment, which we don't do
      right now. For now we just assume that we're on the same machine (or just have the
@@ -96,14 +92,12 @@ def convert_function_to_deployed_function(
             "probably not a totally normal module-level global python function"
         )
 
-    # now deal with arguments
-
-    return JobRunSpecDeployedFunction(
-        sys.executable,
-        current_version_tuple(),
-        code_paths,
-        function_pointer.__module__,
-        function_pointer.__qualname__,
-        function_args,
-        function_kwargs,
+    return NextRunDeployedFunction(
+        ServerAvailableFolder(code_paths=code_paths, interpreter_path=sys.executable),
+        NextRunFunction(
+            function_pointer.__module__,
+            function_pointer.__qualname__,
+            function_args,
+            function_kwargs,
+        ),
     )

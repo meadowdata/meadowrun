@@ -22,6 +22,7 @@ if __name__ == "__main__":
 
     # import the module
 
+    print(f"About to import {args.module_path}")
     module = importlib.import_module(args.module_path)
     print(f"Imported {args.module_path} from {module.__file__}")
 

@@ -18,7 +18,6 @@ Subscriber = Callable[[Timestamp, Timestamp], Awaitable[None]]
 
 
 T = TypeVar("T")
-AppendEventType = Callable[[str, Any], None]
 
 
 @dataclass(frozen=True)

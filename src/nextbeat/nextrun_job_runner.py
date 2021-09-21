@@ -2,7 +2,7 @@ import pickle
 import dataclasses
 from typing import Iterable
 
-from nextbeat.event_log import Event, AppendEventType
+from nextbeat.event_log import Event, EventLog
 from nextbeat.jobs_common import (
     JobPayload,
     JobRunner,
@@ -24,9 +24,9 @@ from nextrun.nextrun_pb2 import GitRepoCommit
 class NextRunJobRunner(JobRunner):
     """Integrates nextrun with nextbeat. Runs jobs on a nextrun server."""
 
-    def __init__(self, append_event: AppendEventType, address: str = DEFAULT_ADDRESS):
+    def __init__(self, event_log: EventLog, address: str = DEFAULT_ADDRESS):
         self._client = NextRunClientAsync(address)
-        self._append_event = append_event
+        self._event_log = event_log
 
     async def _run_deployed_function(
         self,
@@ -34,7 +34,9 @@ class NextRunJobRunner(JobRunner):
         run_request_id: str,
         deployed_function: NextRunDeployedFunction,
     ) -> None:
-        self._append_event(job_name, JobPayload(run_request_id, "RUN_REQUESTED"))
+        self._event_log.append_event(
+            job_name, JobPayload(run_request_id, "RUN_REQUESTED")
+        )
 
         result = await self._client.run_py_func(run_request_id, deployed_function)
         if result.state == ProcessStateEnum.REQUEST_IS_DUPLICATE:
@@ -47,7 +49,7 @@ class NextRunJobRunner(JobRunner):
             #  - the nextrun server runs the job and it completes
             #  - poll_jobs runs and records SUCCEEDED
             #  - the post-await continuation of run happens and records RUNNING
-            self._append_event(
+            self._event_log.append_event(
                 job_name,
                 JobPayload(run_request_id, "RUNNING", pid=result.pid),
             )
@@ -100,8 +102,11 @@ class NextRunJobRunner(JobRunner):
                 "responses"
             )
 
+        timestamp = self._event_log.curr_timestamp
+
         for last_event, process_state in zip(last_events, process_states):
             request_id = last_event.payload.request_id
+            topic_name = last_event.topic_name
             if process_state.state == ProcessStateEnum.RUN_REQUESTED:
                 # this should never actually get written because we should always be
                 # creating a RUN_REQUESTED event in the run function before we poll
@@ -152,16 +157,20 @@ class NextRunJobRunner(JobRunner):
                     f"Did not expect ProcessStateEnum {process_state.state}"
                 )
 
-            if last_event.payload.state != new_payload.state:
+            # get the most recent updated_last_event. Because there's an await earlier
+            # in this function, new events could have been added
+            updated_last_event = self._event_log.last_event(topic_name, timestamp)
+
+            if updated_last_event.payload.state != new_payload.state:
                 if (
-                    last_event.payload.state == "RUN_REQUESTED"
+                    updated_last_event.payload.state == "RUN_REQUESTED"
                     and new_payload.state != "RUNNING"
                 ):
-                    self._append_event(
-                        last_event.topic_name,
+                    self._event_log.append_event(
+                        topic_name,
                         JobPayload(request_id, "RUNNING", pid=new_payload.pid),
                     )
-                self._append_event(last_event.topic_name, new_payload)
+                self._event_log.append_event(topic_name, new_payload)
 
     async def __aenter__(self):
         await self._client.__aenter__()

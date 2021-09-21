@@ -6,17 +6,17 @@ TODO checking for and restarting requested but not running jobs
 from typing import Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
-from nextbeat.event_log import Event, AppendEventType
+from nextbeat.event_log import Event, EventLog
 from nextbeat.jobs_common import JobPayload, JobRunner, LocalFunction, JobRunnerFunction
 
 
 class LocalJobRunner(JobRunner):
     """Runs jobs on the current machine using a ProcessPoolExecutor"""
 
-    def __init__(self, append_event: AppendEventType):
+    def __init__(self, event_log: EventLog):
         self._running: Dict[str, Future] = {}
         self._executor = ProcessPoolExecutor(max_workers=5)
-        self._append_event = append_event
+        self._event_log = event_log
 
     async def run(
         self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
@@ -25,7 +25,9 @@ class LocalJobRunner(JobRunner):
             return
 
         if isinstance(job_runner_function, LocalFunction):
-            self._append_event(job_name, JobPayload(run_request_id, "RUN_REQUESTED"))
+            self._event_log.append_event(
+                job_name, JobPayload(run_request_id, "RUN_REQUESTED")
+            )
             self._running[run_request_id] = self._executor.submit(
                 job_runner_function.function_pointer,
                 *(job_runner_function.function_args or []),
@@ -78,11 +80,11 @@ class LocalJobRunner(JobRunner):
                         last_event.payload.state == "RUN_REQUESTED"
                         and new_payload.state != "RUNNING"
                     ):
-                        self._append_event(
+                        self._event_log.append_event(
                             last_event.topic_name,
                             JobPayload(request_id, "RUNNING", pid=new_payload.pid),
                         )
-                    self._append_event(last_event.topic_name, new_payload)
+                    self._event_log.append_event(last_event.topic_name, new_payload)
             else:
                 # TODO we should probably be doing something with the run_request_ids
                 #  that we don't recognize

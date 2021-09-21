@@ -4,7 +4,7 @@ import traceback
 from asyncio import Task
 from typing import Dict, List, Tuple, Iterable, Optional, Callable, Awaitable
 
-from nextbeat.event_log import Event, EventLog, Timestamp, AppendEventType
+from nextbeat.event_log import Event, EventLog, Timestamp
 from nextbeat.jobs import Actions, Job
 from nextbeat.jobs_common import JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
@@ -57,16 +57,14 @@ class Scheduler:
 
         # The local job runner is a special job runner that runs on the same machine as
         # nextbeat via multiprocessing.
-        self._local_job_runner: LocalJobRunner = LocalJobRunner(
-            self._event_log.append_event
-        )
+        self._local_job_runner: LocalJobRunner = LocalJobRunner(self._event_log)
         # all job runners that have been added to this scheduler
         self._job_runners: List[JobRunner] = [self._local_job_runner]
         # how frequently to poll the job runners
         self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
 
     def register_job_runner(
-        self, job_runner_constructor: Callable[[AppendEventType], JobRunner]
+        self, job_runner_constructor: Callable[[EventLog], JobRunner]
     ) -> None:
         """
         Registers the job runner with the scheduler. As with manual_run, all this does
@@ -78,7 +76,7 @@ class Scheduler:
         )
 
     def register_job_runner_on_event_loop(
-        self, job_runner_constructor: Callable[[AppendEventType], JobRunner]
+        self, job_runner_constructor: Callable[[EventLog], JobRunner]
     ) -> None:
         """
         Registers the job runner with the scheduler. Must be run on self._event_loop.
@@ -91,7 +89,7 @@ class Scheduler:
                 "_event_loop than expected"
             )
 
-        self._job_runners.append(job_runner_constructor(self._event_log.append_event))
+        self._job_runners.append(job_runner_constructor(self._event_log))
 
     def add_job(self, job: Job) -> None:
         """
@@ -185,12 +183,11 @@ class Scheduler:
             #  the scheduler somehow
             print(e)
 
-    def _get_running_and_requested_jobs(
-        self, timestamp: Timestamp
-    ) -> Iterable[Event[JobPayload]]:
+    def _get_running_and_requested_jobs(self) -> Iterable[Event[JobPayload]]:
         """
         Returns the latest event for any job that's in RUN_REQUESTED or RUNNING state
         """
+        timestamp = self._event_log.curr_timestamp
         for name in self._jobs.keys():
             ev = self._event_log.last_event(name, timestamp)
             if ev and ev.payload.state in ("RUN_REQUESTED", "RUNNING"):
@@ -200,15 +197,11 @@ class Scheduler:
         """Periodically polls the job runners we know about"""
         while True:
             try:
+                # TODO should we keep track of which jobs are running on which job
+                #  runner and only poll for those jobs?
+                last_events = list(self._get_running_and_requested_jobs())
                 await asyncio.gather(
-                    *[
-                        jr.poll_jobs(
-                            self._get_running_and_requested_jobs(
-                                self._event_log.curr_timestamp
-                            )
-                        )
-                        for jr in self._job_runners
-                    ]
+                    *[jr.poll_jobs(last_events) for jr in self._job_runners]
                 )
             except Exception:
                 # TODO do something smarter here...
@@ -254,10 +247,7 @@ class Scheduler:
         all subscribers have been processed.
         """
         return self._event_log.all_subscribers_called() and not any(
-            True
-            for _ in self._get_running_and_requested_jobs(
-                self._event_log.curr_timestamp
-            )
+            True for _ in self._get_running_and_requested_jobs()
         )
 
     def events_of(self, topic_name: str) -> List[Event]:

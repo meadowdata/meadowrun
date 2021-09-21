@@ -40,7 +40,7 @@ class NextRunJobRunner(JobRunner):
 
         result = await self._client.run_py_func(run_request_id, deployed_function)
         if result.state == ProcessStateEnum.REQUEST_IS_DUPLICATE:
-            # TODO handle this case as well as other failures in requesting run
+            # TODO handle this case and test it
             raise NotImplementedError()
         elif result.state == ProcessStateEnum.RUNNING:
             # TODO there is a very bad race condition here--the sequence of events could
@@ -53,6 +53,9 @@ class NextRunJobRunner(JobRunner):
                 job_name,
                 JobPayload(run_request_id, "RUNNING", pid=result.pid),
             )
+        elif result.state == ProcessStateEnum.RUN_REQUEST_FAILED:
+            # TODO handle this case and test it
+            raise NotImplementedError()
         else:
             raise ValueError(f"Did not expect ProcessStateEnum {result.state}")
 
@@ -122,6 +125,15 @@ class NextRunJobRunner(JobRunner):
                     pid=process_state.pid,
                     # TODO probably handle unpickling errors specially
                     result_value=pickle.loads(process_state.pickled_result),
+                )
+            elif process_state.state == ProcessStateEnum.RUN_REQUEST_FAILED:
+                new_payload = JobPayload(
+                    request_id,
+                    "FAILED",
+                    failure_type="RUN_REQUEST_FAILED",
+                    raised_exception=RaisedException(
+                        *pickle.loads(process_state.pickled_result)
+                    ),
                 )
             elif process_state.state == ProcessStateEnum.PYTHON_EXCEPTION:
                 new_payload = JobPayload(

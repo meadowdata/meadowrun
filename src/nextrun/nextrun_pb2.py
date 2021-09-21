@@ -18,7 +18,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x15nextrun/nextrun.proto\x12\x07nextrun"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"K\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t"\xa2\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x41\n\x17server_available_folder\x18\x02 \x01(\x0b\x32\x1e.nextrun.ServerAvailableFolderH\x00\x12\x31\n\x0fgit_repo_commit\x18\x03 \x01(\x0b\x32\x16.nextrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x04 \x01(\t\x12\x15\n\rfunction_name\x18\x05 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x06 \x01(\x0c\x12&\n\x1eresult_highest_pickle_protocol\x18\x07 \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\xcf\x02\n\x0cProcessState\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.nextrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x16\n\x0epickled_result\x18\x03 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x04 \x01(\x05"\xcd\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x14\n\x10PYTHON_EXCEPTION\x10\x05\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x06\x12\r\n\tCANCELLED\x10\x07\x12\x0b\n\x07UNKNOWN\x10\x08\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\t">\n\rProcessStates\x12-\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x15.nextrun.ProcessState2\xa1\x01\n\rNextRunServer\x12\x41\n\x0brun_py_func\x12\x19.nextrun.RunPyFuncRequest\x1a\x15.nextrun.ProcessState"\x00\x12M\n\x12get_process_states\x12\x1d.nextrun.ProcessStatesRequest\x1a\x16.nextrun.ProcessStates"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x15nextrun/nextrun.proto\x12\x07nextrun"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"K\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t"\xa2\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x41\n\x17server_available_folder\x18\x02 \x01(\x0b\x32\x1e.nextrun.ServerAvailableFolderH\x00\x12\x31\n\x0fgit_repo_commit\x18\x03 \x01(\x0b\x32\x16.nextrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x04 \x01(\t\x12\x15\n\rfunction_name\x18\x05 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x06 \x01(\x0c\x12&\n\x1eresult_highest_pickle_protocol\x18\x07 \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\xe7\x02\n\x0cProcessState\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.nextrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x16\n\x0epickled_result\x18\x03 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x04 \x01(\x05"\xe5\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\n">\n\rProcessStates\x12-\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x15.nextrun.ProcessState2\xa1\x01\n\rNextRunServer\x12\x41\n\x0brun_py_func\x12\x19.nextrun.RunPyFuncRequest\x1a\x15.nextrun.ProcessState"\x00\x12M\n\x12get_process_states\x12\x1d.nextrun.ProcessStatesRequest\x1a\x16.nextrun.ProcessStates"\x00\x62\x06proto3',
 )
 
 
@@ -70,7 +70,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="PYTHON_EXCEPTION",
+            name="RUN_REQUEST_FAILED",
             index=5,
             number=5,
             serialized_options=None,
@@ -78,7 +78,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="NON_ZERO_RETURN_CODE",
+            name="PYTHON_EXCEPTION",
             index=6,
             number=6,
             serialized_options=None,
@@ -86,7 +86,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="CANCELLED",
+            name="NON_ZERO_RETURN_CODE",
             index=7,
             number=7,
             serialized_options=None,
@@ -94,7 +94,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="UNKNOWN",
+            name="CANCELLED",
             index=8,
             number=8,
             serialized_options=None,
@@ -102,9 +102,17 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="ERROR_GETTING_STATE",
+            name="UNKNOWN",
             index=9,
             number=9,
+            serialized_options=None,
+            type=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.EnumValueDescriptor(
+            name="ERROR_GETTING_STATE",
+            index=10,
+            number=10,
             serialized_options=None,
             type=None,
             create_key=_descriptor._internal_create_key,
@@ -113,7 +121,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
     containing_type=None,
     serialized_options=None,
     serialized_start=651,
-    serialized_end=856,
+    serialized_end=880,
 )
 _sym_db.RegisterEnumDescriptor(_PROCESSSTATE_PROCESSSTATEENUM)
 
@@ -558,7 +566,7 @@ _PROCESSSTATE = _descriptor.Descriptor(
     extension_ranges=[],
     oneofs=[],
     serialized_start=521,
-    serialized_end=856,
+    serialized_end=880,
 )
 
 
@@ -598,8 +606,8 @@ _PROCESSSTATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=858,
-    serialized_end=920,
+    serialized_start=882,
+    serialized_end=944,
 )
 
 _RUNPYFUNCREQUEST.fields_by_name[
@@ -703,8 +711,8 @@ _NEXTRUNSERVER = _descriptor.ServiceDescriptor(
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=923,
-    serialized_end=1084,
+    serialized_start=947,
+    serialized_end=1108,
     methods=[
         _descriptor.MethodDescriptor(
             name="run_py_func",

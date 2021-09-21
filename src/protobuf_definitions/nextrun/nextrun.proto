@@ -52,11 +52,13 @@ message ProcessState {
         RUN_REQUESTED = 2;
         RUNNING = 3;
         SUCCEEDED = 4;
-        PYTHON_EXCEPTION = 5;
-        NON_ZERO_RETURN_CODE = 6;
-        CANCELLED = 7;
-        UNKNOWN = 8;
-        ERROR_GETTING_STATE = 9;
+
+        RUN_REQUEST_FAILED = 5;
+        PYTHON_EXCEPTION = 6;
+        NON_ZERO_RETURN_CODE = 7;
+        CANCELLED = 8;
+        UNKNOWN = 9;
+        ERROR_GETTING_STATE = 10;
     }
     ProcessStateEnum state = 1;
     int32 pid = 2;

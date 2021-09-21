@@ -144,6 +144,7 @@ class NextRunClientAsync:
         - RUN_REQUESTED: we are in the process of trying to launch the process
         - RUNNING: Currently running. Only pid will be populated
         - SUCCEEDED: Completed normally. pickled_result, pid, will be populated
+        - RUN_REQUEST_FAILED: There was an exception while trying to start the process
         - PYTHON_EXCEPTION: A python exception was thrown. pickled_result, pid will be
           populated. pickled_result will be a pickled tuple (exception_type,
           exception_message, exception_traceback). We don't pickle the exception itself

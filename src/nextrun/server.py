@@ -2,6 +2,7 @@ import asyncio.subprocess
 import dataclasses
 import os.path
 import pathlib
+import pickle
 import shutil
 import traceback
 from typing import Dict, Optional, Tuple, List, Literal
@@ -159,52 +160,71 @@ class NextRunServerHandler(NextRunServerServicer):
         # we'll replace the None later with a handle to our subprocess
         self._processes[request.request_id] = None
 
-        # TODO consider validating module_name and function_name if only to get
-        #  better error messages
+        try:
+            # TODO consider validating module_name and function_name if only to get
+            #  better error messages
 
-        # prepare paths for child process
+            # prepare paths for child process
 
-        interpreter_path, code_paths = await self._get_interpreter_and_code(request)
-        working_directory = code_paths[0]
+            interpreter_path, code_paths = await self._get_interpreter_and_code(request)
+            working_directory = code_paths[0]
 
-        environment = os.environ.copy()
-        # we intentionally overwrite any existing PYTHONPATH--if for some reason we need
-        # the current server process' code for the child process, the user needs to
-        # include it directly
-        environment["PYTHONPATH"] = ";".join(code_paths)
+            environment = os.environ.copy()
+            # we intentionally overwrite any existing PYTHONPATH--if for some reason we need
+            # the current server process' code for the child process, the user needs to
+            # include it directly
+            environment["PYTHONPATH"] = ";".join(code_paths)
 
-        # write function arguments to file
+            # write function arguments to file
 
-        if request.pickled_function_arguments is None:
-            raise ValueError("argument cannot be None")
-        argument_path = os.path.join(self._io_folder, request.request_id + ".argument")
-        with open(argument_path, "wb") as f:
-            f.write(request.pickled_function_arguments)
+            if request.pickled_function_arguments is None:
+                raise ValueError("argument cannot be None")
+            argument_path = os.path.join(
+                self._io_folder, request.request_id + ".argument"
+            )
+            with open(argument_path, "wb") as f:
+                f.write(request.pickled_function_arguments)
 
-        # run the process
+            # run the process
 
-        print(
-            f"Running process with: {interpreter_path} {_FUNC_RUNNER_PATH} "
-            f"{request.module_name} {request.function_name} {argument_path}; "
-            f'cwd={working_directory}; PYTHONPATH={environment["PYTHONPATH"]}'
-        )
+            print(
+                f"Running process with: {interpreter_path} {_FUNC_RUNNER_PATH} "
+                f"{request.module_name} {request.function_name} {argument_path}; "
+                f'cwd={working_directory}; PYTHONPATH={environment["PYTHONPATH"]}'
+            )
 
-        # TODO func_runner_path and argument_path need to be escaped properly on both
-        #  Windows and Linux
-        process = subprocess.Popen(
-            [
-                interpreter_path,
-                _FUNC_RUNNER_PATH,
-                request.module_name,
-                request.function_name,
-                argument_path,
-                str(request.result_highest_pickle_protocol),
-            ],
-            cwd=working_directory,
-            env=environment,
-        )
-        self._processes[request.request_id] = process
-        return ProcessState(state=ProcessStateEnum.RUNNING, pid=process.pid)
+            # TODO func_runner_path and argument_path need to be escaped properly on both
+            #  Windows and Linux
+            process = subprocess.Popen(
+                [
+                    interpreter_path,
+                    _FUNC_RUNNER_PATH,
+                    request.module_name,
+                    request.function_name,
+                    argument_path,
+                    str(request.result_highest_pickle_protocol),
+                ],
+                cwd=working_directory,
+                env=environment,
+            )
+
+        except Exception as e:
+            # we failed to launch the process
+
+            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            pickled_result = pickle.dumps(
+                (str(type(e)), str(e), tb),
+                protocol=request.result_highest_pickle_protocol,
+            )
+            process_state = ProcessState(
+                state=ProcessStateEnum.RUN_REQUEST_FAILED, pickled_result=pickled_result
+            )
+            # leave self._processes as None, just update _completed_process_states
+            self._completed_process_states[request.request_id] = process_state
+            return process_state
+        else:
+            self._processes[request.request_id] = process
+            return ProcessState(state=ProcessStateEnum.RUNNING, pid=process.pid)
 
     async def _get_interpreter_and_code(
         self, request: RunPyFuncRequest
@@ -348,9 +368,15 @@ class NextRunServerHandler(NextRunServerServicer):
         # next, see if we're still in the process of constructing the process
         process = self._processes[request_id]
         if process is None:
-            return ProcessState(state=ProcessStateEnum.RUN_REQUESTED)
+            # check if we've failed to launch
+            if request_id in self._completed_process_states:
+                # this should always be RUN_REQUEST_FAILED
+                return self._completed_process_states[request_id]
+            else:
+                # we're still trying to start the process
+                return ProcessState(state=ProcessStateEnum.RUN_REQUESTED)
 
-        # next, see if it is still running
+        # next, see if we have launched the process yet
         return_code = process.poll()
         if return_code is None:
             return ProcessState(state=ProcessStateEnum.RUNNING, pid=process.pid)

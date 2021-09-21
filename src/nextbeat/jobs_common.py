@@ -22,8 +22,8 @@ JobState = Literal[
     # The job was cancelled by the user. JobPayload.pid will be populated
     "CANCELLED",
     # The job failed. JobPayload.failure_type and pid will be populated. If failure_type
-    # is PYTHON_EXCEPTION, raised_exception will be populated, if failure_type is
-    # NON_ZERO_RETURN_CODE, return_code will be populated.
+    # is PYTHON_EXCEPTION or RUN_REQUEST_FAILED, raised_exception will be populated, if
+    # failure_type is NON_ZERO_RETURN_CODE, return_code will be populated
     "FAILED",
 ]
 
@@ -43,7 +43,9 @@ class JobPayload:
 
     request_id: Optional[str]
     state: JobState
-    failure_type: Optional[Literal["PYTHON_EXCEPTION", "NON_ZERO_RETURN_CODE"]] = None
+    failure_type: Optional[
+        Literal["PYTHON_EXCEPTION", "NON_ZERO_RETURN_CODE", "RUN_REQUEST_FAILED"]
+    ] = None
     pid: Optional[int] = None
     result_value: Any = None
     raised_exception: Union[RaisedException, BaseException, None] = None

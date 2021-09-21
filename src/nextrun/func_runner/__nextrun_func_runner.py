@@ -46,15 +46,12 @@ if __name__ == "__main__":
         result = getattr(module, args.function_name)(*function_args, **function_kwargs)
     except Exception as e:
         # send back exceptions
-        exception_message = str(e)
-        traceback = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
         # see NextRunClientAsync for why we don't just pickle the exception
         with open(state_filename, "w", encoding="utf-8") as f:
             f.write("PYTHON_EXCEPTION")
         with open(result_filename, "wb") as f:
-            pickle.dump(
-                (str(type(e)), str(e), traceback), f, protocol=result_pickle_protocol
-            )
+            pickle.dump((str(type(e)), str(e), tb), f, protocol=result_pickle_protocol)
     else:
         # send back results
         with open(state_filename, "w", encoding="utf-8") as f:

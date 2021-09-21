@@ -34,6 +34,13 @@ _REQUEST_ID_VALID_CHARS = set(string.ascii_letters + string.digits + "-_")
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
 
+_FUNC_RUNNER_PATH = str(
+    (
+        pathlib.Path(__file__).parent / "func_runner" / "__nextrun_func_runner.py"
+    ).resolve()
+)
+
+
 @dataclasses.dataclass
 class _GitRepoLocalClone:
     """This represents the local clone of a git repo"""
@@ -157,14 +164,6 @@ class NextRunServerHandler(NextRunServerServicer):
 
         # prepare paths for child process
 
-        func_runner_path = str(
-            (
-                pathlib.Path(__file__).parent
-                / "func_runner"
-                / "__nextrun_func_runner.py"
-            ).resolve()
-        )
-
         interpreter_path, code_paths = await self._get_interpreter_and_code(request)
         working_directory = code_paths[0]
 
@@ -185,7 +184,7 @@ class NextRunServerHandler(NextRunServerServicer):
         # run the process
 
         print(
-            f"Running process with: {interpreter_path} {func_runner_path} "
+            f"Running process with: {interpreter_path} {_FUNC_RUNNER_PATH} "
             f"{request.module_name} {request.function_name} {argument_path}; "
             f'cwd={working_directory}; PYTHONPATH={environment["PYTHONPATH"]}'
         )
@@ -195,7 +194,7 @@ class NextRunServerHandler(NextRunServerServicer):
         process = subprocess.Popen(
             [
                 interpreter_path,
-                func_runner_path,
+                _FUNC_RUNNER_PATH,
                 request.module_name,
                 request.function_name,
                 argument_path,

@@ -181,7 +181,7 @@ class Scheduler:
         except Exception as e:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow
-            print(e)
+            traceback.print_exc()
 
     def _get_running_and_requested_jobs(self) -> Iterable[Event[JobPayload]]:
         """

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import abc
+import dataclasses
 import random
 import uuid
 from dataclasses import dataclass
@@ -10,23 +13,119 @@ from typing import (
     Sequence,
     List,
     Any,
-    Type,
     Dict,
     Optional,
     Union,
+    Literal,
+    Callable,
 )
 
 from nextbeat.event_log import EventLog, Event, Timestamp
-from nextbeat.jobs_common import (
-    JobRunner,
-    JobState,
-    JobRunnerFunction,
-    JobRunnerFunctionTypes,
-    VersionedJobRunnerFunction,
-)
-from nextbeat.local_job_runner import LocalJobRunner
-from nextbeat.nextrun_job_runner import NextRunJobRunner
-from nextbeat.topic import Topic, Action, Trigger
+import nextbeat.topic
+from nextrun.deployed_function import NextRunDeployedFunction
+
+
+JobState = Literal[
+    # Nothing is currently happening with the job
+    "WAITING",
+    # A run of the job has been requested on a job runner
+    "RUN_REQUESTED",
+    # The job is currently running. JobPayload.pid will be populated
+    "RUNNING",
+    # The job has completed normally. JobPayload.result_value and pid will be populated
+    "SUCCEEDED",
+    # The job was cancelled by the user. JobPayload.pid will be populated
+    "CANCELLED",
+    # The job failed. JobPayload.failure_type and pid will be populated. If failure_type
+    # is PYTHON_EXCEPTION or RUN_REQUEST_FAILED, raised_exception will be populated, if
+    # failure_type is NON_ZERO_RETURN_CODE, return_code will be populated
+    "FAILED",
+]
+
+
+@dataclass(frozen=True)
+class RaisedException:
+    """Represents a python exception raised by a remote process"""
+
+    exception_type: str
+    exception_message: str
+    exception_traceback: str
+
+
+@dataclasses.dataclass(frozen=True)
+class Effects:
+    """Represents effects created by the running of a job"""
+
+    add_jobs: List[Job]
+
+
+@dataclass(frozen=True)
+class JobPayload:
+    """The Event.payload for Job-related events. See JobStateType docstring."""
+
+    request_id: Optional[str]
+    state: JobState
+    failure_type: Optional[
+        Literal["PYTHON_EXCEPTION", "NON_ZERO_RETURN_CODE", "RUN_REQUEST_FAILED"]
+    ] = None
+    pid: Optional[int] = None
+    result_value: Any = None
+    effects: Optional[Effects] = None
+    raised_exception: Union[RaisedException, BaseException, None] = None
+    return_code: Optional[int] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class LocalFunction:
+    """
+    A function pointer in the current codebase with arguments for calling the
+    function
+    """
+
+    function_pointer: Callable[..., Any]
+    function_args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
+    function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
+
+
+JobRunnerFunctionTypes = (LocalFunction, NextRunDeployedFunction)
+# A JobRunnerFunction is a function/executable/script that one or more JobRunners will
+# know how to run along with the arguments for that function/executable/script
+JobRunnerFunction = Union[JobRunnerFunctionTypes]
+
+
+class JobRunner(abc.ABC):
+    """An interface for job runner clients"""
+
+    @abc.abstractmethod
+    async def run(
+        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
+    ) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def poll_jobs(self, last_events: Iterable[Event[JobPayload]]) -> None:
+        """
+        last_events is the last event we've recorded for the jobs that we are interested
+        in. poll_jobs will add new events to the EventLog for these jobs if there's been
+        any change in their state.
+        """
+        pass
+
+
+class VersionedJobRunnerFunction(abc.ABC):
+    """
+    Similar to a JobRunnerFunction, but instead of a single version of the code (e.g. a
+    specific commit in a git repo), specifies a versioned codebase (e.g. a git repo),
+    along with a function/executable/script in that repo (and also including the
+    arguments to call that function/executable/script).
+
+    TODO this is not yet fully fleshed out and the interface will probably need to
+     change
+    """
+
+    @abc.abstractmethod
+    def get_job_runner_function(self) -> JobRunnerFunction:
+        pass
 
 
 class JobRunnerPredicate(abc.ABC):
@@ -37,55 +136,11 @@ class JobRunnerPredicate(abc.ABC):
         pass
 
 
-class AndPredicate(JobRunnerPredicate):
-    def __init__(self, a: JobRunnerPredicate, b: JobRunnerPredicate):
-        self._a = a
-        self._b = b
-
-    def apply(self, job_runner: JobRunner) -> bool:
-        return self._a.apply(job_runner) and self._b.apply(job_runner)
-
-
-class OrPredicate(JobRunnerPredicate):
-    def __init__(self, a: JobRunnerPredicate, b: JobRunnerPredicate):
-        self._a = a
-        self._b = b
-
-    def apply(self, job_runner: JobRunner) -> bool:
-        return self._a.apply(job_runner) or self._b.apply(job_runner)
-
-
-class ValueInPropertyPredicate(JobRunnerPredicate):
-    """E.g. ValueInPropertyPredicate("capabilities", "chrome")"""
-
-    def __init__(self, property_name: str, value: Any):
-        self._property_name = property_name
-        self._value = value
-
-    def apply(self, job_runner: JobRunner) -> bool:
-        return self._value in getattr(job_runner, self._property_name)
-
-
-_JOB_RUNNER_TYPES: Dict[str, Type] = {
-    "local": LocalJobRunner,
-    "nextrun": NextRunJobRunner,
-}
-
-
-class JobRunnerTypePredicate(JobRunnerPredicate):
-    def __init__(self, job_runner_type: str):
-        self._job_runner_type = _JOB_RUNNER_TYPES[job_runner_type]
-
-    def apply(self, job_runner: JobRunner) -> bool:
-        # noinspection PyTypeHints
-        return isinstance(job_runner, self._job_runner_type)
-
-
 JobFunction = Union[JobRunnerFunction, VersionedJobRunnerFunction]
 
 
 @dataclass(frozen=True)
-class Job(Topic):
+class Job(nextbeat.topic.Topic):
     """
     A job runs python code (specified job_run_spec) on a job_runner. The scheduler will
     also perform actions automatically based on trigger_actions.
@@ -102,14 +157,14 @@ class Job(Topic):
     job_function: JobFunction
 
     # explains what actions to take when
-    trigger_actions: Tuple[Tuple[Trigger, Action], ...]
+    trigger_actions: Tuple[Tuple[nextbeat.topic.Trigger, nextbeat.topic.Action], ...]
 
     # specifies which job runners this job can run on
     job_runner_predicate: Optional[JobRunnerPredicate] = None
 
 
 @dataclass(frozen=True)
-class Run(Action):
+class Run(nextbeat.topic.Action):
     """Runs the job"""
 
     async def execute(
@@ -173,7 +228,7 @@ class Actions:
 
 
 @dataclass(frozen=True)
-class JobStateChangeTrigger(Trigger):
+class JobStateChangeTrigger(nextbeat.topic.Trigger):
     """A trigger for when a job changes JobState"""
 
     job_name: str

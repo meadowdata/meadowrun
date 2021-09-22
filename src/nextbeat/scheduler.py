@@ -5,8 +5,7 @@ from asyncio import Task
 from typing import Dict, List, Tuple, Iterable, Optional, Callable, Awaitable
 
 from nextbeat.event_log import Event, EventLog, Timestamp
-from nextbeat.jobs import Actions, Job
-from nextbeat.jobs_common import JobPayload, JobRunner
+from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.time_event_publisher import TimeEventPublisher
 from nextbeat.topic import Action, Topic, Trigger

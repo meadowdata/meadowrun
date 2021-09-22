@@ -3,8 +3,7 @@ These functions should be called from inside of nextbeat jobs to indicate that a
 has happened in that job.
 """
 
-from nextbeat.jobs import Job
-from nextbeat.jobs_common import Effects
+from nextbeat.jobs import Job, Effects
 
 # effects are processed in Scheduler._process_effects
 _effects = Effects([])

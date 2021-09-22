@@ -8,7 +8,7 @@ import itertools
 from typing import Iterable, Mapping, Sequence, List
 
 from nextbeat.event_log import EventLog, Event, Timestamp
-from nextbeat.jobs_common import JobRunner
+import nextbeat.jobs
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ class Action(ABC):
     async def execute(
         self,
         topic: Topic,
-        available_job_runners: List[JobRunner],
+        available_job_runners: List[nextbeat.jobs.JobRunner],
         event_log: EventLog,
         timestamp: Timestamp,
     ) -> None:

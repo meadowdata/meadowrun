@@ -7,7 +7,7 @@ from typing import Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
 from nextbeat.event_log import Event, EventLog
-from nextbeat.jobs_common import JobPayload, JobRunner, LocalFunction, JobRunnerFunction
+from nextbeat.jobs import JobPayload, JobRunner, LocalFunction, JobRunnerFunction
 
 
 class LocalJobRunner(JobRunner):

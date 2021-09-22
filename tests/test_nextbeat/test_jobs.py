@@ -1,6 +1,5 @@
 from nextbeat.event_log import Event
-from nextbeat.jobs import JobStateChangeTrigger
-from nextbeat.jobs_common import JobPayload
+from nextbeat.jobs import JobStateChangeTrigger, JobPayload
 from nextbeat.topic import JoinTrigger, MergeTrigger
 
 

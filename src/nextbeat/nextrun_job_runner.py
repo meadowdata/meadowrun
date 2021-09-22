@@ -3,12 +3,12 @@ import dataclasses
 from typing import Iterable
 
 from nextbeat.event_log import Event, EventLog
-from nextbeat.jobs_common import (
-    JobPayload,
-    JobRunner,
+from nextbeat.jobs import (
     RaisedException,
+    JobPayload,
     LocalFunction,
     JobRunnerFunction,
+    JobRunner,
     VersionedJobRunnerFunction,
 )
 from nextrun.client import NextRunClientAsync, ProcessStateEnum

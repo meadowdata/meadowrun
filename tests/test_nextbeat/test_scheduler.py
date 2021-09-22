@@ -10,9 +10,10 @@ from nextbeat.jobs import (
     Job,
     JobStateChangeTrigger,
     JobRunnerPredicate,
-    JobRunnerTypePredicate,
     JobFunction,
+    LocalFunction,
 )
+from nextbeat.job_runner_predicates import JobRunnerTypePredicate
 from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo
 import nextbeat.server.config
 from nextbeat.topic import JoinTrigger
@@ -20,7 +21,6 @@ from nextbeat.scheduler import Scheduler
 import nextbeat.server.server_main
 import time
 
-from nextbeat.jobs_common import LocalFunction
 import nextrun.server_main
 from nextrun.deployed_function import NextRunFunction
 

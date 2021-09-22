@@ -7,6 +7,10 @@ import threading
 import time
 import asyncio
 
+# not sure what's going on here, but importing this prevents the next import from
+# causing a circular import error (but this only happens when we run pytest on a single
+# test in this module).
+import nextbeat.jobs
 from nextbeat.time_event_publisher import (
     TimeEventPublisher,
     TimeOfDayPayload,
@@ -119,9 +123,9 @@ def test_time_event_publisher_point_in_time():
 
         dts = [
             now.astimezone(tz_ny) - _TIME_INCREMENT,
-            now.astimezone(tz_la) + _TIME_INCREMENT,
-            now.astimezone(tz_ldn) + _TIME_INCREMENT,
+            now.astimezone(tz_la) + 2 * _TIME_INCREMENT,
             now.astimezone(tz_ldn) + 2 * _TIME_INCREMENT,
+            now.astimezone(tz_ldn) + 3 * _TIME_INCREMENT,
         ]
 
         for dt in dts:
@@ -137,7 +141,7 @@ def test_time_event_publisher_point_in_time():
         assert 1 == len(event_log._event_log)
         assert dt_strings[0] == _dt_to_str(event_log._event_log[0].payload)
 
-        time.sleep(_TIME_INCREMENT.total_seconds())
+        time.sleep(2 * _TIME_INCREMENT.total_seconds())
 
         assert 3 == len(event_log._event_log)
         # make sure that 2 times with the same point in time but different timezones

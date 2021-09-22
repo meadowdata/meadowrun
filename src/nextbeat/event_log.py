@@ -186,6 +186,10 @@ class EventLog:
                 subscribers.update(self._topic_subscribers.get(event.topic_name, set()))
 
             # call the subscribers
+            # TODO I think ideal behavior here would be to retry failures 3 times or
+            #  something before giving up on a subscriber. Current behavior is very
+            #  bad--failure in one subscriber means we will never progress. I think the
+            #  outer try/except is probably not necessary.
             await asyncio.gather(
                 *(
                     subscriber(low_timestamp, high_timestamp)

@@ -140,6 +140,9 @@ class Scheduler:
                             job, self._job_runners, self._event_log, high_timestamp
                         )
 
+                # TODO we should consider throwing an exception if the topic does not
+                #  already exist (otherwise there's actually no point in breaking out
+                #  this create_job_subscriptions into a separate function)
                 self._event_log.subscribe(
                     trigger.topic_names_to_subscribe(), subscriber
                 )

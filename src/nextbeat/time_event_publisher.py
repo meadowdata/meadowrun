@@ -51,17 +51,16 @@ def _timedelta_to_str(t: datetime.timedelta) -> str:
 
 
 @dataclass(frozen=True)
-class TimeOfDayPayload:
-    # The original local_time_of_day parameter used to create the trigger
-    local_time_of_day: datetime.timedelta
-    # The original time zone used to create the trigger
-    time_zone: PytzTzInfo
-    # The date we're triggering for. Note that this does not have to be the current day
-    # (e.g. if local_time_of_day is <0 or >24hours)
-    date: datetime.date
-    # The point_in_time we're triggering for which should be roughly now, localized to
-    # time_zone
-    point_in_time: datetime.datetime
+class PointInTimeTrigger(Trigger):
+    """See TimeEventPublisher.point_in_time_trigger"""
+
+    topic_name: str
+
+    def topic_names_to_subscribe(self) -> Iterable[str]:
+        yield self.topic_name
+
+    def is_active(self, events: Mapping[str, Sequence[Event]]) -> bool:
+        return len(events[self.topic_name]) > 0
 
 
 @dataclass(frozen=True)
@@ -81,16 +80,17 @@ class TimeOfDayTrigger(Trigger):
 
 
 @dataclass(frozen=True)
-class PointInTimeTrigger(Trigger):
-    """See TimeEventPublisher.point_in_time_trigger"""
-
-    topic_name: str
-
-    def topic_names_to_subscribe(self) -> Iterable[str]:
-        yield self.topic_name
-
-    def is_active(self, events: Mapping[str, Sequence[Event]]) -> bool:
-        return len(events[self.topic_name]) > 0
+class TimeOfDayPayload:
+    # The original local_time_of_day parameter used to create the trigger
+    local_time_of_day: datetime.timedelta
+    # The original time zone used to create the trigger
+    time_zone: PytzTzInfo
+    # The date we're triggering for. Note that this does not have to be the current day
+    # (e.g. if local_time_of_day is <0 or >24hours)
+    date: datetime.date
+    # The point_in_time we're triggering for which should be roughly now, localized to
+    # time_zone
+    point_in_time: datetime.datetime
 
 
 class TimeEventPublisher:
@@ -101,6 +101,8 @@ class TimeEventPublisher:
     For any two time events t0 < t1, we can only guarantee that t0 will hit the event
     log before t1 if t0 is added before t1. Practically speaking, even if t1 is added
     before t0, if t0 is added sufficiently in advance, ordering will be as expected.
+
+    TODO what if time goes backwards (due to NTP or manually setting clocks?)
     """
 
     def __init__(
@@ -160,6 +162,9 @@ class TimeEventPublisher:
             trigger = self._all_point_in_time_events[name]
         else:
             trigger = PointInTimeTrigger("time/" + name)
+            # TODO it isn't really right to schedule this trigger here--it should really
+            #  get created when a job containing this trigger gets added to the
+            #  Scheduler.
             self._call_at.call_at(dt, lambda: self._append_event("time/" + name, dt))
             self._all_point_in_time_events[name] = trigger
 
@@ -231,6 +236,9 @@ class TimeEventPublisher:
                 self._all_time_of_day_triggers[name] = trigger
                 if self._schedule_recurring_up_to is not None:
                     now = _utc_now()
+                    # TODO it isn't really right to schedule this trigger here--it
+                    #  should really get created when a job containing this trigger gets
+                    #  added to the Scheduler.
                     self._schedule_time_of_day_trigger(
                         trigger, now, self._schedule_recurring_up_to
                     )

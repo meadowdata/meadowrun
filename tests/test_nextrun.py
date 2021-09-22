@@ -98,7 +98,8 @@ def _test_nextrun(deployment: Deployment):
                 assert results[0].state == ProcessStateEnum.SUCCEEDED
                 assert results[0].pid == run_request_result.pid
                 assert (
-                    pickle.loads(results[0].pickled_result) == f"hello {arguments[0]}"
+                    pickle.loads(results[0].pickled_result)[0]
+                    == f"hello {arguments[0]}"
                 )
 
                 # test that requesting a different result works as expected

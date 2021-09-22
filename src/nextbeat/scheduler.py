@@ -49,6 +49,9 @@ class Scheduler:
             self._event_loop, self._event_log.append_event
         )
 
+        # create the effects subscriber
+        self._event_log.subscribe(None, self._process_effects)
+
         # all jobs that have been added to this scheduler
         self._jobs: Dict[str, Job] = {}
         # the list of jobs that we've added but haven't created subscriptions for yet,
@@ -142,6 +145,22 @@ class Scheduler:
                     trigger.topic_names_to_subscribe(), subscriber
                 )
         self._create_job_subscriptions_queue.clear()
+
+    async def _process_effects(
+        self, low_timestamp: Timestamp, high_timestamp: Timestamp
+    ) -> None:
+        """
+        Should get called for all events. Idea is to react to effects in Job-related
+        events
+        """
+        for event in self._event_log.events(low_timestamp, high_timestamp):
+            if (
+                isinstance(event.payload, JobPayload)
+                and event.payload.effects is not None
+            ):
+                if event.payload.effects.add_jobs:
+                    self.add_jobs(event.payload.effects.add_jobs)
+                    self.create_job_subscriptions()
 
     def add_jobs(self, jobs: Iterable[Job]) -> None:
         for job in jobs:

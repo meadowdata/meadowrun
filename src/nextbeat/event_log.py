@@ -59,7 +59,10 @@ class EventLog:
         self._event_log: List[Event] = []
 
         self._topic_name_to_events: Dict[str, List[Event]] = {}
-        self._subscribers: Dict[str, Set[Subscriber]] = {}
+        # subscribers to a specific topic
+        self._topic_subscribers: Dict[str, Set[Subscriber]] = {}
+        # subscribers to all events
+        self._universal_subscribers: Set[Subscriber] = set()
 
     @property
     def curr_timestamp(self) -> Timestamp:
@@ -135,9 +138,12 @@ class EventLog:
                 return event
         return None
 
-    def subscribe(self, topic_names: Iterable[str], subscriber: Subscriber) -> None:
+    def subscribe(
+        self, topic_names: Optional[Iterable[str]], subscriber: Subscriber
+    ) -> None:
         """
-        Subscribe subscriber to be called whenever there is an event matching one of the
+        If topic_names is None, subscribe subscriber to be called whenever there is an
+        event. If topic_names is not None, subscribe to evenlst matching one of the
         topic_names.
 
         The EventLog processes a batch of events at a time, which means that subscriber
@@ -148,10 +154,14 @@ class EventLog:
         been called for any of the events in the current batch. It is NOT the case that
         a particular subscriber will always see a low_timestamp equal to the previous
         high_timestamp: subscriber won't be called at all for a batch if there are no
-        matching events.
+        matching events (a "universal subscriber" i.e. one without topic_names will
+        always see low_timestamp equal to the previous high_timestamp).
         """
-        for topic_name in topic_names:
-            self._subscribers.setdefault(topic_name, set()).add(subscriber)
+        if topic_names is None:
+            self._universal_subscribers.add(subscriber)
+        else:
+            for topic_name in topic_names:
+                self._topic_subscribers.setdefault(topic_name, set()).add(subscriber)
 
     def all_subscribers_called(self) -> bool:
         return self._subscribers_called_timestamp >= self._next_timestamp
@@ -169,11 +179,11 @@ class EventLog:
                 )
 
             # get the list of subscribers that need to be called
-            subscribers: Set[Subscriber] = set()
+            subscribers: Set[Subscriber] = self._universal_subscribers.copy()
             low_timestamp = self._subscribers_called_timestamp
             high_timestamp = self._next_timestamp
             for event in self.events(low_timestamp, high_timestamp):
-                subscribers.update(self._subscribers.get(event.topic_name, set()))
+                subscribers.update(self._topic_subscribers.get(event.topic_name, set()))
 
             # call the subscribers
             await asyncio.gather(

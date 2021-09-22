@@ -119,12 +119,14 @@ class NextRunJobRunner(JobRunner):
             elif process_state.state == ProcessStateEnum.RUNNING:
                 new_payload = JobPayload(request_id, "RUNNING", pid=process_state.pid)
             elif process_state.state == ProcessStateEnum.SUCCEEDED:
+                result_value, effects = pickle.loads(process_state.pickled_result)
                 new_payload = JobPayload(
                     request_id,
                     "SUCCEEDED",
                     pid=process_state.pid,
                     # TODO probably handle unpickling errors specially
-                    result_value=pickle.loads(process_state.pickled_result),
+                    result_value=result_value,
+                    effects=effects,
                 )
             elif process_state.state == ProcessStateEnum.RUN_REQUEST_FAILED:
                 new_payload = JobPayload(

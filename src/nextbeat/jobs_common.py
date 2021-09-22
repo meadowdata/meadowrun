@@ -5,7 +5,17 @@ This all thematically belongs in jobs.py but we broke it out to avoid circular i
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Iterable, Union, Literal, Callable, Sequence, Dict
+from typing import (
+    Any,
+    Optional,
+    Iterable,
+    Union,
+    Literal,
+    Callable,
+    Sequence,
+    Dict,
+    List,
+)
 
 from nextbeat.event_log import Event
 from nextrun.deployed_function import NextRunDeployedFunction
@@ -37,6 +47,12 @@ class RaisedException:
     exception_traceback: str
 
 
+@dataclasses.dataclass(frozen=True)
+class Effects:
+    """Represents effects created by the running of a job"""
+    add_jobs: List["Job"]
+
+
 @dataclass(frozen=True)
 class JobPayload:
     """The Event.payload for Job-related events. See JobStateType docstring."""
@@ -48,6 +64,7 @@ class JobPayload:
     ] = None
     pid: Optional[int] = None
     result_value: Any = None
+    effects: Optional[Effects] = None
     raised_exception: Union[RaisedException, BaseException, None] = None
     return_code: Optional[int] = None
 

@@ -93,6 +93,25 @@ class TimeOfDayPayload:
     point_in_time: datetime.datetime
 
 
+@dataclass(frozen=True)
+class PeriodicTrigger(Trigger):
+    """See TimeEventPublisher.periodic_trigger"""
+
+    topic_name: str
+    period: datetime.timedelta
+
+    def topic_names_to_subscribe(self) -> Iterable[str]:
+        yield self.topic_name
+
+    def is_active(self, events: Mapping[str, Tuple[Event]]) -> bool:
+        # TODO this is a bit weird, perhaps Trigger needs to be refactored...
+        return True
+
+
+_SCHEDULE_RECURRING_LIMIT = datetime.timedelta(days=5)
+_SCHEDULE_RECURRING_FREQ = datetime.timedelta(days=1)
+
+
 class TimeEventPublisher:
     """
     Creates events in the specified EventLog at the right time based on the Triggers
@@ -109,17 +128,32 @@ class TimeEventPublisher:
         self,
         event_loop: asyncio.AbstractEventLoop,
         append_event: Callable[[str, Any], None],
+        schedule_recurring_limit: datetime.timedelta = _SCHEDULE_RECURRING_LIMIT,
+        schedule_recurring_freq: datetime.timedelta = _SCHEDULE_RECURRING_FREQ,
     ):
+        """
+        schedule_recurring_limit and schedule_recurring_freq are just configurable for
+        testing.
+        """
+
         self._append_event: Callable[[str, Any], None] = append_event
 
         self._call_at: _CallAt = _CallAt(event_loop)
 
         # keep a cache so that we don't create duplicate topics/events/triggers
+        self._all_periodic_triggers: Dict[str, PeriodicTrigger] = {}
         self._all_time_of_day_triggers: Dict[str, TimeOfDayTrigger] = {}
         self._all_point_in_time_events: Dict[str, PointInTimeTrigger] = {}
 
         # see _schedule_recurring
         self._schedule_recurring_up_to: Optional[datetime.datetime] = None
+        if schedule_recurring_freq >= schedule_recurring_limit:
+            raise ValueError(
+                "schedule_recurring_freq must be more frequent than "
+                "schedule_recurring_limit"
+            )
+        self._schedule_recurring_limit: datetime.timedelta = schedule_recurring_limit
+        self._schedule_recurring_freq: datetime.timedelta = schedule_recurring_freq
 
         # The functions on this class can not be called concurrently in general, but we
         # have to deal with the fact that users could be adding new triggers while we
@@ -169,6 +203,76 @@ class TimeEventPublisher:
             self._all_point_in_time_events[name] = trigger
 
         return trigger
+
+    def periodic_trigger(self, period: datetime.timedelta) -> PeriodicTrigger:
+        """
+        Creates a trigger that will be triggered every period. period must be longer
+        than 1 second to avoid performance problems
+        TODO even a 1s period can cause performance problems
+
+        Note: A period of 24 hours is not recommended--consider time_of_day_trigger
+        instead (even though it is usually not exactly equivalent because of daylight
+        savings).
+
+        Periodic triggers will get called as if they first got called at the Unix epoch
+        (1970 Jan 1 midnight) in the UTC timezone. This should coincide with what we
+        intuitively think of as scheduling periodic triggers "from the top of the hour"
+        for periods that divide evenly into hours. For weird periods (e.g. 61s), the
+        behavior will be less intuitive. As a result, if you create a periodic trigger
+        for e.g. 48 hours, you may need to wait up to 48 hours for it to get called.
+        """
+        if period < datetime.timedelta(seconds=1):
+            raise ValueError("Period must be longer than 1s")
+
+        name = _timedelta_to_str(period)
+
+        with self._schedule_recurring_lock:
+            if name in self._all_periodic_triggers:
+                trigger = self._all_periodic_triggers[name]
+            else:
+                trigger = PeriodicTrigger("time/" + name, period)
+                self._all_periodic_triggers[name] = trigger
+                if self._schedule_recurring_up_to is not None:
+                    now = _utc_now()
+                    # TODO it isn't really right to schedule this trigger here--it
+                    #  should really get created when a job containing this trigger gets
+                    #  added to the Scheduler.
+                    self._schedule_periodic_trigger(
+                        trigger, now, self._schedule_recurring_up_to
+                    )
+        return trigger
+
+    def _schedule_periodic_trigger(
+        self,
+        periodic_trigger: PeriodicTrigger,
+        from_dt: datetime.datetime,
+        to_dt: datetime.datetime,
+    ) -> None:
+        """Same semantics as _schedule_time_of_day_trigger"""
+
+        # see comment under periodic_trigger about how periodic triggers get scheduled
+        from_ts = from_dt.timestamp()
+        to_ts = to_dt.timestamp()
+        period_seconds = periodic_trigger.period.total_seconds()
+        modulo = from_ts % period_seconds
+        if modulo == 0:
+            occurrence_ts = from_ts
+        else:
+            occurrence_ts = from_ts - modulo + period_seconds
+
+        # the above math should guarantee that occurrence >= from_dt
+        while occurrence_ts < to_ts:
+            occurrence_dt = pytz.utc.localize(
+                datetime.datetime.utcfromtimestamp(occurrence_ts)
+            )
+            self._call_at.call_at(
+                occurrence_dt,
+                lambda occurrence_dt=occurrence_dt: self._append_event(
+                    periodic_trigger.topic_name, occurrence_dt
+                ),
+            )
+
+            occurrence_ts += period_seconds
 
     def time_of_day_trigger(
         self, local_time_of_day: datetime.timedelta, time_zone: PytzTzInfo
@@ -324,8 +428,8 @@ class TimeEventPublisher:
             if prev_schedule_recurring_up_to is None:
                 prev_schedule_recurring_up_to = now
 
-            # The most we ever schedule is 5 days in the future
-            next_schedule_recurring_up_to = now + datetime.timedelta(days=5)
+            # The most we ever schedule is e.g. 5 days in the future
+            next_schedule_recurring_up_to = now + self._schedule_recurring_limit
 
             for time_of_day_trigger in self._all_time_of_day_triggers.values():
                 self._schedule_time_of_day_trigger(
@@ -334,11 +438,18 @@ class TimeEventPublisher:
                     next_schedule_recurring_up_to,
                 )
 
+            for periodic_trigger in self._all_periodic_triggers.values():
+                self._schedule_periodic_trigger(
+                    periodic_trigger,
+                    prev_schedule_recurring_up_to,
+                    next_schedule_recurring_up_to,
+                )
+
             self._schedule_recurring_up_to = next_schedule_recurring_up_to
 
-        # schedule to get called back in a day so that we stay up to date
+        # schedule to get called back in e.g. a day so that we stay up to date
         self._call_at.call_at(
-            now + datetime.timedelta(days=1), self._schedule_recurring
+            now + self._schedule_recurring_freq, self._schedule_recurring
         )
 
     async def main_loop(self) -> None:

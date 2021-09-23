@@ -163,6 +163,60 @@ def test_time_event_publisher_point_in_time():
         task.cancel()
 
 
+def test_time_event_publisher_periodic():
+    """
+    Test TimeEventPublisher.periodic_trigger. This can take up to 12 seconds in the
+    worst case: 6 seconds to get to the top of a 6 second cycle, and then 6 seconds
+    worth of events.
+    """
+    event_loop = asyncio.new_event_loop()
+
+    event_log = nextbeat.event_log.EventLog(event_loop)
+    p = TimeEventPublisher(
+        event_loop,
+        event_log.append_event,
+        # we're testing 6 seconds worth of time, so we set the schedule_recurring_limit
+        # even shorter than that to test that "rolling over" to the next period works
+        # correctly
+        datetime.timedelta(seconds=4),
+        datetime.timedelta(seconds=2),
+    )
+
+    task = event_loop.create_task(p.main_loop())
+    threading.Thread(
+        target=lambda: event_loop.run_until_complete(task), daemon=True
+    ).start()
+
+    try:
+        # get us to just after the "top of a 6 second cycle", as that means both the 2s
+        # and 3s periodic triggers will be "at the top of their cycles"
+        time.sleep(6 - time.time() % 6 + _TIME_DELAY)
+        t0 = time.time()
+
+        p.periodic_trigger(datetime.timedelta(seconds=1))
+        p.periodic_trigger(datetime.timedelta(seconds=2))
+        p.periodic_trigger(datetime.timedelta(seconds=3))
+
+        assert 0 == len(event_log._event_log)
+        # these are effectively sleep(1), but this reduces the likelihood that we go out
+        # of sync
+        time.sleep(max(t0 + 1 - time.time(), 0))
+        assert 1 == len(event_log._event_log)
+        time.sleep(max(t0 + 2 - time.time(), 0))
+        assert 1 + 2 == len(event_log._event_log)
+        time.sleep(max(t0 + 3 - time.time(), 0))
+        assert 1 + 2 + 2 == len(event_log._event_log)
+        time.sleep(max(t0 + 4 - time.time(), 0))
+        assert 1 + 2 + 2 + 2 == len(event_log._event_log)
+        time.sleep(max(t0 + 5 - time.time(), 0))
+        assert 1 + 2 + 2 + 2 + 1 == len(event_log._event_log)
+        time.sleep(max(t0 + 6 - time.time(), 0))
+        assert 1 + 2 + 2 + 2 + 1 + 3 == len(event_log._event_log)
+        time.sleep(max(t0 + 7 - time.time(), 0))
+    finally:
+        task.cancel()
+
+
 def test_time_event_publisher_time_of_day():
     """Test TimeEventPublisher.time_of_day_trigger"""
     _test_time_event_publisher_time_of_day()

@@ -1,27 +1,28 @@
 import datetime
 import pathlib
 import sys
-from typing import Any, Sequence, Callable
+from typing import Any, Sequence, Callable, List
 
 import pytz
 
 from nextbeat.jobs import (
     Actions,
     Job,
-    JobStateChangeTrigger,
+    AnyJobStateEventFilter,
     JobRunnerPredicate,
     JobFunction,
     LocalFunction,
+    AllJobStatePredicate,
 )
 from nextbeat.job_runner_predicates import JobRunnerTypePredicate
 from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo
 import nextbeat.server.config
-from nextbeat.topic import JoinTrigger
 from nextbeat.scheduler import Scheduler
 import nextbeat.server.server_main
 import time
 
 import nextrun.server_main
+from nextbeat.topic import TriggerAction
 from nextrun.deployed_function import NextRunFunction
 
 from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
@@ -103,12 +104,12 @@ def _test_simple_jobs(
             job_runner_predicate,
         )
     )
-    trigger_action = (
-        JobStateChangeTrigger("A", ("SUCCEEDED", "FAILED")),
+    trigger_action = TriggerAction(
         Actions.run,
+        [AnyJobStateEventFilter(["A"], ["SUCCEEDED", "FAILED"])],
     )
     scheduler.add_job(
-        Job("B", job_function_constructor([]), (trigger_action,), job_runner_predicate)
+        Job("B", job_function_constructor([]), [trigger_action], job_runner_predicate)
     )
     scheduler.create_job_subscriptions()
 
@@ -160,18 +161,18 @@ def test_simple_jobs_nextbeat_server() -> None:
                 Job(
                     "A",
                     LocalFunction(_run_func, ["hello", "there"]),
-                    (),
+                    [],
                     JobRunnerTypePredicate("nextrun"),
                 ),
                 Job(
                     "B",
                     LocalFunction(_run_func),
-                    (
-                        (
-                            JobStateChangeTrigger("A", ("SUCCEEDED", "FAILED")),
+                    [
+                        TriggerAction(
                             Actions.run,
-                        ),
-                    ),
+                            [AnyJobStateEventFilter(["A"], ["SUCCEEDED", "FAILED"])],
+                        )
+                    ],
                     JobRunnerTypePredicate("nextrun"),
                 ),
             ]
@@ -230,18 +231,50 @@ def test_simple_jobs_nextbeat_server() -> None:
         assert 4 == len(b_events)
 
 
-def test_scheduling_join() -> None:
+def test_triggers() -> None:
+    """Test different interesting trigger combinations"""
+
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_job(Job("A", LocalFunction(_run_func, ["A"]), ()))
         scheduler.add_job(Job("B", LocalFunction(_run_func, ["B"]), ()))
-        trigger_a = JobStateChangeTrigger("A", ("SUCCEEDED",))
-        trigger_b = JobStateChangeTrigger("B", ("SUCCEEDED",))
-        trigger_action = (JoinTrigger(trigger_a, trigger_b), Actions.run)
+
+        # see TriggerAction docstring for explanations of these triggers
         scheduler.add_job(
             Job(
-                "C",
-                LocalFunction(_run_func, ["C"]),
-                (trigger_action,),
+                "C1",
+                LocalFunction(_run_func, ["C1"]),
+                [
+                    TriggerAction(
+                        Actions.run,
+                        [AnyJobStateEventFilter(["A", "B"], ["SUCCEEDED"])],
+                        AllJobStatePredicate(["A", "B"], ["SUCCEEDED"]),
+                    )
+                ],
+            )
+        )
+        scheduler.add_job(
+            Job(
+                "C2",
+                LocalFunction(_run_func, ["C2"]),
+                [
+                    TriggerAction(
+                        Actions.run,
+                        [AnyJobStateEventFilter(["A", "B"], ["SUCCEEDED"])],
+                    )
+                ],
+            )
+        )
+        scheduler.add_job(
+            Job(
+                "C3",
+                LocalFunction(_run_func, ["C3"]),
+                [
+                    TriggerAction(
+                        Actions.run,
+                        [AnyJobStateEventFilter(["A"], ["SUCCEEDED"])],
+                        AllJobStatePredicate(["B"], ["SUCCEEDED"]),
+                    )
+                ],
             )
         )
         scheduler.create_job_subscriptions()
@@ -251,32 +284,57 @@ def test_scheduling_join() -> None:
         while not scheduler.all_are_waiting():
             time.sleep(0.01)
 
-        assert 1 == len(scheduler.events_of("A"))
-        assert 1 == len(scheduler.events_of("B"))
-        assert 1 == len(scheduler.events_of("C"))
+        # Note that we use the event count to tell whether the job has run or not--each
+        # run will generate 3 events: RUN_REQUESTED, RUNNING, SUCCEEDED.
+        def assert_num_events(expected: List[int]) -> None:
+            assert [
+                len(scheduler.events_of(n)) for n in ("A", "B", "C1", "C2", "C3")
+            ] == expected
+
+        assert_num_events([1, 1, 1, 1, 1])
+
+        # first we run A:
+        # - C1 doesn't run because its condition is not met--B is not SUCCEEDED
+        # - C2 runs because it triggers any time A or B succeeds, regardless of the
+        #   overall state of the jobs
+        # - C3 doesn't run because its condition is not met--B is not SUCCEEDED
 
         scheduler.manual_run("A")
-        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
 
+        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
         while not scheduler.all_are_waiting():
             time.sleep(0.01)
 
-        assert 4 == len(scheduler.events_of("A"))
-        assert 1 == len(scheduler.events_of("B"))
-        assert 1 == len(scheduler.events_of("C"))
+        assert_num_events([4, 1, 1, 4, 1])
+
+        # next, we run B:
+        # - C1 runs because because B succeeding wakes it up, and its conditions are met
+        #   (A and B are both SUCCEEDED)
+        # - C2 runs again
+        # - C3 does not run, because it only wakes up when A succeeds. B succeeding is a
+        #   condition, but doesn't wake it up
 
         scheduler.manual_run("B")
-        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
 
+        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
         while not scheduler.all_are_waiting():
             time.sleep(0.01)
 
-        assert 4 == len(scheduler.events_of("A"))
-        assert 4 == len(scheduler.events_of("B"))
-        assert 4 == len(scheduler.events_of("C"))
+        assert_num_events([4, 4, 4, 7, 1])
 
+        # finally, we run A again
+        # - C1 runs again
+        # - C2 runs again
+        # - C3 finally runs because A succeeding wakes it up, and B is in a SUCCEEDED
+        #   state
 
-# TODO test adding jobs while scheduler is running
+        scheduler.manual_run("A")
+
+        time.sleep(0.05)  # see docstring of manual_run for why we need to wait
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
+
+        assert_num_events([7, 4, 7, 10, 4])
 
 
 def test_time_topics_1():
@@ -287,12 +345,12 @@ def test_time_topics_1():
             Job(
                 "A",
                 LocalFunction(_run_func, ["A"]),
-                (
-                    (
-                        s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
+                [
+                    TriggerAction(
                         Actions.run,
-                    ),
-                ),
+                        [s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT)],
+                    )
+                ],
             )
         )
 
@@ -315,20 +373,16 @@ def test_time_topics_2():
             Job(
                 "A",
                 LocalFunction(_run_func, ["A"]),
-                (
-                    (
-                        s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
+                [
+                    TriggerAction(
                         Actions.run,
-                    ),
-                    (
-                        s.time.point_in_time_trigger(now - 2 * _TIME_INCREMENT),
-                        Actions.run,
-                    ),
-                    (
-                        s.time.point_in_time_trigger(now + 2 * _TIME_INCREMENT),
-                        Actions.run,
-                    ),
-                ),
+                        [
+                            s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
+                            s.time.point_in_time_trigger(now - 2 * _TIME_INCREMENT),
+                            s.time.point_in_time_trigger(now + 2 * _TIME_INCREMENT),
+                        ],
+                    )
+                ],
             )
         )
 

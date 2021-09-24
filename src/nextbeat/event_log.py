@@ -104,13 +104,21 @@ class EventLog:
         )
 
     def events(
-        self, low_timestamp: Timestamp, high_timestamp: Timestamp
+        self,
+        topic_name: Optional[str],
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
     ) -> Iterable[Event]:
         """
-        Return all events with timestamp: low_timestamp <= timestamp < high_timestamp
-        in decreasing timestamp order.
+        Return all events with timestamp: low_timestamp <= timestamp < high_timestamp in
+        decreasing timestamp order. If topic_name is not None, then restrict to events
+        with the specified topic_name
         """
-        all_events = self._event_log
+        if topic_name is None:
+            all_events = self._event_log
+        else:
+            all_events = self._topic_name_to_events.get(topic_name, [])
+
         for event in reversed(all_events):
             if low_timestamp <= event.timestamp < high_timestamp:
                 yield event
@@ -198,7 +206,7 @@ class EventLog:
                 subscribers: Set[Subscriber] = self._universal_subscribers.copy()
                 low_timestamp = self._subscribers_called_timestamp
                 high_timestamp = self._next_timestamp
-                for event in self.events(low_timestamp, high_timestamp):
+                for event in self.events(None, low_timestamp, high_timestamp):
                     subscribers.update(
                         self._topic_subscribers.get(event.topic_name, set())
                     )

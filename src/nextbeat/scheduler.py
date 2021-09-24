@@ -8,7 +8,7 @@ from nextbeat.event_log import Event, EventLog, Timestamp
 from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.time_event_publisher import TimeEventPublisher
-from nextbeat.topic import Action, Topic, Trigger
+from nextbeat.topic import Action, Topic, StatePredicate, EventFilter
 
 
 class Scheduler:
@@ -119,34 +119,51 @@ class Scheduler:
         # TODO: should make sure we don't try to proceed without calling
         #  create_job_subscriptions first
         for job in self._create_job_subscriptions_queue:
-            for trigger, action in job.trigger_actions:
+            for trigger_action in job.trigger_actions:
+                for event_filter in trigger_action.wake_on:
 
-                async def subscriber(
-                    low_timestamp: Timestamp,
-                    high_timestamp: Timestamp,
-                    # to avoid capturing loop variables
-                    job: Job = job,
-                    trigger: Trigger = trigger,
-                    action: Action = action,
-                ) -> None:
-                    events: Dict[str, Tuple[Event, ...]] = {}
-                    for name in trigger.topic_names_to_subscribe():
-                        events[name] = tuple(
-                            self._event_log.events_and_state(
-                                name, low_timestamp, high_timestamp
+                    async def subscriber(
+                        low_timestamp: Timestamp,
+                        high_timestamp: Timestamp,
+                        # to avoid capturing loop variables
+                        job: Job = job,
+                        event_filter: EventFilter = event_filter,
+                        condition: StatePredicate = trigger_action.state_predicate,
+                        action: Action = trigger_action.action,
+                    ) -> None:
+                        # first check that there's at least one event that passes the
+                        # EventFilter
+                        if any(
+                            event_filter.apply(event)
+                            for topic_name in event_filter.topic_names_to_subscribe()
+                            for event in self._event_log.events(
+                                topic_name, low_timestamp, high_timestamp
                             )
-                        )
-                    if trigger.is_active(events):
-                        await action.execute(
-                            job, self._job_runners, self._event_log, high_timestamp
-                        )
+                        ):
+                            # then check that the condition is met
+                            events: Dict[str, Tuple[Event, ...]] = {}
+                            for name in condition.topic_names_to_query():
+                                events[name] = tuple(
+                                    self._event_log.events_and_state(
+                                        name, low_timestamp, high_timestamp
+                                    )
+                                )
+                            if condition.apply(events):
+                                # if so, execute the action
+                                await action.execute(
+                                    job,
+                                    self._job_runners,
+                                    self._event_log,
+                                    high_timestamp,
+                                )
 
-                # TODO we should consider throwing an exception if the topic does not
-                #  already exist (otherwise there's actually no point in breaking out
-                #  this create_job_subscriptions into a separate function)
-                self._event_log.subscribe(
-                    trigger.topic_names_to_subscribe(), subscriber
-                )
+                    # TODO we should consider throwing an exception if the topic does
+                    #  not already exist (otherwise there's actually no point in
+                    #  breaking out this create_job_subscriptions into a separate
+                    #  function)
+                    self._event_log.subscribe(
+                        event_filter.topic_names_to_subscribe(), subscriber
+                    )
         self._create_job_subscriptions_queue.clear()
 
     def add_jobs(self, jobs: Iterable[Job]) -> None:
@@ -161,7 +178,7 @@ class Scheduler:
         Should get called for all events. Idea is to react to effects in Job-related
         events
         """
-        for event in self._event_log.events(low_timestamp, high_timestamp):
+        for event in self._event_log.events(None, low_timestamp, high_timestamp):
             if (
                 isinstance(event.payload, JobPayload)
                 and event.payload.effects is not None

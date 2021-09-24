@@ -9,7 +9,6 @@ from typing import (
     Final,
     Iterable,
     Mapping,
-    Tuple,
     Sequence,
     List,
     Any,
@@ -156,8 +155,8 @@ class Job(nextbeat.topic.Topic):
     # a JobRunnerFunction
     job_function: JobFunction
 
-    # explains what actions to take when
-    trigger_actions: Tuple[Tuple[nextbeat.topic.Trigger, nextbeat.topic.Action], ...]
+    # specifies what actions to take when
+    trigger_actions: Sequence[nextbeat.topic.TriggerAction]
 
     # specifies which job runners this job can run on
     job_runner_predicate: Optional[JobRunnerPredicate] = None
@@ -228,16 +227,31 @@ class Actions:
 
 
 @dataclass(frozen=True)
-class JobStateChangeTrigger(nextbeat.topic.Trigger):
-    """A trigger for when a job changes JobState"""
+class AnyJobStateEventFilter(nextbeat.topic.EventFilter):
+    """Triggers when any of job_names is in any of on_states"""
 
-    job_name: str
-    on_states: Tuple[JobState, ...]
+    job_names: Sequence[str]
+    on_states: Sequence[JobState]
 
     def topic_names_to_subscribe(self) -> Iterable[str]:
-        yield self.job_name
+        yield from self.job_names
 
-    def is_active(self, events: Mapping[str, Sequence[Event]]) -> bool:
-        # TODO should we check if events have the right type of payload?
-        evs = events[self.job_name]
-        return any(ev.payload.state in self.on_states for ev in evs)
+    def apply(self, event: Event) -> bool:
+        return event.payload.state in self.on_states
+
+
+@dataclass(frozen=True)
+class AllJobStatePredicate(nextbeat.topic.StatePredicate):
+    """Condition is met when all of job_names are in one of on_states"""
+
+    job_names: Sequence[str]
+    on_states: Sequence[JobState]
+
+    def topic_names_to_query(self) -> Iterable[str]:
+        yield from self.job_names
+
+    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+        # make sure the most recent event is in the specified state
+        return all(
+            events[name][0].payload.state in self.on_states for name in self.job_names
+        )

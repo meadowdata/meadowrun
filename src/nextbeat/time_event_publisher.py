@@ -6,15 +6,12 @@ import traceback
 from dataclasses import dataclass, field
 from typing import (
     Iterable,
-    Mapping,
     Dict,
     Callable,
     List,
-    Tuple,
     Optional,
     Union,
     Any,
-    Sequence,
 )
 import time
 import heapq
@@ -23,7 +20,7 @@ import pytz
 import pytz.tzinfo
 
 from nextbeat.event_log import Event
-from nextbeat.topic import Trigger
+from nextbeat.topic import EventFilter
 
 
 # We would ideally use pytz.BaseTzInfo but that doesn't have the .normalize method on it
@@ -51,7 +48,7 @@ def _timedelta_to_str(t: datetime.timedelta) -> str:
 
 
 @dataclass(frozen=True)
-class PointInTimeTrigger(Trigger):
+class PointInTimeTrigger(EventFilter):
     """See TimeEventPublisher.point_in_time_trigger"""
 
     topic_name: str
@@ -59,12 +56,12 @@ class PointInTimeTrigger(Trigger):
     def topic_names_to_subscribe(self) -> Iterable[str]:
         yield self.topic_name
 
-    def is_active(self, events: Mapping[str, Sequence[Event]]) -> bool:
-        return len(events[self.topic_name]) > 0
+    def apply(self, event: Event) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
-class TimeOfDayTrigger(Trigger):
+class TimeOfDayTrigger(EventFilter):
     """See TimeEventPublisher.time_of_day_trigger"""
 
     topic_name: str
@@ -74,8 +71,7 @@ class TimeOfDayTrigger(Trigger):
     def topic_names_to_subscribe(self) -> Iterable[str]:
         yield self.topic_name
 
-    def is_active(self, events: Mapping[str, Tuple[Event]]) -> bool:
-        # TODO this is a bit weird, perhaps Trigger needs to be refactored...
+    def apply(self, event: Event) -> bool:
         return True
 
 
@@ -94,7 +90,7 @@ class TimeOfDayPayload:
 
 
 @dataclass(frozen=True)
-class PeriodicTrigger(Trigger):
+class PeriodicTrigger(EventFilter):
     """See TimeEventPublisher.periodic_trigger"""
 
     topic_name: str
@@ -103,8 +99,7 @@ class PeriodicTrigger(Trigger):
     def topic_names_to_subscribe(self) -> Iterable[str]:
         yield self.topic_name
 
-    def is_active(self, events: Mapping[str, Tuple[Event]]) -> bool:
-        # TODO this is a bit weird, perhaps Trigger needs to be refactored...
+    def apply(self, event: Event) -> bool:
         return True
 
 

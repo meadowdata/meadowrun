@@ -8,15 +8,15 @@ from nextbeat.event_log import Event, EventLog, Timestamp
 def test_append_event() -> None:
     log = EventLog(asyncio.new_event_loop())
     log.append_event("A", "waiting")
-    actual = list(log.events(0, 1))
+    actual = list(log.events(None, 0, 1))
     expected = [Event(0, "A", "waiting")]
     assert expected == actual
 
     log.append_event("B", "waiting")
-    actual = list(log.events(0, 2))
+    actual = list(log.events(None, 0, 2))
     assert len(actual) == 2
 
-    actual = list(log.events(1, 2))
+    actual = list(log.events(None, 1, 2))
     expected = [Event(1, "B", "waiting")]
     assert expected == actual
 

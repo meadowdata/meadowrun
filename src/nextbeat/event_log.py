@@ -11,7 +11,6 @@ from typing import (
     TypeVar,
     Generic,
     Awaitable,
-    Any,
 )
 
 Timestamp = int
@@ -49,18 +48,32 @@ class EventLog:
     def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
         # TODO consider preventing anything from running off of this event loop?
         self._event_loop = event_loop
+
         # the timestamp that is assigned to the next appended event
         self._next_timestamp: Timestamp = 0
+
         # the timestamp up to which all subscribers have been called. I.e. subscribers
         # have already been called for all events with timestamp <
         # _subscribers_called_timestamp
         self._subscribers_called_timestamp: Timestamp = 0
+
+        # notify our call subscribers loop that events have been posted to the event log
+        self._notify_call_subscribers: Optional[asyncio.Event] = None
+
+        # we have to construct _notify_call_subscribers on the event loop
+        def construct_notify_call_subscribers():
+            self._notify_call_subscribers = asyncio.Event()
+
+        self._event_loop.call_soon_threadsafe(construct_notify_call_subscribers)
+
         # the log of events, in increasing timestamp order
         self._event_log: List[Event] = []
 
         self._topic_name_to_events: Dict[str, List[Event]] = {}
+
         # subscribers to a specific topic
         self._topic_subscribers: Dict[str, Set[Subscriber]] = {}
+
         # subscribers to all events
         self._universal_subscribers: Set[Subscriber] = set()
 
@@ -82,14 +95,12 @@ class EventLog:
         self._event_log.append(event)
         self._topic_name_to_events.setdefault(topic_name, []).append(event)
 
-        # Schedule a call to subscribers--the next time there's "time" on the asyncio
-        # event_loop, call_subscribers will get called. Importantly, there's no
-        # guarantee that call_subscribers will get called once per event--the event_loop
-        # might not "have time" until multiple events have been posted first, and then
-        # multiple call_subscribers will run (the subsequent ones will presumably do
-        # nothing.)
+        # Tell the call_subscribers_loop to wake up. Importantly, there's no guarantee
+        # that the call_subscribers_loop will happen once per event--the loop might get
+        # "backed up" until multiple events have been posted first, and then multiple
+        # events will get processed in the same iteration of the loop.
         self._event_loop.call_soon_threadsafe(
-            lambda: self._event_loop.create_task(self.call_subscribers())
+            lambda: self._notify_call_subscribers.set()
         )
 
     def events(
@@ -166,40 +177,46 @@ class EventLog:
     def all_subscribers_called(self) -> bool:
         return self._subscribers_called_timestamp >= self._next_timestamp
 
-    async def call_subscribers(self) -> Timestamp:
+    async def call_subscribers_loop(self) -> None:
         """
         Call all subscribers for any outstanding events. See subscribe for details on
         semantics.
         """
-        try:
-            if asyncio.get_running_loop() != self._event_loop:
-                raise ValueError(
-                    "EventLog.call_subscribers was called from a different _event_loop "
-                    "than expected"
-                )
 
-            # get the list of subscribers that need to be called
-            subscribers: Set[Subscriber] = self._universal_subscribers.copy()
-            low_timestamp = self._subscribers_called_timestamp
-            high_timestamp = self._next_timestamp
-            for event in self.events(low_timestamp, high_timestamp):
-                subscribers.update(self._topic_subscribers.get(event.topic_name, set()))
-
-            # call the subscribers
-            # TODO I think ideal behavior here would be to retry failures 3 times or
-            #  something before giving up on a subscriber. Current behavior is very
-            #  bad--failure in one subscriber means we will never progress. I think the
-            #  outer try/except is probably not necessary.
-            await asyncio.gather(
-                *(
-                    subscriber(low_timestamp, high_timestamp)
-                    for subscriber in subscribers
-                )
+        if asyncio.get_running_loop() != self._event_loop:
+            raise ValueError(
+                "EventLog.call_subscribers_loop was called from a different _event_loop"
+                " than expected"
             )
 
-            self._subscribers_called_timestamp = high_timestamp
-            return self._subscribers_called_timestamp
-        except Exception:
-            # TODO this function isn't awaited, so exceptions need to make it back into
-            #  the scheduler somehow
-            traceback.print_exc()
+        while True:
+            await self._notify_call_subscribers.wait()
+            self._notify_call_subscribers.clear()
+
+            try:
+                # get the list of subscribers that need to be called
+                subscribers: Set[Subscriber] = self._universal_subscribers.copy()
+                low_timestamp = self._subscribers_called_timestamp
+                high_timestamp = self._next_timestamp
+                for event in self.events(low_timestamp, high_timestamp):
+                    subscribers.update(
+                        self._topic_subscribers.get(event.topic_name, set())
+                    )
+
+                # call the subscribers
+                # TODO I think ideal behavior here would be to retry failures 3 times or
+                #  something before giving up on a subscriber. Current behavior is very
+                #  bad--failure in one subscriber means we will never progress. I think
+                #  the outer try/except is probably not necessary.
+                await asyncio.gather(
+                    *(
+                        subscriber(low_timestamp, high_timestamp)
+                        for subscriber in subscribers
+                    )
+                )
+
+                self._subscribers_called_timestamp = high_timestamp
+            except Exception:
+                # TODO this function isn't awaited, so exceptions need to make it back into
+                #  the scheduler somehow
+                traceback.print_exc()

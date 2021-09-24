@@ -44,10 +44,14 @@ def test_events_and_state() -> None:
 
 def test_subscribers() -> None:
     loop = asyncio.new_event_loop()
-    threading.Thread(target=lambda: loop.run_forever(), daemon=True).start()
 
     try:
         log = EventLog(loop)
+        threading.Thread(
+            target=lambda: loop.run_until_complete(log.call_subscribers_loop()),
+            daemon=True,
+        ).start()
+
         called = False
 
         async def call(low: Timestamp, high: Timestamp) -> None:

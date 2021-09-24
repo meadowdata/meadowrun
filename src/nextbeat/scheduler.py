@@ -125,6 +125,7 @@ class Scheduler:
                     low_timestamp: Timestamp,
                     high_timestamp: Timestamp,
                     # to avoid capturing loop variables
+                    job: Job = job,
                     trigger: Trigger = trigger,
                     action: Action = action,
                 ) -> None:
@@ -232,6 +233,7 @@ class Scheduler:
     def get_main_loop_tasks(self) -> Iterable[Awaitable]:
         yield self._event_loop.create_task(self._poll_job_runners_loop())
         yield self._event_loop.create_task(self.time.main_loop())
+        yield self._event_loop.create_task(self._event_log.call_subscribers_loop())
 
     def main_loop(self) -> threading.Thread:
         """

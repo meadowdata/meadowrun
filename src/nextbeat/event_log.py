@@ -75,7 +75,7 @@ class EventLog:
     def append_event(self, topic_name: str, payload: T) -> None:
         """Append a new state change to the event log, at a new and latest time"""
 
-        print(f"append_event {topic_name} {payload}")
+        print(f"append_event {self._next_timestamp} {topic_name} {payload}")
 
         event = Event(self._next_timestamp, topic_name, payload)
         self._next_timestamp = self._next_timestamp + 1
@@ -199,7 +199,7 @@ class EventLog:
 
             self._subscribers_called_timestamp = high_timestamp
             return self._subscribers_called_timestamp
-        except Exception as e:
+        except Exception:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow
             traceback.print_exc()

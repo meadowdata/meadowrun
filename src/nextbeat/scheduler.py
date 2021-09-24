@@ -148,6 +148,11 @@ class Scheduler:
                 )
         self._create_job_subscriptions_queue.clear()
 
+    def add_jobs(self, jobs: Iterable[Job]) -> None:
+        for job in jobs:
+            self.add_job(job)
+        self.create_job_subscriptions()
+
     async def _process_effects(
         self, low_timestamp: Timestamp, high_timestamp: Timestamp
     ) -> None:
@@ -163,11 +168,6 @@ class Scheduler:
                 if event.payload.effects.add_jobs:
                     self.add_jobs(event.payload.effects.add_jobs)
                     self.create_job_subscriptions()
-
-    def add_jobs(self, jobs: Iterable[Job]) -> None:
-        for job in jobs:
-            self.add_job(job)
-        self.create_job_subscriptions()
 
     def manual_run(self, job_name: str) -> None:
         """
@@ -199,7 +199,7 @@ class Scheduler:
                 self._event_log,
                 self._event_log.curr_timestamp,
             )
-        except Exception as e:
+        except Exception:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow
             traceback.print_exc()

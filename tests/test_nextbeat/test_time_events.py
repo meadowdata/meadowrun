@@ -123,8 +123,8 @@ def test_time_event_publisher_point_in_time():
 
         dts = [
             now.astimezone(tz_ny) - _TIME_INCREMENT,
-            now.astimezone(tz_la) + 2 * _TIME_INCREMENT,
-            now.astimezone(tz_ldn) + 2 * _TIME_INCREMENT,
+            now.astimezone(tz_la) + 1.5 * _TIME_INCREMENT,
+            now.astimezone(tz_ldn) + 1.5 * _TIME_INCREMENT,
             now.astimezone(tz_ldn) + 3 * _TIME_INCREMENT,
         ]
 
@@ -136,12 +136,14 @@ def test_time_event_publisher_point_in_time():
         # timezone
         dt_strings = [_dt_to_str(dt) for dt in dts]
 
+        t0 = time.time()
+
         time.sleep(_TIME_DELAY)
 
         assert 1 == len(event_log._event_log)
         assert dt_strings[0] == _dt_to_str(event_log._event_log[0].payload)
 
-        time.sleep(2 * _TIME_INCREMENT.total_seconds())
+        time.sleep(1.5 * _TIME_INCREMENT.total_seconds() + t0 - time.time())
 
         assert 3 == len(event_log._event_log)
         # make sure that 2 times with the same point in time but different timezones
@@ -151,7 +153,7 @@ def test_time_event_publisher_point_in_time():
             _dt_to_str(e.payload) for e in event_log._event_log
         )
 
-        time.sleep(_TIME_INCREMENT.total_seconds())
+        time.sleep(3 * _TIME_INCREMENT.total_seconds() + t0 - time.time())
 
         assert 4 == len(event_log._event_log)
         assert set(dt_strings) == set(

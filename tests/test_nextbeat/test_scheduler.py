@@ -22,6 +22,7 @@ import nextbeat.server.server_main
 import time
 
 import nextrun.server_main
+from nextbeat.time_event_publisher import PointInTime
 from nextbeat.topic import TriggerAction
 from nextrun.deployed_function import NextRunFunction
 
@@ -175,6 +176,22 @@ def test_simple_jobs_nextbeat_server() -> None:
                     ],
                     JobRunnerTypePredicate("nextrun"),
                 ),
+                Job(
+                    "T",
+                    LocalFunction(_run_func),
+                    [
+                        TriggerAction(
+                            Actions.run,
+                            [
+                                PointInTime(
+                                    nextbeat.time_event_publisher._utc_now()
+                                    + datetime.timedelta(seconds=1)
+                                )
+                            ],
+                        )
+                    ],
+                    JobRunnerTypePredicate("nextrun"),
+                ),
             ]
         )
 
@@ -229,6 +246,17 @@ def test_simple_jobs_nextbeat_server() -> None:
         ]
         assert "hello, there" == a_events[0].payload.result_value
         assert 4 == len(b_events)
+
+        # wait another second, which means that T should have automatically been
+        # triggered
+
+        time.sleep(1)
+
+        t_events = client.get_events(["T"])
+        assert 4 == len(t_events)
+        assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
+            e.payload.state for e in t_events
+        ]
 
 
 def test_triggers() -> None:
@@ -348,7 +376,7 @@ def test_time_topics_1():
                 [
                     TriggerAction(
                         Actions.run,
-                        [s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT)],
+                        [PointInTime(now - 3 * _TIME_INCREMENT)],
                     )
                 ],
             )
@@ -377,9 +405,9 @@ def test_time_topics_2():
                     TriggerAction(
                         Actions.run,
                         [
-                            s.time.point_in_time_trigger(now - 3 * _TIME_INCREMENT),
-                            s.time.point_in_time_trigger(now - 2 * _TIME_INCREMENT),
-                            s.time.point_in_time_trigger(now + 2 * _TIME_INCREMENT),
+                            PointInTime(now - 3 * _TIME_INCREMENT),
+                            PointInTime(now - 2 * _TIME_INCREMENT),
+                            PointInTime(now + 2 * _TIME_INCREMENT),
                         ],
                     )
                 ],

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import abc
 import asyncio
 import asyncio.events
 import datetime
@@ -12,6 +15,7 @@ from typing import (
     Optional,
     Union,
     Any,
+    Tuple,
 )
 import time
 import heapq
@@ -20,7 +24,7 @@ import pytz
 import pytz.tzinfo
 
 from nextbeat.event_log import Event
-from nextbeat.topic import EventFilter
+from nextbeat.topic import EventFilter, TopicEventFilter
 
 
 # We would ideally use pytz.BaseTzInfo but that doesn't have the .normalize method on it
@@ -47,32 +51,91 @@ def _timedelta_to_str(t: datetime.timedelta) -> str:
     return f"{int(hours)}:{int(minutes):02d}:{int(seconds):02d}{fractional_seconds_str}"
 
 
-@dataclass(frozen=True)
-class PointInTimeTrigger(EventFilter):
-    """See TimeEventPublisher.point_in_time_trigger"""
-
-    topic_name: str
+class TimeEventFilterPlaceholder(EventFilter):
+    """
+    When a user wants to use a time event filter, they just use a
+    TimeEventFilterPlaceholder in their job definition. Then,
+    Scheduler.create_job_subscriptions will call TimeEventFilterPlaceholder.create,
+    which will create a "real" EventFilter that the job can actually depend on. These
+    "extra steps" are necessary because often the job definition will be created in a
+    different process than the one that has the Scheduler and TimeEventPublisher.
+    There's also a small benefit that jobs that get created but never added won't result
+    in unnecessary time events being created. topic_names_to_subscribe and apply should
+    never be called if all of the machinery described here is working correctly.
+    """
 
     def topic_names_to_subscribe(self) -> Iterable[str]:
-        yield self.topic_name
+        raise ValueError(
+            "Cannot use a TimeEventFilterPlaceholder without calling create."
+        )
 
     def apply(self, event: Event) -> bool:
-        return True
+        raise ValueError(
+            "Cannot use a TimeEventFilterPlaceholder without calling create."
+        )
+
+    @abc.abstractmethod
+    def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
+        """
+        This should register this time event with the TimeEventPublisher and return a
+        "real" EventFilter
+        """
+        pass
 
 
 @dataclass(frozen=True)
-class TimeOfDayTrigger(EventFilter):
-    """See TimeEventPublisher.time_of_day_trigger"""
+class PointInTime(TimeEventFilterPlaceholder):
+    """
+    Creates a time event that will be triggered at the specified point in time.
 
-    topic_name: str
+    dt must have tzinfo set to a timezone created by pytz.
+
+    The original datetime (including timezone information) will be the event payload.
+    """
+
+    dt: datetime.datetime
+
+    def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
+        return time_event_publisher.create_point_in_time(self.dt)
+
+
+@dataclass(frozen=True)
+class TimeOfDay(TimeEventFilterPlaceholder):
+    """
+    Creates a time event that will be triggered at local_time_of_day in time_zone every
+    day.
+
+    For local_time_of_day, we use datetime.timedelta rather than datetime.time because
+    we want to be able to represent negative times (i.e. the previous day) and times
+    >=24 hours (the next day or beyond).
+
+    local_time_of_day must have a 1 second resolution (i.e. any timedeltas with
+    fractional seconds will raise an exception). This is to avoid performance problems
+    TODO is that really necessary?
+
+    local_time_of_day is actually slightly misnamed--it reflects the timedelta from
+    midnight of each day, rather than time of day. This distinction matters because of
+    daylight savings time. E.g. on 7 Nov 2021 in America/New_York, if local_time_of_day
+    is hours=10, the actual local time at which that occurrence will happen is 9am. This
+    seems like better behavior than scheduling that occurrence at 10am, because that
+    would mean that local_time_of_day = 2hr and local_time_of_day = 1hr, those
+    occurrences would happen at the same time! This weirdness will happen with any
+    date/local_time_of_day combinations that cross a daylight savings time boundary.
+    I.e. it seems more important to maintain relative timing between two
+    local_time_of_day, so that for X hrs and Y hrs local_time_of_days, those events
+    always happen X-Y hrs apart.
+
+    time_zone must be created by pytz.timezone
+
+    The original local_time_of_day and time_zone will be included in the event payload
+    (TimeOfDayPayload).
+    """
+
     local_time_of_day: datetime.timedelta
     time_zone: PytzTzInfo
 
-    def topic_names_to_subscribe(self) -> Iterable[str]:
-        yield self.topic_name
-
-    def apply(self, event: Event) -> bool:
-        return True
+    def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
+        return time_event_publisher.create_time_of_day(self)
 
 
 @dataclass(frozen=True)
@@ -90,17 +153,27 @@ class TimeOfDayPayload:
 
 
 @dataclass(frozen=True)
-class PeriodicTrigger(EventFilter):
-    """See TimeEventPublisher.periodic_trigger"""
+class Periodic(TimeEventFilterPlaceholder):
+    """
+    Creates a time event that will be triggered every period. period must be longer than
+    1 second to avoid performance problems
+    TODO even a 1s period can cause performance problems
 
-    topic_name: str
+    Note: A period of 24 hours is not recommended--consider time_of_day_trigger instead
+    (even though it is usually not exactly equivalent because of daylight savings).
+
+    Periodic triggers will get called as if they first got called at the Unix epoch
+    (1970 Jan 1 midnight) in the UTC timezone. This should coincide with what we
+    intuitively think of as scheduling periodic triggers "from the top of the hour" for
+    periods that divide evenly into hours. For weird periods (e.g. 61s), the behavior
+    will be less intuitive. As a result, if you create a periodic trigger for e.g. 48
+    hours, you may need to wait up to 48 hours for it to get called.
+    """
+
     period: datetime.timedelta
 
-    def topic_names_to_subscribe(self) -> Iterable[str]:
-        yield self.topic_name
-
-    def apply(self, event: Event) -> bool:
-        return True
+    def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
+        return time_event_publisher.create_periodic(self)
 
 
 _SCHEDULE_RECURRING_LIMIT = datetime.timedelta(days=5)
@@ -135,10 +208,13 @@ class TimeEventPublisher:
 
         self._call_at: _CallAt = _CallAt(event_loop)
 
-        # keep a cache so that we don't create duplicate topics/events/triggers
-        self._all_periodic_triggers: Dict[str, PeriodicTrigger] = {}
-        self._all_time_of_day_triggers: Dict[str, TimeOfDayTrigger] = {}
-        self._all_point_in_time_events: Dict[str, PointInTimeTrigger] = {}
+        # Keep a cache so that we don't create duplicate topics/events/triggers.
+        self._all_periodic: Dict[str, Tuple[TopicEventFilter, Periodic]] = {}
+        self._all_time_of_day: Dict[str, Tuple[TopicEventFilter, TimeOfDay]] = {}
+        # point_in_time is slightly different from the others because we don't need to
+        # keep track of the original PointInTime object, because once we schedule it
+        # once we're done.
+        self._all_point_in_time: Dict[str, EventFilter] = {}
 
         # see _schedule_recurring
         self._schedule_recurring_up_to: Optional[datetime.datetime] = None
@@ -155,15 +231,8 @@ class TimeEventPublisher:
         # are trying to schedule new callbacks for recurring triggers
         self._schedule_recurring_lock: threading.RLock = threading.RLock()
 
-    def point_in_time_trigger(self, dt: datetime.datetime) -> PointInTimeTrigger:
-        """
-        Creates a trigger that will be triggered at the specified point in time.
-
-        dt must have tzinfo set to a timezone created by pytz.
-
-        The original datetime (including timezone information) will be the event
-        payload.
-        """
+    def create_point_in_time(self, dt: datetime.datetime) -> EventFilter:
+        """See PointInTime docstring."""
 
         # TODO consider calling `dt = dt.tzinfo.normalize(dt)` in case the user does not
         #  know how to use pytz timezones correctly...
@@ -187,59 +256,44 @@ class TimeEventPublisher:
             raise ValueError("datetime must have a pytz timezone")
 
         name = time_zone.zone + "/" + dt.strftime("%Y-%m-%d_%H:%M:%S.%f%z")
-        if name in self._all_point_in_time_events:
-            trigger = self._all_point_in_time_events[name]
+        if name in self._all_point_in_time:
+            event_filter = self._all_point_in_time[name]
         else:
-            trigger = PointInTimeTrigger("time/" + name)
-            # TODO it isn't really right to schedule this trigger here--it should really
-            #  get created when a job containing this trigger gets added to the
-            #  Scheduler.
-            self._call_at.call_at(dt, lambda: self._append_event("time/" + name, dt))
-            self._all_point_in_time_events[name] = trigger
+            full_name = "time/point/" + name
+            event_filter = TopicEventFilter(full_name)
+            self._call_at.call_at(dt, lambda: self._append_event(full_name, dt))
+            self._all_point_in_time[name] = event_filter
 
-        return trigger
+        return event_filter
 
-    def periodic_trigger(self, period: datetime.timedelta) -> PeriodicTrigger:
-        """
-        Creates a trigger that will be triggered every period. period must be longer
-        than 1 second to avoid performance problems
-        TODO even a 1s period can cause performance problems
+    def create_periodic(self, periodic: Periodic) -> EventFilter:
+        """See Periodic docstring"""
 
-        Note: A period of 24 hours is not recommended--consider time_of_day_trigger
-        instead (even though it is usually not exactly equivalent because of daylight
-        savings).
-
-        Periodic triggers will get called as if they first got called at the Unix epoch
-        (1970 Jan 1 midnight) in the UTC timezone. This should coincide with what we
-        intuitively think of as scheduling periodic triggers "from the top of the hour"
-        for periods that divide evenly into hours. For weird periods (e.g. 61s), the
-        behavior will be less intuitive. As a result, if you create a periodic trigger
-        for e.g. 48 hours, you may need to wait up to 48 hours for it to get called.
-        """
-        if period < datetime.timedelta(seconds=1):
+        if periodic.period < datetime.timedelta(seconds=1):
             raise ValueError("Period must be longer than 1s")
 
-        name = _timedelta_to_str(period)
+        name = _timedelta_to_str(periodic.period)
 
         with self._schedule_recurring_lock:
-            if name in self._all_periodic_triggers:
-                trigger = self._all_periodic_triggers[name]
+            if name in self._all_periodic:
+                event_filter, _ = self._all_periodic[name]
             else:
-                trigger = PeriodicTrigger("time/" + name, period)
-                self._all_periodic_triggers[name] = trigger
+                event_filter = TopicEventFilter("time/periodic/" + name)
+                self._all_periodic[name] = (event_filter, periodic)
                 if self._schedule_recurring_up_to is not None:
                     now = _utc_now()
-                    # TODO it isn't really right to schedule this trigger here--it
-                    #  should really get created when a job containing this trigger gets
-                    #  added to the Scheduler.
-                    self._schedule_periodic_trigger(
-                        trigger, now, self._schedule_recurring_up_to
+                    self._schedule_periodic(
+                        event_filter.topic_name,
+                        periodic,
+                        now,
+                        self._schedule_recurring_up_to,
                     )
-        return trigger
+        return event_filter
 
-    def _schedule_periodic_trigger(
+    def _schedule_periodic(
         self,
-        periodic_trigger: PeriodicTrigger,
+        topic_name: str,
+        periodic: Periodic,
         from_dt: datetime.datetime,
         to_dt: datetime.datetime,
     ) -> None:
@@ -248,7 +302,7 @@ class TimeEventPublisher:
         # see comment under periodic_trigger about how periodic triggers get scheduled
         from_ts = from_dt.timestamp()
         to_ts = to_dt.timestamp()
-        period_seconds = periodic_trigger.period.total_seconds()
+        period_seconds = periodic.period.total_seconds()
         modulo = from_ts % period_seconds
         if modulo == 0:
             occurrence_ts = from_ts
@@ -263,56 +317,24 @@ class TimeEventPublisher:
             self._call_at.call_at(
                 occurrence_dt,
                 lambda occurrence_dt=occurrence_dt: self._append_event(
-                    periodic_trigger.topic_name, occurrence_dt
+                    topic_name, occurrence_dt
                 ),
             )
 
             occurrence_ts += period_seconds
 
-    def time_of_day_trigger(
-        self, local_time_of_day: datetime.timedelta, time_zone: PytzTzInfo
-    ) -> TimeOfDayTrigger:
-        """
-        Creates a trigger that will be triggered at local_time_of_day in time_zone every
-        day.
-
-        For local_time_of_day, we use datetime.timedelta rather than datetime.time
-        because we want to be able to represent negative times (i.e. the previous day)
-        and times >=24 hours (the next day or beyond).
-
-        local_time_of_day must have a 1 second resolution (i.e. any timedeltas with
-        fractional seconds will raise an exception). This is to avoid performance
-        problems
-        TODO is that really necessary?
-
-        local_time_of_day is actually slightly misnamed--it reflects the timedelta from
-        midnight of each day, rather than time of day. This distinction matters because
-        of daylight savings time. E.g. on 7 Nov 2021 in America/New_York, if
-        local_time_of_day is hours=10, the actual local time at which that occurrence
-        will happen is 9am. This seems like better behavior than scheduling that
-        occurrence at 10am, because that would mean that local_time_of_day = 2hr and
-        local_time_of_day = 1hr, those occurrences would happen at the same time! This
-        weirdness will happen with any date/local_time_of_day combinations that cross a
-        daylight savings time boundary. I.e. it seems more important to maintain
-        relative timing between two local_time_of_day, so that for X hrs and Y hrs
-        local_time_of_days, those events always happen X-Y hrs apart.
-
-        time_zone must be created by pytz.timezone
-
-        The original local_time_of_day and time_zone will be included in the event
-        payload (TimeOfDayPayload).
-        """
+    def create_time_of_day(self, time_of_day: TimeOfDay) -> EventFilter:
         if (
-            local_time_of_day.microseconds != 0
-            or getattr(local_time_of_day, "nanoseconds", 0) != 0
+            time_of_day.local_time_of_day.microseconds != 0
+            or getattr(time_of_day.local_time_of_day, "nanoseconds", 0) != 0
         ):
             raise ValueError(
                 "time_of_day_triggers does not support sub-second times of day"
             )
 
-        if not isinstance(time_zone, pytz.tzinfo.StaticTzInfo) and not isinstance(
-            time_zone, pytz.tzinfo.DstTzInfo
-        ):
+        if not isinstance(
+            time_of_day.time_zone, pytz.tzinfo.StaticTzInfo
+        ) and not isinstance(time_of_day.time_zone, pytz.tzinfo.DstTzInfo):
             # We're going to rely on the fact that a pytz timezone's str representation
             # is unique, so make sure that we have a pytz timezone
             raise ValueError("time_zone must be constructed via pytz.timezone")
@@ -325,28 +347,31 @@ class TimeEventPublisher:
         # rid of daylight savings. pytz unfortunately does not have an easy way of
         # resolving aliases, so e.g. US/Eastern and America/New_York will be treated as
         # two different timezones when they are actually exactly the same.
-        name = f"{time_zone.zone}/{_timedelta_to_str(local_time_of_day)}"
+        name = f"{time_of_day.time_zone.zone}/" + _timedelta_to_str(
+            time_of_day.local_time_of_day
+        )
 
         with self._schedule_recurring_lock:
-            if name in self._all_time_of_day_triggers:
-                trigger = self._all_time_of_day_triggers[name]
+            if name in self._all_time_of_day:
+                event_filter, _ = self._all_time_of_day[name]
             else:
-                trigger = TimeOfDayTrigger("time/" + name, local_time_of_day, time_zone)
-                self._all_time_of_day_triggers[name] = trigger
+                event_filter = TopicEventFilter("time/of_day/" + name)
+                self._all_time_of_day[name] = (event_filter, time_of_day)
                 if self._schedule_recurring_up_to is not None:
                     now = _utc_now()
-                    # TODO it isn't really right to schedule this trigger here--it
-                    #  should really get created when a job containing this trigger gets
-                    #  added to the Scheduler.
-                    self._schedule_time_of_day_trigger(
-                        trigger, now, self._schedule_recurring_up_to
+                    self._schedule_time_of_day(
+                        event_filter.topic_name,
+                        time_of_day,
+                        now,
+                        self._schedule_recurring_up_to,
                     )
 
-        return trigger
+        return event_filter
 
-    def _schedule_time_of_day_trigger(
+    def _schedule_time_of_day(
         self,
-        time_of_day_trigger: TimeOfDayTrigger,
+        topic_name: str,
+        time_of_day: TimeOfDay,
         from_dt: datetime.datetime,
         to_dt: datetime.datetime,
     ) -> None:
@@ -358,17 +383,16 @@ class TimeEventPublisher:
         # we want to get the first date in the specified time_zone that could be
         # relevant--keep in mind that local_time_of_day can be negative and >24 hours
         date = (
-            from_dt.astimezone(time_of_day_trigger.time_zone)
-            - time_of_day_trigger.local_time_of_day
+            from_dt.astimezone(time_of_day.time_zone) - time_of_day.local_time_of_day
         ).date()
 
         # see details in time_of_day_trigger about crossing DST boundaries
         def apply_to_date(d: datetime.date) -> datetime.datetime:
-            return time_of_day_trigger.time_zone.normalize(
-                time_of_day_trigger.time_zone.localize(
+            return time_of_day.time_zone.normalize(
+                time_of_day.time_zone.localize(
                     datetime.datetime.combine(d, datetime.time())
                 )
-                + time_of_day_trigger.local_time_of_day
+                + time_of_day.local_time_of_day
             )
 
         occurrence = apply_to_date(date)
@@ -380,10 +404,10 @@ class TimeEventPublisher:
                     occurrence,
                     # capture the value of date and occurrence
                     lambda date=date, occurrence=occurrence: self._append_event(
-                        time_of_day_trigger.topic_name,
+                        topic_name,
                         TimeOfDayPayload(
-                            time_of_day_trigger.local_time_of_day,
-                            time_of_day_trigger.time_zone,
+                            time_of_day.local_time_of_day,
+                            time_of_day.time_zone,
                             date,
                             occurrence,
                         ),
@@ -426,16 +450,18 @@ class TimeEventPublisher:
             # The most we ever schedule is e.g. 5 days in the future
             next_schedule_recurring_up_to = now + self._schedule_recurring_limit
 
-            for time_of_day_trigger in self._all_time_of_day_triggers.values():
-                self._schedule_time_of_day_trigger(
-                    time_of_day_trigger,
+            for event_filter, time_of_day in self._all_time_of_day.values():
+                self._schedule_time_of_day(
+                    event_filter.topic_name,
+                    time_of_day,
                     prev_schedule_recurring_up_to,
                     next_schedule_recurring_up_to,
                 )
 
-            for periodic_trigger in self._all_periodic_triggers.values():
-                self._schedule_periodic_trigger(
-                    periodic_trigger,
+            for event_filter, periodic in self._all_periodic.values():
+                self._schedule_periodic(
+                    event_filter.topic_name,
+                    periodic,
                     prev_schedule_recurring_up_to,
                     next_schedule_recurring_up_to,
                 )

@@ -16,6 +16,8 @@ from nextbeat.time_event_publisher import (
     TimeOfDayPayload,
     _timedelta_to_str,
     PytzTzInfo,
+    Periodic,
+    TimeOfDay,
 )
 import nextbeat.event_log
 
@@ -44,21 +46,21 @@ def test_call_at():
     ).start()
 
     try:
-        p.point_in_time_trigger(now)  # called
-        p.point_in_time_trigger(now - _TIME_INCREMENT)  # called
-        p.point_in_time_trigger(now + 3 * _TIME_INCREMENT)  # not called
+        p.create_point_in_time(now)  # called
+        p.create_point_in_time(now - _TIME_INCREMENT)  # called
+        p.create_point_in_time(now + 3 * _TIME_INCREMENT)  # not called
 
         time.sleep(_TIME_DELAY)
         assert len(event_log._event_log) == 2
 
         now = pytz.utc.localize(datetime.datetime.utcnow())
-        p.point_in_time_trigger(now)  # called
+        p.create_point_in_time(now)  # called
 
         time.sleep(_TIME_DELAY)
         assert len(event_log._event_log) == 3
 
-        p.point_in_time_trigger(now + 3 * _TIME_INCREMENT)  # not called
-        p.point_in_time_trigger(now - _TIME_INCREMENT)  # called
+        p.create_point_in_time(now + 3 * _TIME_INCREMENT)  # not called
+        p.create_point_in_time(now - _TIME_INCREMENT)  # called
 
         time.sleep(_TIME_DELAY)
 
@@ -76,9 +78,9 @@ def test_call_at_callbacks_before_running():
     p = TimeEventPublisher(event_loop, event_log.append_event)
     now = pytz.utc.localize(datetime.datetime.utcnow())
 
-    p.point_in_time_trigger(now)  # called
-    p.point_in_time_trigger(now - _TIME_INCREMENT)  # called
-    p.point_in_time_trigger(now + _TIME_INCREMENT)  # not called
+    p.create_point_in_time(now)  # called
+    p.create_point_in_time(now - _TIME_INCREMENT)  # called
+    p.create_point_in_time(now + _TIME_INCREMENT)  # not called
 
     assert len(event_log._event_log) == 0
 
@@ -129,7 +131,7 @@ def test_time_event_publisher_point_in_time():
         ]
 
         for dt in dts:
-            p.point_in_time_trigger(dt)
+            p.create_point_in_time(dt)
 
         # It's important to compare the results in string format because we care about
         # what timezone a datetime is in, and datetime equality does not care about the
@@ -195,9 +197,9 @@ def test_time_event_publisher_periodic():
         time.sleep(6 - time.time() % 6 + _TIME_DELAY)
         t0 = time.time()
 
-        p.periodic_trigger(datetime.timedelta(seconds=1))
-        p.periodic_trigger(datetime.timedelta(seconds=2))
-        p.periodic_trigger(datetime.timedelta(seconds=3))
+        p.create_periodic(Periodic(datetime.timedelta(seconds=1)))
+        p.create_periodic(Periodic(datetime.timedelta(seconds=2)))
+        p.create_periodic(Periodic(datetime.timedelta(seconds=3)))
 
         assert 0 == len(event_log._event_log)
         # these are effectively sleep(1), but this reduces the likelihood that we go out
@@ -324,7 +326,7 @@ def _test_time_event_publisher_time_of_day():
             time_zone: PytzTzInfo,
         ):
             time_of_day = now_local - date_dt_local + time_increment
-            p.time_of_day_trigger(time_of_day, time_zone)
+            p.create_time_of_day(TimeOfDay(time_of_day, time_zone))
             expected_payloads.append(
                 (
                     _timedelta_to_str(time_of_day),
@@ -335,12 +337,16 @@ def _test_time_event_publisher_time_of_day():
             )
 
         # not called
-        p.time_of_day_trigger(now_hi - today_dt_hi - 3 * _TIME_INCREMENT, tz_hi)
-        p.time_of_day_trigger(now_nz - today_dt_nz - 3 * _TIME_INCREMENT, tz_nz)
+        p.create_time_of_day(
+            TimeOfDay(now_hi - today_dt_hi - 3 * _TIME_INCREMENT, tz_hi)
+        )
+        p.create_time_of_day(
+            TimeOfDay(now_nz - today_dt_nz - 3 * _TIME_INCREMENT, tz_nz)
+        )
 
         add_trigger_and_payload(now_hi, today_dt_hi, _TIME_INCREMENT, tz_hi)
         # duplicate should be ignored
-        p.time_of_day_trigger(now_hi - today_dt_hi + _TIME_INCREMENT, tz_hi)
+        p.create_time_of_day(TimeOfDay(now_hi - today_dt_hi + _TIME_INCREMENT, tz_hi))
         add_trigger_and_payload(now_hi, yesterday_dt_hi, _TIME_INCREMENT, tz_hi)
         add_trigger_and_payload(now_nz, tomorrow_dt_nz, _TIME_INCREMENT, tz_nz)
 

@@ -69,6 +69,19 @@ class EventFilter(ABC):
         pass
 
 
+@dataclass(frozen=True)
+class TopicEventFilter(EventFilter):
+    """Triggers on any event on the specified topic"""
+
+    topic_name: str
+
+    def topic_names_to_subscribe(self) -> Iterable[str]:
+        yield self.topic_name
+
+    def apply(self, event: Event) -> bool:
+        return True
+
+
 class StatePredicate(ABC):
     """See TriggerAction docstring"""
 

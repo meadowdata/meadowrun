@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Iterable, Optional, Callable, Awaitable
 from nextbeat.event_log import Event, EventLog, Timestamp
 from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
-from nextbeat.time_event_publisher import TimeEventPublisher
+from nextbeat.time_event_publisher import TimeEventPublisher, TimeEventFilterPlaceholder
 from nextbeat.topic import Action, Topic, StatePredicate, EventFilter
 
 
@@ -121,6 +121,10 @@ class Scheduler:
         for job in self._create_job_subscriptions_queue:
             for trigger_action in job.trigger_actions:
                 for event_filter in trigger_action.wake_on:
+                    # this registers time events with our TimeEventPublisher so that it
+                    # knows we need to trigger at those times.
+                    if isinstance(event_filter, TimeEventFilterPlaceholder):
+                        event_filter = event_filter.create(self.time)
 
                     async def subscriber(
                         low_timestamp: Timestamp,

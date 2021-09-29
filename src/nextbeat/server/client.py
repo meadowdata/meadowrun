@@ -5,6 +5,7 @@ import grpc
 import grpc.aio
 
 from nextbeat.event_log import Event
+from nextbeat.topic_names import TopicName
 from nextbeat.jobs import Job
 from nextbeat.server.config import DEFAULT_ADDRESS
 from nextbeat.server.nextbeat_pb2 import (
@@ -37,7 +38,7 @@ class NextBeatClientAsync:
             AddJobsRequest(pickled_job_definitions=pickle.dumps(jobs))
         )
 
-    async def get_events(self, topic_names: Optional[List[str]]) -> List[Event]:
+    async def get_events(self, topic_names: Optional[List[TopicName]]) -> List[Event]:
         """
         Gets events from the nextbeat server. If topic_names is None/empty, then all
         events will be returned. If topic_names has values, then events will be filtered
@@ -48,7 +49,9 @@ class NextBeatClientAsync:
         """
         return pickle.loads(
             (
-                await self._stub.get_events(EventsRequest(topic_names=topic_names))
+                await self._stub.get_events(
+                    EventsRequest(pickled_topic_names=pickle.dumps(topic_names))
+                )
             ).pickled_events
         )
 
@@ -65,13 +68,15 @@ class NextBeatClientAsync:
             RegisterJobRunnerRequest(job_runner_type=job_runner_type, address=address)
         )
 
-    async def manual_run(self, job_name: str) -> None:
+    async def manual_run(self, job_name: TopicName) -> None:
         """
         Execute the Run Action on the specified job.
 
         TODO error handling, return type
         """
-        await self._stub.manual_run(ManualRunRequest(job_name))
+        await self._stub.manual_run(
+            ManualRunRequest(pickled_job_name=pickle.dumps(job_name))
+        )
 
     async def __aenter__(self):
         await self._channel.__aenter__()
@@ -93,14 +98,11 @@ class NextBeatClientSync:
     def add_jobs(self, jobs: List[Job]) -> None:
         self._stub.add_jobs(AddJobsRequest(pickled_job_definitions=pickle.dumps(jobs)))
 
-    def get_events(self, topic_names: Optional[List[str]]) -> List[Event]:
-        if isinstance(topic_names, str):
-            raise ValueError(
-                "topic_names must be a list of strings not a single string"
-            )
-
+    def get_events(self, topic_names: Optional[List[TopicName]]) -> List[Event]:
         return pickle.loads(
-            self._stub.get_events(EventsRequest(topic_names=topic_names)).pickled_events
+            self._stub.get_events(
+                EventsRequest(pickled_topic_names=pickle.dumps(topic_names))
+            ).pickled_events
         )
 
     def register_job_runner(self, job_runner_type: str, address: str) -> None:
@@ -108,8 +110,8 @@ class NextBeatClientSync:
             RegisterJobRunnerRequest(job_runner_type=job_runner_type, address=address)
         )
 
-    def manual_run(self, job_name: str) -> None:
-        self._stub.manual_run(ManualRunRequest(job_name=job_name))
+    def manual_run(self, job_name: TopicName) -> None:
+        self._stub.manual_run(ManualRunRequest(pickled_job_name=pickle.dumps(job_name)))
 
     def __enter__(self):
         self._channel.__enter__()

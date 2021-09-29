@@ -37,18 +37,16 @@ class NextBeatServerHandler(NextBeatServerServicer):
     async def get_events(
         self, request: EventsRequest, context: grpc.aio.ServicerContext
     ) -> Events:
-        if len(request.topic_names) == 0:
+        topic_names = pickle.loads(request.pickled_topic_names)
+
+        if len(topic_names) == 0:
             return Events(
                 pickled_events=pickle.dumps(self._scheduler._event_log._event_log)
             )
         else:
             return Events(
                 pickled_events=pickle.dumps(
-                    [
-                        e
-                        for t in request.topic_names
-                        for e in self._scheduler.events_of(t)
-                    ]
+                    [e for t in topic_names for e in self._scheduler.events_of(t)]
                 )
             )
 
@@ -73,7 +71,9 @@ class NextBeatServerHandler(NextBeatServerServicer):
     async def manual_run(
         self, request: ManualRunRequest, context: grpc.aio.ServicerContext
     ) -> ManualRunResponse:
-        await self._scheduler.manual_run_on_event_loop(request.job_name)
+        await self._scheduler.manual_run_on_event_loop(
+            pickle.loads(request.pickled_job_name)
+        )
         return ManualRunResponse()
 
 

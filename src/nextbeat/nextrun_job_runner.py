@@ -3,6 +3,7 @@ import dataclasses
 from typing import Iterable
 
 from nextbeat.event_log import Event, EventLog
+from nextbeat.topic_names import TopicName
 from nextbeat.jobs import (
     RaisedException,
     JobPayload,
@@ -30,7 +31,7 @@ class NextRunJobRunner(JobRunner):
 
     async def _run_deployed_function(
         self,
-        job_name: str,
+        job_name: TopicName,
         run_request_id: str,
         deployed_function: NextRunDeployedFunction,
     ) -> None:
@@ -60,7 +61,10 @@ class NextRunJobRunner(JobRunner):
             raise ValueError(f"Did not expect ProcessStateEnum {result.state}")
 
     async def run(
-        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
+        self,
+        job_name: TopicName,
+        run_request_id: str,
+        job_runner_function: JobRunnerFunction,
     ) -> None:
         """
         Dispatches to _run_deployed_function which calls nextrun

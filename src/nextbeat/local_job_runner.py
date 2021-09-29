@@ -7,6 +7,7 @@ from typing import Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
 from nextbeat.event_log import Event, EventLog
+from nextbeat.topic_names import TopicName
 from nextbeat.jobs import JobPayload, JobRunner, LocalFunction, JobRunnerFunction
 
 
@@ -19,7 +20,10 @@ class LocalJobRunner(JobRunner):
         self._event_log = event_log
 
     async def run(
-        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
+        self,
+        job_name: TopicName,
+        run_request_id: str,
+        job_runner_function: JobRunnerFunction,
     ) -> None:
         if run_request_id in self._running:
             return

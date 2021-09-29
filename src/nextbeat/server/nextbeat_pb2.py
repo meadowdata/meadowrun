@@ -18,7 +18,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x1enextbeat/server/nextbeat.proto\x12\x08nextbeat"1\n\x0e\x41\x64\x64JobsRequest\x12\x1f\n\x17pickled_job_definitions\x18\x01 \x01(\x0c"!\n\x0f\x41\x64\x64JobsResponse\x12\x0e\n\x06status\x18\x01 \x01(\t"$\n\rEventsRequest\x12\x13\n\x0btopic_names\x18\x01 \x03(\t" \n\x06\x45vents\x12\x16\n\x0epickled_events\x18\x01 \x01(\x0c"D\n\x18RegisterJobRunnerRequest\x12\x17\n\x0fjob_runner_type\x18\x01 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t"\x1b\n\x19RegisterJobRunnerResponse"$\n\x10ManualRunRequest\x12\x10\n\x08job_name\x18\x01 \x01(\t"\x13\n\x11ManualRunResponse2\xb9\x02\n\x0eNextBeatServer\x12\x41\n\x08\x61\x64\x64_jobs\x12\x18.nextbeat.AddJobsRequest\x1a\x19.nextbeat.AddJobsResponse"\x00\x12\x39\n\nget_events\x12\x17.nextbeat.EventsRequest\x1a\x10.nextbeat.Events"\x00\x12`\n\x13register_job_runner\x12".nextbeat.RegisterJobRunnerRequest\x1a#.nextbeat.RegisterJobRunnerResponse"\x00\x12G\n\nmanual_run\x12\x1a.nextbeat.ManualRunRequest\x1a\x1b.nextbeat.ManualRunResponse"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x1enextbeat/server/nextbeat.proto\x12\x08nextbeat"1\n\x0e\x41\x64\x64JobsRequest\x12\x1f\n\x17pickled_job_definitions\x18\x01 \x01(\x0c"!\n\x0f\x41\x64\x64JobsResponse\x12\x0e\n\x06status\x18\x01 \x01(\t",\n\rEventsRequest\x12\x1b\n\x13pickled_topic_names\x18\x01 \x01(\x0c" \n\x06\x45vents\x12\x16\n\x0epickled_events\x18\x01 \x01(\x0c"D\n\x18RegisterJobRunnerRequest\x12\x17\n\x0fjob_runner_type\x18\x01 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t"\x1b\n\x19RegisterJobRunnerResponse",\n\x10ManualRunRequest\x12\x18\n\x10pickled_job_name\x18\x01 \x01(\x0c"\x13\n\x11ManualRunResponse2\xb9\x02\n\x0eNextBeatServer\x12\x41\n\x08\x61\x64\x64_jobs\x12\x18.nextbeat.AddJobsRequest\x1a\x19.nextbeat.AddJobsResponse"\x00\x12\x39\n\nget_events\x12\x17.nextbeat.EventsRequest\x1a\x10.nextbeat.Events"\x00\x12`\n\x13register_job_runner\x12".nextbeat.RegisterJobRunnerRequest\x1a#.nextbeat.RegisterJobRunnerResponse"\x00\x12G\n\nmanual_run\x12\x1a.nextbeat.ManualRunRequest\x1a\x1b.nextbeat.ManualRunResponse"\x00\x62\x06proto3',
 )
 
 
@@ -113,15 +113,15 @@ _EVENTSREQUEST = _descriptor.Descriptor(
     create_key=_descriptor._internal_create_key,
     fields=[
         _descriptor.FieldDescriptor(
-            name="topic_names",
-            full_name="nextbeat.EventsRequest.topic_names",
+            name="pickled_topic_names",
+            full_name="nextbeat.EventsRequest.pickled_topic_names",
             index=0,
             number=1,
-            type=9,
+            type=12,
             cpp_type=9,
-            label=3,
+            label=1,
             has_default_value=False,
-            default_value=[],
+            default_value=b"",
             message_type=None,
             enum_type=None,
             containing_type=None,
@@ -141,7 +141,7 @@ _EVENTSREQUEST = _descriptor.Descriptor(
     extension_ranges=[],
     oneofs=[],
     serialized_start=130,
-    serialized_end=166,
+    serialized_end=174,
 )
 
 
@@ -181,8 +181,8 @@ _EVENTS = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=168,
-    serialized_end=200,
+    serialized_start=176,
+    serialized_end=208,
 )
 
 
@@ -241,8 +241,8 @@ _REGISTERJOBRUNNERREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=202,
-    serialized_end=270,
+    serialized_start=210,
+    serialized_end=278,
 )
 
 
@@ -262,8 +262,8 @@ _REGISTERJOBRUNNERRESPONSE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=272,
-    serialized_end=299,
+    serialized_start=280,
+    serialized_end=307,
 )
 
 
@@ -276,15 +276,15 @@ _MANUALRUNREQUEST = _descriptor.Descriptor(
     create_key=_descriptor._internal_create_key,
     fields=[
         _descriptor.FieldDescriptor(
-            name="job_name",
-            full_name="nextbeat.ManualRunRequest.job_name",
+            name="pickled_job_name",
+            full_name="nextbeat.ManualRunRequest.pickled_job_name",
             index=0,
             number=1,
-            type=9,
+            type=12,
             cpp_type=9,
             label=1,
             has_default_value=False,
-            default_value=b"".decode("utf-8"),
+            default_value=b"",
             message_type=None,
             enum_type=None,
             containing_type=None,
@@ -303,8 +303,8 @@ _MANUALRUNREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=301,
-    serialized_end=337,
+    serialized_start=309,
+    serialized_end=353,
 )
 
 
@@ -324,8 +324,8 @@ _MANUALRUNRESPONSE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=339,
-    serialized_end=358,
+    serialized_start=355,
+    serialized_end=374,
 )
 
 DESCRIPTOR.message_types_by_name["AddJobsRequest"] = _ADDJOBSREQUEST
@@ -436,8 +436,8 @@ _NEXTBEATSERVER = _descriptor.ServiceDescriptor(
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=361,
-    serialized_end=674,
+    serialized_start=377,
+    serialized_end=690,
     methods=[
         _descriptor.MethodDescriptor(
             name="add_jobs",

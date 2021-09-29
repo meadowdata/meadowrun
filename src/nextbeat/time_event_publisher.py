@@ -15,7 +15,6 @@ from typing import (
     Optional,
     Union,
     Any,
-    Tuple,
 )
 import time
 import heapq
@@ -24,6 +23,7 @@ import pytz
 import pytz.tzinfo
 
 from nextbeat.event_log import Event
+from nextbeat.topic_names import TopicName, pname
 from nextbeat.topic import EventFilter, TopicEventFilter
 
 
@@ -64,7 +64,7 @@ class TimeEventFilterPlaceholder(EventFilter):
     never be called if all of the machinery described here is working correctly.
     """
 
-    def topic_names_to_subscribe(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[TopicName]:
         raise ValueError(
             "Cannot use a TimeEventFilterPlaceholder without calling create."
         )
@@ -96,7 +96,16 @@ class PointInTime(TimeEventFilterPlaceholder):
     dt: datetime.datetime
 
     def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
-        return time_event_publisher.create_point_in_time(self.dt)
+        return time_event_publisher.create_point_in_time(self)
+
+    def __eq__(self, other):
+        # important to include the tzinfo explicitly here as it gets lost when comparing
+        # datetime.datetime
+        return self.dt == other.dt and self.dt.tzinfo == other.dt.tzinfo
+
+    def __hash__(self):
+        # see __eq__
+        return hash((self.dt, self.dt.tzinfo))
 
 
 @dataclass(frozen=True)
@@ -195,7 +204,7 @@ class TimeEventPublisher:
     def __init__(
         self,
         event_loop: asyncio.AbstractEventLoop,
-        append_event: Callable[[str, Any], None],
+        append_event: Callable[[TopicName, Any], None],
         schedule_recurring_limit: datetime.timedelta = _SCHEDULE_RECURRING_LIMIT,
         schedule_recurring_freq: datetime.timedelta = _SCHEDULE_RECURRING_FREQ,
     ):
@@ -204,17 +213,14 @@ class TimeEventPublisher:
         testing.
         """
 
-        self._append_event: Callable[[str, Any], None] = append_event
+        self._append_event: Callable[[TopicName, Any], None] = append_event
 
         self._call_at: _CallAt = _CallAt(event_loop)
 
         # Keep a cache so that we don't create duplicate topics/events/triggers.
-        self._all_periodic: Dict[str, Tuple[TopicEventFilter, Periodic]] = {}
-        self._all_time_of_day: Dict[str, Tuple[TopicEventFilter, TimeOfDay]] = {}
-        # point_in_time is slightly different from the others because we don't need to
-        # keep track of the original PointInTime object, because once we schedule it
-        # once we're done.
-        self._all_point_in_time: Dict[str, EventFilter] = {}
+        self._all_periodic: Dict[Periodic, TopicEventFilter] = {}
+        self._all_time_of_day: Dict[TimeOfDay, TopicEventFilter] = {}
+        self._all_point_in_time: Dict[PointInTime, TopicEventFilter] = {}
 
         # see _schedule_recurring
         self._schedule_recurring_up_to: Optional[datetime.datetime] = None
@@ -231,7 +237,7 @@ class TimeEventPublisher:
         # are trying to schedule new callbacks for recurring triggers
         self._schedule_recurring_lock: threading.RLock = threading.RLock()
 
-    def create_point_in_time(self, dt: datetime.datetime) -> EventFilter:
+    def create_point_in_time(self, point_in_time: PointInTime) -> EventFilter:
         """See PointInTime docstring."""
 
         # TODO consider calling `dt = dt.tzinfo.normalize(dt)` in case the user does not
@@ -248,21 +254,26 @@ class TimeEventPublisher:
         # have to be careful not to use dt0 == dt1 because that does not care about
         # timezone!
 
-        if not _datetime_has_timezone(dt):
+        if not _datetime_has_timezone(point_in_time.dt):
             raise ValueError("datetime must have a pytz timezone")
 
-        time_zone = dt.tzinfo
+        time_zone = point_in_time.dt.tzinfo
         if not isinstance(time_zone, pytz.BaseTzInfo):
             raise ValueError("datetime must have a pytz timezone")
 
-        name = time_zone.zone + "/" + dt.strftime("%Y-%m-%d_%H:%M:%S.%f%z")
-        if name in self._all_point_in_time:
-            event_filter = self._all_point_in_time[name]
+        if point_in_time in self._all_point_in_time:
+            event_filter = self._all_point_in_time[point_in_time]
         else:
-            full_name = "time/point/" + name
-            event_filter = TopicEventFilter(full_name)
-            self._call_at.call_at(dt, lambda: self._append_event(full_name, dt))
-            self._all_point_in_time[name] = event_filter
+            # important to include the tzinfo explicitly here as it gets lost when
+            # comparing datetime.datetime
+            name = pname(
+                "time/point", dt=point_in_time.dt, tzinfo=point_in_time.dt.tzinfo
+            )
+            event_filter = TopicEventFilter(name)
+            self._call_at.call_at(
+                point_in_time.dt, lambda: self._append_event(name, point_in_time.dt)
+            )
+            self._all_point_in_time[point_in_time] = event_filter
 
         return event_filter
 
@@ -272,14 +283,14 @@ class TimeEventPublisher:
         if periodic.period < datetime.timedelta(seconds=1):
             raise ValueError("Period must be longer than 1s")
 
-        name = _timedelta_to_str(periodic.period)
-
         with self._schedule_recurring_lock:
-            if name in self._all_periodic:
-                event_filter, _ = self._all_periodic[name]
+            if periodic in self._all_periodic:
+                event_filter = self._all_periodic[periodic]
             else:
-                event_filter = TopicEventFilter("time/periodic/" + name)
-                self._all_periodic[name] = (event_filter, periodic)
+                event_filter = TopicEventFilter(
+                    pname("time/periodic", period=periodic.period)
+                )
+                self._all_periodic[periodic] = event_filter
                 if self._schedule_recurring_up_to is not None:
                     now = _utc_now()
                     self._schedule_periodic(
@@ -292,7 +303,7 @@ class TimeEventPublisher:
 
     def _schedule_periodic(
         self,
-        topic_name: str,
+        topic_name: TopicName,
         periodic: Periodic,
         from_dt: datetime.datetime,
         to_dt: datetime.datetime,
@@ -347,16 +358,19 @@ class TimeEventPublisher:
         # rid of daylight savings. pytz unfortunately does not have an easy way of
         # resolving aliases, so e.g. US/Eastern and America/New_York will be treated as
         # two different timezones when they are actually exactly the same.
-        name = f"{time_of_day.time_zone.zone}/" + _timedelta_to_str(
-            time_of_day.local_time_of_day
-        )
 
         with self._schedule_recurring_lock:
-            if name in self._all_time_of_day:
-                event_filter, _ = self._all_time_of_day[name]
+            if time_of_day in self._all_time_of_day:
+                event_filter = self._all_time_of_day[time_of_day]
             else:
-                event_filter = TopicEventFilter("time/of_day/" + name)
-                self._all_time_of_day[name] = (event_filter, time_of_day)
+                event_filter = TopicEventFilter(
+                    pname(
+                        "time/of_day",
+                        local_time_of_day=time_of_day.local_time_of_day,
+                        time_zone=time_of_day.time_zone,
+                    )
+                )
+                self._all_time_of_day[time_of_day] = event_filter
                 if self._schedule_recurring_up_to is not None:
                     now = _utc_now()
                     self._schedule_time_of_day(
@@ -370,7 +384,7 @@ class TimeEventPublisher:
 
     def _schedule_time_of_day(
         self,
-        topic_name: str,
+        topic_name: TopicName,
         time_of_day: TimeOfDay,
         from_dt: datetime.datetime,
         to_dt: datetime.datetime,
@@ -450,7 +464,7 @@ class TimeEventPublisher:
             # The most we ever schedule is e.g. 5 days in the future
             next_schedule_recurring_up_to = now + self._schedule_recurring_limit
 
-            for event_filter, time_of_day in self._all_time_of_day.values():
+            for time_of_day, event_filter in self._all_time_of_day.items():
                 self._schedule_time_of_day(
                     event_filter.topic_name,
                     time_of_day,
@@ -458,7 +472,7 @@ class TimeEventPublisher:
                     next_schedule_recurring_up_to,
                 )
 
-            for event_filter, periodic in self._all_periodic.values():
+            for periodic, event_filter in self._all_periodic.items():
                 self._schedule_periodic(
                     event_filter.topic_name,
                     periodic,

@@ -18,6 +18,7 @@ from nextbeat.time_event_publisher import (
     PytzTzInfo,
     Periodic,
     TimeOfDay,
+    PointInTime,
 )
 import nextbeat.event_log
 
@@ -46,21 +47,21 @@ def test_call_at():
     ).start()
 
     try:
-        p.create_point_in_time(now)  # called
-        p.create_point_in_time(now - _TIME_INCREMENT)  # called
-        p.create_point_in_time(now + 3 * _TIME_INCREMENT)  # not called
+        p.create_point_in_time(PointInTime(now))  # called
+        p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
+        p.create_point_in_time(PointInTime(now + 3 * _TIME_INCREMENT))  # not called
 
         time.sleep(_TIME_DELAY)
         assert len(event_log._event_log) == 2
 
         now = pytz.utc.localize(datetime.datetime.utcnow())
-        p.create_point_in_time(now)  # called
+        p.create_point_in_time(PointInTime(now))  # called
 
         time.sleep(_TIME_DELAY)
         assert len(event_log._event_log) == 3
 
-        p.create_point_in_time(now + 3 * _TIME_INCREMENT)  # not called
-        p.create_point_in_time(now - _TIME_INCREMENT)  # called
+        p.create_point_in_time(PointInTime(now + 3 * _TIME_INCREMENT))  # not called
+        p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
 
         time.sleep(_TIME_DELAY)
 
@@ -78,9 +79,9 @@ def test_call_at_callbacks_before_running():
     p = TimeEventPublisher(event_loop, event_log.append_event)
     now = pytz.utc.localize(datetime.datetime.utcnow())
 
-    p.create_point_in_time(now)  # called
-    p.create_point_in_time(now - _TIME_INCREMENT)  # called
-    p.create_point_in_time(now + _TIME_INCREMENT)  # not called
+    p.create_point_in_time(PointInTime(now))  # called
+    p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
+    p.create_point_in_time(PointInTime(now + _TIME_INCREMENT))  # not called
 
     assert len(event_log._event_log) == 0
 
@@ -131,7 +132,7 @@ def test_time_event_publisher_point_in_time():
         ]
 
         for dt in dts:
-            p.create_point_in_time(dt)
+            p.create_point_in_time(PointInTime(dt))
 
         # It's important to compare the results in string format because we care about
         # what timezone a datetime is in, and datetime equality does not care about the

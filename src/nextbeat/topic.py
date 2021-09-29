@@ -8,6 +8,7 @@ from typing import Iterable, Mapping, Sequence, List
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.jobs
+from nextbeat.topic_names import TopicName
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,8 @@ class Topic(ABC):
     """
 
     # the name of the topic which corresponds to Event.topic_name for Events related
-    # to this topic
-    name: str
+    # to this topic. See comment on Event.topic_name
+    name: TopicName
 
 
 class Action(ABC):
@@ -53,7 +54,7 @@ class EventFilter(ABC):
     """See TriggerAction docstring"""
 
     @abstractmethod
-    def topic_names_to_subscribe(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[TopicName]:
         """
         Limits the scope of events that need to have event_passes_filter called on them.
         """
@@ -73,9 +74,9 @@ class EventFilter(ABC):
 class TopicEventFilter(EventFilter):
     """Triggers on any event on the specified topic"""
 
-    topic_name: str
+    topic_name: TopicName
 
-    def topic_names_to_subscribe(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[TopicName]:
         yield self.topic_name
 
     def apply(self, event: Event) -> bool:
@@ -86,7 +87,7 @@ class StatePredicate(ABC):
     """See TriggerAction docstring"""
 
     @abstractmethod
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         """
         Gets the list of topic names that this TriggerCondition needs to look at
         in order to determine whether the condition is met or not.
@@ -94,7 +95,7 @@ class StatePredicate(ABC):
         pass
 
     @abstractmethod
-    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
         """
         For each topic that we specify in topic_names_to_query, the list of events is
         all of the events in the current processing batch. If there are no events in the
@@ -107,10 +108,10 @@ class StatePredicate(ABC):
 class TruePredicate(StatePredicate):
     """This condition is always true"""
 
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         yield from ()
 
-    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
         return True
 
 
@@ -118,7 +119,7 @@ class TruePredicate(StatePredicate):
 class AllPredicate(StatePredicate):
     children: Sequence[StatePredicate]
 
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         seen = set()
         for child_trigger in self.children:
             for name in child_trigger.topic_names_to_query():
@@ -126,7 +127,7 @@ class AllPredicate(StatePredicate):
                     yield name
                     seen.add(name)
 
-    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
         for child_trigger in self.children:
             # we filter down to just the subset of topics that the sub_triggers expect
             # to see, might not be super necessary...
@@ -142,7 +143,7 @@ class AllPredicate(StatePredicate):
 class AnyPredicate(StatePredicate):
     children: Sequence[StatePredicate]
 
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         seen = set()
         for child_trigger in self.children:
             for name in child_trigger.topic_names_to_query():
@@ -150,7 +151,7 @@ class AnyPredicate(StatePredicate):
                     yield name
                     seen.add(name)
 
-    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
         for child_trigger in self.children:
             # we filter down to just the subset of topics that the sub_triggers expect
             # to see, might not be super necessary...

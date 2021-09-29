@@ -13,6 +13,8 @@ from typing import (
     Awaitable,
 )
 
+from nextbeat.topic_names import TopicName
+
 Timestamp = int
 Subscriber = Callable[[Timestamp, Timestamp], Awaitable[None]]
 
@@ -25,11 +27,15 @@ class Event(Generic[T]):
     """
     timestamp indicates when the event happened, topic_name is an identifier that allows
     subscribers to filter to a subset of events (e.g. the job name), and payload is the
-    arbitrary data (e.g. job state like "RUNNING" or "SUCCEEDED")
+    arbitrary data (e.g. job state like "RUNNING" or "SUCCEEDED").
+
+    topic_name is a FrozenDict rather than a string so that we can identify topics by
+    key-value pairs. E.g. it's common to want a job identified by (name="data_loader",
+    date=datetime.date(2021, 9, 1))
     """
 
     timestamp: Timestamp
-    topic_name: str
+    topic_name: TopicName
     payload: T
 
 
@@ -69,10 +75,10 @@ class EventLog:
         # the log of events, in increasing timestamp order
         self._event_log: List[Event] = []
 
-        self._topic_name_to_events: Dict[str, List[Event]] = {}
+        self._topic_name_to_events: Dict[TopicName, List[Event]] = {}
 
         # subscribers to a specific topic
-        self._topic_subscribers: Dict[str, Set[Subscriber]] = {}
+        self._topic_subscribers: Dict[TopicName, Set[Subscriber]] = {}
 
         # subscribers to all events
         self._universal_subscribers: Set[Subscriber] = set()
@@ -85,7 +91,7 @@ class EventLog:
         """
         return self._next_timestamp
 
-    def append_event(self, topic_name: str, payload: T) -> None:
+    def append_event(self, topic_name: TopicName, payload: T) -> None:
         """Append a new state change to the event log, at a new and latest time"""
 
         print(f"append_event {self._next_timestamp} {topic_name} {payload}")
@@ -105,7 +111,7 @@ class EventLog:
 
     def events(
         self,
-        topic_name: Optional[str],
+        topic_name: Optional[TopicName],
         low_timestamp: Timestamp,
         high_timestamp: Timestamp,
     ) -> Iterable[Event]:
@@ -126,7 +132,10 @@ class EventLog:
                 break
 
     def events_and_state(
-        self, topic_name: str, low_timestamp: Timestamp, high_timestamp: Timestamp
+        self,
+        topic_name: TopicName,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
     ) -> Iterable[Event]:
         """
         Return all events with timestamp: low_timestamp <= timestamp < high_timestamp,
@@ -146,7 +155,9 @@ class EventLog:
                     yield event
                     yielded_one = True
 
-    def last_event(self, topic_name: str, timestamp: Timestamp) -> Optional[Event]:
+    def last_event(
+        self, topic_name: TopicName, timestamp: Timestamp
+    ) -> Optional[Event]:
         """
         Return the most recent event with event.timestamp <= timestamp. None if no such
         event exists.
@@ -158,7 +169,7 @@ class EventLog:
         return None
 
     def subscribe(
-        self, topic_names: Optional[Iterable[str]], subscriber: Subscriber
+        self, topic_names: Optional[Iterable[TopicName]], subscriber: Subscriber
     ) -> None:
         """
         If topic_names is None, subscribe subscriber to be called whenever there is an

@@ -5,6 +5,7 @@ from asyncio import Task
 from typing import Dict, List, Tuple, Iterable, Optional, Callable, Awaitable
 
 from nextbeat.event_log import Event, EventLog, Timestamp
+from nextbeat.topic_names import TopicName
 from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.time_event_publisher import TimeEventPublisher, TimeEventFilterPlaceholder
@@ -52,7 +53,7 @@ class Scheduler:
         self._event_log.subscribe(None, self._process_effects)
 
         # all jobs that have been added to this scheduler
-        self._jobs: Dict[str, Job] = {}
+        self._jobs: Dict[TopicName, Job] = {}
         # the list of jobs that we've added but haven't created subscriptions for yet,
         # see create_job_subscriptions docstring. Only used temporarily when adding jobs
         self._create_job_subscriptions_queue: List[Job] = []
@@ -145,7 +146,7 @@ class Scheduler:
                             )
                         ):
                             # then check that the condition is met
-                            events: Dict[str, Tuple[Event, ...]] = {}
+                            events: Dict[TopicName, Tuple[Event, ...]] = {}
                             for name in condition.topic_names_to_query():
                                 events[name] = tuple(
                                     self._event_log.events_and_state(
@@ -191,7 +192,7 @@ class Scheduler:
                     self.add_jobs(event.payload.effects.add_jobs)
                     self.create_job_subscriptions()
 
-    def manual_run(self, job_name: str) -> None:
+    def manual_run(self, job_name: TopicName) -> None:
         """
         Execute the Run Action on the specified job.
 
@@ -205,7 +206,7 @@ class Scheduler:
             lambda: self._event_loop.create_task(self._run_action(job, Actions.run))
         )
 
-    async def manual_run_on_event_loop(self, job_name: str) -> None:
+    async def manual_run_on_event_loop(self, job_name: TopicName) -> None:
         """Execute the Run Action on the specified job."""
         # TODO see if we can eliminate a little copy/paste here
         if job_name not in self._jobs:
@@ -294,7 +295,7 @@ class Scheduler:
             True for _ in self._get_running_and_requested_jobs()
         )
 
-    def events_of(self, topic_name: str) -> List[Event]:
+    def events_of(self, topic_name: TopicName) -> List[Event]:
         """For unit tests/debugging"""
         return list(
             self._event_log.events_and_state(

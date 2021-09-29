@@ -21,6 +21,7 @@ from typing import (
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.topic
+from nextbeat.topic_names import TopicName
 from nextrun.deployed_function import NextRunDeployedFunction
 
 
@@ -97,7 +98,10 @@ class JobRunner(abc.ABC):
 
     @abc.abstractmethod
     async def run(
-        self, job_name: str, run_request_id: str, job_runner_function: JobRunnerFunction
+        self,
+        job_name: TopicName,
+        run_request_id: str,
+        job_runner_function: JobRunnerFunction,
     ) -> None:
         pass
 
@@ -230,10 +234,10 @@ class Actions:
 class AnyJobStateEventFilter(nextbeat.topic.EventFilter):
     """Triggers when any of job_names is in any of on_states"""
 
-    job_names: Sequence[str]
+    job_names: Sequence[TopicName]
     on_states: Sequence[JobState]
 
-    def topic_names_to_subscribe(self) -> Iterable[str]:
+    def topic_names_to_subscribe(self) -> Iterable[TopicName]:
         yield from self.job_names
 
     def apply(self, event: Event) -> bool:
@@ -244,13 +248,13 @@ class AnyJobStateEventFilter(nextbeat.topic.EventFilter):
 class AllJobStatePredicate(nextbeat.topic.StatePredicate):
     """Condition is met when all of job_names are in one of on_states"""
 
-    job_names: Sequence[str]
+    job_names: Sequence[TopicName]
     on_states: Sequence[JobState]
 
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         yield from self.job_names
 
-    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
         # make sure the most recent event is in the specified state
         return all(
             events[name][0].payload.state in self.on_states for name in self.job_names

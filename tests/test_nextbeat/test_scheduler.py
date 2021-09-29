@@ -5,6 +5,7 @@ from typing import Any, Sequence, Callable, List
 
 import pytz
 
+from nextbeat.topic_names import pname
 from nextbeat.jobs import (
     Actions,
     Job,
@@ -99,7 +100,7 @@ def _test_simple_jobs(
     """job_function_constructor takes some arguments and should return a JobFunction"""
     scheduler.add_job(
         Job(
-            "A",
+            pname("A"),
             job_function_constructor(["hello", "there"]),
             (),
             job_runner_predicate,
@@ -107,10 +108,15 @@ def _test_simple_jobs(
     )
     trigger_action = TriggerAction(
         Actions.run,
-        [AnyJobStateEventFilter(["A"], ["SUCCEEDED", "FAILED"])],
+        [AnyJobStateEventFilter([pname("A")], ["SUCCEEDED", "FAILED"])],
     )
     scheduler.add_job(
-        Job("B", job_function_constructor([]), [trigger_action], job_runner_predicate)
+        Job(
+            pname("B"),
+            job_function_constructor([]),
+            [trigger_action],
+            job_runner_predicate,
+        )
     )
     scheduler.create_job_subscriptions()
 
@@ -118,21 +124,21 @@ def _test_simple_jobs(
 
     while not scheduler.all_are_waiting():
         time.sleep(0.01)
-    assert 1 == len(scheduler.events_of("A"))
-    assert 1 == len(scheduler.events_of("B"))
+    assert 1 == len(scheduler.events_of(pname("A")))
+    assert 1 == len(scheduler.events_of(pname("B")))
 
-    scheduler.manual_run("A")
+    scheduler.manual_run(pname("A"))
     time.sleep(0.05)  # see docstring of manual_run for why we need to wait
 
     while not scheduler.all_are_waiting():
         time.sleep(0.01)
 
-    assert 4 == len(scheduler.events_of("A"))
+    assert 4 == len(scheduler.events_of(pname("A")))
     assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
-        e.payload.state for e in scheduler.events_of("A")
+        e.payload.state for e in scheduler.events_of(pname("A"))
     ]
-    assert "hello, there" == scheduler.events_of("A")[0].payload.result_value
-    assert 4 == len(scheduler.events_of("B"))
+    assert "hello, there" == scheduler.events_of(pname("A"))[0].payload.result_value
+    assert 4 == len(scheduler.events_of(pname("B")))
 
 
 def test_simple_jobs_nextbeat_server() -> None:
@@ -160,24 +166,28 @@ def test_simple_jobs_nextbeat_server() -> None:
         client.add_jobs(
             [
                 Job(
-                    "A",
+                    pname("A"),
                     LocalFunction(_run_func, ["hello", "there"]),
                     [],
                     JobRunnerTypePredicate("nextrun"),
                 ),
                 Job(
-                    "B",
+                    pname("B"),
                     LocalFunction(_run_func),
                     [
                         TriggerAction(
                             Actions.run,
-                            [AnyJobStateEventFilter(["A"], ["SUCCEEDED", "FAILED"])],
+                            [
+                                AnyJobStateEventFilter(
+                                    [pname("A")], ["SUCCEEDED", "FAILED"]
+                                )
+                            ],
                         )
                     ],
                     JobRunnerTypePredicate("nextrun"),
                 ),
                 Job(
-                    "T",
+                    pname("T"),
                     LocalFunction(_run_func),
                     [
                         TriggerAction(
@@ -199,7 +209,7 @@ def test_simple_jobs_nextbeat_server() -> None:
         start = time.time()
         events = None
         while time.time() - start < 1:
-            events = client.get_events(["B"])
+            events = client.get_events([pname("B")])
             if len(events) > 0:
                 break
 
@@ -215,16 +225,16 @@ def test_simple_jobs_nextbeat_server() -> None:
 
         # This is a little sketchy because we aren't strictly guaranteed that A will get
         # created before B, but this is good enough for now
-        assert 1 == len(client.get_events(["A"]))
-        assert 1 == len(client.get_events(["B"]))
+        assert 1 == len(client.get_events([pname("A")]))
+        assert 1 == len(client.get_events([pname("B")]))
 
         # now run manually and then poll for 2s for events on A and B to show up
-        client.manual_run("A")
+        client.manual_run(pname("A"))
 
         start = time.time()
         events = None
         while time.time() - start < 2:
-            events = client.get_events(["B"])
+            events = client.get_events([pname("B")])
             if len(events) > 1:
                 break
 
@@ -238,8 +248,8 @@ def test_simple_jobs_nextbeat_server() -> None:
                 "Waited 2 seconds for running-related events on B but did not happen"
             )
 
-        a_events = client.get_events(["A"])
-        b_events = client.get_events(["A"])
+        a_events = client.get_events([pname("A")])
+        b_events = client.get_events([pname("A")])
         assert 4 == len(a_events)
         assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
             e.payload.state for e in a_events
@@ -252,7 +262,7 @@ def test_simple_jobs_nextbeat_server() -> None:
 
         time.sleep(1)
 
-        t_events = client.get_events(["T"])
+        t_events = client.get_events([pname("T")])
         assert 4 == len(t_events)
         assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
             e.payload.state for e in t_events
@@ -263,44 +273,52 @@ def test_triggers() -> None:
     """Test different interesting trigger combinations"""
 
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
-        scheduler.add_job(Job("A", LocalFunction(_run_func, ["A"]), ()))
-        scheduler.add_job(Job("B", LocalFunction(_run_func, ["B"]), ()))
+        scheduler.add_job(Job(pname("A"), LocalFunction(_run_func, ["A"]), ()))
+        scheduler.add_job(Job(pname("B"), LocalFunction(_run_func, ["B"]), ()))
 
         # see TriggerAction docstring for explanations of these triggers
         scheduler.add_job(
             Job(
-                "C1",
+                pname("C1"),
                 LocalFunction(_run_func, ["C1"]),
                 [
                     TriggerAction(
                         Actions.run,
-                        [AnyJobStateEventFilter(["A", "B"], ["SUCCEEDED"])],
-                        AllJobStatePredicate(["A", "B"], ["SUCCEEDED"]),
+                        [
+                            AnyJobStateEventFilter(
+                                [pname("A"), pname("B")], ["SUCCEEDED"]
+                            )
+                        ],
+                        AllJobStatePredicate([pname("A"), pname("B")], ["SUCCEEDED"]),
                     )
                 ],
             )
         )
         scheduler.add_job(
             Job(
-                "C2",
+                pname("C2"),
                 LocalFunction(_run_func, ["C2"]),
                 [
                     TriggerAction(
                         Actions.run,
-                        [AnyJobStateEventFilter(["A", "B"], ["SUCCEEDED"])],
+                        [
+                            AnyJobStateEventFilter(
+                                [pname("A"), pname("B")], ["SUCCEEDED"]
+                            )
+                        ],
                     )
                 ],
             )
         )
         scheduler.add_job(
             Job(
-                "C3",
+                pname("C3"),
                 LocalFunction(_run_func, ["C3"]),
                 [
                     TriggerAction(
                         Actions.run,
-                        [AnyJobStateEventFilter(["A"], ["SUCCEEDED"])],
-                        AllJobStatePredicate(["B"], ["SUCCEEDED"]),
+                        [AnyJobStateEventFilter([pname("A")], ["SUCCEEDED"])],
+                        AllJobStatePredicate([pname("B")], ["SUCCEEDED"]),
                     )
                 ],
             )
@@ -316,7 +334,7 @@ def test_triggers() -> None:
         # run will generate 3 events: RUN_REQUESTED, RUNNING, SUCCEEDED.
         def assert_num_events(expected: List[int]) -> None:
             assert [
-                len(scheduler.events_of(n)) for n in ("A", "B", "C1", "C2", "C3")
+                len(scheduler.events_of(pname(n))) for n in ("A", "B", "C1", "C2", "C3")
             ] == expected
 
         assert_num_events([1, 1, 1, 1, 1])
@@ -327,7 +345,7 @@ def test_triggers() -> None:
         #   overall state of the jobs
         # - C3 doesn't run because its condition is not met--B is not SUCCEEDED
 
-        scheduler.manual_run("A")
+        scheduler.manual_run(pname("A"))
 
         time.sleep(0.05)  # see docstring of manual_run for why we need to wait
         while not scheduler.all_are_waiting():
@@ -342,7 +360,7 @@ def test_triggers() -> None:
         # - C3 does not run, because it only wakes up when A succeeds. B succeeding is a
         #   condition, but doesn't wake it up
 
-        scheduler.manual_run("B")
+        scheduler.manual_run(pname("B"))
 
         time.sleep(0.05)  # see docstring of manual_run for why we need to wait
         while not scheduler.all_are_waiting():
@@ -356,7 +374,7 @@ def test_triggers() -> None:
         # - C3 finally runs because A succeeding wakes it up, and B is in a SUCCEEDED
         #   state
 
-        scheduler.manual_run("A")
+        scheduler.manual_run(pname("A"))
 
         time.sleep(0.05)  # see docstring of manual_run for why we need to wait
         while not scheduler.all_are_waiting():
@@ -371,7 +389,7 @@ def test_time_topics_1():
 
         s.add_job(
             Job(
-                "A",
+                pname("A"),
                 LocalFunction(_run_func, ["A"]),
                 [
                     TriggerAction(
@@ -390,7 +408,7 @@ def test_time_topics_1():
 
         while not s.all_are_waiting():
             time.sleep(0.01)
-        assert 4 == len(s.events_of("A"))
+        assert 4 == len(s.events_of(pname("A")))
 
 
 def test_time_topics_2():
@@ -399,7 +417,7 @@ def test_time_topics_2():
 
         s.add_job(
             Job(
-                "A",
+                pname("A"),
                 LocalFunction(_run_func, ["A"]),
                 [
                     TriggerAction(
@@ -426,7 +444,7 @@ def test_time_topics_2():
         #  happening is that as long as EventLog.call_subscribers for the second point
         #  in time gets called while Job A is still running from the first point in
         #  time, we'll ignore run request. See Run.execute
-        assert 4 == len(s.events_of("A"))
+        assert 4 == len(s.events_of(pname("A")))
 
         # wait for the next point_in_time_trigger, which should cause another run to
         # happen
@@ -434,4 +452,4 @@ def test_time_topics_2():
 
         while not s.all_are_waiting():
             time.sleep(0.01)
-        assert 7 == len(s.events_of("A"))
+        assert 7 == len(s.events_of(pname("A")))

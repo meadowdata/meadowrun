@@ -4,7 +4,8 @@ you might have an add_daily_jobs Job (see add_scope_jobs_decorator for how to de
 this) which creates a set of jobs that are parameterized by a date and a userspace. In
 that case, this add_daily_jobs Job will be subscribed (using the ScopeInstantiated
 EventFilter) to scope instantiation events where the scope contains a date value and a
-userspace value. Scopes can be instantiated by jobs that return scopes.
+userspace value. Scopes can be instantiated by jobs that return scopes or manually (see
+NextBeatClientAsync.instantiate_scopes).
 """
 
 from __future__ import annotations

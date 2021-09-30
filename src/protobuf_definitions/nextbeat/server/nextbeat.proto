@@ -12,6 +12,13 @@ message AddJobsResponse {
     string status = 1;
 }
 
+message InstantiateScopesRequest {
+    bytes pickled_scopes = 1;
+}
+
+message InstantiateScopesResponse {
+}
+
 message EventsRequest {
     bytes pickled_topic_names = 1;
 }
@@ -37,6 +44,9 @@ message ManualRunResponse {
 
 service NextBeatServer {
     rpc add_jobs(AddJobsRequest) returns (AddJobsResponse) {};
+
+    rpc instantiate_scopes(InstantiateScopesRequest) returns
+        (InstantiateScopesResponse) {};
 
     rpc get_events(EventsRequest) returns (Events) {};
 

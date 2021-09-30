@@ -5,6 +5,7 @@ import grpc
 import grpc.aio
 
 from nextbeat.event_log import Event
+from nextbeat.scopes import ScopeValues
 from nextbeat.topic_names import TopicName
 from nextbeat.jobs import Job
 from nextbeat.server.config import DEFAULT_ADDRESS
@@ -13,6 +14,7 @@ from nextbeat.server.nextbeat_pb2 import (
     EventsRequest,
     RegisterJobRunnerRequest,
     ManualRunRequest,
+    InstantiateScopesRequest,
 )
 from nextbeat.server.nextbeat_pb2_grpc import NextBeatServerStub
 
@@ -36,6 +38,16 @@ class NextBeatClientAsync:
         """
         await self._stub.add_jobs(
             AddJobsRequest(pickled_job_definitions=pickle.dumps(jobs))
+        )
+
+    async def instantiate_scopes(self, scopes: List[ScopeValues]) -> None:
+        """
+        Instantiates scopes, see Scheduler.instantiate_scope
+
+        TODO use real protobuf messages instead of pickles so we can evolve the schema
+        """
+        await self._stub.instantiate_scopes(
+            InstantiateScopesRequest(pickled_scopes=pickle.dumps(scopes))
         )
 
     async def get_events(self, topic_names: Optional[List[TopicName]]) -> List[Event]:
@@ -97,6 +109,11 @@ class NextBeatClientSync:
 
     def add_jobs(self, jobs: List[Job]) -> None:
         self._stub.add_jobs(AddJobsRequest(pickled_job_definitions=pickle.dumps(jobs)))
+
+    def instantiate_scopes(self, scopes: List[ScopeValues]) -> None:
+        self._stub.instantiate_scopes(
+            InstantiateScopesRequest(pickled_scopes=pickle.dumps(scopes))
+        )
 
     def get_events(self, topic_names: Optional[List[TopicName]]) -> List[Event]:
         return pickle.loads(

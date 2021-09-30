@@ -15,6 +15,8 @@ from nextbeat.server.nextbeat_pb2 import (
     ManualRunResponse,
     RegisterJobRunnerRequest,
     RegisterJobRunnerResponse,
+    InstantiateScopesRequest,
+    InstantiateScopesResponse,
 )
 from nextbeat.server.nextbeat_pb2_grpc import (
     NextBeatServerServicer,
@@ -33,6 +35,13 @@ class NextBeatServerHandler(NextBeatServerServicer):
     ) -> AddJobsResponse:
         self._scheduler.add_jobs(pickle.loads(request.pickled_job_definitions))
         return AddJobsResponse(status="success")
+
+    async def instantiate_scopes(
+        self, request: InstantiateScopesRequest, context: grpc.aio.ServicerContext
+    ) -> InstantiateScopesResponse:
+        for scope in pickle.loads(request.pickled_scopes):
+            self._scheduler.instantiate_scope(scope)
+        return InstantiateScopesResponse()
 
     async def get_events(
         self, request: EventsRequest, context: grpc.aio.ServicerContext

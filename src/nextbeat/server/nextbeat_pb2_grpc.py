@@ -19,6 +19,11 @@ class NextBeatServerStub(object):
             request_serializer=nextbeat_dot_server_dot_nextbeat__pb2.AddJobsRequest.SerializeToString,
             response_deserializer=nextbeat_dot_server_dot_nextbeat__pb2.AddJobsResponse.FromString,
         )
+        self.instantiate_scopes = channel.unary_unary(
+            "/nextbeat.NextBeatServer/instantiate_scopes",
+            request_serializer=nextbeat_dot_server_dot_nextbeat__pb2.InstantiateScopesRequest.SerializeToString,
+            response_deserializer=nextbeat_dot_server_dot_nextbeat__pb2.InstantiateScopesResponse.FromString,
+        )
         self.get_events = channel.unary_unary(
             "/nextbeat.NextBeatServer/get_events",
             request_serializer=nextbeat_dot_server_dot_nextbeat__pb2.EventsRequest.SerializeToString,
@@ -40,6 +45,12 @@ class NextBeatServerServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def add_jobs(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def instantiate_scopes(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -70,6 +81,11 @@ def add_NextBeatServerServicer_to_server(servicer, server):
             servicer.add_jobs,
             request_deserializer=nextbeat_dot_server_dot_nextbeat__pb2.AddJobsRequest.FromString,
             response_serializer=nextbeat_dot_server_dot_nextbeat__pb2.AddJobsResponse.SerializeToString,
+        ),
+        "instantiate_scopes": grpc.unary_unary_rpc_method_handler(
+            servicer.instantiate_scopes,
+            request_deserializer=nextbeat_dot_server_dot_nextbeat__pb2.InstantiateScopesRequest.FromString,
+            response_serializer=nextbeat_dot_server_dot_nextbeat__pb2.InstantiateScopesResponse.SerializeToString,
         ),
         "get_events": grpc.unary_unary_rpc_method_handler(
             servicer.get_events,
@@ -116,6 +132,35 @@ class NextBeatServer(object):
             "/nextbeat.NextBeatServer/add_jobs",
             nextbeat_dot_server_dot_nextbeat__pb2.AddJobsRequest.SerializeToString,
             nextbeat_dot_server_dot_nextbeat__pb2.AddJobsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
+    def instantiate_scopes(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/nextbeat.NextBeatServer/instantiate_scopes",
+            nextbeat_dot_server_dot_nextbeat__pb2.InstantiateScopesRequest.SerializeToString,
+            nextbeat_dot_server_dot_nextbeat__pb2.InstantiateScopesResponse.FromString,
             options,
             channel_credentials,
             insecure,

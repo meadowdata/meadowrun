@@ -109,6 +109,30 @@ class PointInTime(TimeEventFilterPlaceholder):
 
 
 @dataclass(frozen=True)
+class Periodic(TimeEventFilterPlaceholder):
+    """
+    Creates a time event that will be triggered every period. period must be longer than
+    1 second to avoid performance problems
+    TODO even a 1s period can cause performance problems
+
+    Note: A period of 24 hours is not recommended--consider time_of_day_trigger instead
+    (even though it is usually not exactly equivalent because of daylight savings).
+
+    Periodic triggers will get called as if they first got called at the Unix epoch
+    (1970 Jan 1 midnight) in the UTC timezone. This should coincide with what we
+    intuitively think of as scheduling periodic triggers "from the top of the hour" for
+    periods that divide evenly into hours. For weird periods (e.g. 61s), the behavior
+    will be less intuitive. As a result, if you create a periodic trigger for e.g. 48
+    hours, you may need to wait up to 48 hours for it to get called.
+    """
+
+    period: datetime.timedelta
+
+    def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
+        return time_event_publisher.create_periodic(self)
+
+
+@dataclass(frozen=True)
 class TimeOfDay(TimeEventFilterPlaceholder):
     """
     Creates a time event that will be triggered at local_time_of_day in time_zone every
@@ -161,30 +185,6 @@ class TimeOfDayPayload:
     point_in_time: datetime.datetime
 
 
-@dataclass(frozen=True)
-class Periodic(TimeEventFilterPlaceholder):
-    """
-    Creates a time event that will be triggered every period. period must be longer than
-    1 second to avoid performance problems
-    TODO even a 1s period can cause performance problems
-
-    Note: A period of 24 hours is not recommended--consider time_of_day_trigger instead
-    (even though it is usually not exactly equivalent because of daylight savings).
-
-    Periodic triggers will get called as if they first got called at the Unix epoch
-    (1970 Jan 1 midnight) in the UTC timezone. This should coincide with what we
-    intuitively think of as scheduling periodic triggers "from the top of the hour" for
-    periods that divide evenly into hours. For weird periods (e.g. 61s), the behavior
-    will be less intuitive. As a result, if you create a periodic trigger for e.g. 48
-    hours, you may need to wait up to 48 hours for it to get called.
-    """
-
-    period: datetime.timedelta
-
-    def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
-        return time_event_publisher.create_periodic(self)
-
-
 _SCHEDULE_RECURRING_LIMIT = datetime.timedelta(days=5)
 _SCHEDULE_RECURRING_FREQ = datetime.timedelta(days=1)
 
@@ -218,9 +218,9 @@ class TimeEventPublisher:
         self._call_at: _CallAt = _CallAt(event_loop)
 
         # Keep a cache so that we don't create duplicate topics/events/triggers.
+        self._all_point_in_time: Dict[PointInTime, TopicEventFilter] = {}
         self._all_periodic: Dict[Periodic, TopicEventFilter] = {}
         self._all_time_of_day: Dict[TimeOfDay, TopicEventFilter] = {}
-        self._all_point_in_time: Dict[PointInTime, TopicEventFilter] = {}
 
         # see _schedule_recurring
         self._schedule_recurring_up_to: Optional[datetime.datetime] = None
@@ -464,18 +464,18 @@ class TimeEventPublisher:
             # The most we ever schedule is e.g. 5 days in the future
             next_schedule_recurring_up_to = now + self._schedule_recurring_limit
 
-            for time_of_day, event_filter in self._all_time_of_day.items():
-                self._schedule_time_of_day(
-                    event_filter.topic_name,
-                    time_of_day,
-                    prev_schedule_recurring_up_to,
-                    next_schedule_recurring_up_to,
-                )
-
             for periodic, event_filter in self._all_periodic.items():
                 self._schedule_periodic(
                     event_filter.topic_name,
                     periodic,
+                    prev_schedule_recurring_up_to,
+                    next_schedule_recurring_up_to,
+                )
+
+            for time_of_day, event_filter in self._all_time_of_day.items():
+                self._schedule_time_of_day(
+                    event_filter.topic_name,
+                    time_of_day,
                     prev_schedule_recurring_up_to,
                     next_schedule_recurring_up_to,
                 )

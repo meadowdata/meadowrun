@@ -269,7 +269,11 @@ class AllJobStatePredicate(nextbeat.topic.StatePredicate):
         yield from self.job_names
 
     def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
-        # make sure the most recent event is in the specified state
+        # Make sure the most recent event is in the specified state. Technically, the
+        # len(events[name]) > 0 check should not be required because jobs always get
+        # created in the "WAITING" state, but there's no reason to take that assumption
+        # here.
         return all(
-            events[name][0].payload.state in self.on_states for name in self.job_names
+            len(events[name]) > 0 and events[name][0].payload.state in self.on_states
+            for name in self.job_names
         )

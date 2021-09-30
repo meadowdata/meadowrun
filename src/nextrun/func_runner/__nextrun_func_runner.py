@@ -22,7 +22,7 @@ def _get_effects():
 
 def main():
     usage = "module_path function_name argument result_highest_pickle_protocol"
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(usage=usage)
     parser.add_argument("module_path")
     parser.add_argument("function_name")
     parser.add_argument("argument")

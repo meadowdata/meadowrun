@@ -169,10 +169,14 @@ class NextRunJobRunner(JobRunner):
                 or process_state.state == ProcessStateEnum.ERROR_GETTING_STATE
             ):
                 # TODO handle this case and test it
-                raise NotImplementedError("Not sure what to do here?")
+                raise NotImplementedError(
+                    f"Not sure what to do here? Got {process_state.state} for job="
+                    f"{topic_name} request_id={request_id}"
+                )
             else:
                 raise ValueError(
-                    f"Did not expect ProcessStateEnum {process_state.state}"
+                    f"Did not expect ProcessStateEnum {process_state.state} for job="
+                    f"{topic_name} request_id={request_id}"
                 )
 
             # get the most recent updated_last_event. Because there's an await earlier

@@ -99,8 +99,9 @@ class StatePredicate(ABC):
         """
         For each topic that we specify in topic_names_to_query, the list of events is
         all of the events in the current processing batch. If there are no events in the
-        current batch, then the most recent event will also be included. The order of
-        events is that the most recent event will be first.
+        current batch, then the most recent event will also be included. It's also
+        possible that there will be no events, even outside of the current batch. The
+        order of events is that the most recent event will be first.
         """
         pass
 

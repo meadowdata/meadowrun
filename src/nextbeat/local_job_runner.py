@@ -2,13 +2,19 @@
 TODO capabilities
 TODO checking for and restarting requested but not running jobs
 """
-
+import traceback
 from typing import Dict, Iterable
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
 from nextbeat.event_log import Event, EventLog
 from nextbeat.topic_names import TopicName
-from nextbeat.jobs import JobPayload, JobRunner, LocalFunction, JobRunnerFunction
+from nextbeat.jobs import (
+    JobPayload,
+    JobRunner,
+    LocalFunction,
+    JobRunnerFunction,
+    RaisedException,
+)
 
 
 class LocalJobRunner(JobRunner):
@@ -68,8 +74,11 @@ class LocalJobRunner(JobRunner):
                             raised_exception=e,
                         )
                     except Exception as e:
+                        raised_exception = RaisedException(
+                            str(type(e)), str(e), traceback.format_exc()
+                        )
                         new_payload = JobPayload(
-                            request_id, "FAILED", raised_exception=e
+                            request_id, "FAILED", raised_exception=raised_exception
                         )
                 else:
                     # TODO this isn't technically correct, we could still be in

@@ -173,7 +173,8 @@ class EventLog:
     ) -> None:
         """
         If topic_names is None, subscribe subscriber to be called whenever there is an
-        event. If topic_names is not None, subscribe to evenlst matching one of the
+        event. If topic_names is not None, subscribe to events matching one of the
+        event. If topic_names is not None, subscribe to events matching one of the
         topic_names.
 
         The EventLog processes a batch of events at a time, which means that subscriber

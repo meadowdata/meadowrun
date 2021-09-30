@@ -57,7 +57,7 @@ class RaisedException:
 class Effects:
     """Represents effects created by the running of a job"""
 
-    add_jobs: List[Job]
+    pass
 
 
 @dataclass(frozen=True)

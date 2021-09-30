@@ -2,14 +2,80 @@ import asyncio
 import threading
 import traceback
 from asyncio import Task
-from typing import Dict, List, Tuple, Iterable, Optional, Callable, Awaitable
+from typing import (
+    Dict,
+    List,
+    Tuple,
+    Iterable,
+    Optional,
+    Callable,
+    Awaitable,
+    Sequence,
+    Union,
+    Literal,
+    Any,
+)
 
 from nextbeat.event_log import Event, EventLog, Timestamp
+from nextbeat.scopes import ScopeValues
 from nextbeat.topic_names import TopicName
 from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.time_event_publisher import TimeEventPublisher, TimeEventFilterPlaceholder
 from nextbeat.topic import Action, Topic, StatePredicate, EventFilter
+
+
+def _get_jobs_or_scopes_from_result(
+    result: Any,
+) -> Union[
+    Tuple[Literal["jobs"], Sequence[Job]],
+    Tuple[Literal["scopes"], Sequence[ScopeValues]],
+    Tuple[Literal["none"], None],
+]:
+    """
+    If a job returns Job definitions or ScopeValues, we need to add those jobs/scopes to
+    the scheduler. This function inspects a job's result to figure out if there are
+    jobs/scopes that we need to add. Return types are hopefully clear from the type
+    signature.
+    """
+    if isinstance(result, Job):
+        return "jobs", [result]
+    elif isinstance(result, ScopeValues):
+        return "scopes", [result]
+    elif isinstance(result, (list, tuple)) and len(result) > 0:
+        # We don't want to just iterate through every Iterable we get back, iterating
+        # through those Iterables could have side effects. Seems fine to only accept
+        # lists and tuples.
+        element_type = None
+        for r in result:
+            if isinstance(r, Job):
+                if element_type is None:
+                    element_type = "job"
+                elif element_type == "job":
+                    pass
+                else:
+                    # this means we have incompatible types
+                    return "none", None
+            elif isinstance(r, ScopeValues):
+                if element_type is None:
+                    element_type = "scope"
+                elif element_type == "scope":
+                    pass
+                else:
+                    # this means we have incompatible types
+                    return "none", None
+            else:
+                # this means we have a non-job or non-scope in our iterable
+                return "none", None
+        if element_type == "job":
+            return "jobs", result
+        elif element_type == "scope":
+            return "scopes", result
+        else:
+            # this should never happen, but probably better to be defensive here
+            return "none", None
+    else:
+        return "none", None
 
 
 class Scheduler:
@@ -184,6 +250,9 @@ class Scheduler:
             self.add_job(job)
         self.create_job_subscriptions()
 
+    def instantiate_scope(self, scope: ScopeValues) -> None:
+        self._event_log.append_event(scope.topic_name(), scope)
+
     async def _process_effects(
         self, low_timestamp: Timestamp, high_timestamp: Timestamp
     ) -> None:
@@ -192,13 +261,35 @@ class Scheduler:
         events
         """
         for event in self._event_log.events(None, low_timestamp, high_timestamp):
-            if (
-                isinstance(event.payload, JobPayload)
-                and event.payload.effects is not None
-            ):
-                if event.payload.effects.add_jobs:
-                    self.add_jobs(event.payload.effects.add_jobs)
-                    self.create_job_subscriptions()
+            if isinstance(event.payload, JobPayload):
+                if event.payload.state == "SUCCEEDED":
+                    # Adding jobs and instantiating scopes isn't a normal effect in
+                    # terms of getting added to nextbeat.effects (that would be weird
+                    # because they would only get "actioned" after the job completes).
+                    # Instead, they get returned by the function but it makes sense to
+                    # process them here as well. So here we check if results is Job,
+                    # ScopeValues, or a list/tuple of those, and add them to the
+                    # scheduler
+
+                    result_type, result = _get_jobs_or_scopes_from_result(
+                        event.payload.result_value
+                    )
+                    if result_type == "jobs":
+                        self.add_jobs(result)
+                    elif result_type == "scopes":
+                        for scope in result:
+                            self.instantiate_scope(scope)
+                    elif result_type == "none":
+                        pass
+                    else:
+                        raise ValueError(
+                            "Internal error, got an unexpected result_type "
+                            f"{result_type}"
+                        )
+
+                if event.payload.effects is not None:
+                    # TODO this is a stub for future implementation
+                    pass
 
     def manual_run(self, job_name: TopicName) -> None:
         """

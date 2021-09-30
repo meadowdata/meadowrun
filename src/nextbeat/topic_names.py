@@ -1,5 +1,5 @@
 import collections
-from typing import TypeVar, Any
+from typing import TypeVar, Any, Dict
 
 _TK = TypeVar("_TK")
 _TV = TypeVar("_TV")
@@ -42,6 +42,9 @@ class FrozenDict(collections.Mapping[_TK, _TV]):
 
     def __repr__(self):
         return "FrozenDict" + self._d.__repr__()
+
+    def as_mutable(self) -> Dict[_TK, _TV]:
+        return self._d.copy()
 
 
 # TODO we should probably restrict these (as well as other places where we accept

@@ -7,6 +7,7 @@ import pytz
 
 from nextbeat.event_log import Event
 from nextbeat.events_arg import LatestEventsArg
+from nextbeat.scopes import ScopeValues, ScopeInstantiated, add_scope_jobs_decorator
 from nextbeat.topic_names import pname, FrozenDict, TopicName
 from nextbeat.jobs import (
     Actions,
@@ -35,7 +36,7 @@ from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
     """A simple example "user function" for our tests"""
-    return ", ".join(args)
+    return ", ".join([str(a) for a in args])
 
 
 def _run_latest_events(events: FrozenDict[TopicName, Optional[Event]]) -> Any:
@@ -529,3 +530,72 @@ def test_latest_events_arg():
         b_events = scheduler.events_of(pname("B"))
         assert 7 == len(scheduler.events_of(pname("B")))
         assert (pname("A"), "hello, there") == b_events[0].payload.result_value
+
+
+_TEST_DATE_1 = datetime.date(2021, 9, 21)
+_TEST_DATE_2 = datetime.date(2021, 9, 22)
+
+
+def _run_instantiate_date_scope() -> ScopeValues:
+    return ScopeValues(date=_TEST_DATE_1)
+
+
+@add_scope_jobs_decorator
+def _run_add_scope_jobs(scope: ScopeValues) -> Sequence[Job]:
+    return [
+        Job(pname("date_job"), LocalFunction(_run_func, ["hello", scope["date"]]), [])
+    ]
+
+
+def test_scopes():
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+        scheduler.add_job(
+            Job(
+                pname("instantiate_date_scopes"),
+                LocalFunction(_run_instantiate_date_scope),
+                [],
+            )
+        )
+
+        scheduler.add_job(
+            Job(
+                pname("add_date_scope_jobs"),
+                LocalFunction(_run_add_scope_jobs, [LatestEventsArg.construct()]),
+                [TriggerAction(Actions.run, [ScopeInstantiated.construct("date")])],
+            )
+        )
+
+        scheduler.create_job_subscriptions()
+        scheduler.main_loop()
+
+        # kick off instantiate_date_scopes, this should cause add_date_scope_jobs to
+        # run, which will create date_job for _TEST_DATE
+        scheduler.manual_run(pname("instantiate_date_scopes"))
+        time.sleep(0.05)
+        while not scheduler.all_are_waiting():
+            time.sleep(1)
+
+        # so now we should be able to run date_job for _TEST_DATE:
+        scheduler.manual_run(pname("date_job", date=_TEST_DATE_1))
+        time.sleep(0.05)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
+
+        events = scheduler.events_of(pname("date_job", date=_TEST_DATE_1))
+        assert 4 == len(events)
+        assert f"hello, {_TEST_DATE_1}" == events[0].payload.result_value
+
+        # create another scope manually
+        scheduler.instantiate_scope(ScopeValues(date=_TEST_DATE_2))
+        time.sleep(0.05)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
+
+        scheduler.manual_run(pname("date_job", date=_TEST_DATE_2))
+        time.sleep(0.05)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
+
+        events = scheduler.events_of(pname("date_job", date=_TEST_DATE_2))
+        assert 4 == len(events)
+        assert f"hello, {_TEST_DATE_2}" == events[0].payload.result_value

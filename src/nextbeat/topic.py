@@ -11,7 +11,7 @@ import nextbeat.jobs
 from nextbeat.topic_names import TopicName
 
 
-@dataclass(frozen=True)
+@dataclass
 class Topic(ABC):
     """
     A topic conceptually groups together Events, Actions, and Triggers. Actions act on

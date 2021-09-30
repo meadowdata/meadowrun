@@ -120,6 +120,7 @@ class Scheduler:
         # TODO: should make sure we don't try to proceed without calling
         #  create_job_subscriptions first
         for job in self._create_job_subscriptions_queue:
+            job.all_subscribed_topics = []
             for trigger_action in job.trigger_actions:
                 for event_filter in trigger_action.wake_on:
                     # this registers time events with our TimeEventPublisher so that it
@@ -169,6 +170,13 @@ class Scheduler:
                     self._event_log.subscribe(
                         event_filter.topic_names_to_subscribe(), subscriber
                     )
+
+                    job.all_subscribed_topics.extend(
+                        event_filter.topic_names_to_subscribe()
+                    )
+                job.all_subscribed_topics.extend(
+                    trigger_action.state_predicate.topic_names_to_query()
+                )
         self._create_job_subscriptions_queue.clear()
 
     def add_jobs(self, jobs: Iterable[Job]) -> None:

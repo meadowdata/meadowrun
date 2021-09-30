@@ -1,11 +1,13 @@
 import datetime
 import pathlib
 import sys
-from typing import Any, Sequence, Callable, List
+from typing import Any, Sequence, Callable, List, Optional
 
 import pytz
 
-from nextbeat.topic_names import pname
+from nextbeat.event_log import Event
+from nextbeat.events_arg import LatestEventsArg
+from nextbeat.topic_names import pname, FrozenDict, TopicName
 from nextbeat.jobs import (
     Actions,
     Job,
@@ -14,6 +16,7 @@ from nextbeat.jobs import (
     JobFunction,
     LocalFunction,
     AllJobStatePredicate,
+    JobPayload,
 )
 from nextbeat.job_runner_predicates import JobRunnerTypePredicate
 from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo
@@ -31,7 +34,26 @@ from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
+    """A simple example "user function" for our tests"""
     return ", ".join(args)
+
+
+def _run_latest_events(events: FrozenDict[TopicName, Optional[Event]]) -> Any:
+    """A "user function" that is interested in what events caused it to run"""
+
+    # get the latest event
+    latest_topic_name, latest_event = max(
+        events.items(), key=lambda kv: kv[1].timestamp
+    )
+
+    # if the latest event was a JobPayload, return the topic name and result value,
+    # otherwise just return the topci name
+    if isinstance(latest_event.payload, JobPayload):
+        print(latest_topic_name, latest_event.payload.result_value)
+        return latest_topic_name, latest_event.payload.result_value
+    else:
+        print(latest_topic_name)
+        return latest_topic_name
 
 
 def test_simple_jobs_local() -> None:
@@ -453,3 +475,57 @@ def test_time_topics_2():
         while not s.all_are_waiting():
             time.sleep(0.01)
         assert 7 == len(s.events_of(pname("A")))
+
+
+def test_latest_events_arg():
+    """Test behavior of LatestEventsArg"""
+    now = pytz.utc.localize(datetime.datetime.utcnow())
+
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+        scheduler.add_job(
+            Job(pname("A"), LocalFunction(_run_func, ["hello", "there"]), ())
+        )
+        scheduler.add_job(
+            Job(
+                pname("B"),
+                LocalFunction(_run_latest_events, [LatestEventsArg.construct()]),
+                [
+                    TriggerAction(
+                        Actions.run,
+                        [
+                            AnyJobStateEventFilter(
+                                [pname("A")], ["SUCCEEDED", "FAILED"]
+                            ),
+                            PointInTime(now),
+                        ],
+                    )
+                ],
+            )
+        )
+        scheduler.create_job_subscriptions()
+
+        scheduler.main_loop()
+
+        # give the PointInTime a little bit of time to kick in, then wait for B to get
+        # triggered off of that
+        time.sleep(0.05)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
+
+        assert 1 == len(scheduler.events_of(pname("A")))
+        b_events = scheduler.events_of(pname("B"))
+        assert 4 == len(b_events)
+        assert (
+            pname("time/point", dt=now, tzinfo=now.tzinfo)
+            == b_events[0].payload.result_value
+        )
+
+        # kick off A, wait for B to get triggered off of that
+        scheduler.manual_run(pname("A"))
+        time.sleep(0.05)
+        while not scheduler.all_are_waiting():
+            time.sleep(0.01)
+
+        b_events = scheduler.events_of(pname("B"))
+        assert 7 == len(scheduler.events_of(pname("B")))
+        assert (pname("A"), "hello, there") == b_events[0].payload.result_value

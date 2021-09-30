@@ -21,6 +21,7 @@ from typing import (
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.topic
+import nextbeat.events_arg
 from nextbeat.topic_names import TopicName
 from nextrun.deployed_function import NextRunDeployedFunction
 
@@ -142,12 +143,14 @@ class JobRunnerPredicate(abc.ABC):
 JobFunction = Union[JobRunnerFunction, VersionedJobRunnerFunction]
 
 
-@dataclass(frozen=True)
+@dataclass
 class Job(nextbeat.topic.Topic):
     """
     A job runs python code (specified job_run_spec) on a job_runner. The scheduler will
     also perform actions automatically based on trigger_actions.
     """
+
+    # these fields should be frozen
 
     # job_function specifies "where is the codebase and interpreter" (called a
     # "deployment" in nextrun), "how do we invoke the function/executable/script for
@@ -164,6 +167,11 @@ class Job(nextbeat.topic.Topic):
 
     # specifies which job runners this job can run on
     job_runner_predicate: Optional[JobRunnerPredicate] = None
+
+    # these fields are computed based on the frozen fields
+
+    # all topic_names that trigger_actions are dependent on
+    all_subscribed_topics: Optional[Sequence[TopicName]] = None
 
 
 @dataclass(frozen=True)
@@ -194,6 +202,12 @@ class Run(nextbeat.topic.Action):
                     f"JobRunnerFunction, instead is a {type(job.job_function)}"
                 )
 
+            # replace any LatestEventArgs
+            job_runner_function = nextbeat.events_arg.replace_latest_events(
+                job_runner_function, job, event_log, timestamp
+            )
+
+            # choose a job runner and run
             await choose_job_runner(job, available_job_runners).run(
                 job.name, run_request_id, job_runner_function
             )

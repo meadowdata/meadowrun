@@ -4,6 +4,7 @@ import abc
 import asyncio
 import asyncio.events
 import datetime
+import functools
 import threading
 import traceback
 from dataclasses import dataclass, field
@@ -15,6 +16,9 @@ from typing import (
     Optional,
     Union,
     Any,
+    Mapping,
+    Sequence,
+    Literal,
 )
 import time
 import heapq
@@ -24,8 +28,7 @@ import pytz.tzinfo
 
 from nextbeat.event_log import Event
 from nextbeat.topic_names import TopicName, pname
-from nextbeat.topic import EventFilter, TopicEventFilter
-
+from nextbeat.topic import EventFilter, TopicEventFilter, StatePredicate, AllPredicate
 
 # We would ideally use pytz.BaseTzInfo but that doesn't have the .normalize method on it
 PytzTzInfo = Union[pytz.tzinfo.StaticTzInfo, pytz.tzinfo.DstTzInfo]
@@ -81,6 +84,16 @@ class TimeEventFilterPlaceholder(EventFilter):
         "real" EventFilter
         """
         pass
+
+
+def create_time_event_filters(
+    time_event_publisher: TimeEventPublisher, event_filter: EventFilter
+) -> EventFilter:
+    """Calls create on the event_filter if needed, returns the modified EventFilter"""
+    if isinstance(event_filter, TimeEventFilterPlaceholder):
+        return event_filter.create(time_event_publisher)
+    else:
+        return event_filter
 
 
 @dataclass(frozen=True)
@@ -185,6 +198,78 @@ class TimeOfDayPayload:
     point_in_time: datetime.datetime
 
 
+class TimeEventPredicatePlaceholder(StatePredicate):
+    """Analogous to TimeEventFilterPlaceholder, see docstring for that class"""
+
+    def topic_names_to_query(self) -> Iterable[str]:
+        raise ValueError(
+            "Cannot use a TimeEventPredicatePlaceholder without calling create."
+        )
+
+    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+        raise ValueError(
+            "Cannot use a TimeEventPredicatePlaceholder without calling create."
+        )
+
+    @abc.abstractmethod
+    def create(self, time_event_publisher: TimeEventPublisher) -> StatePredicate:
+        """Analogous to TimeEventFilterPlaceholder, see docstring for that class"""
+        pass
+
+
+def create_time_event_state_predicates(
+    time_event_publisher: TimeEventPublisher, state_predicate: StatePredicate
+) -> StatePredicate:
+    """Analogous to create_time_event_filters, see docstring for that function"""
+    if isinstance(state_predicate, TimeEventPredicatePlaceholder):
+        return state_predicate.create(time_event_publisher)
+    else:
+        return state_predicate.map(
+            functools.partial(create_time_event_state_predicates, time_event_publisher)
+        )
+
+
+@dataclass(frozen=True)
+class PointInTimePredicate(TimeEventPredicatePlaceholder):
+    """
+    A predicate requiring that we are before or after a particular time. Note that
+    this is not based on "real time", but on a PointInTime event. This will not
+    usually be an important distinction, but will matter  in cases where the scheduler
+    process is overloaded, the scheduler process has crashed and is being brought back
+    up, or in a simulation.
+    """
+    dt: datetime.datetime
+    relation: Literal["before", "after"]
+
+    @classmethod
+    def between(cls, dt1: datetime.datetime, dt2: datetime.datetime) -> StatePredicate:
+        return AllPredicate([cls(dt1, "after"), cls(dt2, "before")])
+
+    def create(self, time_event_publisher: TimeEventPublisher) -> StatePredicate:
+        event = time_event_publisher.create_point_in_time(PointInTime(self.dt))
+        return _PointInTimePredicateCreated(event.topic_name, self.relation)
+
+
+@dataclass(frozen=True)
+class _PointInTimePredicateCreated(StatePredicate):
+    topic_name: TopicName
+    relation: Literal["before", "after"]
+
+    def topic_names_to_query(self) -> Iterable[str]:
+        yield self.topic_name
+
+    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
+        # PointInTime topics should have no events until the point in time happens, at
+        # which point there should just be one event.
+        topic_events = events[self.topic_name]
+        if self.relation == "before":
+            return len(topic_events) == 0
+        elif self.relation == "after":
+            return len(topic_events) > 0
+        else:
+            raise ValueError(f"Unexpected relation {self.relation}")
+
+
 _SCHEDULE_RECURRING_LIMIT = datetime.timedelta(days=5)
 _SCHEDULE_RECURRING_FREQ = datetime.timedelta(days=1)
 
@@ -237,7 +322,7 @@ class TimeEventPublisher:
         # are trying to schedule new callbacks for recurring triggers
         self._schedule_recurring_lock: threading.RLock = threading.RLock()
 
-    def create_point_in_time(self, point_in_time: PointInTime) -> EventFilter:
+    def create_point_in_time(self, point_in_time: PointInTime) -> TopicEventFilter:
         """See PointInTime docstring."""
 
         # TODO consider calling `dt = dt.tzinfo.normalize(dt)` in case the user does not
@@ -277,7 +362,7 @@ class TimeEventPublisher:
 
         return event_filter
 
-    def create_periodic(self, periodic: Periodic) -> EventFilter:
+    def create_periodic(self, periodic: Periodic) -> TopicEventFilter:
         """See Periodic docstring"""
 
         if periodic.period < datetime.timedelta(seconds=1):
@@ -334,7 +419,7 @@ class TimeEventPublisher:
 
             occurrence_ts += period_seconds
 
-    def create_time_of_day(self, time_of_day: TimeOfDay) -> EventFilter:
+    def create_time_of_day(self, time_of_day: TimeOfDay) -> TopicEventFilter:
         if (
             time_of_day.local_time_of_day.microseconds != 0
             or getattr(time_of_day.local_time_of_day, "nanoseconds", 0) != 0

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence, List
+from typing import Iterable, Mapping, Sequence, List, Callable
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.jobs
@@ -105,6 +105,15 @@ class StatePredicate(ABC):
         """
         pass
 
+    def map(
+        self, function: Callable[[StatePredicate], StatePredicate]
+    ) -> StatePredicate:
+        """
+        This must be overridden in any StatePredicates that combine other
+        StatePredicates! Should call function on all of the child StatePredicates.
+        """
+        return self
+
 
 class TruePredicate(StatePredicate):
     """This condition is always true"""
@@ -139,6 +148,11 @@ class AllPredicate(StatePredicate):
 
         return True
 
+    def map(
+        self, function: Callable[[StatePredicate], StatePredicate]
+    ) -> StatePredicate:
+        return AllPredicate([function(child) for child in self.children])
+
 
 @dataclass(frozen=True)
 class AnyPredicate(StatePredicate):
@@ -162,6 +176,11 @@ class AnyPredicate(StatePredicate):
                 return True
 
         return False
+
+    def map(
+        self, function: Callable[[StatePredicate], StatePredicate]
+    ) -> StatePredicate:
+        return AnyPredicate([function(child) for child in self.children])
 
 
 @dataclass(frozen=True)

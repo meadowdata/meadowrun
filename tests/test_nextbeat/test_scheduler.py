@@ -28,7 +28,7 @@ import nextbeat.server.server_main
 import time
 
 import nextrun.server_main
-from nextbeat.time_event_publisher import PointInTime
+from nextbeat.time_event_publisher import PointInTime, PointInTimePredicate
 from nextbeat.topic import TriggerAction
 from nextrun.deployed_function import NextRunFunction
 
@@ -394,6 +394,8 @@ def test_time_topics_1():
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
+        past_dt = now - 3 * _TIME_INCREMENT
+
         scheduler.add_jobs(
             [
                 Job(
@@ -402,16 +404,33 @@ def test_time_topics_1():
                     [
                         TriggerAction(
                             Actions.run,
-                            [PointInTime(now - 3 * _TIME_INCREMENT)],
+                            [PointInTime(past_dt)],
+                            # this will always be true, just testing that the
+                            # functionality works
+                            PointInTimePredicate(past_dt, "after"),
                         )
                     ],
-                )
+                ),
+                Job(
+                    pname("B"),
+                    LocalFunction(_run_func, ["B"]),
+                    [
+                        TriggerAction(
+                            Actions.run,
+                            [PointInTime(past_dt)],
+                            # this is an impossible predicate to satisfy, so this job
+                            # should never get triggered automatically
+                            PointInTimePredicate(past_dt, "before"),
+                        )
+                    ],
+                ),
             ]
         )
 
         scheduler.main_loop()
         _wait_for_scheduler(scheduler)
         assert 4 == len(scheduler.events_of(pname("A")))
+        assert 1 == len(scheduler.events_of(pname("B")))
 
 
 def test_time_topics_2():

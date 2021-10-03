@@ -21,7 +21,11 @@ from nextbeat.scopes import ScopeValues
 from nextbeat.topic_names import TopicName
 from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
-from nextbeat.time_event_publisher import TimeEventPublisher, TimeEventFilterPlaceholder
+from nextbeat.time_event_publisher import (
+    TimeEventPublisher,
+    create_time_event_state_predicates,
+    create_time_event_filters,
+)
 from nextbeat.topic import Action, Topic, StatePredicate, EventFilter
 
 
@@ -188,11 +192,17 @@ class Scheduler:
         for job in self._create_job_subscriptions_queue:
             job.all_subscribed_topics = []
             for trigger_action in job.trigger_actions:
+                # this registers time events in the StatePredicate with our
+                # TimeEventPublisher so that it knows we need to trigger at those times
+                condition = create_time_event_state_predicates(
+                    self.time, trigger_action.state_predicate
+                )
+
                 for event_filter in trigger_action.wake_on:
-                    # this registers time events with our TimeEventPublisher so that it
-                    # knows we need to trigger at those times.
-                    if isinstance(event_filter, TimeEventFilterPlaceholder):
-                        event_filter = event_filter.create(self.time)
+                    # this registers time events in the EventFilter with our
+                    # TimeEventPublisher so that it knows we need to trigger at those
+                    # times.
+                    event_filter = create_time_event_filters(self.time, event_filter)
 
                     async def subscriber(
                         low_timestamp: Timestamp,
@@ -200,7 +210,7 @@ class Scheduler:
                         # to avoid capturing loop variables
                         job: Job = job,
                         event_filter: EventFilter = event_filter,
-                        condition: StatePredicate = trigger_action.state_predicate,
+                        condition: StatePredicate = condition,
                         action: Action = trigger_action.action,
                     ) -> None:
                         # first check that there's at least one event that passes the
@@ -240,9 +250,7 @@ class Scheduler:
                     job.all_subscribed_topics.extend(
                         event_filter.topic_names_to_subscribe()
                     )
-                job.all_subscribed_topics.extend(
-                    trigger_action.state_predicate.topic_names_to_query()
-                )
+                job.all_subscribed_topics.extend(condition.topic_names_to_query())
         self._create_job_subscriptions_queue.clear()
 
     def add_jobs(self, jobs: Iterable[Job]) -> None:

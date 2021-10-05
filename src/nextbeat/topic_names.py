@@ -50,6 +50,8 @@ class FrozenDict(collections.Mapping[_TK, _TV]):
 # TODO we should probably restrict these (as well as other places where we accept
 #  FrozenDict) to only take types that can be serialized in protobuf
 TopicName = FrozenDict[str, Any]
+# A bit of a hack; a placeholder to use in StatePredicates to represent the current job
+CURRENT_JOB = TopicName(__nextbeat_internal__="CURRENT_JOB")
 
 
 def pname(s: str, /, **kv) -> TopicName:

@@ -3,22 +3,31 @@ import datetime
 import pandas as pd
 
 import nextdb
-from nextbeat.jobs import Job, LocalFunction, Actions
-from nextbeat.effects import NextdbDynamicDependency
+from nextbeat.jobs import (
+    Job,
+    LocalFunction,
+    Actions,
+    AnyJobStateEventFilter,
+)
+from nextbeat.effects import NextdbDynamicDependency, UntilNextdbWritten
 from nextbeat.scheduler import Scheduler
 from nextbeat.scopes import BASE_SCOPE, ALL_SCOPES, ScopeValues
 from nextbeat.topic import TriggerAction
 from nextbeat.topic_names import pname
-from nextdb.connection import NextdbEffects
-from test_nextbeat.test_scheduler import _wait_for_scheduler
+from nextdb.connection import NextdbEffects, prod_userspace_name
+from test_nextbeat.test_scheduler import _wait_for_scheduler, _run_func
 import tests.test_nextdb
+
+
+def _get_connection():
+    return nextdb.Connection(
+        nextdb.TableVersionsClientLocal(tests.test_nextdb._TEST_DATA_DIR)
+    )
 
 
 def _write_to_table():
     """A fake job. Writes to Table A"""
-    conn = nextdb.Connection(
-        nextdb.TableVersionsClientLocal(tests.test_nextdb._TEST_DATA_DIR)
-    )
+    conn = _get_connection()
     conn.write("A", pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]}))
     # TODO this should happen automatically in nextdb
     conn.table_versions_client._save_table_versions()
@@ -29,9 +38,7 @@ def _write_to_table():
 
 def _read_from_table():
     """Another fake job. Reads from Table A"""
-    conn = nextdb.Connection(
-        nextdb.TableVersionsClientLocal(tests.test_nextdb._TEST_DATA_DIR)
-    )
+    conn = _get_connection()
     conn.read("A").to_pd()
 
 
@@ -132,3 +139,51 @@ def test_nextdb_dependency():
         scheduler.manual_run(pname("A", date=date))
         _wait_for_scheduler(scheduler)
         assert_b_events(10, 7, 7, 4)
+
+
+_write_on_third_try_runs = 0
+
+
+def _write_on_third_try():
+    """
+    Fake job. Does nothing the first two times it's run, afterwards writes to Table T
+    """
+    global _write_on_third_try_runs
+    if _write_on_third_try_runs >= 2:
+        conn = _get_connection()
+        conn.write("T", pd.DataFrame({"col1": [1, 2, 3]}))
+
+    _write_on_third_try_runs += 1
+
+
+def test_nextdb_table_written():
+    """Tests UntilNextdbWritten"""
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+        scheduler.add_jobs(
+            [
+                Job(pname("A"), LocalFunction(_run_func), []),
+                Job(
+                    pname("B"),
+                    LocalFunction(_write_on_third_try),
+                    [
+                        TriggerAction(
+                            Actions.run,
+                            [AnyJobStateEventFilter([pname("A")], "SUCCEEDED")],
+                            UntilNextdbWritten.all((prod_userspace_name, "T")),
+                        )
+                    ],
+                ),
+            ]
+        )
+        scheduler.main_loop()
+
+        # Sequence of events should be:
+        # 1. A runs, causes B to run, but B doesn't write any data
+        # 2. A runs, causes B to run, but B doesn't write any data
+        # 3. A runs, causes B to run, writes data
+        # 4. A runs, B does not run because data has been written
+        for _ in range(4):
+            scheduler.manual_run(pname("A"))
+            _wait_for_scheduler(scheduler)
+
+        assert len(scheduler.events_of(pname("B"))) == 10

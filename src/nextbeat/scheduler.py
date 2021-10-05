@@ -276,13 +276,18 @@ class Scheduler:
                             ):
                                 # then check that the condition is met and if so execute
                                 # the action
-                                await self._action_if_predicate(
-                                    job,
-                                    condition,
-                                    action,
+                                if condition.apply(
+                                    self._event_log,
                                     low_timestamp,
                                     high_timestamp,
-                                )
+                                    job.name,
+                                ):
+                                    await action.execute(
+                                        job,
+                                        self._job_runners,
+                                        self._event_log,
+                                        high_timestamp,
+                                    )
 
                         # TODO we should consider throwing an exception if the topic
                         #  does not already exist (otherwise there's actually no point
@@ -300,29 +305,6 @@ class Scheduler:
                         )
                 job.all_subscribed_topics.extend(condition.topic_names_to_query())
         self._create_job_subscriptions_queue.clear()
-
-    async def _action_if_predicate(
-        self,
-        job: Job,
-        condition: StatePredicate,
-        action: Action,
-        low_timestamp: Timestamp,
-        high_timestamp: Timestamp,
-    ) -> None:
-        """Execute the action on the job if the condition is met."""
-
-        events: Dict[TopicName, Tuple[Event, ...]] = {}
-        for name in condition.topic_names_to_query():
-            events[name] = tuple(
-                self._event_log.events_and_state(name, low_timestamp, high_timestamp)
-            )
-        if condition.apply(events):
-            await action.execute(
-                job,
-                self._job_runners,
-                self._event_log,
-                high_timestamp,
-            )
 
     def add_jobs(self, jobs: Iterable[Job]) -> None:
         for job in jobs:
@@ -469,12 +451,16 @@ class Scheduler:
                     if (
                         nextdb_dependency.latest_tables_read is not None
                         and nextdb_dependency.latest_tables_read.intersection(writes)
+                    ) and nextdb_dependency.state_predicate.apply(
+                        self._event_log,
+                        low_timestamp,
+                        high_timestamp,
+                        nextdb_dependency.job.name,
                     ):
-                        yield self._action_if_predicate(
+                        yield nextdb_dependency.action.execute(
                             nextdb_dependency.job,
-                            nextdb_dependency.state_predicate,
-                            nextdb_dependency.action,
-                            low_timestamp,
+                            self._job_runners,
+                            self._event_log,
                             high_timestamp,
                         )
 

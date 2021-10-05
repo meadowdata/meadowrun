@@ -9,7 +9,7 @@ from nextbeat.server.client import NextBeatClientSync
 from nextbeat.event_log import Event
 from nextbeat.events_arg import LatestEventsArg
 from nextbeat.scopes import ScopeValues, ScopeInstantiated
-from nextbeat.topic_names import pname, FrozenDict, TopicName
+from nextbeat.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
 from nextbeat.jobs import (
     Actions,
     Job,
@@ -30,7 +30,7 @@ import time
 
 import nextrun.server_main
 from nextbeat.time_event_publisher import PointInTime, PointInTimePredicate
-from nextbeat.topic import TriggerAction
+from nextbeat.topic import TriggerAction, NotPredicate
 from nextrun.deployed_function import NextRunFunction
 
 from test_nextbeat.test_time_events import _TIME_INCREMENT
@@ -389,6 +389,55 @@ def test_triggers() -> None:
         scheduler.manual_run(pname("A"))
         _wait_for_scheduler(scheduler)
         assert_num_events([7, 4, 7, 10, 4])
+
+
+_succeed_on_third_try_runs = 0
+
+
+def _succeed_on_third_try():
+    """Fake job. Fails the first two times it's run, succeeds afterwards."""
+    global _succeed_on_third_try_runs
+    orig_runs = _succeed_on_third_try_runs
+
+    _succeed_on_third_try_runs += 1
+
+    if orig_runs <= 1:
+        raise ValueError(f"Failing as it's run number {orig_runs}")
+
+
+def test_current_job_state():
+    """Tests using CURRENT_JOB with AllJobStatePredicate"""
+    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+        scheduler.add_jobs(
+            [
+                Job(pname("A"), LocalFunction(_run_func), []),
+                Job(
+                    pname("B"),
+                    LocalFunction(_succeed_on_third_try),
+                    [
+                        TriggerAction(
+                            Actions.run,
+                            [AnyJobStateEventFilter([pname("A")], "SUCCEEDED")],
+                            NotPredicate(
+                                AllJobStatePredicate([CURRENT_JOB], ["SUCCEEDED"])
+                            ),
+                        )
+                    ],
+                ),
+            ]
+        )
+        scheduler.main_loop()
+
+        # Sequence of events should be:
+        # 1. A runs, causes B to run, but B fails
+        # 2. A runs, causes B to run, but B fails
+        # 3. A runs, causes B to run, succeeds
+        # 4. A runs, B does not run because it has already succeeded
+        for _ in range(4):
+            scheduler.manual_run(pname("A"))
+            _wait_for_scheduler(scheduler)
+
+        assert len(scheduler.events_of(pname("B"))) == 10
 
 
 def test_time_topics_1():

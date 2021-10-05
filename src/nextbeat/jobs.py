@@ -25,7 +25,7 @@ import nextbeat.topic
 import nextbeat.effects
 import nextbeat.events_arg
 from nextbeat.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
-from nextbeat.topic_names import TopicName, FrozenDict
+from nextbeat.topic_names import TopicName, FrozenDict, CURRENT_JOB
 from nextrun.deployed_function import NextRunDeployedFunction
 
 
@@ -263,7 +263,10 @@ class AnyJobStateEventFilter(nextbeat.topic.EventFilter):
 
 @dataclass(frozen=True)
 class AllJobStatePredicate(nextbeat.topic.StatePredicate):
-    """Condition is met when all of job_names are in one of on_states"""
+    """
+    Condition is met when all of job_names are in one of on_states. job_names can
+    include CURRENT_JOB
+    """
 
     job_names: Sequence[TopicName]
     on_states: Sequence[JobState]
@@ -271,15 +274,27 @@ class AllJobStatePredicate(nextbeat.topic.StatePredicate):
     def topic_names_to_query(self) -> Iterable[TopicName]:
         yield from self.job_names
 
-    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
-        # Make sure the most recent event is in the specified state. Technically, the
-        # len(events[name]) > 0 check should not be required because jobs always get
-        # created in the "WAITING" state, but there's no reason to take that assumption
-        # here.
-        return all(
-            len(events[name]) > 0 and events[name][0].payload.state in self.on_states
-            for name in self.job_names
-        )
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
+        for job_name in self.job_names:
+            # support CURRENT_JOB placeholder
+            if job_name == CURRENT_JOB:
+                job_name = current_job_name
+
+            # Make sure the most recent event is in the specified state. Technically,
+            # the latest_event is None check should not be required because jobs always
+            # get created in the "WAITING" state, but there's no reason to take that
+            # assumption here.
+            latest_event = event_log.last_event(job_name, high_timestamp)
+            if latest_event is None or latest_event.payload.state not in self.on_states:
+                return False
+
+        return True
 
 
 # this really belongs in scopes.py but the circular dependencies make it hard to do that

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Iterable, Dict
+from typing import Iterable, Dict, Sequence, Tuple, Set, Literal
 
 # TODO consider making this work without the nextdb dependency?
 import nextdb.connection
-from nextbeat.event_log import Event
+from nextbeat.event_log import Event, EventLog, Timestamp
 import nextbeat.scopes
 import nextbeat.topic
-from nextbeat.topic_names import TopicName
+from nextbeat.topic_names import TopicName, CURRENT_JOB
 
 
 @dataclasses.dataclass(frozen=True)
@@ -100,3 +100,76 @@ class NextdbDynamicDependency(nextbeat.topic.EventFilter):
             "NextdbDynamicDependencies get handled by the Scheduler, they should never "
             "be called directly"
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class UntilNextdbWritten(nextbeat.topic.StatePredicate):
+    """
+    Complicated to explain but hopefully intuitive in an example:
+    UntilNextdbWritten.all(T1, T2, ..., job_name=J) returns True if J has NOT yet
+    written to all of T1, T2, ... where T1, T2 are nextdb tables and J is a job
+    (defaults to CURRENT_JOB). UntilNextdbWritten.any is analogous.
+    UntilNextdbWritten.any() is special in that if you provide no table names, it will
+    return True while J has written nothing, and then will return False if J has written
+    anything.
+
+    TODO this isn't great--probably needs to be way more expressive, ideally this would
+     be more like a lambda or at least a full language (eval?), but it needs to be part
+     of the job definition and therefore serializable (I think). You might care about
+     the connection key, limit how far you go back when looking, more complicated logic
+     on which tables were written
+    """
+
+    job_name: TopicName
+    table_names: Sequence[Tuple[str, str]]
+    operation: Literal["all", "any"]
+
+    def topic_names_to_query(self) -> Iterable[TopicName]:
+        yield self.job_name
+
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
+        if self.job_name == CURRENT_JOB:
+            job_name = current_job_name
+        else:
+            job_name = self.job_name
+
+        # probably need an option to not go all the way back in time...
+        all_effects: Iterable[Effects] = (
+            event.payload.effects
+            for event in event_log.events(job_name, 0, high_timestamp)
+            if event.payload.effects is not None
+        )
+        tables_written: Set[Tuple[str, str]] = set(
+            table_written
+            for effects in all_effects
+            for conn, nextdb_effects in effects.nextdb_effects.items()
+            for table_written in nextdb_effects.tables_written.keys()
+        )
+
+        if self.operation == "all":
+            return not all(table in tables_written for table in self.table_names)
+        elif self.operation == "any":
+            if not self.table_names:
+                return not bool(tables_written)
+            else:
+                return not any(table in tables_written for table in self.table_names)
+        else:
+            raise ValueError(f"Unexpected operation {self.operation}")
+
+    @classmethod
+    def any(
+        cls, *table_names: Tuple[str, str], job_name: TopicName = CURRENT_JOB
+    ) -> UntilNextdbWritten:
+        return cls(job_name, table_names, "any")
+
+    @classmethod
+    def all(
+        cls, *table_names: Tuple[str, str], job_name: TopicName = CURRENT_JOB
+    ) -> UntilNextdbWritten:
+        return cls(job_name, table_names, "all")

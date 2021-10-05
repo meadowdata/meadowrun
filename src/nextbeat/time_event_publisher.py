@@ -26,7 +26,7 @@ import heapq
 import pytz
 import pytz.tzinfo
 
-from nextbeat.event_log import Event
+from nextbeat.event_log import Event, EventLog, Timestamp
 from nextbeat.topic_names import TopicName, pname
 from nextbeat.topic import EventFilter, TopicEventFilter, StatePredicate, AllPredicate
 
@@ -206,7 +206,13 @@ class TimeEventPredicatePlaceholder(StatePredicate):
             "Cannot use a TimeEventPredicatePlaceholder without calling create."
         )
 
-    def apply(self, events: Mapping[str, Sequence[Event]]) -> bool:
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
         raise ValueError(
             "Cannot use a TimeEventPredicatePlaceholder without calling create."
         )
@@ -259,14 +265,20 @@ class _PointInTimePredicateCreated(StatePredicate):
     def topic_names_to_query(self) -> Iterable[str]:
         yield self.topic_name
 
-    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
         # PointInTime topics should have no events until the point in time happens, at
         # which point there should just be one event.
-        topic_events = events[self.topic_name]
+        no_events = event_log.last_event(self.topic_name, high_timestamp) is None
         if self.relation == "before":
-            return len(topic_events) == 0
+            return no_events
         elif self.relation == "after":
-            return len(topic_events) > 0
+            return not no_events
         else:
             raise ValueError(f"Unexpected relation {self.relation}")
 

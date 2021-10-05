@@ -97,13 +97,16 @@ class StatePredicate(ABC):
         pass
 
     @abstractmethod
-    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
         """
-        For each topic that we specify in topic_names_to_query, the list of events is
-        all of the events in the current processing batch. If there are no events in the
-        current batch, then the most recent event will also be included. It's also
-        possible that there will be no events, even outside of the current batch. The
-        order of events is that the most recent event will be first.
+        Unfortunately there's no enforced relationship between topic_names_to_query and
+        this function
         """
         pass
 
@@ -123,7 +126,13 @@ class TruePredicate(StatePredicate):
     def topic_names_to_query(self) -> Iterable[TopicName]:
         yield from ()
 
-    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
         return True
 
 
@@ -139,12 +148,16 @@ class AllPredicate(StatePredicate):
                     yield name
                     seen.add(name)
 
-    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
         for child_trigger in self.children:
-            # we filter down to just the subset of topics that the sub_triggers expect
-            # to see, might not be super necessary...
             if not child_trigger.apply(
-                {name: events[name] for name in child_trigger.topic_names_to_query()}
+                event_log, low_timestamp, high_timestamp, current_job_name
             ):
                 return False
 
@@ -168,12 +181,16 @@ class AnyPredicate(StatePredicate):
                     yield name
                     seen.add(name)
 
-    def apply(self, events: Mapping[TopicName, Sequence[Event]]) -> bool:
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
         for child_trigger in self.children:
-            # we filter down to just the subset of topics that the sub_triggers expect
-            # to see, might not be super necessary...
             if child_trigger.apply(
-                {name: events[name] for name in child_trigger.topic_names_to_query()}
+                event_log, low_timestamp, high_timestamp, current_job_name
             ):
                 return True
 
@@ -183,6 +200,30 @@ class AnyPredicate(StatePredicate):
         self, function: Callable[[StatePredicate], StatePredicate]
     ) -> StatePredicate:
         return AnyPredicate([function(child) for child in self.children])
+
+
+@dataclass(frozen=True)
+class NotPredicate(StatePredicate):
+    child: StatePredicate
+
+    def topic_names_to_query(self) -> Iterable[TopicName]:
+        return self.child.topic_names_to_query()
+
+    def apply(
+        self,
+        event_log: EventLog,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+        current_job_name: TopicName,
+    ) -> bool:
+        return not self.child.apply(
+            event_log, low_timestamp, high_timestamp, current_job_name
+        )
+
+    def map(
+        self, function: Callable[[StatePredicate], StatePredicate]
+    ) -> StatePredicate:
+        return NotPredicate(function(self.child))
 
 
 @dataclass(frozen=True)

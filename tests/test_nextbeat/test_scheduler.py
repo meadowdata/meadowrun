@@ -8,7 +8,7 @@ import pytz
 from nextbeat.server.client import NextBeatClientSync
 from nextbeat.event_log import Event
 from nextbeat.events_arg import LatestEventsArg
-from nextbeat.scopes import ScopeValues, ScopeInstantiated, add_scope_jobs_decorator
+from nextbeat.scopes import ScopeValues, ScopeInstantiated
 from nextbeat.topic_names import pname, FrozenDict, TopicName
 from nextbeat.jobs import (
     Actions,
@@ -19,6 +19,7 @@ from nextbeat.jobs import (
     LocalFunction,
     AllJobStatePredicate,
     JobPayload,
+    add_scope_jobs_decorator,
 )
 from nextbeat.job_runner_predicates import JobRunnerTypePredicate
 from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo

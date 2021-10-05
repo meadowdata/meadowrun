@@ -401,13 +401,23 @@ class Scheduler:
         # before J" are possible.
 
         if event.payload.effects is not None:
-            # if a job has a dynamic nextdb dependency and it just ran, we need to
-            # update its table dependencies to be whatever it just read
+            writes = set(
+                (conn, table)
+                for conn, effects in event.payload.effects.nextdb_effects.items()
+                for table in effects.tables_written.keys()
+            )
+
+            # If a job has a dynamic nextdb dependency and it just ran, we need to
+            # update its table dependencies to be whatever it just read. Importantly,
+            # we ignore reads from tables that we also wrote to, otherwise we would end
+            # up in an infinite loop.
+            # TODO figure out how to detect and stop(?) longer cycles (A -> B -> A)
             if event.topic_name in self._nextdb_dependencies:
                 reads = set(
                     (conn, table)
                     for conn, effects in event.payload.effects.nextdb_effects.items()
                     for table in effects.tables_read.keys()
+                    if (conn, table) not in writes
                 )
                 if len(reads) == 0:
                     # TODO this should probably do more than just warn
@@ -419,11 +429,6 @@ class Scheduler:
                 self._nextdb_dependencies[event.topic_name].latest_tables_read = reads
 
             # now trigger jobs based on writes
-            writes = set(
-                (conn, table)
-                for conn, effects in event.payload.effects.nextdb_effects.items()
-                for table in effects.tables_written.keys()
-            )
             if writes:
                 for nextdb_dependency in self._nextdb_dependencies.values():
                     if (

@@ -20,6 +20,9 @@ def _write_to_table():
     # TODO this should happen automatically in nextdb
     conn.table_versions_client._save_table_versions()
 
+    # also read from Table A--this should not cause A to run in an infinite loop
+    conn.read("A").to_pd()
+
 
 def _read_from_table():
     """Another fake job. Reads from Table A"""
@@ -34,7 +37,11 @@ def test_nextdb_dependency():
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
-                Job(pname("A"), LocalFunction(_write_to_table), []),
+                Job(
+                    pname("A"),
+                    LocalFunction(_write_to_table),
+                    [TriggerAction(Actions.run, [NextdbDynamicDependency()])],
+                ),
                 Job(
                     pname("B"),
                     LocalFunction(_read_from_table),
@@ -54,7 +61,7 @@ def test_nextdb_dependency():
         all_effects = a_events[0].payload.effects.nextdb_effects
         assert len(all_effects) == 1
         effects: NextdbEffects = list(all_effects.values())[0]
-        assert len(effects.tables_read) == 0
+        assert list(effects.tables_read.keys()) == [("prod", "A")]
         assert list(effects.tables_written.keys()) == [("prod", "A")]
 
         assert 1 == len(scheduler.events_of(pname("B")))

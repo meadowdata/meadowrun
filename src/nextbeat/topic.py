@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence, List, Callable
+from typing import Iterable, Mapping, Sequence, List, Callable, Any
 
 from nextbeat.event_log import EventLog, Event, Timestamp
-import nextbeat.jobs
 from nextbeat.topic_names import TopicName
 
 
@@ -40,7 +39,10 @@ class Action(ABC):
     async def execute(
         self,
         topic: Topic,
-        available_job_runners: List[nextbeat.jobs.JobRunner],
+        # this should really be List[nextbeat.jobs.JobRunner], but that causes a
+        # circular import that's hard to resolve. In any case, as per the todo below, we
+        # want to change the signature of this eventually anyways
+        available_job_runners: List[Any],
         event_log: EventLog,
         timestamp: Timestamp,
     ) -> None:

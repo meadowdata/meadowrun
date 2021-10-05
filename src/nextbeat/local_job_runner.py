@@ -3,6 +3,7 @@ TODO capabilities
 TODO checking for and restarting requested but not running jobs
 """
 import traceback
+from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, Iterable, Callable, Any, Tuple, Sequence, Optional
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
@@ -89,6 +90,9 @@ class LocalJobRunner(JobRunner):
                             result_value=fut_result,
                             effects=effects,
                         )
+                    except BrokenProcessPool:
+                        # TODO this means the process pool needs to be restarted
+                        raise
                     except CancelledError as e:
                         new_payload = JobPayload(
                             last_event.payload.request_id,

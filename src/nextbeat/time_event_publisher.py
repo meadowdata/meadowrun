@@ -238,6 +238,7 @@ class PointInTimePredicate(TimeEventPredicatePlaceholder):
     process is overloaded, the scheduler process has crashed and is being brought back
     up, or in a simulation.
     """
+
     dt: datetime.datetime
     relation: Literal["before", "after"]
 

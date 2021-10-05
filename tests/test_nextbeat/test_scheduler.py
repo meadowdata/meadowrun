@@ -32,7 +32,7 @@ from nextbeat.time_event_publisher import PointInTime, PointInTimePredicate
 from nextbeat.topic import TriggerAction
 from nextrun.deployed_function import NextRunFunction
 
-from test_nextbeat.test_time_events import _TIME_INCREMENT, _TIME_DELAY
+from test_nextbeat.test_time_events import _TIME_INCREMENT
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
@@ -192,10 +192,10 @@ def _wait_for_events(
             f"{seconds_to_wait}"
         )
 
-    if len(events) == 0:
+    if len(events) < num_events_to_wait_for:
         raise AssertionError(
             f"Waited {seconds_to_wait} second for {num_events_to_wait_for} event(s) on "
-            f"{topic_name} but did not happen"
+            f"{topic_name} but only got {len(events)} events"
         )
 
 
@@ -219,7 +219,7 @@ def test_simple_jobs_nextbeat_server() -> None:
         nextbeat.server.config.DEFAULT_ADDRESS
     ) as client:
         # wait for the nextrun job runner to register itself with the scheduler
-        time.sleep(2)
+        time.sleep(3)
 
         client.add_jobs(
             [
@@ -270,9 +270,9 @@ def test_simple_jobs_nextbeat_server() -> None:
         assert 1 == len(client.get_events([pname("A")]))
         assert 1 == len(client.get_events([pname("B")]))
 
-        # now run manually and then poll for 2s for events on A and B to show up
+        # now run manually and then poll for 10s for events on A and B to show up
         client.manual_run(pname("A"))
-        _wait_for_events(client, 2, pname("B"), 4)
+        _wait_for_events(client, 10, pname("B"), 4)
         a_events = client.get_events([pname("A")])
         b_events = client.get_events([pname("B")])
         assert 4 == len(a_events)

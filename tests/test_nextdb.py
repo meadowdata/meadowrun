@@ -26,14 +26,15 @@ def _random_df(n=100):
     )
 
 
+_TEST_DATA_DIR = str(
+    (pathlib.Path(__file__).parent.parent / "test_data" / "nextdb").resolve()
+)
+
+
 def test_nextdb():
     # set up connection
-
-    test_data_dir = (
-        pathlib.Path(__file__).parent.parent / "test_data" / "nextdb"
-    ).resolve()
-    print(f"Using {test_data_dir} for test data")
-    conn = nextdb.Connection(nextdb.TableVersionsClientLocal(str(test_data_dir)))
+    print(f"Using {_TEST_DATA_DIR} for test data")
+    conn = nextdb.Connection(nextdb.TableVersionsClientLocal(_TEST_DATA_DIR))
 
     # generate and write some data
 

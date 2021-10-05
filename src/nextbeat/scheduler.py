@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import threading
 import traceback
 from asyncio import Task
@@ -14,6 +15,7 @@ from typing import (
     Union,
     Literal,
     Any,
+    Set,
 )
 
 from nextbeat.event_log import Event, EventLog, Timestamp
@@ -27,6 +29,8 @@ from nextbeat.time_event_publisher import (
     create_time_event_filters,
 )
 from nextbeat.topic import Action, Topic, StatePredicate, EventFilter
+from nextbeat.effects import NextdbDynamicDependency
+from nextdb.connection import ConnectionKey
 
 
 def _get_jobs_or_scopes_from_result(
@@ -82,6 +86,27 @@ def _get_jobs_or_scopes_from_result(
         return "none", None
 
 
+@dataclasses.dataclass
+class NextdbDependencyAction:
+    """
+    Scheduler creates one of these for each NextdbDynamicDependency that we see, as they
+    require keeping some state in order to trigger them correctly
+    """
+
+    # These should be frozen, they tell us how to trigger the action. E.g. if we have a
+    # Job that has a trigger_action that has a NextdbDependencyAction as one of its
+    # wake_ons, we'll save the Job, TriggerAction.state_predicate, and
+    # TriggerAction.action here so we know how/whether to trigger the action.
+    job: Job
+    action: Action
+    state_predicate: StatePredicate
+
+    # This holds state, "what tables did this job read the last time it ran". If any of
+    # these tables get written to, that means we should trigger the job/action that this
+    # NextdbDependencyAction represents.
+    latest_tables_read: Optional[Set[Tuple[ConnectionKey, Tuple[str, str]]]] = None
+
+
 class Scheduler:
     """
     A scheduler gets set up with jobs, and then executes actions on jobs as per the
@@ -127,6 +152,9 @@ class Scheduler:
         # the list of jobs that we've added but haven't created subscriptions for yet,
         # see create_job_subscriptions docstring. Only used temporarily when adding jobs
         self._create_job_subscriptions_queue: List[Job] = []
+        # see comment on NextdbDependencyAction, this allows us to implement
+        # NextdbDynamicDependency
+        self._nextdb_dependencies: Dict[TopicName, NextdbDependencyAction] = {}
 
         # The local job runner is a special job runner that runs on the same machine as
         # nextbeat via multiprocessing.
@@ -204,54 +232,85 @@ class Scheduler:
                     # times.
                     event_filter = create_time_event_filters(self.time, event_filter)
 
-                    async def subscriber(
-                        low_timestamp: Timestamp,
-                        high_timestamp: Timestamp,
-                        # to avoid capturing loop variables
-                        job: Job = job,
-                        event_filter: EventFilter = event_filter,
-                        condition: StatePredicate = condition,
-                        action: Action = trigger_action.action,
-                    ) -> None:
-                        # first check that there's at least one event that passes the
-                        # EventFilter
-                        if any(
-                            event_filter.apply(event)
-                            for topic_name in event_filter.topic_names_to_subscribe()
-                            for event in self._event_log.events(
-                                topic_name, low_timestamp, high_timestamp
-                            )
-                        ):
-                            # then check that the condition is met
-                            events: Dict[TopicName, Tuple[Event, ...]] = {}
-                            for name in condition.topic_names_to_query():
-                                events[name] = tuple(
-                                    self._event_log.events_and_state(
-                                        name, low_timestamp, high_timestamp
-                                    )
+                    if isinstance(event_filter, NextdbDynamicDependency):
+                        # This implements NextdbDynamicDependency, which can't be
+                        # implemented as a normal subscriber, and instead is taken care
+                        # of in _process_effects
+                        # TODO hopefully no one creates multiple of these on the same
+                        #  trigger action, we should probably throw an error in that
+                        #  case
+                        self._nextdb_dependencies[job.name] = NextdbDependencyAction(
+                            job, trigger_action.action, trigger_action.state_predicate
+                        )
+                    else:
+
+                        async def subscriber(
+                            low_timestamp: Timestamp,
+                            high_timestamp: Timestamp,
+                            # to avoid capturing loop variables
+                            job: Job = job,
+                            event_filter: EventFilter = event_filter,
+                            condition: StatePredicate = condition,
+                            action: Action = trigger_action.action,
+                        ) -> None:
+                            # first check that there's at least one event that passes
+                            # the EventFilter
+                            if any(
+                                event_filter.apply(event)
+                                for topic_name in event_filter.topic_names_to_subscribe()
+                                for event in self._event_log.events(
+                                    topic_name, low_timestamp, high_timestamp
                                 )
-                            if condition.apply(events):
-                                # if so, execute the action
-                                await action.execute(
+                            ):
+                                # then check that the condition is met and if so execute
+                                # the action
+                                await self._action_if_predicate(
                                     job,
-                                    self._job_runners,
-                                    self._event_log,
+                                    condition,
+                                    action,
+                                    low_timestamp,
                                     high_timestamp,
                                 )
 
-                    # TODO we should consider throwing an exception if the topic does
-                    #  not already exist (otherwise there's actually no point in
-                    #  breaking out this create_job_subscriptions into a separate
-                    #  function)
-                    self._event_log.subscribe(
-                        event_filter.topic_names_to_subscribe(), subscriber
-                    )
+                        # TODO we should consider throwing an exception if the topic
+                        #  does not already exist (otherwise there's actually no point
+                        #  in breaking out this create_job_subscriptions into a separate
+                        #  function)
+                        self._event_log.subscribe(
+                            event_filter.topic_names_to_subscribe(), subscriber
+                        )
 
-                    job.all_subscribed_topics.extend(
-                        event_filter.topic_names_to_subscribe()
-                    )
+                        # TODO would be nice to somehow get the dynamically subscribed
+                        #  "topics" into all_subscribed_topics as well somehow...
+
+                        job.all_subscribed_topics.extend(
+                            event_filter.topic_names_to_subscribe()
+                        )
                 job.all_subscribed_topics.extend(condition.topic_names_to_query())
         self._create_job_subscriptions_queue.clear()
+
+    async def _action_if_predicate(
+        self,
+        job: Job,
+        condition: StatePredicate,
+        action: Action,
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+    ) -> None:
+        """Execute the action on the job if the condition is met."""
+
+        events: Dict[TopicName, Tuple[Event, ...]] = {}
+        for name in condition.topic_names_to_query():
+            events[name] = tuple(
+                self._event_log.events_and_state(name, low_timestamp, high_timestamp)
+            )
+        if condition.apply(events):
+            await action.execute(
+                job,
+                self._job_runners,
+                self._event_log,
+                high_timestamp,
+            )
 
     def add_jobs(self, jobs: Iterable[Job]) -> None:
         for job in jobs:
@@ -268,7 +327,13 @@ class Scheduler:
         Should get called for all events. Idea is to react to effects in Job-related
         events
         """
-        for event in self._event_log.events(None, low_timestamp, high_timestamp):
+
+        futures: List[Awaitable] = []
+
+        # we want to iterate through events oldest first
+        for event in reversed(
+            list(self._event_log.events(None, low_timestamp, high_timestamp))
+        ):
             if isinstance(event.payload, JobPayload):
                 if event.payload.state == "SUCCEEDED":
                     # Adding jobs and instantiating scopes isn't a normal effect in
@@ -295,9 +360,83 @@ class Scheduler:
                             f"{result_type}"
                         )
 
-                if event.payload.effects is not None:
-                    # TODO this is a stub for future implementation
-                    pass
+                    # Now process nextdb_effects
+                    # TODO Some effects (i.e. writes) should probably still be processed
+                    #  even if the job was not successful.
+                    futures.extend(
+                        self._process_nextdb_effects(
+                            event, low_timestamp, high_timestamp
+                        )
+                    )
+
+        await asyncio.gather(*futures)
+
+    def _process_nextdb_effects(
+        self,
+        event: Event[JobPayload],
+        low_timestamp: Timestamp,
+        high_timestamp: Timestamp,
+    ) -> Iterable[Awaitable]:
+        """
+        Processes the NextdbEffects on event (if any). Updates self._nextdb_dependencies
+        with reads and executes any actions on writes. Returns the futures created from
+        executing the actions (if any).
+        """
+        # TODO this implementation is probably overly simplistic. Consider scenarios:
+        # J, K, I are jobs, T, U are tables
+        # 1. In this batch of events, K writes to T, then J reads from T, then J runs
+        #    again and reads from U and not T. Should J be triggered again? (Also, is
+        #    weird that J can "stop" reading from U, this probably deserves some
+        #    thought.)
+        # 2. J reads from T, K writes to T, then I writes to T. Should J be triggered
+        #    once or twice?
+        # 3. K writes to T, J reads from T. Should J be triggered again? Answer to this
+        #    one is to check if the last run of J read the version that K wrote
+        # Probably will be more efficient to process all of the events in the
+        # _process_effects batch together depending on the exact semantics we go with.
+        # Even outside of a batch of events, keep in mind that the order we see the
+        # events for jobs completing actually has no relationship to when those jobs
+        # read particular tables. E.g. all 4 combinations of "J read T before K wrote to
+        # T"/"K wrote to T before J read T", and "J finishes before K"/"K finishes
+        # before J" are possible.
+
+        if event.payload.effects is not None:
+            # if a job has a dynamic nextdb dependency and it just ran, we need to
+            # update its table dependencies to be whatever it just read
+            if event.topic_name in self._nextdb_dependencies:
+                reads = set(
+                    (conn, table)
+                    for conn, effects in event.payload.effects.nextdb_effects.items()
+                    for table in effects.tables_read.keys()
+                )
+                if len(reads) == 0:
+                    # TODO this should probably do more than just warn
+                    print(
+                        f"Job {event.topic_name} with dynamic nextdb dependencies did "
+                        "not read any nextdb tables, dynamic dependencies will not be "
+                        "triggered again until the job is rerun"
+                    )
+                self._nextdb_dependencies[event.topic_name].latest_tables_read = reads
+
+            # now trigger jobs based on writes
+            writes = set(
+                (conn, table)
+                for conn, effects in event.payload.effects.nextdb_effects.items()
+                for table in effects.tables_written.keys()
+            )
+            if writes:
+                for nextdb_dependency in self._nextdb_dependencies.values():
+                    if (
+                        nextdb_dependency.latest_tables_read is not None
+                        and nextdb_dependency.latest_tables_read.intersection(writes)
+                    ):
+                        yield self._action_if_predicate(
+                            nextdb_dependency.job,
+                            nextdb_dependency.state_predicate,
+                            nextdb_dependency.action,
+                            low_timestamp,
+                            high_timestamp,
+                        )
 
     def manual_run(self, job_name: TopicName) -> None:
         """

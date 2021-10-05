@@ -86,15 +86,15 @@ class TableVersionsClientLocal:
         table_id: uuid.UUID,
         table_schema_filename: str,
         data_list_filename: str,
-    ) -> bool:
+    ) -> Optional[int]:
         """
         Add a table version, ensure that there is no existing data for that
-        userspace/table_name or table_id. Returns False if these checks fail, returns
-        True if successful
+        userspace/table_name or table_id. Returns None if these checks fail, returns
+        the version number written if successful.
         """
         with self._lock:
             if (userspace, table_name) in self._table_names_current:
-                return False
+                return None
 
             if table_id in self._table_versions_current:
                 raise ValueError(
@@ -102,9 +102,11 @@ class TableVersionsClientLocal:
                     f"but it already exists! uuid collision?"
                 )
 
+            version_to_write = self._version_number
+
             self._add_table_version(
                 TableVersion(
-                    self._version_number,
+                    version_to_write,
                     table_id,
                     table_schema_filename,
                     data_list_filename,
@@ -112,12 +114,12 @@ class TableVersionsClientLocal:
             )
 
             self._add_or_update_table_names(
-                TableName(self._version_number, userspace, table_name, table_id)
+                TableName(version_to_write, userspace, table_name, table_id)
             )
 
             self._version_number += 1
 
-            return True
+            return version_to_write
 
     def add_table_version(
         self,
@@ -127,23 +129,25 @@ class TableVersionsClientLocal:
         prev_version_number: int,
         table_schema_filename: str,
         data_list_filename: str,
-    ) -> bool:
+    ) -> Optional[int]:
         """
         Write a new version of userspace/table. Ensures that userspace/table_name maps
         to table_id, and that table_id's latest version is prev_version_number. Returns
-        False if these checks fail, returns True if successful.
+        None if these checks fail, returns the version number written if successful.
         """
         with self._lock:
             if self._table_names_current[(userspace, table_name)].table_id != table_id:
-                return False
+                return None
 
             prev_table_version = self._table_versions_current[table_id]
             if prev_table_version.version_number != prev_version_number:
-                return False
+                return None
+
+            version_to_write = self._version_number
 
             self._add_table_version(
                 TableVersion(
-                    self._version_number,
+                    version_to_write,
                     table_id,
                     table_schema_filename,
                     data_list_filename,
@@ -151,7 +155,7 @@ class TableVersionsClientLocal:
             )
             self._version_number += 1
 
-            return True
+            return version_to_write
 
     def _add_table_version(self, table_version: TableVersion) -> None:
         with self._lock:

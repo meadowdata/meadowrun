@@ -3,7 +3,7 @@ TODO capabilities
 TODO checking for and restarting requested but not running jobs
 """
 import traceback
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Callable, Any, Tuple, Sequence, Optional
 from concurrent.futures import ProcessPoolExecutor, Future, CancelledError
 
 from nextbeat.event_log import Event, EventLog
@@ -15,6 +15,24 @@ from nextbeat.jobs import (
     JobRunnerFunction,
     RaisedException,
 )
+import nextbeat.effects
+
+
+def _function_wrapper(
+    func: Callable[[...], Any],
+    args: Optional[Sequence[Any]],
+    kwargs: Optional[Dict[str, Any]],
+) -> Tuple[Any, nextbeat.effects.Effects]:
+    """
+    This is roughly the LocalJobRunner equivalent to __nextrun_func_runner.py, it will
+    run in the ProcessPoolExecutor child processes
+    """
+
+    # we need to reset effects as ProcessPoolExecutor will reuse the same processes
+    nextbeat.effects.reset_effects()
+    result = func(*(args or ()), **(kwargs or {}))
+    effects = nextbeat.effects.get_effects()
+    return result, effects
 
 
 class LocalJobRunner(JobRunner):
@@ -39,9 +57,10 @@ class LocalJobRunner(JobRunner):
                 job_name, JobPayload(run_request_id, "RUN_REQUESTED")
             )
             self._running[run_request_id] = self._executor.submit(
+                _function_wrapper,
                 job_runner_function.function_pointer,
-                *(job_runner_function.function_args or []),
-                **(job_runner_function.function_kwargs or {}),
+                job_runner_function.function_args,
+                job_runner_function.function_kwargs,
             )
         else:
             # TODO add support for other JobRunSpecs
@@ -62,10 +81,13 @@ class LocalJobRunner(JobRunner):
                 fut = self._running[request_id]
                 if fut.done():
                     try:
-                        fut_result = fut.result()
+                        fut_result, effects = fut.result()
                         # TODO add pid to all of these?
                         new_payload = JobPayload(
-                            request_id, "SUCCEEDED", result_value=fut_result
+                            request_id,
+                            "SUCCEEDED",
+                            result_value=fut_result,
+                            effects=effects,
                         )
                     except CancelledError as e:
                         new_payload = JobPayload(

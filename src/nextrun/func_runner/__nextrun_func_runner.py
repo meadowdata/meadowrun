@@ -11,15 +11,6 @@ import pickle
 import traceback
 
 
-def _get_effects():
-    try:
-        import nextbeat.effects
-    except ModuleNotFoundError:
-        return None
-    else:
-        return nextbeat.effects._effects
-
-
 def main():
     usage = "module_path function_name argument result_highest_pickle_protocol"
     parser = argparse.ArgumentParser(usage=usage)
@@ -64,11 +55,19 @@ def main():
             #  maybe even on unexpected process quitting?
             pickle.dump((str(type(e)), str(e), tb), f, protocol=result_pickle_protocol)
     else:
+        # get effects, make sure we don't fail if nextbeat is not available
+        try:
+            import nextbeat.effects
+        except ModuleNotFoundError:
+            effects = None
+        else:
+            effects = nextbeat.effects.get_effects()
+
         # send back results
         with open(state_filename, "w", encoding="utf-8") as f:
             f.write("SUCCEEDED")
         with open(result_filename, "wb") as f:
-            pickle.dump((result, _get_effects()), f, protocol=result_pickle_protocol)
+            pickle.dump((result, effects), f, protocol=result_pickle_protocol)
 
 
 if __name__ == "__main__":

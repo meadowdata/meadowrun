@@ -21,6 +21,7 @@ from typing import (
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.topic
+import nextbeat.effects
 import nextbeat.events_arg
 from nextbeat.topic_names import TopicName
 from nextrun.deployed_function import NextRunDeployedFunction
@@ -53,13 +54,6 @@ class RaisedException:
     exception_traceback: str
 
 
-@dataclasses.dataclass(frozen=True)
-class Effects:
-    """Represents effects created by the running of a job"""
-
-    pass
-
-
 @dataclass(frozen=True)
 class JobPayload:
     """The Event.payload for Job-related events. See JobStateType docstring."""
@@ -71,7 +65,7 @@ class JobPayload:
     ] = None
     pid: Optional[int] = None
     result_value: Any = None
-    effects: Optional[Effects] = None
+    effects: Optional[nextbeat.effects.Effects] = None
     raised_exception: Union[RaisedException, BaseException, None] = None
     return_code: Optional[int] = None
 

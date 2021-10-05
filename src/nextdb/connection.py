@@ -1,4 +1,7 @@
-from typing import Optional
+from __future__ import annotations
+
+import dataclasses
+from typing import Optional, List, Dict, Tuple
 
 import pandas as pd
 
@@ -10,14 +13,58 @@ from .table_versions_client_local import TableVersionsClientLocal
 prod_userspace_name = "prod"
 
 
+# Keeps track of all connections created.
+# TODO connection management--we shouldn't have unnecessary multiple instances of
+#  connections
+all_connections: List[Connection] = []
+
+
+@dataclasses.dataclass(frozen=True)
+class NextdbEffects:
+    """
+     This should be part of
+    nextbeat.effects, but we want nextbeat to depend on nextdb, not the other way
+    around.
+    """
+
+    # Maps from table (userspace, name) -> set(versions read)
+    tables_read: Dict[Tuple[str, str], set[int]] = dataclasses.field(
+        default_factory=lambda: {}
+    )
+    # Maps from table (userspace, name) -> set(versions written)
+    tables_written: Dict[Tuple[str, str], set[int]] = dataclasses.field(
+        default_factory=lambda: {}
+    )
+
+
+# See Connection.key()
+ConnectionKey = str
+
+
+@dataclasses.dataclass(frozen=True)
 class Connection:
     """
     A connection object that can be used to read and write data. This is the main class
     that a user will interact with.
     """
 
-    def __init__(self, table_versions_client: TableVersionsClientLocal):
-        self._table_versions_client = table_versions_client
+    table_versions_client: TableVersionsClientLocal
+    # Keeps track of the tables we read/wrote to in this job
+    effects: NextdbEffects = dataclasses.field(default_factory=lambda: NextdbEffects())
+
+    def __post_init__(self) -> None:
+        all_connections.append(self)
+
+    def key(self) -> ConnectionKey:
+        """
+        Currently this is used to group Connections that operate on the same underlying
+        data files for grouping together effects that happened "on the same data"
+        """
+        return self.table_versions_client.data_dir
+
+    def reset_effects(self) -> None:
+        self.effects.tables_read.clear()
+        self.effects.tables_written.clear()
 
     def create_or_update_table_schema(
         self,
@@ -26,8 +73,11 @@ class Connection:
         userspace: str = prod_userspace_name,
     ) -> None:
         """Creates or updates the table_schema (TableSchema) for userspace/table_name"""
-        writer.create_or_update_table_schema(
-            self._table_versions_client, userspace, table_name, table_schema
+        written_version = writer.create_or_update_table_schema(
+            self.table_versions_client, userspace, table_name, table_schema
+        )
+        self.effects.tables_written.setdefault((userspace, table_name), set()).add(
+            written_version
         )
 
     def write(
@@ -48,12 +98,15 @@ class Connection:
         """
         # TODO in the current implementation, would be pretty easy to support arbitrary
         #  WHERE clauses for deletes, is that the right thing to do?
-        writer.write(
-            self._table_versions_client,
+        written_version = writer.write(
+            self.table_versions_client,
             userspace,
             table_name,
             df,
             delete_where_equal_df,
+        )
+        self.effects.tables_written.setdefault((userspace, table_name), set()).add(
+            written_version
         )
 
     def delete_where_equal(
@@ -85,6 +138,10 @@ class Connection:
         """
         Returns a NdbTable object that can be used to query userspace/table_name
         """
-        return reader.read(
-            self._table_versions_client, userspace, table_name, max_version_number
+        result = reader.read(
+            self.table_versions_client, userspace, table_name, max_version_number
         )
+        self.effects.tables_read.setdefault((userspace, table_name), set()).add(
+            result._version_number
+        )
+        return result

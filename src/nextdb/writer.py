@@ -13,8 +13,8 @@ def write(
     table_name: str,
     df: Optional[pd.DataFrame],
     deletes: Optional[pd.DataFrame],
-) -> None:
-    """See docstring on connection.Connection"""
+) -> int:
+    """See docstring on connection.Connection. Returns the version number written."""
     # TODO add support for writing multiple tables at the same time (transaction?)
 
     # Get the table_id for this userspace/table_name, make a new one if it doesn't exist
@@ -66,14 +66,16 @@ def write(
             table_versions_client.prepend_data_dir(data_list_filename),
         )
         # update table versions server
-        success = table_versions_client.add_initial_table_version(
+        written_version = table_versions_client.add_initial_table_version(
             userspace, table_name, table_id, table_schema_filename, data_list_filename
         )
         # TODO retry on failure, same for `else` clause
-        if not success:
+        if written_version is None:
             raise ValueError(
                 f"Optimistic concurrency check failed for {userspace}/{table_name}"
             )
+        else:
+            return written_version
     else:
         # write new data list
         data_list = pd.read_pickle(
@@ -86,7 +88,7 @@ def write(
             table_versions_client.prepend_data_dir(data_list_filename),
         )
         # update table versions server
-        success = table_versions_client.add_table_version(
+        written_version = table_versions_client.add_table_version(
             userspace,
             table_name,
             table_id,
@@ -94,10 +96,12 @@ def write(
             prev_table_version.table_schema_filename,
             data_list_filename,
         )
-        if not success:
+        if written_version is None:
             raise ValueError(
                 f"Optimistic concurrency check failed for {userspace}/{table_name}"
             )
+        else:
+            return written_version
 
 
 def create_or_update_table_schema(
@@ -105,7 +109,8 @@ def create_or_update_table_schema(
     userspace: str,
     table_name: str,
     table_schema: TableSchema,
-) -> None:
+) -> int:
+    """See docstring on Connection. Returns the version number written."""
     # TODO check that column_names_and_types and deduplication_keys agree with any
     #  existing data
     # TODO should you be allowed to have deduplication_keys without
@@ -134,17 +139,19 @@ def create_or_update_table_schema(
         pd.to_pickle([], table_versions_client.prepend_data_dir(data_list_filename))
 
         # update table versions server
-        success = table_versions_client.add_initial_table_version(
+        written_version = table_versions_client.add_initial_table_version(
             userspace, table_name, table_id, table_schema_filename, data_list_filename
         )
         # TODO retry on failure, same for `else` clause
-        if not success:
+        if written_version is None:
             raise ValueError(
                 f"Optimistic concurrency check failed for {userspace}/{table_name}"
             )
+        else:
+            return written_version
     else:
         # update table versions server
-        success = table_versions_client.add_table_version(
+        written_version = table_versions_client.add_table_version(
             userspace,
             table_name,
             table_id,
@@ -152,7 +159,9 @@ def create_or_update_table_schema(
             table_schema_filename,
             prev_table_version.data_list_filename,
         )
-        if not success:
+        if written_version is None:
             raise ValueError(
                 f"Optimistic concurrency check failed for {userspace}/{table_name}"
             )
+        else:
+            return written_version

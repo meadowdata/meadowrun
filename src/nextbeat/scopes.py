@@ -32,6 +32,16 @@ class ScopeValues(FrozenDict):
         return pname("scope", **{k: None for k in self.keys()})
 
 
+# TODO not totally sure these are the right concepts
+# Any instantiation of ScopeValues without arguments refers to the "base scope", this is
+# just a convenient shorthand for it
+BASE_SCOPE = ScopeValues()
+# ALL_SCOPES is a special scope that is not a real scope that jobs can exist in or be
+# instantiated. It is just used for NextdbDynamicDependency to indicate that it should
+# not be restricted to a scope. Implementation is a bit hacky!
+ALL_SCOPES = ScopeValues(__nextbeat_internal__="ALL_SCOPES")
+
+
 @dataclasses.dataclass
 class ScopeInstantiated(EventFilter):
     """

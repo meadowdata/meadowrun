@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import itertools
 import threading
 import traceback
 from asyncio import Task
@@ -19,7 +20,7 @@ from typing import (
 )
 
 from nextbeat.event_log import Event, EventLog, Timestamp
-from nextbeat.scopes import ScopeValues
+from nextbeat.scopes import ScopeValues, ALL_SCOPES
 from nextbeat.topic_names import TopicName
 from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
 from nextbeat.local_job_runner import LocalJobRunner
@@ -152,9 +153,16 @@ class Scheduler:
         # the list of jobs that we've added but haven't created subscriptions for yet,
         # see create_job_subscriptions docstring. Only used temporarily when adding jobs
         self._create_job_subscriptions_queue: List[Job] = []
-        # see comment on NextdbDependencyAction, this allows us to implement
-        # NextdbDynamicDependency
-        self._nextdb_dependencies: Dict[TopicName, NextdbDependencyAction] = {}
+        # See comment on NextdbDependencyAction, this allows us to implement
+        # NextdbDynamicDependency. We need to be able to look up keep track of the
+        # NextdbDynamicDependencies per dependency scope (NOT the job scope!) AND by the
+        # job name (see _process_nextdb_effects docstring for more information). Very
+        # important that the NextdbDependencyActions referenced by both dictionaries are
+        # the same objects.
+        self._nextdb_dependencies_scope: Dict[
+            ScopeValues, List[NextdbDependencyAction]
+        ] = {}
+        self._nextdb_dependencies_name: Dict[TopicName, NextdbDependencyAction] = {}
 
         # The local job runner is a special job runner that runs on the same machine as
         # nextbeat via multiprocessing.
@@ -239,9 +247,13 @@ class Scheduler:
                         # TODO hopefully no one creates multiple of these on the same
                         #  trigger action, we should probably throw an error in that
                         #  case
-                        self._nextdb_dependencies[job.name] = NextdbDependencyAction(
+                        dependency_action = NextdbDependencyAction(
                             job, trigger_action.action, trigger_action.state_predicate
                         )
+                        self._nextdb_dependencies_scope.setdefault(
+                            event_filter.dependency_scope, []
+                        ).append(dependency_action)
+                        self._nextdb_dependencies_name[job.name] = dependency_action
                     else:
 
                         async def subscriber(
@@ -378,9 +390,14 @@ class Scheduler:
         high_timestamp: Timestamp,
     ) -> Iterable[Awaitable]:
         """
-        Processes the NextdbEffects on event (if any). Updates self._nextdb_dependencies
-        with reads and executes any actions on writes. Returns the futures created from
-        executing the actions (if any).
+        Processes the NextdbEffects on event (if any). Updates NextdbDependencyActions.
+        For reads, we find the current event's NextdbDependencyAction (if it exists) via
+        _nextdb_dependencies_name and update its latest_tables_read. For writes, we find
+        any NextdbDependencyActions that depend on the current event's job's scope (or
+        ALL_SCOPES) via _nextdb_dependencies_scopes and triggers those actions if they
+        read the table we wrote to. Remember that _nextdb_dependencies_scopes and
+        _nextdb_dependencies_names refer to the same NextdbDependencyAction objects.
+        Returns the futures created from executing the actions (if any).
         """
         # TODO this implementation is probably overly simplistic. Consider scenarios:
         # J, K, I are jobs, T, U are tables
@@ -408,11 +425,11 @@ class Scheduler:
             )
 
             # If a job has a dynamic nextdb dependency and it just ran, we need to
-            # update its table dependencies to be whatever it just read. Importantly,
+            # update its latest_tables_read to be whatever it just read. Importantly,
             # we ignore reads from tables that we also wrote to, otherwise we would end
             # up in an infinite loop.
             # TODO figure out how to detect and stop(?) longer cycles (A -> B -> A)
-            if event.topic_name in self._nextdb_dependencies:
+            if event.topic_name in self._nextdb_dependencies_name:
                 reads = set(
                     (conn, table)
                     for conn, effects in event.payload.effects.nextdb_effects.items()
@@ -426,11 +443,29 @@ class Scheduler:
                         "not read any nextdb tables, dynamic dependencies will not be "
                         "triggered again until the job is rerun"
                     )
-                self._nextdb_dependencies[event.topic_name].latest_tables_read = reads
+                self._nextdb_dependencies_name[
+                    event.topic_name
+                ].latest_tables_read = reads
 
-            # now trigger jobs based on writes
+            # now trigger jobs based on writes, check both this event's job's scopes and
+            # ALL_SCOPES
             if writes:
-                for nextdb_dependency in self._nextdb_dependencies.values():
+                dependencies_to_check = []
+                # TODO what if the job has been removed or changed while it's been
+                #  running?
+                job_scope = self._jobs[event.topic_name].scope
+                if job_scope in self._nextdb_dependencies_scope:
+                    dependencies_to_check.append(
+                        self._nextdb_dependencies_scope[job_scope]
+                    )
+                # job_scope should never be ALL_SCOPES, so no need to check for
+                # redundancy here
+                if ALL_SCOPES in self._nextdb_dependencies_scope:
+                    dependencies_to_check.append(
+                        self._nextdb_dependencies_scope[ALL_SCOPES]
+                    )
+
+                for nextdb_dependency in itertools.chain(*dependencies_to_check):
                     if (
                         nextdb_dependency.latest_tables_read is not None
                         and nextdb_dependency.latest_tables_read.intersection(writes)

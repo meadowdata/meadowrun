@@ -24,7 +24,7 @@ from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.topic
 import nextbeat.effects
 import nextbeat.events_arg
-from nextbeat.scopes import ScopeValues
+from nextbeat.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
 from nextbeat.topic_names import TopicName, FrozenDict
 from nextrun.deployed_function import NextRunDeployedFunction
 
@@ -164,10 +164,17 @@ class Job(nextbeat.topic.Topic):
     # specifies which job runners this job can run on
     job_runner_predicate: Optional[JobRunnerPredicate] = None
 
-    # these fields are computed based on the frozen fields
+    # specifies the scope that this job is part of, defaults to the BASE_SCOPE
+    scope: ScopeValues = BASE_SCOPE
+
+    # these fields are computed by the Scheduler
 
     # all topic_names that trigger_actions are dependent on
     all_subscribed_topics: Optional[Sequence[TopicName]] = None
+
+    def __post_init__(self) -> None:
+        if self.scope == ALL_SCOPES:
+            raise ValueError("Job.scope cannot be set to ALL_SCOPES")
 
 
 @dataclass(frozen=True)
@@ -344,6 +351,7 @@ def add_scope_jobs_decorator(
                         f"and scope have a {key} key"
                     )
                 name[key] = value
+            job.scope = scope
             job.name = TopicName(name)
 
         return jobs_to_add

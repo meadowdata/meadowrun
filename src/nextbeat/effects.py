@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import dataclasses
 from typing import Iterable, Dict
 
 # TODO consider making this work without the nextdb dependency?
 import nextdb.connection
 from nextbeat.event_log import Event
+import nextbeat.scopes
 import nextbeat.topic
 from nextbeat.topic_names import TopicName
 
@@ -76,6 +79,15 @@ class NextdbDynamicDependency(nextbeat.topic.EventFilter):
     of all the nextdb tables that that job reads when it runs. Then, this EventFilter
     will be triggered whenever one of those tables is written to.
     """
+
+    # Optionally, we can restrict this nextdb dynamic dependency to only care about
+    # writes from jobs that are in the specified scope. The default is ALL_SCOPES, which
+    # is a special meta-scope which says that this dependency should not be restricted
+    # to a single scope. Note that this can be distinct from the parent job's scope
+    # (this is necessarily so in the case of ALL_SCOPES as jobs cannot have ALL_SCOPES
+    # as their scope; BASE_SCOPE is different and does not have special semantics for
+    # dependencies.)
+    dependency_scope: nextbeat.scopes.ScopeValues = nextbeat.scopes.ALL_SCOPES
 
     def topic_names_to_subscribe(self) -> Iterable[TopicName]:
         raise ValueError(

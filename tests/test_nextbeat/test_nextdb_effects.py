@@ -1,9 +1,12 @@
+import datetime
+
 import pandas as pd
 
 import nextdb
 from nextbeat.jobs import Job, LocalFunction, Actions
 from nextbeat.effects import NextdbDynamicDependency
 from nextbeat.scheduler import Scheduler
+from nextbeat.scopes import BASE_SCOPE, ALL_SCOPES, ScopeValues
 from nextbeat.topic import TriggerAction
 from nextbeat.topic_names import pname
 from nextdb.connection import NextdbEffects
@@ -34,22 +37,68 @@ def _read_from_table():
 
 def test_nextdb_dependency():
     """Tests NextdbDynamicDependency"""
+    date = datetime.date(2021, 9, 1)
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(
                     pname("A"),
                     LocalFunction(_write_to_table),
-                    [TriggerAction(Actions.run, [NextdbDynamicDependency()])],
+                    [TriggerAction(Actions.run, [NextdbDynamicDependency(ALL_SCOPES)])],
+                    # implicitly in BASE_SCOPE
                 ),
                 Job(
-                    pname("B"),
+                    pname("A", date=date),
+                    LocalFunction(_write_to_table),
+                    [TriggerAction(Actions.run, [NextdbDynamicDependency(ALL_SCOPES)])],
+                    scope=ScopeValues(date=date),
+                ),
+                Job(
+                    pname("B_ALL"),
                     LocalFunction(_read_from_table),
-                    [TriggerAction(Actions.run, [NextdbDynamicDependency()])],
+                    [TriggerAction(Actions.run, [NextdbDynamicDependency(ALL_SCOPES)])],
+                ),
+                Job(
+                    pname("B_BASE"),
+                    LocalFunction(_read_from_table),
+                    [TriggerAction(Actions.run, [NextdbDynamicDependency(BASE_SCOPE)])],
+                ),
+                Job(
+                    pname("B_DATE"),
+                    LocalFunction(_read_from_table),
+                    [
+                        TriggerAction(
+                            Actions.run,
+                            [NextdbDynamicDependency(ScopeValues(date=date))],
+                        )
+                    ],
+                ),
+                Job(
+                    pname("B_WRONG_DATE"),
+                    LocalFunction(_read_from_table),
+                    [
+                        TriggerAction(
+                            Actions.run,
+                            [
+                                NextdbDynamicDependency(
+                                    ScopeValues(date=date + datetime.timedelta(days=1))
+                                )
+                            ],
+                        )
+                    ],
                 ),
             ]
         )
         scheduler.main_loop()
+
+        # we'll check on whether the various B jobs ran by checking the number of events
+        def assert_b_events(
+            b_all: int, b_base: int, b_date: int, b_wrong_date: int
+        ) -> None:
+            assert b_all == len(scheduler.events_of(pname("B_ALL")))
+            assert b_base == len(scheduler.events_of(pname("B_BASE")))
+            assert b_date == len(scheduler.events_of(pname("B_DATE")))
+            assert b_wrong_date == len(scheduler.events_of(pname("B_WRONG_DATE")))
 
         # run A, make sure the effects are as we expect, and make sure B didn't get
         # triggered
@@ -64,14 +113,22 @@ def test_nextdb_dependency():
         assert list(effects.tables_read.keys()) == [("prod", "A")]
         assert list(effects.tables_written.keys()) == [("prod", "A")]
 
-        assert 1 == len(scheduler.events_of(pname("B")))
+        assert_b_events(1, 1, 1, 1)
 
-        # now run B
-        scheduler.manual_run(pname("B"))
+        # now run all of the Bs so that we pick up their dependencies
+        scheduler.manual_run(pname("B_ALL"))
+        scheduler.manual_run(pname("B_BASE"))
+        scheduler.manual_run(pname("B_DATE"))
+        scheduler.manual_run(pname("B_WRONG_DATE"))
         _wait_for_scheduler(scheduler)
-        assert 4 == len(scheduler.events_of(pname("B")))
+        assert_b_events(4, 4, 4, 4)
 
-        # now run A again, which should cause B to re-trigger
+        # now run A again, which should cause B_ALL and B_BASE to re-trigger
         scheduler.manual_run(pname("A"))
         _wait_for_scheduler(scheduler)
-        assert 7 == len(scheduler.events_of(pname("B")))
+        assert_b_events(7, 7, 4, 4)
+
+        # now run A in the date scope which should cause B_ALL and B_DATE to trigger
+        scheduler.manual_run(pname("A", date=date))
+        _wait_for_scheduler(scheduler)
+        assert_b_events(10, 7, 7, 4)

@@ -65,8 +65,6 @@ class LocalJobRunner(JobRunner):
             )
         else:
             # TODO add support for other JobRunSpecs
-            # TODO this logic of what kinds of JobRunnerFunctions we accept should be
-            #  moved up to where JobRunnerPredicate is checked
             raise ValueError(
                 f"LocalJobRunner does not support {type(job_runner_function)}"
             )
@@ -128,3 +126,6 @@ class LocalJobRunner(JobRunner):
                 # TODO we should probably be doing something with the run_request_ids
                 #  that we don't recognize
                 pass
+
+    def can_run_function(self, job_runner_function: JobRunnerFunction) -> bool:
+        return isinstance(job_runner_function, LocalFunction)

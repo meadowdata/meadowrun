@@ -84,8 +84,6 @@ class NextRunJobRunner(JobRunner):
                 ),
             )
         else:
-            # TODO this logic of what kinds of JobRunnerFunctions we accept should be
-            #  moved up to where JobRunnerPredicate is checked
             raise ValueError(
                 f"job_runner_function of type {type(job_runner_function)} is not "
                 f"supported by NextRunJobRunner"
@@ -193,6 +191,9 @@ class NextRunJobRunner(JobRunner):
                         JobPayload(request_id, "RUNNING", pid=new_payload.pid),
                     )
                 self._event_log.append_event(topic_name, new_payload)
+
+    def can_run_function(self, job_runner_function: JobRunnerFunction) -> bool:
+        return isinstance(job_runner_function, (NextRunDeployedFunction, LocalFunction))
 
     async def __aenter__(self):
         await self._client.__aenter__()

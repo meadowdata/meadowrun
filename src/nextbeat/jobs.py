@@ -111,6 +111,11 @@ class JobRunner(abc.ABC):
         """
         pass
 
+    @abc.abstractmethod
+    def can_run_function(self, job_runner_function: JobRunnerFunction) -> bool:
+        """Is this JobRunner compatible with the specified job_runner_function"""
+        pass
+
 
 class VersionedJobRunnerFunction(abc.ABC):
     """
@@ -261,14 +266,16 @@ class Run(nextbeat.topic.Action):
             )
 
             # choose a job runner and run
-            await choose_job_runner(job, available_job_runners).run(
-                job.name, run_request_id, job_runner_function
-            )
+            await choose_job_runner(
+                job, job_runner_function, available_job_runners
+            ).run(job.name, run_request_id, job_runner_function)
 
             return run_request_id
 
 
-def choose_job_runner(job: Job, job_runners: List[JobRunner]) -> JobRunner:
+def choose_job_runner(
+    job: Job, job_runner_function: JobRunnerFunction, job_runners: List[JobRunner]
+) -> JobRunner:
     """
     Chooses a job_runner that is compatible with job.
 
@@ -280,13 +287,17 @@ def choose_job_runner(job: Job, job_runners: List[JobRunner]) -> JobRunner:
         compatible_job_runners = [
             jr for jr in job_runners if job.job_runner_predicate.apply(jr)
         ]
+    compatible_job_runners = [
+        jr for jr in compatible_job_runners if jr.can_run_function(job_runner_function)
+    ]
 
     if len(compatible_job_runners) == 0:
         # TODO this should probably get sent to the event log somehow. Also, what if we
         #  don't currently have any job runners that satisfy the predicates but one
         #  shows up in the near future?
         raise ValueError(
-            f"No job runners were found that satisfy the predicates for {job.name}"
+            f"No job runners were found that satisfy the predicates for {job.name} and "
+            f"are compatible with {type(job_runner_function)}"
         )
     else:
         return random.choice(compatible_job_runners)

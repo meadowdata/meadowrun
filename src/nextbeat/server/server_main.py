@@ -54,6 +54,10 @@ def main_in_child_process(
         server_process.kill()
 
 
-if __name__ == "__main__":
+def command_line_main():
     logging.basicConfig(level=logging.INFO)
     main()
+
+
+if __name__ == "__main__":
+    command_line_main()

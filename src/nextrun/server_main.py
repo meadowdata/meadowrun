@@ -54,14 +54,18 @@ def main_in_child_process(
         server_process.kill()
 
 
-if __name__ == "__main__":
+def command_line_main():
     logging.basicConfig(level=logging.INFO)
 
     usage = """If --nextbeat-address [host]:[port] is specified, then this service will
- try to register itself with nextbeat at that address"""
+    try to register itself with nextbeat at that address"""
     parser = argparse.ArgumentParser(usage=usage)
     parser.add_argument("--nextbeat-address")
 
     args = parser.parse_args()
 
     main(nextbeat_address=args.nextbeat_address)
+
+
+if __name__ == "__main__":
+    command_line_main()

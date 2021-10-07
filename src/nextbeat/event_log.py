@@ -237,6 +237,6 @@ class EventLog:
 
                 self._subscribers_called_timestamp = high_timestamp
             except Exception:
-                # TODO this function isn't awaited, so exceptions need to make it back into
-                #  the scheduler somehow
+                # TODO this function isn't awaited, so exceptions need to make it back
+                #  into the scheduler somehow
                 traceback.print_exc()

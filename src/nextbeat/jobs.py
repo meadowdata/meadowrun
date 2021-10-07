@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import (
     Final,
     Iterable,
-    Mapping,
     Sequence,
     List,
     Any,
@@ -180,6 +179,9 @@ class Job(nextbeat.topic.Topic):
     def __post_init__(self) -> None:
         if self.scope == ALL_SCOPES:
             raise ValueError("Job.scope cannot be set to ALL_SCOPES")
+
+        if self.name == CURRENT_JOB:
+            raise ValueError("Job.name cannot be set to CURRENT_JOB")
 
 
 @dataclass

@@ -67,17 +67,19 @@ def _replace_latest_events_function(
     """
     to_replace = {}
 
-    need_replacement, new_args = _replace_latest_events_list(
-        function.function_args, job, event_log, latest_timestamp
-    )
-    if need_replacement:
-        to_replace["function_args"] = new_args
+    if function.function_args:
+        need_replacement, new_args = _replace_latest_events_list(
+            function.function_args, job, event_log, latest_timestamp
+        )
+        if need_replacement:
+            to_replace["function_args"] = new_args
 
-    need_replacement, new_kwargs = _replace_latest_events_dict(
-        function.function_kwargs, job, event_log, latest_timestamp
-    )
-    if need_replacement:
-        to_replace["function_kwargs"] = new_kwargs
+    if function.function_kwargs:
+        need_replacement, new_kwargs = _replace_latest_events_dict(
+            function.function_kwargs, job, event_log, latest_timestamp
+        )
+        if need_replacement:
+            to_replace["function_kwargs"] = new_kwargs
 
     if len(to_replace) > 0:
         return True, dataclasses.replace(function, **to_replace)

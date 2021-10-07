@@ -383,20 +383,22 @@ class Scheduler:
         Returns the futures created from executing the actions (if any).
         """
         # TODO this implementation is probably overly simplistic. Consider scenarios:
-        # J, K, I are jobs, T, U are tables
+        # J, K, L are jobs, T, U are tables
         # 1. In this batch of events, K writes to T, then J reads from T, then J runs
         #    again and reads from U and not T. Should J be triggered again? (Also, is
         #    weird that J can "stop" reading from U, this probably deserves some
         #    thought.)
-        # 2. J reads from T, K writes to T, then I writes to T. Should J be triggered
+        # 2. J reads from T, K writes to T, then L writes to T. Should J be triggered
         #    once or twice?
         # 3. K writes to T, J reads from T. Should J be triggered again? Answer to this
         #    one is to check if the last run of J read the version that K wrote
+        # 4. J reads from T and U. K writes to T, L reads from T and writes to U.
+        #    After K runs, should we run J? Or should we wait until L runs?
         # Probably will be more efficient to process all of the events in the
         # _process_effects batch together depending on the exact semantics we go with.
         # Even outside of a batch of events, keep in mind that the order we see the
         # events for jobs completing actually has no relationship to when those jobs
-        # read particular tables. E.g. all 4 combinations of "J read T before K wrote to
+        # read particular tables. I.e. all 4 combinations of "J read T before K wrote to
         # T"/"K wrote to T before J read T", and "J finishes before K"/"K finishes
         # before J" are possible.
 

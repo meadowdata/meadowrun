@@ -129,6 +129,16 @@ class NdbTable:
         # TODO implement
         raise NotImplementedError()
 
+    @property
+    def empty(self):
+        if not self._data_list:
+            return True
+        else:
+            # TODO add more logic here--just because we have data files doesn't mean the
+            #  table isn't empty; we need to actually query the data. Probably head(1)
+            #  should be efficient enough.
+            return False
+
     def head(self, n=10):
         # TODO implement
         raise NotImplementedError("Should be straightforward to implement...")

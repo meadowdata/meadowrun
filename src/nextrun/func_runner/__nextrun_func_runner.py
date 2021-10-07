@@ -43,7 +43,9 @@ def main():
 
     try:
         # run the function
-        result = getattr(module, args.function_name)(*function_args, **function_kwargs)
+        result = getattr(module, args.function_name)(
+            *(function_args or ()), **(function_kwargs or {})
+        )
     except Exception as e:
         # send back exceptions
         tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))

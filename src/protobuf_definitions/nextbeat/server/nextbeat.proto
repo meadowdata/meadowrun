@@ -37,6 +37,7 @@ message RegisterJobRunnerResponse {
 
 message ManualRunRequest {
     bytes pickled_job_name = 1;
+    bytes pickled_job_run_overrides = 2;
 }
 
 message ManualRunResponse {

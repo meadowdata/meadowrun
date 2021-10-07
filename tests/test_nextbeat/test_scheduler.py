@@ -20,6 +20,7 @@ from nextbeat.jobs import (
     AllJobStatePredicate,
     JobPayload,
     add_scope_jobs_decorator,
+    JobRunOverrides,
 )
 from nextbeat.job_runner_predicates import JobRunnerTypePredicate
 from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo
@@ -282,6 +283,15 @@ def test_simple_jobs_nextbeat_server() -> None:
         ]
         assert "hello, there" == a_events[0].payload.result_value
         assert 4 == len(b_events)
+
+        # now run B manually with an args override and make sure the arguments make it
+        # through
+        client.manual_run(pname("B"), JobRunOverrides(["manual", "override"]))
+        _wait_for_events(client, 3, pname("B"), 7)
+        assert (
+            "manual, override"
+            == client.get_events([pname("B")])[0].payload.result_value
+        )
 
         # wait up to 2s, which means that T should have automatically been triggered and
         # completed running

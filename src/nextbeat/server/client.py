@@ -7,7 +7,7 @@ import grpc.aio
 from nextbeat.event_log import Event
 from nextbeat.scopes import ScopeValues
 from nextbeat.topic_names import TopicName
-from nextbeat.jobs import Job
+from nextbeat.jobs import Job, JobRunOverrides
 from nextbeat.server.config import DEFAULT_ADDRESS
 from nextbeat.server.nextbeat_pb2 import (
     AddJobsRequest,
@@ -80,14 +80,19 @@ class NextBeatClientAsync:
             RegisterJobRunnerRequest(job_runner_type=job_runner_type, address=address)
         )
 
-    async def manual_run(self, job_name: TopicName) -> None:
+    async def manual_run(
+        self, job_name: TopicName, job_run_overrides: Optional[JobRunOverrides] = None
+    ) -> None:
         """
         Execute the Run Action on the specified job.
 
         TODO error handling, return type
         """
         await self._stub.manual_run(
-            ManualRunRequest(pickled_job_name=pickle.dumps(job_name))
+            ManualRunRequest(
+                pickled_job_name=pickle.dumps(job_name),
+                pickled_job_run_overrides=pickle.dumps(job_run_overrides),
+            )
         )
 
     async def __aenter__(self):
@@ -127,8 +132,15 @@ class NextBeatClientSync:
             RegisterJobRunnerRequest(job_runner_type=job_runner_type, address=address)
         )
 
-    def manual_run(self, job_name: TopicName) -> None:
-        self._stub.manual_run(ManualRunRequest(pickled_job_name=pickle.dumps(job_name)))
+    def manual_run(
+        self, job_name: TopicName, job_run_overrides: Optional[JobRunOverrides] = None
+    ) -> None:
+        self._stub.manual_run(
+            ManualRunRequest(
+                pickled_job_name=pickle.dumps(job_name),
+                pickled_job_run_overrides=pickle.dumps(job_run_overrides),
+            )
+        )
 
     def __enter__(self):
         self._channel.__enter__()

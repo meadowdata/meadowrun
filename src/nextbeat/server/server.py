@@ -81,7 +81,8 @@ class NextBeatServerHandler(NextBeatServerServicer):
         self, request: ManualRunRequest, context: grpc.aio.ServicerContext
     ) -> ManualRunResponse:
         await self._scheduler.manual_run_on_event_loop(
-            pickle.loads(request.pickled_job_name)
+            pickle.loads(request.pickled_job_name),
+            pickle.loads(request.pickled_job_run_overrides),
         )
         return ManualRunResponse()
 

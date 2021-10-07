@@ -39,9 +39,11 @@ class Action(ABC):
     async def execute(
         self,
         topic: Topic,
-        # this should really be List[nextbeat.jobs.JobRunner], but that causes a
-        # circular import that's hard to resolve. In any case, as per the todo below, we
-        # want to change the signature of this eventually anyways
+        # run_overrides should be nextbeat.jobs.JobRunOverrides, and
+        # available_job_runners should be List[ nextbeat.jobs.JobRunner], but these
+        # cause circular import issues that are hard to resolve. In any case, as per the
+        # todo below, we want to change the signature of this eventually anyways
+        run_overrides: Any,
         available_job_runners: List[Any],
         event_log: EventLog,
         timestamp: Timestamp,

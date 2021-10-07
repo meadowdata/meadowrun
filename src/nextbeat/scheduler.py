@@ -22,7 +22,7 @@ from typing import (
 from nextbeat.event_log import Event, EventLog, Timestamp
 from nextbeat.scopes import ScopeValues, ALL_SCOPES
 from nextbeat.topic_names import TopicName
-from nextbeat.jobs import Actions, Job, JobPayload, JobRunner
+from nextbeat.jobs import Actions, Job, JobPayload, JobRunner, JobRunOverrides
 from nextbeat.local_job_runner import LocalJobRunner
 from nextbeat.time_event_publisher import (
     TimeEventPublisher,
@@ -284,6 +284,7 @@ class Scheduler:
                                 ):
                                     await action.execute(
                                         job,
+                                        None,
                                         self._job_runners,
                                         self._event_log,
                                         high_timestamp,
@@ -459,12 +460,15 @@ class Scheduler:
                     ):
                         yield nextdb_dependency.action.execute(
                             nextdb_dependency.job,
+                            None,
                             self._job_runners,
                             self._event_log,
                             high_timestamp,
                         )
 
-    def manual_run(self, job_name: TopicName) -> None:
+    def manual_run(
+        self, job_name: TopicName, overrides: JobRunOverrides = None
+    ) -> None:
         """
         Execute the Run Action on the specified job.
 
@@ -475,21 +479,28 @@ class Scheduler:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
         self._event_loop.call_soon_threadsafe(
-            lambda: self._event_loop.create_task(self._run_action(job, Actions.run))
+            lambda: self._event_loop.create_task(
+                self._run_action(job, Actions.run, overrides)
+            )
         )
 
-    async def manual_run_on_event_loop(self, job_name: TopicName) -> None:
+    async def manual_run_on_event_loop(
+        self, job_name: TopicName, overrides: JobRunOverrides
+    ) -> None:
         """Execute the Run Action on the specified job."""
         # TODO see if we can eliminate a little copy/paste here
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
-        await self._run_action(job, Actions.run)
+        await self._run_action(job, Actions.run, overrides)
 
-    async def _run_action(self, topic: Topic, action: Action) -> None:
+    async def _run_action(
+        self, topic: Topic, action: Action, overrides: JobRunOverrides
+    ) -> None:
         try:
             await action.execute(
                 topic,
+                overrides,
                 self._job_runners,
                 self._event_log,
                 self._event_log.curr_timestamp,

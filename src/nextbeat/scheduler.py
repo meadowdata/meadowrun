@@ -486,19 +486,23 @@ class Scheduler:
 
     async def manual_run_on_event_loop(
         self, job_name: TopicName, overrides: JobRunOverrides
-    ) -> None:
-        """Execute the Run Action on the specified job."""
+    ) -> str:
+        """
+        Execute the Run Action on the specified job, returns the request_id (see
+        Run.execute for semantics of request_id)
+        """
         # TODO see if we can eliminate a little copy/paste here
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
-        await self._run_action(job, Actions.run, overrides)
+        return await self._run_action(job, Actions.run, overrides)
 
     async def _run_action(
         self, topic: Topic, action: Action, overrides: JobRunOverrides
-    ) -> None:
+    ) -> str:
+        """Returns the request_id (see Run.execute for semantics of request_id)"""
         try:
-            await action.execute(
+            return await action.execute(
                 topic,
                 overrides,
                 self._job_runners,

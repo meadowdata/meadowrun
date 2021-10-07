@@ -1,4 +1,6 @@
+import asyncio
 import pickle
+import time
 from typing import List, Optional
 
 import grpc
@@ -7,7 +9,7 @@ import grpc.aio
 from nextbeat.event_log import Event
 from nextbeat.scopes import ScopeValues
 from nextbeat.topic_names import TopicName
-from nextbeat.jobs import Job, JobRunOverrides
+from nextbeat.jobs import Job, JobRunOverrides, JobPayload
 from nextbeat.server.config import DEFAULT_ADDRESS
 from nextbeat.server.nextbeat_pb2 import (
     AddJobsRequest,
@@ -17,6 +19,21 @@ from nextbeat.server.nextbeat_pb2 import (
     InstantiateScopesRequest,
 )
 from nextbeat.server.nextbeat_pb2_grpc import NextBeatServerStub
+
+
+def _is_request_id_completed(events: List[Event[JobPayload]], request_id: str) -> bool:
+    for event in events:
+        if event.payload.request_id == request_id:
+            if event.payload.state in ("SUCCEEDED", "CANCELLED", "FAILED"):
+                return True
+            else:
+                # we're iterating from most recent to oldest, so if we see a
+                # non-completion state, that means we have not completed
+                return False
+    raise ValueError(f"request_id {request_id} has no events")
+
+
+_POLL_PERIOD = 0.5  # poll every 500ms
 
 
 class NextBeatClientAsync:
@@ -81,19 +98,27 @@ class NextBeatClientAsync:
         )
 
     async def manual_run(
-        self, job_name: TopicName, job_run_overrides: Optional[JobRunOverrides] = None
+        self,
+        job_name: TopicName,
+        job_run_overrides: Optional[JobRunOverrides] = None,
+        wait_for_completion=False,
     ) -> None:
         """
         Execute the Run Action on the specified job.
 
         TODO error handling, return type
         """
-        await self._stub.manual_run(
+        response = await self._stub.manual_run(
             ManualRunRequest(
                 pickled_job_name=pickle.dumps(job_name),
                 pickled_job_run_overrides=pickle.dumps(job_run_overrides),
             )
         )
+        if wait_for_completion:
+            while not _is_request_id_completed(
+                await self.get_events([job_name]), response.run_request_id
+            ):
+                await asyncio.sleep(_POLL_PERIOD)
 
     async def __aenter__(self):
         await self._channel.__aenter__()
@@ -133,14 +158,22 @@ class NextBeatClientSync:
         )
 
     def manual_run(
-        self, job_name: TopicName, job_run_overrides: Optional[JobRunOverrides] = None
+        self,
+        job_name: TopicName,
+        job_run_overrides: Optional[JobRunOverrides] = None,
+        wait_for_completion=False,
     ) -> None:
-        self._stub.manual_run(
+        response = self._stub.manual_run(
             ManualRunRequest(
                 pickled_job_name=pickle.dumps(job_name),
                 pickled_job_run_overrides=pickle.dumps(job_run_overrides),
             )
         )
+        if wait_for_completion:
+            while not _is_request_id_completed(
+                self.get_events([job_name]), response.run_request_id
+            ):
+                time.sleep(_POLL_PERIOD)
 
     def __enter__(self):
         self._channel.__enter__()

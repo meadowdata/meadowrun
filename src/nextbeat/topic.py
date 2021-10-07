@@ -47,7 +47,7 @@ class Action(ABC):
         available_job_runners: List[Any],
         event_log: EventLog,
         timestamp: Timestamp,
-    ) -> None:
+    ) -> Any:
         """execute should call log.append_job_event"""
         # TODO the signature of execute doesn't make that much sense for actions other
         #  than run, we should reconsider these APIs when we add additional actions

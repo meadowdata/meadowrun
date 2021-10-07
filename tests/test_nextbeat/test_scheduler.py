@@ -284,10 +284,14 @@ def test_simple_jobs_nextbeat_server() -> None:
         assert "hello, there" == a_events[0].payload.result_value
         assert 4 == len(b_events)
 
-        # now run B manually with an args override and make sure the arguments make it
-        # through
-        client.manual_run(pname("B"), JobRunOverrides(["manual", "override"]))
-        _wait_for_events(client, 3, pname("B"), 7)
+        # Now run B manually with an args override and make sure the arguments make it
+        # through. Also use wait_for_completion=True, which means we don't need to use
+        # _wait_for_events
+        client.manual_run(
+            pname("B"),
+            JobRunOverrides(["manual", "override"]),
+            wait_for_completion=True,
+        )
         assert (
             "manual, override"
             == client.get_events([pname("B")])[0].payload.result_value

@@ -41,6 +41,7 @@ message ManualRunRequest {
 }
 
 message ManualRunResponse {
+    string run_request_id = 1;
 }
 
 service NextBeatServer {

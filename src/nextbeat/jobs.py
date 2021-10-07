@@ -200,11 +200,19 @@ class Run(nextbeat.topic.Action):
         available_job_runners: List[JobRunner],
         event_log: EventLog,
         timestamp: Timestamp,
-    ) -> None:
-        ev = event_log.last_event(job.name, timestamp)
+    ) -> str:
+        """
+        Returns a request id. If the job is already requested or running, this will
+        return the previous run request id (new run requests while the job is already
+        requested/running are ignored)
+        """
+        ev: Event[JobPayload] = event_log.last_event(job.name, timestamp)
         # TODO not clear that this is the right behavior, vs queuing up another run once
         #  the current run is done.
-        if not ev or ev.payload.state not in ["RUN_REQUESTED", "RUNNING"]:
+        if ev is not None and ev.payload.state in ["RUN_REQUESTED", "RUNNING"]:
+            # TODO maybe indicate somehow that this job request already existed?
+            return ev.payload.request_id
+        else:
             run_request_id = str(uuid.uuid4())
 
             # convert a job_function into a job_runner_function
@@ -256,6 +264,8 @@ class Run(nextbeat.topic.Action):
             await choose_job_runner(job, available_job_runners).run(
                 job.name, run_request_id, job_runner_function
             )
+
+            return run_request_id
 
 
 def choose_job_runner(job: Job, job_runners: List[JobRunner]) -> JobRunner:

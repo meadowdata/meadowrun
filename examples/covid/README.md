@@ -81,6 +81,9 @@ runs.
 ## How to run
 To run this example from the examples/covid directory:
 
+If you don't have poetry installed, [install
+it](https://python-poetry.org/docs/#installation) first. Then: 
+
 ```shell
 # one time setup of virtualenv
 poetry install
@@ -96,7 +99,7 @@ poetry run python
 ```
 
 We still need to run the first "database migration" so to speak, which we'll also
-simulate doing manually/via command line
+simulate doing manually/via command line:
 
 ```python
 

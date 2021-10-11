@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "covid"
+version = "0.1.0"
+description = ""
+authors = ["Hyunho Richard Lee <hrichardlee@gmail.com>"]
+packages = [{ include = "scripts_redirect.py" }]
+
+# This section should not be necessary, this is a workaround until
+# https://github.com/python-poetry/poetry/issues/3265 is fixed
+[tool.poetry.scripts]
+nextrun_ = 'scripts_redirect:nextrun_'
+nextbeat_ = 'scripts_redirect:nextbeat_'
+
+[tool.poetry.dependencies]
+python = "^3.9"
+# alternate to pull from testpypi: nextdataplatform = "^0.1.0"
+nextdataplatform = { path = "../../../nextdataplatform/", develop = true }
+jupyter = "^1.0.0"
+requests = "^2.26.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# alternate to pull from testpypi:
+# [[tool.poetry.source]]
+# name = "testpypi"
+# url = "https://test.pypi.org/simple/"
+# secondary = true

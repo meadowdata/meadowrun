@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence, List, Callable, Any
+from typing import Iterable, Sequence, List, Callable, Any
 
 from nextbeat.event_log import EventLog, Event, Timestamp
 from nextbeat.topic_names import TopicName

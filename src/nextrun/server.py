@@ -173,9 +173,9 @@ class NextRunServerHandler(NextRunServerServicer):
             working_directory = code_paths[0]
 
             environment = os.environ.copy()
-            # we intentionally overwrite any existing PYTHONPATH--if for some reason we need
-            # the current server process' code for the child process, the user needs to
-            # include it directly
+            # we intentionally overwrite any existing PYTHONPATH--if for some reason we
+            # need the current server process' code for the child process, the user
+            # needs to include it directly
             environment["PYTHONPATH"] = ";".join(code_paths)
 
             log_file_name = os.path.join(
@@ -207,8 +207,8 @@ class NextRunServerHandler(NextRunServerServicer):
                 f"log={log_file_name}"
             )
 
-            # TODO func_runner_path and argument_path need to be escaped properly on both
-            #  Windows and Linux
+            # TODO func_runner_path and argument_path need to be escaped properly on
+            #  both Windows and Linux
             # this isn't documented per se, but closing the file handle for the log file
             # doesn't affect the subprocess being able to write to it
             with open(log_file_name, "w", encoding="utf-8") as log_file:
@@ -252,7 +252,9 @@ class NextRunServerHandler(NextRunServerServicer):
     async def _get_interpreter_and_code(
         self, request: RunPyFuncRequest
     ) -> Tuple[str, List[str]]:
-        """Returns interpreter_path, code_paths"""
+        """
+        Returns interpreter_path, code_paths. code_paths will have at least one element
+        """
         case = request.WhichOneof("deployment")
         if case == "server_available_folder":
             r = request.server_available_folder

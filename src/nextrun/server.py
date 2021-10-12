@@ -29,7 +29,7 @@ from nextrun.nextrun_pb2_grpc import (
 ProcessStateEnum = ProcessState.ProcessStateEnum
 
 
-_REQUEST_ID_VALID_CHARS = set(string.ascii_letters + string.digits + "-_")
+_REQUEST_ID_VALID_CHARS = set(string.ascii_letters + string.digits + "-_.")
 
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
@@ -94,10 +94,13 @@ class NextRunServerHandler(NextRunServerServicer):
         # this holds immutable local copies of a single version of a git repo (or other
         # sources of code)
         self._local_copies_folder = os.path.join(working_folder, "local_copies")
+        # holds the logs for the functions/commands that this server runs
+        self._job_logs_folder = os.path.join(working_folder, "job_logs")
 
         os.makedirs(self._io_folder, exist_ok=True)
         os.makedirs(self._git_repos_folder, exist_ok=True)
         os.makedirs(self._local_copies_folder, exist_ok=True)
+        os.makedirs(self._job_logs_folder, exist_ok=True)
 
         # Maps from remote git url to _GitRepoLocalClone. Note that we need to hold onto
         # the full original url to to avoid collisions between e.g.
@@ -126,9 +129,9 @@ class NextRunServerHandler(NextRunServerServicer):
         #  in a timely manner)
         # TODO we should periodically clean up these handles/outputs so they don't grow
         #  without bound
-        # request_id -> process. None means that we're in the process of constructing
-        # the process
-        self._processes: Dict[str, Optional[subprocess.Popen]] = {}
+        # request_id -> (process, log file name). None means that we're in the process
+        # of constructing the process
+        self._processes: Dict[str, Optional[Tuple[subprocess.Popen, str]]] = {}
         # request_id -> output
         self._completed_process_states: Dict[str, ProcessState] = {}
 
@@ -175,6 +178,16 @@ class NextRunServerHandler(NextRunServerServicer):
             # include it directly
             environment["PYTHONPATH"] = ";".join(code_paths)
 
+            log_file_name = os.path.join(
+                self._job_logs_folder,
+                "".join(
+                    c
+                    for c in "_".join([request.module_name, request.function_name])
+                    if c in _REQUEST_ID_VALID_CHARS
+                )
+                + f".{request.request_id}.log",
+            )
+
             # write function arguments to file
 
             if request.pickled_function_arguments is None:
@@ -190,23 +203,29 @@ class NextRunServerHandler(NextRunServerServicer):
             print(
                 f"Running process with: {interpreter_path} {_FUNC_RUNNER_PATH} "
                 f"{request.module_name} {request.function_name} {argument_path}; "
-                f'cwd={working_directory}; PYTHONPATH={environment["PYTHONPATH"]}'
+                f"cwd={working_directory}; PYTHONPATH={environment['PYTHONPATH']} "
+                f"log={log_file_name}"
             )
 
             # TODO func_runner_path and argument_path need to be escaped properly on both
             #  Windows and Linux
-            process = subprocess.Popen(
-                [
-                    interpreter_path,
-                    _FUNC_RUNNER_PATH,
-                    request.module_name,
-                    request.function_name,
-                    argument_path,
-                    str(request.result_highest_pickle_protocol),
-                ],
-                cwd=working_directory,
-                env=environment,
-            )
+            # this isn't documented per se, but closing the file handle for the log file
+            # doesn't affect the subprocess being able to write to it
+            with open(log_file_name, "w", encoding="utf-8") as log_file:
+                process = subprocess.Popen(
+                    [
+                        interpreter_path,
+                        _FUNC_RUNNER_PATH,
+                        request.module_name,
+                        request.function_name,
+                        argument_path,
+                        str(request.result_highest_pickle_protocol),
+                    ],
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    cwd=working_directory,
+                    env=environment,
+                )
 
         except Exception as e:
             # we failed to launch the process
@@ -223,8 +242,12 @@ class NextRunServerHandler(NextRunServerServicer):
             self._completed_process_states[request.request_id] = process_state
             return process_state
         else:
-            self._processes[request.request_id] = process
-            return ProcessState(state=ProcessStateEnum.RUNNING, pid=process.pid)
+            self._processes[request.request_id] = process, log_file_name
+            return ProcessState(
+                state=ProcessStateEnum.RUNNING,
+                pid=process.pid,
+                log_file_name=log_file_name,
+            )
 
     async def _get_interpreter_and_code(
         self, request: RunPyFuncRequest
@@ -366,8 +389,8 @@ class NextRunServerHandler(NextRunServerServicer):
             return ProcessState(state=ProcessStateEnum.UNKNOWN)
 
         # next, see if we're still in the process of constructing the process
-        process = self._processes[request_id]
-        if process is None:
+        process_and_log_file_name = self._processes[request_id]
+        if process_and_log_file_name is None:
             # check if we've failed to launch
             if request_id in self._completed_process_states:
                 # this should always be RUN_REQUEST_FAILED
@@ -375,17 +398,23 @@ class NextRunServerHandler(NextRunServerServicer):
             else:
                 # we're still trying to start the process
                 return ProcessState(state=ProcessStateEnum.RUN_REQUESTED)
+        process, log_file_name = process_and_log_file_name
 
         # next, see if we have launched the process yet
         return_code = process.poll()
         if return_code is None:
-            return ProcessState(state=ProcessStateEnum.RUNNING, pid=process.pid)
+            return ProcessState(
+                state=ProcessStateEnum.RUNNING,
+                pid=process.pid,
+                log_file_name=log_file_name,
+            )
 
         # see if we got a normal return code
         if return_code != 0:
             process_state = ProcessState(
                 state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
                 pid=process.pid,
+                log_file_name=log_file_name,
                 return_code=return_code,
             )
             self._completed_process_states[request_id] = process_state
@@ -409,6 +438,7 @@ class NextRunServerHandler(NextRunServerServicer):
         process_state = ProcessState(
             state=state,
             pid=process.pid,
+            log_file_name=log_file_name,
             return_code=0,
             pickled_result=result,
         )

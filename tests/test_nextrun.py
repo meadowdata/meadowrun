@@ -37,7 +37,7 @@ def test_nextrun_server_git_repo_commit():
     _test_nextrun(
         GitRepoCommit(
             repo_url=test_repo,
-            commit="ec1908ead5c4e8cec2c19262d8a423225aafb396",
+            commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
             interpreter_path=sys.executable,
         )
     )
@@ -62,6 +62,7 @@ def _test_nextrun(deployment: Deployment):
                 )
                 assert run_request_result.state == ProcessStateEnum.RUNNING
                 assert run_request_result.pid > 0
+                log_file_name = run_request_result.log_file_name
 
                 # try running a duplicate
                 duplicate_request_result = await client.run_py_func(
@@ -84,6 +85,7 @@ def _test_nextrun(deployment: Deployment):
                 assert len(results) == 1
                 assert results[0].state == ProcessStateEnum.RUNNING
                 assert results[0].pid == run_request_result.pid
+                assert log_file_name == run_request_result.log_file_name
 
                 # wait (no more than ~10s) for the remote process to finish
                 i = 0
@@ -101,6 +103,10 @@ def _test_nextrun(deployment: Deployment):
                     pickle.loads(results[0].pickled_result)[0]
                     == f"hello {arguments[0]}"
                 )
+                assert log_file_name == results[0].log_file_name
+                with open(log_file_name, "r") as log_file:
+                    text = log_file.read()
+                assert f"example_runner called with {arguments[0]}" in text
 
                 # test that requesting a different result works as expected
                 results = await client.get_process_states(["hey"])

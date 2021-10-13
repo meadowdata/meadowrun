@@ -1,8 +1,10 @@
 import datetime
+import sys
 
 import pandas as pd
 
 import nextdb
+import nextrun.server_main
 from nextbeat.jobs import (
     Job,
     LocalFunction,
@@ -10,13 +12,21 @@ from nextbeat.jobs import (
     AnyJobStateEventFilter,
 )
 from nextbeat.effects import NextdbDynamicDependency, UntilNextdbWritten
+from nextbeat.nextrun_job_runner import NextRunJobRunner
 from nextbeat.scheduler import Scheduler
 from nextbeat.scopes import BASE_SCOPE, ALL_SCOPES, ScopeValues
 from nextbeat.topic import TriggerAction
 from nextbeat.topic_names import pname
 from nextdb.connection import NextdbEffects, prod_userspace_name
+from nextrun.deployed_function import (
+    NextRunDeployedCommand,
+    NextRunDeployedFunction,
+    NextRunFunction,
+)
+from nextrun.nextrun_pb2 import ServerAvailableFolder
 from test_nextbeat.test_scheduler import _wait_for_scheduler, _run_func
 import tests.test_nextdb
+from test_nextrun import NEXTDATA_CODE, EXAMPLE_CODE
 
 
 def _get_connection():
@@ -139,6 +149,64 @@ def test_nextdb_dependency():
         scheduler.manual_run(pname("A", date=date))
         _wait_for_scheduler(scheduler)
         assert_b_events(10, 7, 7, 4)
+
+
+def test_nextdb_dependency_command():
+    """
+    Tests that nextdb effects come through nextrun commands and functions correctly as
+    well.
+    """
+    with nextrun.server_main.main_in_child_process(), Scheduler(
+        job_runner_poll_delay_seconds=0.05
+    ) as scheduler:
+        scheduler.register_job_runner(NextRunJobRunner)
+
+        scheduler.add_jobs(
+            [
+                Job(
+                    pname("Command"),
+                    NextRunDeployedCommand(
+                        ServerAvailableFolder(
+                            code_paths=[EXAMPLE_CODE, NEXTDATA_CODE],
+                            interpreter_path=sys.executable,
+                        ),
+                        command_line=["python", "write_to_table.py"],
+                    ),
+                    (),
+                ),
+                Job(
+                    pname("Func"),
+                    NextRunDeployedFunction(
+                        ServerAvailableFolder(
+                            code_paths=[EXAMPLE_CODE, NEXTDATA_CODE],
+                            interpreter_path=sys.executable,
+                        ),
+                        NextRunFunction(
+                            module_name="write_to_table",
+                            function_name="main",
+                        ),
+                    ),
+                    (),
+                ),
+            ]
+        )
+
+        scheduler.main_loop()
+
+        scheduler.manual_run(pname("Command"))
+        scheduler.manual_run(pname("Func"))
+        _wait_for_scheduler(scheduler)
+
+        command_events = scheduler.events_of(pname("Command"))
+        func_events = scheduler.events_of(pname("Func"))
+        for events in (command_events, func_events):
+            assert 4 == len(events)
+            assert "SUCCEEDED" == events[0].payload.state
+            all_effects = events[0].payload.effects.nextdb_effects
+            assert len(all_effects) == 1
+            effects: NextdbEffects = list(all_effects.values())[0]
+            assert list(effects.tables_read.keys()) == [("prod", "A")]
+            assert list(effects.tables_written.keys()) == [("prod", "A")]
 
 
 _write_on_third_try_runs = 0

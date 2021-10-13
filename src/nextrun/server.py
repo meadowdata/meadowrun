@@ -217,7 +217,7 @@ class NextRunServerHandler(NextRunServerServicer):
                 scripts_dir = str(interpreter_path.parent.resolve())
             else:
                 scripts_dir = str((interpreter_path.parent / "Scripts").resolve())
-            environment["PATH"] = environment["PATH"] + ";" + scripts_dir
+            environment["PATH"] = scripts_dir + ";" + environment["PATH"]
 
             log_file_name = os.path.join(
                 self._job_logs_folder,
@@ -227,6 +227,15 @@ class NextRunServerHandler(NextRunServerServicer):
                     if c in _REQUEST_ID_VALID_CHARS
                 )
                 + f".{request.request_id}.log",
+            )
+
+            # request the results file
+
+            environment[nextbeat.context._NEXTRUN_RESULT_FILE] = os.path.join(
+                self._io_folder, request.request_id + ".result"
+            )
+            environment[nextbeat.context._NEXTRUN_RESULT_PICKLE_PROTOCOL] = str(
+                request.result_highest_pickle_protocol
             )
 
             # write context variables to file
@@ -248,15 +257,28 @@ class NextRunServerHandler(NextRunServerServicer):
             if not request.command_line:
                 raise ValueError("command_line must have at least one string")
 
+            # Popen uses cwd and env to search for the specified command on Linux but
+            # not on Windows according to the docs:
+            # https://docs.python.org/3/library/subprocess.html#subprocess.Popen
+            # We can use shutil to make the behavior more similar on both platforms
+            new_first_command_line = shutil.which(
+                request.command_line[0],
+                path=f"{working_directory};{environment['PATH']}",
+            )
+            if new_first_command_line:
+                command_line = [new_first_command_line] + request.command_line[1:]
+            else:
+                command_line = request.command_line
+
             print(
-                f"Running process: {' '.join(request.command_line)}; "
-                f"cwd={working_directory}; added {scripts_dir} to PATH; "
-                f"PYTHONPATH={environment['PYTHONPATH']}; log_file_name={log_file_name}"
+                f"Running process: {' '.join(command_line)}; cwd={working_directory}; "
+                f"added {scripts_dir} to PATH; PYTHONPATH={environment['PYTHONPATH']}; "
+                f"log_file_name={log_file_name}"
             )
 
             with open(log_file_name, "w", encoding="utf-8") as log_file:
                 process = subprocess.Popen(
-                    request.command_line,
+                    command_line,
                     stdout=log_file,
                     stderr=subprocess.STDOUT,
                     cwd=working_directory,
@@ -558,16 +580,9 @@ class NextRunServerHandler(NextRunServerServicer):
             return process_state
 
         # if we returned normally
-        if process.process_type == "py_command":
-            # for py_commands, we don't have a state/result
-            process_state = ProcessState(
-                state=ProcessStateEnum.SUCCEEDED,
-                pid=process.process.pid,
-                log_file_name=process.log_file_name,
-                return_code=0,
-            )
-        elif process.process_type == "py_func":
-            # for py_funcs, return the state + result
+
+        # for py_funcs, get the state
+        if process.process_type == "py_func":
             state_file = os.path.join(self._io_folder, request_id + ".state")
             with open(state_file, "r", encoding="utf-8") as f:
                 state_string = f.read()
@@ -577,20 +592,28 @@ class NextRunServerHandler(NextRunServerServicer):
                 state = ProcessStateEnum.PYTHON_EXCEPTION
             else:
                 raise ValueError(f"Unknown state string: {state_string}")
-
-            result_file = os.path.join(self._io_folder, request_id + ".result")
-            with open(result_file, "rb") as f:
-                result = f.read()
-
-            process_state = ProcessState(
-                state=state,
-                pid=process.process.pid,
-                log_file_name=process.log_file_name,
-                return_code=0,
-                pickled_result=result,
-            )
+        elif process.process_type == "py_command":
+            state = ProcessStateEnum.SUCCEEDED
         else:
             raise ValueError(f"process_type was not recognized {process.process_type}")
+
+        # Next get the result. The result file is optional for py_commands because we
+        # don't have full control over the process and there's no way to guarantee that
+        # "our code" gets executed
+        result_file = os.path.join(self._io_folder, request_id + ".result")
+        if process.process_type != "py_command" or os.path.exists(result_file):
+            with open(result_file, "rb") as f:
+                result = f.read()
+        else:
+            result = None
+
+        process_state = ProcessState(
+            state=state,
+            pid=process.process.pid,
+            log_file_name=process.log_file_name,
+            return_code=0,
+            pickled_result=result,
+        )
 
         self._completed_process_states[request_id] = process_state
         return process_state

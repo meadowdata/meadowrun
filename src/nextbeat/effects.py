@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import atexit
 import dataclasses
+import pickle
 from typing import Iterable, Dict, Sequence, Tuple, Set, Literal
 
 # TODO consider making this work without the nextdb dependency?
@@ -8,6 +10,7 @@ import nextdb.connection
 from nextbeat.event_log import Event, EventLog, Timestamp
 import nextbeat.scopes
 import nextbeat.topic
+import nextbeat.context
 from nextbeat.topic_names import TopicName, CURRENT_JOB
 
 
@@ -173,3 +176,22 @@ class UntilNextdbWritten(nextbeat.topic.StatePredicate):
         cls, *table_names: Tuple[str, str], job_name: TopicName = CURRENT_JOB
     ) -> UntilNextdbWritten:
         return cls(job_name, table_names, "all")
+
+
+def _save_effects(result_file, result_pickle_protocol):
+    """
+    When nextrun runs a command, it's not able to wrap the process to guarantee that the
+    effects get written out. If that's the case, we will do our best to make sure that
+    we write effects to the file that nextrun requests via environment variables
+    """
+    with open(result_file, "wb") as f:
+        pickle.dump((None, get_effects()), f, protocol=result_pickle_protocol)
+
+
+# See _save_effects docstring
+_save_effects_registered = False
+if not _save_effects_registered:
+    _save_effects_registered = True
+    result_request = nextbeat.context.result_request()
+    if result_request is not None:
+        atexit.register(_save_effects, *result_request)

@@ -196,20 +196,22 @@ class NextRunClientAsync:
         ProcessStateEnum values:
         - DEFAULT: reserved, not used
         - RUN_REQUESTED: we are in the process of trying to launch the process
-        - RUNNING: Currently running. Only pid will be populated
-        - SUCCEEDED: Completed normally. pickled_result, pid, will be populated
+        - RUNNING: Currently running. pid and log_file_name will be populated
+        - SUCCEEDED: Completed normally. pickled_result may be populated, pid and
+          log_file_name will be populated
         - RUN_REQUEST_FAILED: There was an exception while trying to start the process
-        - PYTHON_EXCEPTION: A python exception was thrown. pickled_result, pid will be
-          populated. pickled_result will be a pickled tuple (exception_type,
-          exception_message, exception_traceback). We don't pickle the exception itself
-          because it may not be unpicklable on this end (e.g. it involves types that
-          don't exist in the current process' code base). Obviously function_arguments
-          and the function's results could be unpicklable as well, but those objects
-          will hopefully be designed to be picklable/unpicklable, whereas exceptions are
-          by their nature unexpected.
+        - PYTHON_EXCEPTION: A python exception was thrown. pickled_result, pid,
+          log_file_name will be populated. pickled_result will be a pickled tuple
+          (exception_type, exception_message, exception_traceback). We don't pickle the
+          exception itself because it may not be unpicklable on this end (e.g. it
+          involves types that don't exist in the current process' code base). Obviously
+          function_arguments and the function's results could be unpicklable as well,
+          but those objects will hopefully be designed to be picklable/unpicklable,
+          whereas exceptions are by their nature unexpected.
         - NON_ZERO_RETURN_CODE: The process exited with non-zero error code, which means
           that a non-python exception was thrown, or some python code called os.exit()
-          with a non-zero argument. pid and return_code will be populated
+          with a non-zero argument. pid, return_code, and log_file_name will be
+          populated
         - CANCELLED: Cancelled by request.
         - UNKNOWN: We don't recognize the request_id, no other fields will be populated
         - ERROR_GETTING_STATE: We do recognize the request_id, but there was an error

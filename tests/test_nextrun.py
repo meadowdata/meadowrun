@@ -21,12 +21,15 @@ from nextrun.deployed_function import (
 from nextrun.nextrun_pb2 import ServerAvailableFolder, GitRepoCommit, ProcessState
 
 
+EXAMPLE_CODE = str((pathlib.Path(__file__).parent / "example_user_code").resolve())
+NEXTDATA_CODE = str((pathlib.Path(__file__).parent.parent / "src").resolve())
+
+
 def test_nextrun_server_available_folder():
-    example_code = str((pathlib.Path(__file__).parent / "example_user_code").resolve())
 
     _test_nextrun(
         ServerAvailableFolder(
-            code_paths=[example_code], interpreter_path=sys.executable
+            code_paths=[EXAMPLE_CODE], interpreter_path=sys.executable
         )
     )
 
@@ -156,11 +159,8 @@ def test_nextrun_command_context_variables():
     with context variables. Makes sure the output is the same in both cases.
     """
 
-    example_code = str((pathlib.Path(__file__).parent / "example_user_code").resolve())
-    nextdata_code = str((pathlib.Path(__file__).parent.parent / "src").resolve())
-
     deployment = ServerAvailableFolder(
-        code_paths=[example_code, nextdata_code], interpreter_path=sys.executable
+        code_paths=[EXAMPLE_CODE, NEXTDATA_CODE], interpreter_path=sys.executable
     )
 
     with nextrun.server_main.main_in_child_process():

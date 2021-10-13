@@ -9,6 +9,14 @@ from . import writer, reader
 from .readerwriter_shared import TableSchema
 from .table_versions_client_local import TableVersionsClientLocal
 
+try:
+    # we try to import nextbeat.effects because we want to make sure that _save_effects
+    # gets registered in the case where the user code only references nextdb and not
+    # nextbeat.effects
+    import nextbeat.effects
+except Exception:
+    pass
+
 
 prod_userspace_name = "prod"
 

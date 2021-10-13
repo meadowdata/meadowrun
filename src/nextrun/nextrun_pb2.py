@@ -18,7 +18,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x15nextrun/nextrun.proto\x12\x07nextrun"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"K\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t"\xa2\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x41\n\x17server_available_folder\x18\x02 \x01(\x0b\x32\x1e.nextrun.ServerAvailableFolderH\x00\x12\x31\n\x0fgit_repo_commit\x18\x03 \x01(\x0b\x32\x16.nextrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x04 \x01(\t\x12\x15\n\rfunction_name\x18\x05 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x06 \x01(\x0c\x12&\n\x1eresult_highest_pickle_protocol\x18\x07 \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\xfe\x02\n\x0cProcessState\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.nextrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xe5\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\n">\n\rProcessStates\x12-\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x15.nextrun.ProcessState2\xa1\x01\n\rNextRunServer\x12\x41\n\x0brun_py_func\x12\x19.nextrun.RunPyFuncRequest\x1a\x15.nextrun.ProcessState"\x00\x12M\n\x12get_process_states\x12\x1d.nextrun.ProcessStatesRequest\x1a\x16.nextrun.ProcessStates"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x15nextrun/nextrun.proto\x12\x07nextrun"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"K\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t"\xeb\x01\n\x13RunPyCommandRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x41\n\x17server_available_folder\x18\x02 \x01(\x0b\x32\x1e.nextrun.ServerAvailableFolderH\x00\x12\x31\n\x0fgit_repo_commit\x18\x03 \x01(\x0b\x32\x16.nextrun.GitRepoCommitH\x00\x12\x14\n\x0c\x63ommand_line\x18\x04 \x03(\t\x12&\n\x1eresult_highest_pickle_protocol\x18\x05 \x01(\x05\x42\x0c\n\ndeployment"\xa2\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x41\n\x17server_available_folder\x18\x02 \x01(\x0b\x32\x1e.nextrun.ServerAvailableFolderH\x00\x12\x31\n\x0fgit_repo_commit\x18\x03 \x01(\x0b\x32\x16.nextrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x04 \x01(\t\x12\x15\n\rfunction_name\x18\x05 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x06 \x01(\x0c\x12&\n\x1eresult_highest_pickle_protocol\x18\x07 \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\xfe\x02\n\x0cProcessState\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.nextrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xe5\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\n">\n\rProcessStates\x12-\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x15.nextrun.ProcessState2\xea\x01\n\rNextRunServer\x12G\n\x0erun_py_command\x12\x1c.nextrun.RunPyCommandRequest\x1a\x15.nextrun.ProcessState"\x00\x12\x41\n\x0brun_py_func\x12\x19.nextrun.RunPyFuncRequest\x1a\x15.nextrun.ProcessState"\x00\x12M\n\x12get_process_states\x12\x1d.nextrun.ProcessStatesRequest\x1a\x16.nextrun.ProcessStates"\x00\x62\x06proto3',
 )
 
 
@@ -120,8 +120,8 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
     ],
     containing_type=None,
     serialized_options=None,
-    serialized_start=674,
-    serialized_end=903,
+    serialized_start=912,
+    serialized_end=1141,
 )
 _sym_db.RegisterEnumDescriptor(_PROCESSSTATE_PROCESSSTATEENUM)
 
@@ -262,6 +262,132 @@ _GITREPOCOMMIT = _descriptor.Descriptor(
     oneofs=[],
     serialized_start=105,
     serialized_end=180,
+)
+
+
+_RUNPYCOMMANDREQUEST = _descriptor.Descriptor(
+    name="RunPyCommandRequest",
+    full_name="nextrun.RunPyCommandRequest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="request_id",
+            full_name="nextrun.RunPyCommandRequest.request_id",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="server_available_folder",
+            full_name="nextrun.RunPyCommandRequest.server_available_folder",
+            index=1,
+            number=2,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="git_repo_commit",
+            full_name="nextrun.RunPyCommandRequest.git_repo_commit",
+            index=2,
+            number=3,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="command_line",
+            full_name="nextrun.RunPyCommandRequest.command_line",
+            index=3,
+            number=4,
+            type=9,
+            cpp_type=9,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="result_highest_pickle_protocol",
+            full_name="nextrun.RunPyCommandRequest.result_highest_pickle_protocol",
+            index=4,
+            number=5,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[
+        _descriptor.OneofDescriptor(
+            name="deployment",
+            full_name="nextrun.RunPyCommandRequest.deployment",
+            index=0,
+            containing_type=None,
+            create_key=_descriptor._internal_create_key,
+            fields=[],
+        ),
+    ],
+    serialized_start=183,
+    serialized_end=418,
 )
 
 
@@ -424,8 +550,8 @@ _RUNPYFUNCREQUEST = _descriptor.Descriptor(
             fields=[],
         ),
     ],
-    serialized_start=183,
-    serialized_end=473,
+    serialized_start=421,
+    serialized_end=711,
 )
 
 
@@ -465,8 +591,8 @@ _PROCESSSTATESREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=475,
-    serialized_end=518,
+    serialized_start=713,
+    serialized_end=756,
 )
 
 
@@ -584,8 +710,8 @@ _PROCESSSTATE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=521,
-    serialized_end=903,
+    serialized_start=759,
+    serialized_end=1141,
 )
 
 
@@ -625,10 +751,26 @@ _PROCESSSTATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=905,
-    serialized_end=967,
+    serialized_start=1143,
+    serialized_end=1205,
 )
 
+_RUNPYCOMMANDREQUEST.fields_by_name[
+    "server_available_folder"
+].message_type = _SERVERAVAILABLEFOLDER
+_RUNPYCOMMANDREQUEST.fields_by_name["git_repo_commit"].message_type = _GITREPOCOMMIT
+_RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"].fields.append(
+    _RUNPYCOMMANDREQUEST.fields_by_name["server_available_folder"]
+)
+_RUNPYCOMMANDREQUEST.fields_by_name[
+    "server_available_folder"
+].containing_oneof = _RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"]
+_RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"].fields.append(
+    _RUNPYCOMMANDREQUEST.fields_by_name["git_repo_commit"]
+)
+_RUNPYCOMMANDREQUEST.fields_by_name[
+    "git_repo_commit"
+].containing_oneof = _RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"]
 _RUNPYFUNCREQUEST.fields_by_name[
     "server_available_folder"
 ].message_type = _SERVERAVAILABLEFOLDER
@@ -650,6 +792,7 @@ _PROCESSSTATE_PROCESSSTATEENUM.containing_type = _PROCESSSTATE
 _PROCESSSTATES.fields_by_name["process_states"].message_type = _PROCESSSTATE
 DESCRIPTOR.message_types_by_name["ServerAvailableFolder"] = _SERVERAVAILABLEFOLDER
 DESCRIPTOR.message_types_by_name["GitRepoCommit"] = _GITREPOCOMMIT
+DESCRIPTOR.message_types_by_name["RunPyCommandRequest"] = _RUNPYCOMMANDREQUEST
 DESCRIPTOR.message_types_by_name["RunPyFuncRequest"] = _RUNPYFUNCREQUEST
 DESCRIPTOR.message_types_by_name["ProcessStatesRequest"] = _PROCESSSTATESREQUEST
 DESCRIPTOR.message_types_by_name["ProcessState"] = _PROCESSSTATE
@@ -677,6 +820,17 @@ GitRepoCommit = _reflection.GeneratedProtocolMessageType(
     },
 )
 _sym_db.RegisterMessage(GitRepoCommit)
+
+RunPyCommandRequest = _reflection.GeneratedProtocolMessageType(
+    "RunPyCommandRequest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _RUNPYCOMMANDREQUEST,
+        "__module__": "nextrun.nextrun_pb2"
+        # @@protoc_insertion_point(class_scope:nextrun.RunPyCommandRequest)
+    },
+)
+_sym_db.RegisterMessage(RunPyCommandRequest)
 
 RunPyFuncRequest = _reflection.GeneratedProtocolMessageType(
     "RunPyFuncRequest",
@@ -730,13 +884,23 @@ _NEXTRUNSERVER = _descriptor.ServiceDescriptor(
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=970,
-    serialized_end=1131,
+    serialized_start=1208,
+    serialized_end=1442,
     methods=[
+        _descriptor.MethodDescriptor(
+            name="run_py_command",
+            full_name="nextrun.NextRunServer.run_py_command",
+            index=0,
+            containing_service=None,
+            input_type=_RUNPYCOMMANDREQUEST,
+            output_type=_PROCESSSTATE,
+            serialized_options=None,
+            create_key=_descriptor._internal_create_key,
+        ),
         _descriptor.MethodDescriptor(
             name="run_py_func",
             full_name="nextrun.NextRunServer.run_py_func",
-            index=0,
+            index=1,
             containing_service=None,
             input_type=_RUNPYFUNCREQUEST,
             output_type=_PROCESSSTATE,
@@ -746,7 +910,7 @@ _NEXTRUNSERVER = _descriptor.ServiceDescriptor(
         _descriptor.MethodDescriptor(
             name="get_process_states",
             full_name="nextrun.NextRunServer.get_process_states",
-            index=1,
+            index=2,
             containing_service=None,
             input_type=_PROCESSSTATESREQUEST,
             output_type=_PROCESSSTATES,

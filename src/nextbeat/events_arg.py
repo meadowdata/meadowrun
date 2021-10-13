@@ -7,7 +7,11 @@ from typing import Optional, Tuple, Any, Dict, Union
 from nextbeat.event_log import EventLog, Event, Timestamp
 import nextbeat.jobs
 from nextbeat.topic_names import TopicName, FrozenDict
-from nextrun.deployed_function import NextRunFunction, NextRunDeployedFunction
+from nextrun.deployed_function import (
+    NextRunFunction,
+    NextRunDeployedFunction,
+    NextRunDeployedCommand,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,6 +55,9 @@ def replace_latest_events(
             )
         else:
             return job_runner_function
+    elif isinstance(job_runner_function, NextRunDeployedCommand):
+        # not possible to use LatestEventsArg with NextRunDeployedCommand
+        return job_runner_function
     else:
         raise ValueError(f"Unknown type {type(job_runner_function)}")
 

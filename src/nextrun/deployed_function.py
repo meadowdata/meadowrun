@@ -20,6 +20,20 @@ Deployment = Union[ServerAvailableFolder, GitRepoCommit]
 
 
 @dataclasses.dataclass(frozen=True)
+class NextRunDeployedCommand:
+    """
+    A command that the NextRun server can run. Specifies a deployment that tells a
+    NextRun server where to find the codebase (and by extension the python
+    interpreter). The command is then run with the codebase as the working directory and
+    the python interpreter's Scripts folder in the path. This allows you to run commands
+    like `jupyter nbconvert`, `jupyter kernel`, or `papermill` if those commands/scripts
+    are installed in the specified python environment.
+    """
+    deployment: Deployment
+    command_line: Sequence[str]
+
+
+@dataclasses.dataclass(frozen=True)
 class NextRunDeployedFunction:
     """
     A function that a NextRun server is able to run. Specifies a deployment that tells a

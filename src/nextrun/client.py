@@ -1,22 +1,54 @@
 import pickle
-from typing import List
+from typing import List, Union
 
 import grpc
 import grpc.aio
 
 from nextrun.config import DEFAULT_ADDRESS
-from nextrun.deployed_function import NextRunDeployedFunction
+from nextrun.deployed_function import (
+    NextRunDeployedFunction,
+    Deployment,
+    NextRunDeployedCommand,
+)
 from nextrun.nextrun_pb2 import (
     ProcessStatesRequest,
     RunPyFuncRequest,
     ProcessState,
     ServerAvailableFolder,
     GitRepoCommit,
+    RunPyCommandRequest,
 )
 from nextrun.nextrun_pb2_grpc import NextRunServerStub
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
+
+
+def _add_deployment_to_request(
+    request: Union[RunPyCommandRequest, RunPyFuncRequest], deployment: Deployment
+) -> None:
+    """
+    Think of this as request.deployment = deployment, but it's complicated because it's
+    a protobuf oneof
+    """
+    if isinstance(deployment, ServerAvailableFolder):
+        request.server_available_folder.CopyFrom(deployment)
+    elif isinstance(deployment, GitRepoCommit):
+        request.git_repo_commit.CopyFrom(deployment)
+    else:
+        raise ValueError(f"Unknown deployment type {type(deployment)}")
+
+
+def _create_run_py_command_request(
+    request_id: str, deployed_command: NextRunDeployedCommand
+) -> RunPyCommandRequest:
+    result = RunPyCommandRequest(
+        request_id=request_id,
+        command_line=deployed_command.command_line,
+        result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
+    )
+    _add_deployment_to_request(result, deployed_command.deployment)
+    return result
 
 
 def _create_run_py_func_request(
@@ -66,16 +98,7 @@ def _create_run_py_func_request(
     )
 
     # finally, add the deployment to the RunPyFuncRequest and return it
-
-    if isinstance(deployed_function.deployment, ServerAvailableFolder):
-        result.server_available_folder.CopyFrom(deployed_function.deployment)
-    elif isinstance(deployed_function.deployment, GitRepoCommit):
-        result.git_repo_commit.CopyFrom(deployed_function.deployment)
-    else:
-        raise ValueError(
-            f"Unknown interpreter_and_code type {type(deployed_function.deployment)}"
-        )
-
+    _add_deployment_to_request(result, deployed_function.deployment)
     return result
 
 
@@ -85,6 +108,19 @@ class NextRunClientAsync:
     def __init__(self, address: str = DEFAULT_ADDRESS):
         self._channel = grpc.aio.insecure_channel(address)
         self._stub = NextRunServerStub(self._channel)
+
+    async def run_py_command(
+        self, request_id: str, deployed_command: NextRunDeployedCommand
+    ) -> ProcessState:
+        """
+        Runs a command line remotely on the NextRunServer in the context of a python
+        environment. See NextRunDeployedCommand docstring for more details.
+
+        See run_py_func for more details.
+        """
+        return await self._stub.run_py_command(
+            _create_run_py_command_request(request_id, deployed_command)
+        )
 
     async def run_py_func(
         self, request_id: str, deployed_function: NextRunDeployedFunction
@@ -190,6 +226,13 @@ class NextRunClientSync:
     def __init__(self, address: str = DEFAULT_ADDRESS):
         self._channel = grpc.insecure_channel(address)
         self._stub = NextRunServerStub(self._channel)
+
+    def run_py_command(
+        self, request_id: str, deployed_command: NextRunDeployedCommand
+    ) -> ProcessState:
+        return self._stub.run_py_command(
+            _create_run_py_command_request(request_id, deployed_command)
+        )
 
     def run_py_func(
         self, request_id: str, deployed_function: NextRunDeployedFunction

@@ -26,6 +26,17 @@ message GitRepoCommit {
 }
 
 
+message RunPyCommandRequest {
+    string request_id = 1;
+    oneof deployment {
+        ServerAvailableFolder server_available_folder = 2;
+        GitRepoCommit git_repo_commit = 3;
+    }
+    repeated string command_line = 4;
+    int32 result_highest_pickle_protocol = 5;
+}
+
+
 message RunPyFuncRequest {
     string request_id = 1;
     oneof deployment {
@@ -73,6 +84,8 @@ message ProcessStates {
 
 
 service NextRunServer {
+    rpc run_py_command(RunPyCommandRequest) returns (ProcessState) {};
+
     rpc run_py_func(RunPyFuncRequest) returns (ProcessState) {};
 
     rpc get_process_states(ProcessStatesRequest) returns (ProcessStates) {};

@@ -25,8 +25,7 @@ import nextbeat.effects
 import nextbeat.events_arg
 from nextbeat.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
 from nextbeat.topic_names import TopicName, FrozenDict, CURRENT_JOB
-from nextrun.deployed_function import NextRunDeployedFunction
-
+from nextrun.deployed_function import NextRunDeployedFunction, NextRunDeployedCommand
 
 JobState = Literal[
     # Nothing is currently happening with the job
@@ -83,7 +82,11 @@ class LocalFunction:
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-JobRunnerFunctionTypes = (LocalFunction, NextRunDeployedFunction)
+JobRunnerFunctionTypes = (
+    LocalFunction,
+    NextRunDeployedCommand,
+    NextRunDeployedFunction,
+)
 # A JobRunnerFunction is a function/executable/script that one or more JobRunners will
 # know how to run along with the arguments for that function/executable/script
 JobRunnerFunction = Union[JobRunnerFunctionTypes]

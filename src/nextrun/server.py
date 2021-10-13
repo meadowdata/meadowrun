@@ -5,7 +5,7 @@ import pathlib
 import pickle
 import shutil
 import traceback
-from typing import Dict, Optional, Tuple, List, Literal
+from typing import Dict, Optional, Tuple, List, Literal, Union
 import subprocess
 import string
 
@@ -19,6 +19,7 @@ from nextrun.nextrun_pb2 import (
     ProcessStatesRequest,
     ProcessStates,
     GitRepoCommit,
+    RunPyCommandRequest,
 )
 from nextrun.nextrun_pb2_grpc import (
     NextRunServerServicer,
@@ -40,6 +41,18 @@ _FUNC_RUNNER_PATH = str(
         pathlib.Path(__file__).parent / "func_runner" / "__nextrun_func_runner.py"
     ).resolve()
 )
+
+
+def _pickle_exception(e: Exception, pickle_protocol: int) -> bytes:
+    """
+    We generally don't want to pickle exceptions directly--there's no guarantee that a
+    random exception that was thrown can be unpickled in a different process.
+    """
+    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+    return pickle.dumps(
+        (str(type(e)), str(e), tb),
+        protocol=pickle_protocol,
+    )
 
 
 @dataclasses.dataclass
@@ -82,6 +95,18 @@ async def _run_git(args: List[str], cwd: Optional[str] = None) -> Tuple[str, str
 
     # TODO lookup whether we should specify an encoding here?
     return stdout.decode(), stderr.decode()
+
+
+@dataclasses.dataclass(frozen=True)
+class _ProcessHandle:
+    """Represents a running child process"""
+
+    # What kind of process this represents
+    process_type: Literal["py_func", "py_command"]
+    # The (potentially) running process
+    process: subprocess.Popen
+    # The log file for the process
+    log_file_name: str
 
 
 class NextRunServerHandler(NextRunServerServicer):
@@ -129,14 +154,119 @@ class NextRunServerHandler(NextRunServerServicer):
         #  in a timely manner)
         # TODO we should periodically clean up these handles/outputs so they don't grow
         #  without bound
-        # request_id -> (process, log file name). None means that we're in the process
-        # of constructing the process
-        self._processes: Dict[str, Optional[Tuple[subprocess.Popen, str]]] = {}
+        # request_id -> ProcessHandle. None means that we're in the process of
+        # constructing the process
+        self._processes: Dict[str, Optional[_ProcessHandle]] = {}
         # request_id -> output
         self._completed_process_states: Dict[str, ProcessState] = {}
 
         # TODO we need to periodically clean up .argument and .result files when the
         #  processes complete
+
+    def _validate_request_id(
+        self, request: Union[RunPyFuncRequest, RunPyCommandRequest]
+    ) -> Optional[ProcessState]:
+        """
+        Returns None if the request_id is valid. If the request_id is a duplicate,
+        returns a ProcessState indicating that that should be returned by the calling
+        function. If the request_id is invalid, raises an exception.
+        """
+        if not request.request_id:
+            raise ValueError("request_id must not be None or empty string")
+        if any(c not in _REQUEST_ID_VALID_CHARS for c in request.request_id):
+            raise ValueError(
+                f"request_id {request.request_id} contains invalid characters. Only "
+                "string.ascii_letters, numbers, -, and _ are permitted."
+            )
+        if request.request_id in self._processes:
+            return ProcessState(state=ProcessStateEnum.REQUEST_IS_DUPLICATE)
+        else:
+            return None
+
+    async def run_py_command(
+        self, request: RunPyCommandRequest, context: grpc.aio.ServicerContext
+    ) -> ProcessState:
+        """See docstring on NextRunClientAsync for semantics."""
+
+        result = self._validate_request_id(request)
+        if result is not None:
+            return result
+
+        # we'll replace the None later with a handle to our subprocess
+        self._processes[request.request_id] = None
+
+        try:
+            # prepare paths for child process
+
+            interpreter_path, code_paths = await self._get_interpreter_and_code(request)
+            working_directory = code_paths[0]
+
+            environment = os.environ.copy()
+            # we intentionally overwrite any existing PYTHONPATH--if for some reason we
+            # need the current server process' code for the child process, the user
+            # needs to include it directly
+            environment["PYTHONPATH"] = ";".join(code_paths)
+
+            # We believe that interpreter_path can be one of two formats,
+            # python_or_venv_dir/python or python_or_venv_dir/Scripts/python. We need to
+            # add the scripts directory to the path so that we can run executables as if
+            # we're "in the python environment".
+            interpreter_path = pathlib.Path(interpreter_path)
+            if interpreter_path.parent.name == "Scripts":
+                scripts_dir = str(interpreter_path.parent.resolve())
+            else:
+                scripts_dir = str((interpreter_path.parent / "Scripts").resolve())
+            environment["PATH"] = environment["PATH"] + ";" + scripts_dir
+
+            log_file_name = os.path.join(
+                self._job_logs_folder,
+                "".join(
+                    c
+                    for c in "_".join(request.command_line)
+                    if c in _REQUEST_ID_VALID_CHARS
+                )
+                + f".{request.request_id}.log",
+            )
+
+            # run the process
+
+            if not request.command_line:
+                raise ValueError("command_line must have at least one string")
+
+            print(
+                f"Running process: {' '.join(request.command_line)}; "
+                f"cwd={working_directory}; added {scripts_dir} to PATH; "
+                f"PYTHONPATH={environment['PYTHONPATH']}; log_file_name={log_file_name}"
+            )
+
+            with open(log_file_name, "w", encoding="utf-8") as log_file:
+                process = subprocess.Popen(
+                    request.command_line,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    cwd=working_directory,
+                    env=environment,
+                )
+        except Exception as e:
+            # we failed to launch the process
+            process_state = ProcessState(
+                state=ProcessStateEnum.RUN_REQUEST_FAILED,
+                pickled_result=_pickle_exception(
+                    e, request.result_highest_pickle_protocol
+                ),
+            )
+            # leave self._processes as None, just update _completed_process_states
+            self._completed_process_states[request.request_id] = process_state
+            return process_state
+        else:
+            self._processes[request.request_id] = _ProcessHandle(
+                "py_command", process, log_file_name
+            )
+            return ProcessState(
+                state=ProcessStateEnum.RUNNING,
+                pid=process.pid,
+                log_file_name=log_file_name,
+            )
 
     async def run_py_func(
         self, request: RunPyFuncRequest, context: grpc.aio.ServicerContext
@@ -148,17 +278,9 @@ class NextRunServerHandler(NextRunServerServicer):
         python process by feeding it into __nextrun_func_runner.py.
         """
 
-        # validate request_id
-
-        if not request.request_id:
-            raise ValueError("request_id must not be None or empty string")
-        if any(c not in _REQUEST_ID_VALID_CHARS for c in request.request_id):
-            raise ValueError(
-                f"request_id {request.request_id} contains invalid characters. Only "
-                "string.ascii_letters, numbers, -, and _ are permitted."
-            )
-        if request.request_id in self._processes:
-            return ProcessState(state=ProcessStateEnum.REQUEST_IS_DUPLICATE)
+        result = self._validate_request_id(request)
+        if result is not None:
+            return result
 
         # we'll replace the None later with a handle to our subprocess
         self._processes[request.request_id] = None
@@ -229,20 +351,19 @@ class NextRunServerHandler(NextRunServerServicer):
 
         except Exception as e:
             # we failed to launch the process
-
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-            pickled_result = pickle.dumps(
-                (str(type(e)), str(e), tb),
-                protocol=request.result_highest_pickle_protocol,
-            )
             process_state = ProcessState(
-                state=ProcessStateEnum.RUN_REQUEST_FAILED, pickled_result=pickled_result
+                state=ProcessStateEnum.RUN_REQUEST_FAILED,
+                pickled_result=_pickle_exception(
+                    e, request.result_highest_pickle_protocol
+                ),
             )
             # leave self._processes as None, just update _completed_process_states
             self._completed_process_states[request.request_id] = process_state
             return process_state
         else:
-            self._processes[request.request_id] = process, log_file_name
+            self._processes[request.request_id] = _ProcessHandle(
+                "py_func", process, log_file_name
+            )
             return ProcessState(
                 state=ProcessStateEnum.RUNNING,
                 pid=process.pid,
@@ -391,8 +512,8 @@ class NextRunServerHandler(NextRunServerServicer):
             return ProcessState(state=ProcessStateEnum.UNKNOWN)
 
         # next, see if we're still in the process of constructing the process
-        process_and_log_file_name = self._processes[request_id]
-        if process_and_log_file_name is None:
+        process = self._processes[request_id]
+        if process is None:
             # check if we've failed to launch
             if request_id in self._completed_process_states:
                 # this should always be RUN_REQUEST_FAILED
@@ -400,50 +521,62 @@ class NextRunServerHandler(NextRunServerServicer):
             else:
                 # we're still trying to start the process
                 return ProcessState(state=ProcessStateEnum.RUN_REQUESTED)
-        process, log_file_name = process_and_log_file_name
 
         # next, see if we have launched the process yet
-        return_code = process.poll()
+        return_code = process.process.poll()
         if return_code is None:
             return ProcessState(
                 state=ProcessStateEnum.RUNNING,
-                pid=process.pid,
-                log_file_name=log_file_name,
+                pid=process.process.pid,
+                log_file_name=process.log_file_name,
             )
 
         # see if we got a normal return code
         if return_code != 0:
             process_state = ProcessState(
                 state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
-                pid=process.pid,
-                log_file_name=log_file_name,
+                pid=process.process.pid,
+                log_file_name=process.log_file_name,
                 return_code=return_code,
             )
             self._completed_process_states[request_id] = process_state
             return process_state
 
-        # if we returned normally, return the state + result
-        state_file = os.path.join(self._io_folder, request_id + ".state")
-        with open(state_file, "r", encoding="utf-8") as f:
-            state_string = f.read()
-        if state_string == "SUCCEEDED":
-            state = ProcessStateEnum.SUCCEEDED
-        elif state_string == "PYTHON_EXCEPTION":
-            state = ProcessStateEnum.PYTHON_EXCEPTION
+        # if we returned normally
+        if process.process_type == "py_command":
+            # for py_commands, we don't have a state/result
+            process_state = ProcessState(
+                state=ProcessStateEnum.SUCCEEDED,
+                pid=process.process.pid,
+                log_file_name=process.log_file_name,
+                return_code=0,
+            )
+        elif process.process_type == "py_func":
+            # for py_funcs, return the state + result
+            state_file = os.path.join(self._io_folder, request_id + ".state")
+            with open(state_file, "r", encoding="utf-8") as f:
+                state_string = f.read()
+            if state_string == "SUCCEEDED":
+                state = ProcessStateEnum.SUCCEEDED
+            elif state_string == "PYTHON_EXCEPTION":
+                state = ProcessStateEnum.PYTHON_EXCEPTION
+            else:
+                raise ValueError(f"Unknown state string: {state_string}")
+
+            result_file = os.path.join(self._io_folder, request_id + ".result")
+            with open(result_file, "rb") as f:
+                result = f.read()
+
+            process_state = ProcessState(
+                state=state,
+                pid=process.process.pid,
+                log_file_name=process.log_file_name,
+                return_code=0,
+                pickled_result=result,
+            )
         else:
-            raise ValueError(f"Unknown state string: {state_string}")
+            raise ValueError(f"process_type was not recognized {process.process_type}")
 
-        result_file = os.path.join(self._io_folder, request_id + ".result")
-        with open(result_file, "rb") as f:
-            result = f.read()
-
-        process_state = ProcessState(
-            state=state,
-            pid=process.pid,
-            log_file_name=log_file_name,
-            return_code=0,
-            pickled_result=result,
-        )
         self._completed_process_states[request_id] = process_state
         return process_state
 

@@ -3,6 +3,9 @@ import sys
 import asyncio
 import pathlib
 import time
+from typing import List
+
+import pip
 
 import nextrun.server_main
 from nextrun.client import (
@@ -10,8 +13,12 @@ from nextrun.client import (
     ProcessStateEnum,
     NextRunDeployedFunction,
 )
-from nextrun.deployed_function import NextRunFunction, Deployment
-from nextrun.nextrun_pb2 import ServerAvailableFolder, GitRepoCommit
+from nextrun.deployed_function import (
+    NextRunFunction,
+    Deployment,
+    NextRunDeployedCommand,
+)
+from nextrun.nextrun_pb2 import ServerAvailableFolder, GitRepoCommit, ProcessState
 
 
 def test_nextrun_server_available_folder():
@@ -48,6 +55,23 @@ def _test_nextrun(deployment: Deployment):
 
         async def run():
             async with NextRunClientAsync() as client:
+
+                async def wait_for_process(request_id_: str) -> List[ProcessState]:
+                    """wait (no more than ~10s) for the remote process to finish"""
+                    i = 0
+                    results_ = None
+                    while (
+                        i == 0
+                        or results_[0].state == ProcessStateEnum.RUNNING
+                        and i < 100
+                    ):
+                        print("Waiting for remote process to finish")
+                        time.sleep(0.1)
+                        results_ = await client.get_process_states([request_id_])
+                        assert len(results_) == 1
+                        i += 1
+                    return results_
+
                 # run a remote process
                 arguments = ["foo"]
                 request_id = "request1"
@@ -81,20 +105,13 @@ def _test_nextrun(deployment: Deployment):
                 )
 
                 # confirm that it's still running
-                results = await client.get_process_states(["request1"])
+                results = await client.get_process_states([request_id])
                 assert len(results) == 1
                 assert results[0].state == ProcessStateEnum.RUNNING
                 assert results[0].pid == run_request_result.pid
                 assert log_file_name == run_request_result.log_file_name
 
-                # wait (no more than ~10s) for the remote process to finish
-                i = 0
-                while results[0].state == ProcessStateEnum.RUNNING and i < 10:
-                    print("Waiting for remote process to finish")
-                    time.sleep(0.1)
-                    results = await client.get_process_states(["request1"])
-                    assert len(results) == 1
-                    i += 1
+                results = await wait_for_process(request_id)
 
                 # confirm that it completed successfully
                 assert results[0].state == ProcessStateEnum.SUCCEEDED
@@ -112,5 +129,23 @@ def _test_nextrun(deployment: Deployment):
                 results = await client.get_process_states(["hey"])
                 assert len(results) == 1
                 assert results[0].state == nextrun.client.ProcessStateEnum.UNKNOWN
+
+                # test running a command rather than a function. pip should be available
+                # in the Scripts folder of the current python interpreter
+                request_id = "request2"
+                run_request_result = await client.run_py_command(
+                    request_id, NextRunDeployedCommand(deployment, ["pip", "--version"])
+                )
+                assert run_request_result.state == ProcessStateEnum.RUNNING
+                assert run_request_result.pid > 0
+                log_file_name = run_request_result.log_file_name
+
+                results = await wait_for_process(request_id)
+                assert results[0].state == ProcessStateEnum.SUCCEEDED
+                assert results[0].pid == run_request_result.pid
+                assert log_file_name == results[0].log_file_name
+                with open(log_file_name, "r") as log_file:
+                    text = log_file.read()
+                assert f"pip {pip.__version__}" in text
 
         asyncio.run(run())

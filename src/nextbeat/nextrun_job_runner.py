@@ -1,6 +1,6 @@
 import pickle
 import dataclasses
-from typing import Iterable
+from typing import Iterable, Sequence, Union
 
 from nextbeat.event_log import Event, EventLog
 from nextbeat.topic_names import TopicName
@@ -18,6 +18,7 @@ from nextrun.deployed_function import (
     NextRunFunction,
     NextRunDeployedFunction,
     convert_local_to_deployed_function,
+    NextRunDeployedCommand,
 )
 from nextrun.nextrun_pb2 import GitRepoCommit
 
@@ -33,13 +34,23 @@ class NextRunJobRunner(JobRunner):
         self,
         job_name: TopicName,
         run_request_id: str,
-        deployed_function: NextRunDeployedFunction,
+        deployed_function: Union[NextRunDeployedCommand, NextRunDeployedFunction],
     ) -> None:
         self._event_log.append_event(
             job_name, JobPayload(run_request_id, "RUN_REQUESTED")
         )
 
-        result = await self._client.run_py_func(run_request_id, deployed_function)
+        if isinstance(deployed_function, NextRunDeployedCommand):
+            result = await self._client.run_py_command(
+                run_request_id, deployed_function
+            )
+        elif isinstance(deployed_function, NextRunDeployedFunction):
+            result = await self._client.run_py_func(run_request_id, deployed_function)
+        else:
+            raise ValueError(
+                f"Unexpected type of deployed_function {type(deployed_function)}"
+            )
+
         if result.state == ProcessStateEnum.REQUEST_IS_DUPLICATE:
             # TODO handle this case and test it
             raise NotImplementedError()
@@ -69,7 +80,9 @@ class NextRunJobRunner(JobRunner):
         """
         Dispatches to _run_deployed_function which calls nextrun
         """
-        if isinstance(job_runner_function, NextRunDeployedFunction):
+        if isinstance(
+            job_runner_function, (NextRunDeployedCommand, NextRunDeployedFunction)
+        ):
             await self._run_deployed_function(
                 job_name, run_request_id, job_runner_function
             )
@@ -193,7 +206,10 @@ class NextRunJobRunner(JobRunner):
                 self._event_log.append_event(topic_name, new_payload)
 
     def can_run_function(self, job_runner_function: JobRunnerFunction) -> bool:
-        return isinstance(job_runner_function, (NextRunDeployedFunction, LocalFunction))
+        return isinstance(
+            job_runner_function,
+            (NextRunDeployedCommand, NextRunDeployedFunction, LocalFunction),
+        )
 
     async def __aenter__(self):
         await self._client.__aenter__()
@@ -204,8 +220,8 @@ class NextRunJobRunner(JobRunner):
 
 
 @dataclasses.dataclass(frozen=True)
-class NextRunFunctionGitRepo(VersionedJobRunnerFunction):
-    """Represents a NextRunFunction in a git repo"""
+class GitRepo:
+    """Represents a git repo"""
 
     # specifies the url, will be provided to git clone, see
     # https://git-scm.com/docs/git-clone
@@ -218,22 +234,41 @@ class NextRunFunctionGitRepo(VersionedJobRunnerFunction):
     #  interpreter on the local machine
     interpreter_path: str
 
-    next_run_function: NextRunFunction
-
-    def get_job_runner_function(self) -> NextRunDeployedFunction:
+    def get_commit(self):
         # TODO this seems kind of silly right now, but we should move the logic for
         #  converting from a branch name to a specific commit hash to this function from
         #  _get_git_repo_commit_interpreter_and_code so we can show the user what commit
         #  we actually ran with.
         # TODO also we will add the ability to specify overrides (e.g. a specific commit
         #  or an alternate branch)
+        return GitRepoCommit(
+            repo_url=self.repo_url,
+            # TODO this is very sketchy. Need to invest time in all of the possible
+            #  revision specifications
+            commit="origin/" + self.default_branch,
+            interpreter_path=self.interpreter_path,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class NextRunCommandGitRepo(VersionedJobRunnerFunction):
+    """Represents a NextRunCommand in a git repo"""
+
+    git_repo: GitRepo
+    command_line: Sequence[str]
+
+    def get_job_runner_function(self) -> NextRunDeployedCommand:
+        return NextRunDeployedCommand(self.git_repo.get_commit(), self.command_line)
+
+
+@dataclasses.dataclass(frozen=True)
+class NextRunFunctionGitRepo(VersionedJobRunnerFunction):
+    """Represents a NextRunFunction in a git repo"""
+
+    git_repo: GitRepo
+    next_run_function: NextRunFunction
+
+    def get_job_runner_function(self) -> NextRunDeployedFunction:
         return NextRunDeployedFunction(
-            GitRepoCommit(
-                repo_url=self.repo_url,
-                # TODO this is very sketchy. Need to invest time in all of the possible
-                #  revision specifications
-                commit="origin/" + self.default_branch,
-                interpreter_path=self.interpreter_path,
-            ),
-            self.next_run_function,
+            self.git_repo.get_commit(), self.next_run_function
         )

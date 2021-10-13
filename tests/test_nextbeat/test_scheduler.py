@@ -23,7 +23,11 @@ from nextbeat.jobs import (
     JobRunOverrides,
 )
 from nextbeat.job_runner_predicates import JobRunnerTypePredicate
-from nextbeat.nextrun_job_runner import NextRunJobRunner, NextRunFunctionGitRepo
+from nextbeat.nextrun_job_runner import (
+    NextRunJobRunner,
+    NextRunFunctionGitRepo,
+    GitRepo,
+)
 import nextbeat.server.config
 from nextbeat.scheduler import Scheduler
 import nextbeat.server.server_main
@@ -109,9 +113,7 @@ def test_simple_jobs_nextrun_git() -> None:
             _test_simple_jobs(
                 s,
                 lambda args: NextRunFunctionGitRepo(
-                    test_repo,
-                    "main",
-                    sys.executable,
+                    GitRepo(test_repo, "main", sys.executable),
                     NextRunFunction("example_package.example", "join_strings", args),
                 ),
                 JobRunnerTypePredicate("nextrun"),

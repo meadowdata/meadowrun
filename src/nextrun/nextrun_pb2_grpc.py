@@ -14,6 +14,11 @@ class NextRunServerStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.run_py_command = channel.unary_unary(
+            "/nextrun.NextRunServer/run_py_command",
+            request_serializer=nextrun_dot_nextrun__pb2.RunPyCommandRequest.SerializeToString,
+            response_deserializer=nextrun_dot_nextrun__pb2.ProcessState.FromString,
+        )
         self.run_py_func = channel.unary_unary(
             "/nextrun.NextRunServer/run_py_func",
             request_serializer=nextrun_dot_nextrun__pb2.RunPyFuncRequest.SerializeToString,
@@ -28,6 +33,12 @@ class NextRunServerStub(object):
 
 class NextRunServerServicer(object):
     """Missing associated documentation comment in .proto file."""
+
+    def run_py_command(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
 
     def run_py_func(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -44,6 +55,11 @@ class NextRunServerServicer(object):
 
 def add_NextRunServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
+        "run_py_command": grpc.unary_unary_rpc_method_handler(
+            servicer.run_py_command,
+            request_deserializer=nextrun_dot_nextrun__pb2.RunPyCommandRequest.FromString,
+            response_serializer=nextrun_dot_nextrun__pb2.ProcessState.SerializeToString,
+        ),
         "run_py_func": grpc.unary_unary_rpc_method_handler(
             servicer.run_py_func,
             request_deserializer=nextrun_dot_nextrun__pb2.RunPyFuncRequest.FromString,
@@ -64,6 +80,35 @@ def add_NextRunServerServicer_to_server(servicer, server):
 # This class is part of an EXPERIMENTAL API.
 class NextRunServer(object):
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def run_py_command(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/nextrun.NextRunServer/run_py_command",
+            nextrun_dot_nextrun__pb2.RunPyCommandRequest.SerializeToString,
+            nextrun_dot_nextrun__pb2.ProcessState.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
 
     @staticmethod
     def run_py_func(

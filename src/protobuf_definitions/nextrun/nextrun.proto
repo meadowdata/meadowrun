@@ -33,7 +33,8 @@ message RunPyCommandRequest {
         GitRepoCommit git_repo_commit = 3;
     }
     repeated string command_line = 4;
-    int32 result_highest_pickle_protocol = 5;
+    bytes pickled_context_variables = 5;
+    int32 result_highest_pickle_protocol = 6;
 }
 
 

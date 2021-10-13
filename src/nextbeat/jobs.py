@@ -196,6 +196,7 @@ class JobRunOverrides:
 
     function_args: Optional[Sequence[Any]] = None
     function_kwargs: Optional[Dict[str, Any]] = None
+    context_variables: Optional[Dict[str, Any]] = None
     # TODO add things like branch/commit override for git-based deployments
 
 
@@ -203,31 +204,45 @@ def _apply_job_run_overrides(
     run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
 ) -> JobRunnerFunction:
     """Applies run_overrides to job_runner_function"""
-    if run_overrides is not None and (
-        run_overrides.function_args or run_overrides.function_kwargs
-    ):
-        to_replace = {}
-        if run_overrides.function_args:
-            to_replace["function_args"] = run_overrides.function_args
-        if run_overrides.function_kwargs:
-            to_replace["function_kwargs"] = run_overrides.function_kwargs
+    if run_overrides is not None:
+        if run_overrides.function_args or run_overrides.function_kwargs:
+            to_replace = {}
+            if run_overrides.function_args:
+                to_replace["function_args"] = run_overrides.function_args
+            if run_overrides.function_kwargs:
+                to_replace["function_kwargs"] = run_overrides.function_kwargs
 
-        if isinstance(job_runner_function, LocalFunction):
-            job_runner_function = dataclasses.replace(job_runner_function, **to_replace)
-        elif isinstance(job_runner_function, NextRunDeployedFunction):
-            job_runner_function = dataclasses.replace(
-                job_runner_function,
-                next_run_function=dataclasses.replace(
-                    job_runner_function.next_run_function, **to_replace
-                ),
-            )
-        else:
-            raise ValueError(
-                "run_overrides specified function_args/function_kwargs but "
-                f"job_runner_function is of type {type(job_runner_function)}, "
-                "and we don't know how to apply function_args/function_kwargs "
-                "to that type of job_runner_function"
-            )
+            if isinstance(job_runner_function, LocalFunction):
+                job_runner_function = dataclasses.replace(
+                    job_runner_function, **to_replace
+                )
+            elif isinstance(job_runner_function, NextRunDeployedFunction):
+                job_runner_function = dataclasses.replace(
+                    job_runner_function,
+                    next_run_function=dataclasses.replace(
+                        job_runner_function.next_run_function, **to_replace
+                    ),
+                )
+            else:
+                raise ValueError(
+                    "run_overrides specified function_args/function_kwargs but "
+                    f"job_runner_function is of type {type(job_runner_function)}, "
+                    "and we don't know how to apply function_args/function_kwargs "
+                    "to that type of job_runner_function"
+                )
+
+        if run_overrides.context_variables:
+            if isinstance(job_runner_function, NextRunDeployedCommand):
+                job_runner_function = dataclasses.replace(
+                    job_runner_function,
+                    context_variables=run_overrides.context_variables,
+                )
+            else:
+                raise ValueError(
+                    "run_overrides specified context_variables but job_runner_function "
+                    f"is of type {type(job_runner_function)} and we don't know how to "
+                    "apply context_variables to that type of job_runner_function"
+                )
 
     return job_runner_function
 

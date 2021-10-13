@@ -39,12 +39,48 @@ def _add_deployment_to_request(
         raise ValueError(f"Unknown deployment type {type(deployment)}")
 
 
+def _pickle_protocol_for_deployed_interpreter() -> int:
+    """
+    This is a placeholder, the intention is to get the deployed interpreter's version
+    somehow from the Deployment object or something like it and use that to determine
+    what the highest pickle protocol version we can use safely is.
+    """
+
+    # TODO just hard-coding the interpreter version for now, need to actually grab it
+    #  from the deployment somehow
+    interpreter_version = (3, 8, 0)
+
+    # based on documentation in
+    # https://docs.python.org/3/library/pickle.html#data-stream-format
+    if interpreter_version >= (3, 8, 0):
+        protocol = 5
+    elif interpreter_version >= (3, 4, 0):
+        protocol = 4
+    elif interpreter_version >= (3, 0, 0):
+        protocol = 3
+    else:
+        # TODO support for python 2 would require dealing with the string/bytes issue
+        raise NotImplementedError("We currently only support python 3")
+
+    return min(protocol, pickle.HIGHEST_PROTOCOL)
+
+
 def _create_run_py_command_request(
     request_id: str, deployed_command: NextRunDeployedCommand
 ) -> RunPyCommandRequest:
+    # TODO see below about optimizations we could do for transferring pickled data
+    if deployed_command.context_variables:
+        pickled_context_variables = pickle.dumps(
+            deployed_command.context_variables,
+            protocol=_pickle_protocol_for_deployed_interpreter(),
+        )
+    else:
+        pickled_context_variables = None
+
     result = RunPyCommandRequest(
         request_id=request_id,
         command_line=deployed_command.command_line,
+        pickled_context_variables=pickled_context_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
     )
     _add_deployment_to_request(result, deployed_command.deployment)
@@ -61,30 +97,12 @@ def _create_run_py_func_request(
     # TODO also add the ability to write this to a shared location so that we don't need
     #  to pass it through the server.
 
-    # TODO just hard-coding the interpreter version for now, need to actually grab it
-    #  from the job_run_spec somehow
-    interpreter_version = (3, 8, 0)
-
-    # based on documentation in
-    # https://docs.python.org/3/library/pickle.html#data-stream-format
-    if interpreter_version >= (3, 8, 0):
-        protocol = 5
-    elif interpreter_version >= (3, 4, 0):
-        protocol = 4
-    elif interpreter_version >= (3, 0, 0):
-        protocol = 3
-    else:
-        # TODO support for python 2 would require dealing with the string/bytes issue
-        raise NotImplementedError("We currently only support python 3")
-
-    protocol = min(protocol, pickle.HIGHEST_PROTOCOL)
-
     pickled_function_arguments = pickle.dumps(
         (
             deployed_function.next_run_function.function_args,
             deployed_function.next_run_function.function_kwargs,
         ),
-        protocol=protocol,
+        protocol=_pickle_protocol_for_deployed_interpreter(),
     )
 
     # next, construct the RunPyFuncRequest

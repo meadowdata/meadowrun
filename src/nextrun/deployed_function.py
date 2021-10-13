@@ -3,7 +3,7 @@ import importlib
 import sys
 import types
 
-from typing import Any, Dict, Union, Sequence, Callable
+from typing import Any, Dict, Union, Sequence, Callable, Optional
 
 from nextrun.nextrun_pb2 import GitRepoCommit, ServerAvailableFolder
 
@@ -29,8 +29,10 @@ class NextRunDeployedCommand:
     like `jupyter nbconvert`, `jupyter kernel`, or `papermill` if those commands/scripts
     are installed in the specified python environment.
     """
+
     deployment: Deployment
     command_line: Sequence[str]
+    context_variables: Optional[Dict[str, Any]] = None
 
 
 @dataclasses.dataclass(frozen=True)

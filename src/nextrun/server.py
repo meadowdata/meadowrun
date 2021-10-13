@@ -12,6 +12,7 @@ import string
 import grpc.aio
 
 import nextbeat.server.client
+import nextbeat.context
 from nextrun.config import DEFAULT_PORT, DEFAULT_HOST
 from nextrun.nextrun_pb2 import (
     ProcessState,
@@ -227,6 +228,20 @@ class NextRunServerHandler(NextRunServerServicer):
                 )
                 + f".{request.request_id}.log",
             )
+
+            # write context variables to file
+
+            if request.pickled_context_variables:
+                context_variables_path = os.path.join(
+                    self._io_folder, request.request_id + ".context_variables"
+                )
+                with open(context_variables_path, "wb") as f:
+                    f.write(request.pickled_context_variables)
+                # we can't communicate "directly" with the arbitrary command that the
+                # user is running so we'll use environment variables
+                environment[
+                    nextbeat.context._NEXTRUN_CONTEXT_VARIABLES
+                ] = context_variables_path
 
             # run the process
 

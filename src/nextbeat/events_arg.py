@@ -56,7 +56,12 @@ def replace_latest_events(
         else:
             return job_runner_function
     elif isinstance(job_runner_function, NextRunDeployedCommand):
-        # not possible to use LatestEventsArg with NextRunDeployedCommand
+        if job_runner_function.context_variables:
+            need_replacement, new_vars = _replace_latest_events_dict(
+                job_runner_function.context_variables, job, event_log, latest_timestamp
+            )
+            if need_replacement:
+                dataclasses.replace(job_runner_function, context_variables=new_vars)
         return job_runner_function
     else:
         raise ValueError(f"Unknown type {type(job_runner_function)}")

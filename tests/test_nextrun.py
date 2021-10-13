@@ -50,27 +50,26 @@ def test_nextrun_server_git_repo_commit():
     )
 
 
+async def _wait_for_process(
+    client: NextRunClientAsync, request_id: str
+) -> List[ProcessState]:
+    """wait (no more than ~10s) for the remote process to finish"""
+    i = 0
+    results = None
+    while i == 0 or results[0].state == ProcessStateEnum.RUNNING and i < 100:
+        print("Waiting for remote process to finish")
+        time.sleep(0.1)
+        results = await client.get_process_states([request_id])
+        assert len(results) == 1
+        i += 1
+    return results
+
+
 def _test_nextrun(deployment: Deployment):
     with nextrun.server_main.main_in_child_process():
 
         async def run():
             async with NextRunClientAsync() as client:
-
-                async def wait_for_process(request_id_: str) -> List[ProcessState]:
-                    """wait (no more than ~10s) for the remote process to finish"""
-                    i = 0
-                    results_ = None
-                    while (
-                        i == 0
-                        or results_[0].state == ProcessStateEnum.RUNNING
-                        and i < 100
-                    ):
-                        print("Waiting for remote process to finish")
-                        time.sleep(0.1)
-                        results_ = await client.get_process_states([request_id_])
-                        assert len(results_) == 1
-                        i += 1
-                    return results_
 
                 # run a remote process
                 arguments = ["foo"]
@@ -111,7 +110,7 @@ def _test_nextrun(deployment: Deployment):
                 assert results[0].pid == run_request_result.pid
                 assert log_file_name == run_request_result.log_file_name
 
-                results = await wait_for_process(request_id)
+                results = await _wait_for_process(client, request_id)
 
                 # confirm that it completed successfully
                 assert results[0].state == ProcessStateEnum.SUCCEEDED
@@ -140,12 +139,57 @@ def _test_nextrun(deployment: Deployment):
                 assert run_request_result.pid > 0
                 log_file_name = run_request_result.log_file_name
 
-                results = await wait_for_process(request_id)
+                results = await _wait_for_process(client, request_id)
                 assert results[0].state == ProcessStateEnum.SUCCEEDED
                 assert results[0].pid == run_request_result.pid
                 assert log_file_name == results[0].log_file_name
                 with open(log_file_name, "r") as log_file:
                     text = log_file.read()
                 assert f"pip {pip.__version__}" in text
+
+        asyncio.run(run())
+
+
+def test_nextrun_command_context_variables():
+    """
+    Runs example_script twice (in parallel), once with no context variables, and once
+    with context variables. Makes sure the output is the same in both cases.
+    """
+
+    example_code = str((pathlib.Path(__file__).parent / "example_user_code").resolve())
+    nextdata_code = str((pathlib.Path(__file__).parent.parent / "src").resolve())
+
+    deployment = ServerAvailableFolder(
+        code_paths=[example_code, nextdata_code], interpreter_path=sys.executable
+    )
+
+    with nextrun.server_main.main_in_child_process():
+
+        async def run():
+            async with NextRunClientAsync() as client:
+                request_id3 = "request3"
+                request_id4 = "request4"
+                await client.run_py_command(
+                    request_id3,
+                    NextRunDeployedCommand(deployment, ["python", "example_script.py"]),
+                )
+                await client.run_py_command(
+                    request_id4,
+                    NextRunDeployedCommand(
+                        deployment, ["python", "example_script.py"], {"foo": "bar"}
+                    ),
+                )
+
+                results = await _wait_for_process(client, request_id3)
+                assert results[0].state == ProcessStateEnum.SUCCEEDED
+                with open(results[0].log_file_name, "r") as log_file:
+                    text = log_file.read()
+                assert "hello there: no_data" in text
+
+                results = await _wait_for_process(client, request_id4)
+                assert results[0].state == ProcessStateEnum.SUCCEEDED
+                with open(results[0].log_file_name, "r") as log_file:
+                    text = log_file.read()
+                assert "hello there: bar" in text
 
         asyncio.run(run())

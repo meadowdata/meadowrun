@@ -1,6 +1,6 @@
 import pickle
 import dataclasses
-from typing import Iterable, Sequence, Union
+from typing import Iterable, Sequence, Union, Optional, Dict, Any
 
 from nextbeat.event_log import Event, EventLog
 from nextbeat.topic_names import TopicName
@@ -256,9 +256,12 @@ class NextRunCommandGitRepo(VersionedJobRunnerFunction):
 
     git_repo: GitRepo
     command_line: Sequence[str]
+    context_variables: Optional[Dict[str, Any]] = None
 
     def get_job_runner_function(self) -> NextRunDeployedCommand:
-        return NextRunDeployedCommand(self.git_repo.get_commit(), self.command_line)
+        return NextRunDeployedCommand(
+            self.git_repo.get_commit(), self.command_line, self.context_variables
+        )
 
 
 @dataclasses.dataclass(frozen=True)

@@ -3,7 +3,7 @@ import datetime
 import pandas as pd
 import requests
 
-from covid_data.ndb import ndb_test
+from covid_data.mdb import mdb_test
 
 # https://data.cdc.gov/Case-Surveillance/United-States-COVID-19-Cases-and-Deaths-by-State-o/9mfq-cb36
 _URL_FORMAT = (
@@ -14,7 +14,8 @@ _URL_FORMAT = (
 
 def cdc_covid_data(date: datetime.date) -> None:
     """
-    Gets covid data for the specified date from the CDC website and writes it to nextdb.
+    Gets covid data for the specified date from the CDC website and writes it to
+    meadowdb.
     """
 
     # get data
@@ -65,11 +66,11 @@ def cdc_covid_data(date: datetime.date) -> None:
 
     # dedupe and only write new rows
 
-    ndb_conn = ndb_test()
+    mdb_conn = mdb_test()
     # TODO consider making this deduping logic "built-in"
     # TODO this should be a "transaction"--we want to guarantee that nothing writes to
     #  cdc_covid_data between this read and the potential write a few lines down
-    t = ndb_conn.read("cdc_covid_data")
+    t = mdb_conn.read("cdc_covid_data")
     # TODO should be able to compare against dates directly
     # noinspection PyTypeChecker
     curr_df = t[
@@ -86,8 +87,8 @@ def cdc_covid_data(date: datetime.date) -> None:
 
     if not new_rows.empty:
         # TODO consider making the table name default to the current job's name
-        ndb_conn.write("cdc_covid_data", df)
-        ndb_conn.table_versions_client._save_table_versions()
+        mdb_conn.write("cdc_covid_data", df)
+        mdb_conn.table_versions_client._save_table_versions()
 
 
 def cdc_covid_data_smoothed(date: datetime.date) -> None:
@@ -98,8 +99,8 @@ def cdc_covid_data_smoothed(date: datetime.date) -> None:
 
     # get the raw data
 
-    ndb_conn = ndb_test()
-    t = ndb_conn.read("cdc_covid_data")
+    mdb_conn = mdb_test()
+    t = mdb_conn.read("cdc_covid_data")
     # don't do anything if we don't have any input data
     if t.empty:
         return
@@ -116,7 +117,7 @@ def cdc_covid_data_smoothed(date: datetime.date) -> None:
 
     # don't do anything if we don't have data for the current date
 
-    # TODO if we didn't need to run once to figure out what our nextdb table
+    # TODO if we didn't need to run once to figure out what our meadowdb table
     #  dependencies are, we wouldn't really need this code--given that we only trigger
     #  on data dependencies, we could be confident that the data we're expecting exists.
     #  This is exacerbated by the fact that we need to detect dependencies every day.
@@ -139,7 +140,7 @@ def cdc_covid_data_smoothed(date: datetime.date) -> None:
 
     # write data if it doesn't exist already
 
-    t = ndb_conn.read("cdc_covid_data_smoothed")
+    t = mdb_conn.read("cdc_covid_data_smoothed")
     # noinspection PyTypeChecker
     curr_df = t[
         t["submission_date"] == datetime.datetime.combine(date, datetime.time())
@@ -154,5 +155,5 @@ def cdc_covid_data_smoothed(date: datetime.date) -> None:
         new_rows = ewms
 
     if not new_rows.empty:
-        ndb_conn.write("cdc_covid_data_smoothed", new_rows)
-        ndb_conn.table_versions_client._save_table_versions()
+        mdb_conn.write("cdc_covid_data_smoothed", new_rows)
+        mdb_conn.table_versions_client._save_table_versions()

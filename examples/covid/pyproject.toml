@@ -8,13 +8,13 @@ packages = [{ include = "scripts_redirect.py" }]
 # This section should not be necessary, this is a workaround until
 # https://github.com/python-poetry/poetry/issues/3265 is fixed
 [tool.poetry.scripts]
-nextrun_ = 'scripts_redirect:nextrun_'
-nextbeat_ = 'scripts_redirect:nextbeat_'
+meadowrun_ = 'scripts_redirect:meadowrun_'
+meadowflow_ = 'scripts_redirect:meadowflow_'
 
 [tool.poetry.dependencies]
 python = "^3.9"
-# alternate to pull from testpypi: nextdataplatform = "^0.1.0"
-nextdataplatform = { path = "../../../nextdataplatform/", develop = true }
+# alternate to pull from testpypi: meadowdata = "^0.1.0"
+meadowdata = { path = "../../../meadowdata/", develop = true }
 jupyter = "^1.0.0"
 requests = "^2.26.0"
 

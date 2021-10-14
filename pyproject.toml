@@ -1,20 +1,20 @@
 [tool.poetry]
-name = "nextdataplatform"
+name = "meadowdata"
 version = "0.1.0"
 description = "A platform for data scientists, including a database and a job scheduler"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]
-homepage = "https://github.com/nextdataplatform/nextdataplatform"
-repository = "https://github.com/nextdataplatform/nextdataplatform"
+homepage = "https://github.com/meadowdata/meadowdata"
+repository = "https://github.com/meadowdata/meadowdata"
 keywords = []
 packages = [
-    { include = "nextbeat", from = "src" },
-    { include = "nextdb", from = "src" },
-    { include = "nextrun", from = "src" },
+    { include = "meadowflow", from = "src" },
+    { include = "meadowdb", from = "src" },
+    { include = "meadowrun", from = "src" },
 ]
 
 [tool.poetry.scripts]
-nextrun = 'nextrun.server_main:command_line_main'
-nextbeat = 'nextbeat.server.server_main:command_line_main'
+meadowrun = 'meadowrun.server_main:command_line_main'
+meadowflow = 'meadowflow.server.server_main:command_line_main'
 
 [tool.poetry.dependencies]
 python = "^3.9"

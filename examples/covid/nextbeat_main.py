@@ -10,6 +10,7 @@ A typical use case would have a nextbeat_main.py file which has three functions:
   would think of as the "job definition function" because most jobs will be daily jobs.
 """
 import datetime
+import os
 import pathlib
 import sys
 import types
@@ -39,7 +40,11 @@ from nextbeat.topic import (
     AllPredicate,
 )
 from nextbeat.topic_names import pname, FrozenDict, TopicName
-from nextrun.deployed_function import NextRunFunction, NextRunDeployedFunction
+from nextrun.deployed_function import (
+    NextRunFunction,
+    NextRunDeployedFunction,
+    NextRunDeployedCommand,
+)
 from nextrun.nextrun_pb2 import ServerAvailableFolder
 
 _CURRENT_FOLDER = str(pathlib.Path(__file__).parent.resolve())
@@ -75,14 +80,14 @@ def initial_setup():
     client.manual_run(pname(function), wait_for_completion=True)
 
 
-def _job(
+def _function(
     function_pointer: Callable,
     function_args: Optional[Sequence[Any]] = None,
     function_kwargs: Optional[Dict[str, Any]] = None,
     *,
-    run_on: EventFilter = None,
+    run_on: Optional[EventFilter] = None,
     run_state_predicate: StatePredicate = TruePredicate(),
-    job_name: Optional[str] = None
+    job_name: Optional[str] = None,
 ):
     """
     This is a helper function to reduce the ceremony in defining jobs. For this example,
@@ -121,11 +126,69 @@ def _job(
     )
 
 
+REPORTS_DIR = pathlib.Path(__file__).parent.parent.parent / "test_data" / "reports"
+
+
+def _notebook(
+    notebook_path: str,
+    context_variables: Optional[Dict[str, Any]] = None,
+    output_dir: str = REPORTS_DIR,
+    output_name: str = None,
+    cell_timeout_seconds: int = 1200,
+    run_on: Optional[EventFilter] = None,
+    run_state_predicate: StatePredicate = TruePredicate(),
+    job_name: Optional[str] = None,
+):
+    """
+    This is a helper function to make it easier to define jobs that run notebooks and
+    turn them into html. See _function for more details. job_name defaults to the name
+    of the notebook specified in notebook_path. output_name also defaults to the name of
+    the notebook.
+    """
+    notebook_name = os.path.splitext(os.path.basename(notebook_path))[0]
+
+    if job_name is None:
+        job_name = notebook_name
+
+    if run_on is None:
+        run_on = ()
+    elif isinstance(run_on, EventFilter):
+        run_on = [run_on]
+
+    command_line = [
+        "jupyter",
+        "nbconvert",
+        notebook_path,
+        "--to",
+        "html",
+        "--execute",
+        f"--ExecutePreprocessor.timeout={cell_timeout_seconds}",
+        "--TemplateExporter.exclude_input=True",
+        "--TemplateExporter.exclude_output_prompt=True",
+        f"--output-dir={output_dir}",
+    ]
+    if output_name:
+        command_line.append(f"--output={output_name}")
+
+    return Job(
+        pname(job_name),
+        NextRunDeployedCommand(
+            ServerAvailableFolder(
+                code_paths=[_CURRENT_FOLDER],
+                interpreter_path=_PYTHON_INTERPRETER,
+            ),
+            command_line,
+            context_variables,
+        ),
+        [TriggerAction(Actions.run, run_on, run_state_predicate)],
+    )
+
+
 def nextbeat_main():
     return [
         # Defines the following "infrastructure jobs":
         # Instantiate the date-based scope at 12 noon on the previous day
-        _job(
+        _function(
             function_pointer=instantiate_scopes,
             function_args=[None, LatestEventsArg.construct()],
             run_on=TimeOfDay(
@@ -133,14 +196,14 @@ def nextbeat_main():
             ),
         ),
         # Whenever a date scope is instantiated, add the daily jobs to that date scope
-        _job(
+        _function(
             function_pointer=add_daily_jobs,
             function_args=[LatestEventsArg.construct()],
             run_on=ScopeInstantiated(frozenset(["date"])),
         ),
         # These are just "regular jobs"
         # On-demand, define/re-define schemas for nextdb tables
-        _job(function_pointer=covid_data.ndb.schema.define_schemas),
+        _function(function_pointer=covid_data.ndb.schema.define_schemas),
     ]
 
 
@@ -185,7 +248,7 @@ def add_daily_jobs(scope):
         # 5:30pm "tomorrow", which is when the data is usually posted. Only run while we
         # have not managed to write any data successfully yet.
         # TODO this should fail/alert if it's 5:30pm and we haven't gotten any data
-        _job(
+        _function(
             function_pointer=covid_data.cdc_covid_data.cdc_covid_data,
             function_args=[date],
             run_on=Periodic(datetime.timedelta(minutes=2)),
@@ -201,9 +264,18 @@ def add_daily_jobs(scope):
         #  its initial dependencies are--either by running it once as soon as it's
         #  defined and hoping it doesn't have any side effects, doing some sort of
         #  static analysis, or getting some sort of hint from the user.
-        _job(
+        _function(
             function_pointer=covid_data.cdc_covid_data.cdc_covid_data_smoothed,
             function_args=[date],
+            run_on=NextdbDynamicDependency(scope),
+        ),
+        # Run the report whenever its data inputs change
+        # TODO this should not kick off when cdc_covid_data completes, we should wait
+        #  until cdc_covid_data_smoothed has run
+        _notebook(
+            notebook_path="covid_data/cdc_covid_report.ipynb",
+            context_variables={"date": date},
+            output_name=f"cdc_covid_report_{date:%Y-%m-%d}",
             run_on=NextdbDynamicDependency(scope),
         ),
     ]

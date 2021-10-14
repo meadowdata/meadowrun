@@ -66,7 +66,7 @@ def _pickle_protocol_for_deployed_interpreter() -> int:
 
 
 def _create_run_py_command_request(
-    request_id: str, deployed_command: NextRunDeployedCommand
+    request_id: str, log_file_name: str, deployed_command: NextRunDeployedCommand
 ) -> RunPyCommandRequest:
     # TODO see below about optimizations we could do for transferring pickled data
     if deployed_command.context_variables:
@@ -79,6 +79,7 @@ def _create_run_py_command_request(
 
     result = RunPyCommandRequest(
         request_id=request_id,
+        log_file_name=log_file_name,
         command_line=deployed_command.command_line,
         pickled_context_variables=pickled_context_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
@@ -88,7 +89,7 @@ def _create_run_py_command_request(
 
 
 def _create_run_py_func_request(
-    request_id: str, deployed_function: NextRunDeployedFunction
+    request_id: str, log_file_name: str, deployed_function: NextRunDeployedFunction
 ) -> RunPyFuncRequest:
     # first pickle the function arguments from job_run_spec
 
@@ -109,6 +110,7 @@ def _create_run_py_func_request(
 
     result = RunPyFuncRequest(
         request_id=request_id,
+        log_file_name=log_file_name,
         module_name=deployed_function.next_run_function.module_name,
         function_name=deployed_function.next_run_function.function_name,
         pickled_function_arguments=pickled_function_arguments,
@@ -128,7 +130,10 @@ class NextRunClientAsync:
         self._stub = NextRunServerStub(self._channel)
 
     async def run_py_command(
-        self, request_id: str, deployed_command: NextRunDeployedCommand
+        self,
+        request_id: str,
+        log_file_name: str,
+        deployed_command: NextRunDeployedCommand,
     ) -> ProcessState:
         """
         Runs a command line remotely on the NextRunServer in the context of a python
@@ -137,11 +142,14 @@ class NextRunClientAsync:
         See run_py_func for more details.
         """
         return await self._stub.run_py_command(
-            _create_run_py_command_request(request_id, deployed_command)
+            _create_run_py_command_request(request_id, log_file_name, deployed_command)
         )
 
     async def run_py_func(
-        self, request_id: str, deployed_function: NextRunDeployedFunction
+        self,
+        request_id: str,
+        log_file_name: str,
+        deployed_function: NextRunDeployedFunction,
     ) -> ProcessState:
         """
         Runs a function remotely on the NextRunServer.
@@ -180,7 +188,7 @@ class NextRunClientAsync:
          notification?
         """
         return await self._stub.run_py_func(
-            _create_run_py_func_request(request_id, deployed_function)
+            _create_run_py_func_request(request_id, log_file_name, deployed_function)
         )
 
     async def get_process_states(self, request_ids: List[str]) -> List[ProcessState]:
@@ -248,18 +256,24 @@ class NextRunClientSync:
         self._stub = NextRunServerStub(self._channel)
 
     def run_py_command(
-        self, request_id: str, deployed_command: NextRunDeployedCommand
+        self,
+        request_id: str,
+        log_file_name: str,
+        deployed_command: NextRunDeployedCommand,
     ) -> ProcessState:
         return self._stub.run_py_command(
-            _create_run_py_command_request(request_id, deployed_command)
+            _create_run_py_command_request(request_id, log_file_name, deployed_command)
         )
 
     def run_py_func(
-        self, request_id: str, deployed_function: NextRunDeployedFunction
+        self,
+        request_id: str,
+        log_file_name: str,
+        deployed_function: NextRunDeployedFunction,
     ) -> ProcessState:
         """See docstring on NextRunClientAsync"""
         return self._stub.run_py_func(
-            _create_run_py_func_request(request_id, deployed_function)
+            _create_run_py_func_request(request_id, log_file_name, deployed_function)
         )
 
     def get_process_states(self, request_ids: List[str]) -> List[ProcessState]:

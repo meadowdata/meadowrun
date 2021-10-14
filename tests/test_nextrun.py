@@ -79,6 +79,7 @@ def _test_nextrun(deployment: Deployment):
                 request_id = "request1"
                 run_request_result = await client.run_py_func(
                     request_id,
+                    "example_runner",
                     NextRunDeployedFunction(
                         deployment,
                         NextRunFunction(
@@ -93,6 +94,7 @@ def _test_nextrun(deployment: Deployment):
                 # try running a duplicate
                 duplicate_request_result = await client.run_py_func(
                     request_id,
+                    "baz",
                     NextRunDeployedFunction(
                         ServerAvailableFolder(
                             code_paths=["foo"],
@@ -136,7 +138,9 @@ def _test_nextrun(deployment: Deployment):
                 # in the Scripts folder of the current python interpreter
                 request_id = "request2"
                 run_request_result = await client.run_py_command(
-                    request_id, NextRunDeployedCommand(deployment, ["pip", "--version"])
+                    request_id,
+                    "pip",
+                    NextRunDeployedCommand(deployment, ["pip", "--version"]),
                 )
                 assert run_request_result.state == ProcessStateEnum.RUNNING
                 assert run_request_result.pid > 0
@@ -171,10 +175,12 @@ def test_nextrun_command_context_variables():
                 request_id4 = "request4"
                 await client.run_py_command(
                     request_id3,
+                    "example_script",
                     NextRunDeployedCommand(deployment, ["python", "example_script.py"]),
                 )
                 await client.run_py_command(
                     request_id4,
+                    "example_script",
                     NextRunDeployedCommand(
                         deployment, ["python", "example_script.py"], {"foo": "bar"}
                     ),

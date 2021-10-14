@@ -28,27 +28,29 @@ message GitRepoCommit {
 
 message RunPyCommandRequest {
     string request_id = 1;
+    string log_file_name = 2;
     oneof deployment {
-        ServerAvailableFolder server_available_folder = 2;
-        GitRepoCommit git_repo_commit = 3;
+        ServerAvailableFolder server_available_folder = 3;
+        GitRepoCommit git_repo_commit = 4;
     }
-    repeated string command_line = 4;
-    bytes pickled_context_variables = 5;
-    int32 result_highest_pickle_protocol = 6;
+    repeated string command_line = 5;
+    bytes pickled_context_variables = 6;
+    int32 result_highest_pickle_protocol = 7;
 }
 
 
 message RunPyFuncRequest {
     string request_id = 1;
+    string log_file_name = 2;
     oneof deployment {
-        ServerAvailableFolder server_available_folder = 2;
-        GitRepoCommit git_repo_commit = 3;
+        ServerAvailableFolder server_available_folder = 3;
+        GitRepoCommit git_repo_commit = 4;
         // TODO add more options here, e.g. S3 folder
     }
-    string module_name = 4;
-    string function_name = 5;
-    bytes pickled_function_arguments = 6;
-    int32 result_highest_pickle_protocol = 7;
+    string module_name = 5;
+    string function_name = 6;
+    bytes pickled_function_arguments = 7;
+    int32 result_highest_pickle_protocol = 8;
 }
 
 

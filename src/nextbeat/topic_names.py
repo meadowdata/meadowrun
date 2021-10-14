@@ -49,7 +49,21 @@ class FrozenDict(collections.Mapping[_TK, _TV]):
 
 # TODO we should probably restrict these (as well as other places where we accept
 #  FrozenDict) to only take types that can be serialized in protobuf
-TopicName = FrozenDict[str, Any]
+class TopicName(FrozenDict[str, Any]):
+    def as_file_name(self) -> str:
+        result = []
+        parts = set()
+        i = 0
+        while f"part{i}" in self:
+            result.append(self[f"part{i}"])
+            parts.add(f"part{i}")
+            i += 1
+        for key, value in self.items():
+            if key not in parts:
+                result.append(f"{key}_{value}")
+        return ".".join(result)
+
+
 # A bit of a hack; a placeholder to use in StatePredicates to represent the current job
 CURRENT_JOB = TopicName(__nextbeat_internal__="CURRENT_JOB")
 

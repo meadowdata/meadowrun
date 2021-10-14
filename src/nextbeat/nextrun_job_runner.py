@@ -42,10 +42,12 @@ class NextRunJobRunner(JobRunner):
 
         if isinstance(deployed_function, NextRunDeployedCommand):
             result = await self._client.run_py_command(
-                run_request_id, deployed_function
+                run_request_id, job_name.as_file_name(), deployed_function
             )
         elif isinstance(deployed_function, NextRunDeployedFunction):
-            result = await self._client.run_py_func(run_request_id, deployed_function)
+            result = await self._client.run_py_func(
+                run_request_id, job_name.as_file_name(), deployed_function
+            )
         else:
             raise ValueError(
                 f"Unexpected type of deployed_function {type(deployed_function)}"

@@ -221,12 +221,7 @@ class NextRunServerHandler(NextRunServerServicer):
 
             log_file_name = os.path.join(
                 self._job_logs_folder,
-                "".join(
-                    c
-                    for c in "_".join(request.command_line)
-                    if c in _REQUEST_ID_VALID_CHARS
-                )
-                + f".{request.request_id}.log",
+                f"{request.log_file_name}.{request.request_id}.log",
             )
 
             # request the results file
@@ -339,12 +334,7 @@ class NextRunServerHandler(NextRunServerServicer):
 
             log_file_name = os.path.join(
                 self._job_logs_folder,
-                "".join(
-                    c
-                    for c in "_".join([request.module_name, request.function_name])
-                    if c in _REQUEST_ID_VALID_CHARS
-                )
-                + f".{request.request_id}.log",
+                f"{request.log_file_name}.{request.request_id}.log",
             )
 
             # write function arguments to file

@@ -144,9 +144,7 @@ class Connection:
         userspace: str = prod_userspace_name,
         max_version_number: int = None,
     ) -> reader.MdbTable:
-        """
-        Returns a MdbTable object that can be used to query userspace/table_name
-        """
+        """Returns a MdbTable object that can be used to query userspace/table_name"""
         result = reader.read(
             self.table_versions_client, userspace, table_name, max_version_number
         )

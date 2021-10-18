@@ -177,23 +177,23 @@ class MdbTable:
                     if len(deletes) == 0:
                         # simplest case--no deletes or deduplication_keys to filter out
                         sql = (
-                            f"{select_clause.replace(_table_name_placeholder, table_name)}"
-                            f" FROM {table_name} WHERE "
-                            f"{where_clause.replace(_table_name_placeholder, table_name)}"
+                            select_clause.replace(_table_name_placeholder, table_name)
+                            + f" FROM {table_name} WHERE "
+                            + where_clause.replace(_table_name_placeholder, table_name)
                         )
                     else:
                         # case where we have delete_where_equal
                         conn.register("ds", deletes)
                         sql = (
-                            f"{select_clause.replace(_table_name_placeholder, table_name)}"
-                            f" FROM {table_name} LEFT JOIN ds ON "
+                            select_clause.replace(_table_name_placeholder, table_name)
+                            + f" FROM {table_name} LEFT JOIN ds ON "
                             + " AND ".join(
                                 f"{table_name}.{c} = ds.{c}"
                                 for c in deletes.columns
                                 if c != _indicator_column_name
                             )
                             + f" WHERE ds.{_indicator_column_name} IS NULL AND "
-                            f"{where_clause.replace(_table_name_placeholder, table_name)}"
+                            + where_clause.replace(_table_name_placeholder, table_name)
                         )
                 else:
                     if len(deletes) == 0:
@@ -208,35 +208,29 @@ class MdbTable:
                         #  hasn't been updated between iterations
                         conn.register("pks", deduplication_keys_seen)
                         sql = (
-                            f"{select_clause.replace(_table_name_placeholder, table_name)} "
-                            f"FROM {table_name} LEFT JOIN pks ON "
+                            select_clause.replace(_table_name_placeholder, table_name)
+                            + f" FROM {table_name} LEFT JOIN pks ON "
                             + " AND ".join(
                                 f"{table_name}.{c} = pks.{c}"
                                 for c in deduplication_keys
                             )
                             + f" WHERE pks.{_indicator_column_name} IS NULL AND "
-                            f"{where_clause.replace(_table_name_placeholder, table_name)}"
+                            + where_clause.replace(_table_name_placeholder, table_name)
                         )
                     else:
                         # case where we have deduplication_keys AND deletes
                         conn.register("pks", deduplication_keys_seen)
                         conn.register("ds", deletes)
-                        sql = (
-                            f"{select_clause.replace(_table_name_placeholder, table_name)}"
-                            f" FROM {table_name} LEFT JOIN ds ON "
-                            + " AND ".join(
-                                f"{table_name}.{c} = ds.{c}"
-                                for c in deletes.columns
-                                if c != _indicator_column_name
-                            )
-                            + " LEFT JOIN pks ON "
-                            + " AND ".join(
-                                f"{table_name}.{c} = pks.{c}"
-                                for c in deduplication_keys
-                            )
-                            + f" WHERE ds.{_indicator_column_name} IS NULL AND "
-                            f"pks.{_indicator_column_name} IS NULL AND "
-                            f"{where_clause.replace(_table_name_placeholder, table_name)}"
+                        sql = select_clause.replace(
+                            _table_name_placeholder, table_name
+                        ) + f" FROM {table_name} LEFT JOIN ds ON " + " AND ".join(
+                            f"{table_name}.{c} = ds.{c}"
+                            for c in deletes.columns
+                            if c != _indicator_column_name
+                        ) + " LEFT JOIN pks ON " + " AND ".join(
+                            f"{table_name}.{c} = pks.{c}" for c in deduplication_keys
+                        ) + f" WHERE ds.{_indicator_column_name} IS NULL AND " f"pks.{_indicator_column_name} IS NULL AND " + where_clause.replace(
+                            _table_name_placeholder, table_name
                         )
 
                 # Uncommenting this line is helpful in debugging the sql generation

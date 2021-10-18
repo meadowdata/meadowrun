@@ -21,7 +21,7 @@ Overview of overall data structure layout:
 
     data_file_type -> 'write' | 'delete'
 
-    #convention is {write|delete}.{table_id}.{uuid}]
+    # convention is {write|delete}.{table_id}.{uuid}]
     data_filename -> DataFrame
 
 """

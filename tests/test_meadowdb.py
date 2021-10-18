@@ -124,15 +124,20 @@ def test_meadowdb():
         )
     )
 
-    # test deduplication_keys
 
-    test_data3 = test_data1.drop_duplicates(["int1", "str1"])
-    test_data4 = test_data2.drop_duplicates(["int1", "str1"])
-    test_data4.loc[0:50, ["int1", "str1"]] = test_data3.loc[0:50, ["int1", "str1"]]
-    test_data5 = _random_df().drop_duplicates(["int1", "str1"])
-    test_data5.loc[25:75, ["int1", "str1"]] = test_data3.loc[25:75, ["int1", "str1"]]
-    test_data_combined2 = pd.concat(
-        [test_data3.loc[76:], test_data4[0:25], test_data4[51:], test_data5],
+def test_meadowdb_duplication_keys():
+    """Test deduplication_keys"""
+
+    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(_TEST_DATA_DIR))
+
+    test_data1 = _random_df().drop_duplicates(["int1", "str1"])
+    test_data1.loc[50, "str1"] = "hello"
+    test_data2 = _random_df().drop_duplicates(["int1", "str1"])
+    test_data2.loc[0:50, ["int1", "str1"]] = test_data1.loc[0:50, ["int1", "str1"]]
+    test_data3 = _random_df().drop_duplicates(["int1", "str1"])
+    test_data3.loc[25:75, ["int1", "str1"]] = test_data1.loc[25:75, ["int1", "str1"]]
+    test_data_combined = pd.concat(
+        [test_data1.loc[76:], test_data2[0:25], test_data2[51:], test_data3],
         ignore_index=True,
     )
 
@@ -143,19 +148,17 @@ def test_meadowdb():
     t = conn.read("temp2")
     t.to_pd()
 
+    conn.write("temp2", test_data1)
+    conn.write("temp2", test_data2)
     conn.write("temp2", test_data3)
-    conn.write("temp2", test_data4)
-    conn.write("temp2", test_data5)
 
     t = conn.read("temp2")
-    assert t.to_pd().equals(test_data_combined2)
+    assert t.to_pd().equals(test_data_combined)
     assert (
         t[t["int1"] < 250]
         .to_pd()
         .equals(
-            test_data_combined2[test_data_combined2["int1"] < 250].reset_index(
-                drop=True
-            )
+            test_data_combined[test_data_combined["int1"] < 250].reset_index(drop=True)
         )
     )
 
@@ -163,7 +166,5 @@ def test_meadowdb():
 
     t = conn.read("temp2")
     assert t.to_pd().equals(
-        test_data_combined2[test_data_combined2["str1"] != "hello"].reset_index(
-            drop=True
-        )
+        test_data_combined[test_data_combined["str1"] != "hello"].reset_index(drop=True)
     )

@@ -12,7 +12,8 @@ def write(
     userspace: str,
     table_name: str,
     df: Optional[pd.DataFrame],
-    deletes: Optional[pd.DataFrame],
+    delete_where_equal_df: Optional[pd.DataFrame],
+    delete_all: bool,
 ) -> int:
     """See docstring on connection.Connection. Returns the version number written."""
     # TODO add support for writing multiple tables at the same time (transaction?)
@@ -29,6 +30,20 @@ def write(
     # Write data files for writes and deletes and construct DataFileEntry
     new_data_file_entries = []
 
+    # deletes have to come before writes
+    if delete_all:
+        new_data_file_entries.append(DataFileEntry("delete_all", None))
+
+    if delete_where_equal_df is not None:
+        if delete_all:
+            raise ValueError("Cannot specify both delete_where_equal_df and delete_all")
+
+        delete_data_filename = f"delete.{table_id}.{uuid.uuid4()}.parquet"
+        delete_where_equal_df.to_parquet(
+            table_versions_client.prepend_data_dir(delete_data_filename), index=False
+        )
+        new_data_file_entries.append(DataFileEntry("delete", delete_data_filename))
+
     if df is not None:
         # TODO there probably needs to be some sort of segmentation so that every file
         #  doesn't end up in the same directory
@@ -38,15 +53,10 @@ def write(
         )
         new_data_file_entries.append(DataFileEntry("write", write_data_filename))
 
-    if deletes is not None:
-        delete_data_filename = f"delete.{table_id}.{uuid.uuid4()}.parquet"
-        deletes.to_parquet(
-            table_versions_client.prepend_data_dir(delete_data_filename), index=False
-        )
-        new_data_file_entries.append(DataFileEntry("delete", delete_data_filename))
-
     if len(new_data_file_entries) == 0:
-        raise ValueError("At least one of df and deletes needs to be not None")
+        raise ValueError(
+            "At least one of df, delete_where_equal_df, and delete_all must be set"
+        )
 
     data_list_filename = f"data_list.{table_id}.{uuid.uuid4()}.pkl"
 
@@ -78,14 +88,23 @@ def write(
             return written_version
     else:
         # write new data list
-        data_list = pd.read_pickle(
-            table_versions_client.prepend_data_dir(
-                prev_table_version.data_list_filename
+        if delete_all:
+            # if delete_all is set, then ignore any old entries. This is just an
+            # optimization, the presence of the delete_all entry will prevent the reader
+            # from trying to read older entries.
+            data_list = new_data_file_entries
+        else:
+            # otherwise prepend the exist data_list to our new entries
+            data_list = (
+                pd.read_pickle(
+                    table_versions_client.prepend_data_dir(
+                        prev_table_version.data_list_filename
+                    )
+                )
+                + new_data_file_entries
             )
-        )
         pd.to_pickle(
-            data_list + new_data_file_entries,
-            table_versions_client.prepend_data_dir(data_list_filename),
+            data_list, table_versions_client.prepend_data_dir(data_list_filename)
         )
         # update table versions server
         written_version = table_versions_client.add_table_version(

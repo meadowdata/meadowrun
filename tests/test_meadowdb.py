@@ -40,6 +40,8 @@ def test_meadowdb():
 
     test_data1 = _random_df()
     test_data1.loc[50, "str1"] = "hello"
+    test_data1.loc[51, "str1"] = "foobar"
+    test_data1.loc[52, "str1"] = "foobar"
     test_data2 = _random_df()
     test_data3 = _random_df()
     conn.write("temp1", test_data1)
@@ -91,7 +93,7 @@ def test_meadowdb():
         .equals(timestamp_filter_result)
     )
 
-    # test deletes
+    # test simple delete_where_equal
 
     conn.delete_where_equal("temp1", pd.DataFrame({"str1": ["hello"]}))
 
@@ -99,6 +101,33 @@ def test_meadowdb():
     assert t.to_pd().equals(
         test_data_combined[test_data_combined["str1"] != "hello"].reset_index(drop=True)
     )
+
+    # test delete_where_equal and write at the same time, make sure the write gets
+    # applied after the delete
+
+    test_data4 = _random_df(1)
+    test_data4.loc[0, "str1"] = "foobar"
+    conn.write(
+        "temp1", test_data4, delete_where_equal_df=pd.DataFrame({"str1": ["foobar"]})
+    )
+
+    test_data_combined_4 = pd.concat(
+        [
+            test_data_combined[
+                ~test_data_combined["str1"].isin({"hello", "foobar"})
+            ].reset_index(drop=True),
+            test_data4,
+        ],
+        ignore_index=True,
+    )
+    t = conn.read("temp1")
+    t.to_pd().equals(test_data_combined_4)
+
+    # now delete everything
+
+    conn.delete_all("temp1")
+    t = conn.read("temp1")
+    assert len(t.to_pd()) == 0
 
     # test reading old versions
 
@@ -123,6 +152,8 @@ def test_meadowdb():
             )
         )
     )
+    assert conn.read("temp1", max_version_number=4).to_pd().equals(test_data_combined_4)
+    assert len(conn.read("temp1", max_version_number=5).to_pd()) == 0
 
 
 def test_meadowdb_duplication_keys():
@@ -132,6 +163,8 @@ def test_meadowdb_duplication_keys():
 
     test_data1 = _random_df().drop_duplicates(["int1", "str1"])
     test_data1.loc[50, "str1"] = "hello"
+    test_data1.loc[51, "str1"] = "foobar"
+    test_data1.loc[52, "str1"] = "foobar"
     test_data2 = _random_df().drop_duplicates(["int1", "str1"])
     test_data2.loc[0:50, ["int1", "str1"]] = test_data1.loc[0:50, ["int1", "str1"]]
     test_data3 = _random_df().drop_duplicates(["int1", "str1"])
@@ -168,3 +201,25 @@ def test_meadowdb_duplication_keys():
     assert t.to_pd().equals(
         test_data_combined[test_data_combined["str1"] != "hello"].reset_index(drop=True)
     )
+
+    test_data4 = _random_df(1)
+    test_data4.loc[0, "str1"] = "foobar"
+    conn.write(
+        "temp2", test_data4, delete_where_equal_df=pd.DataFrame({"str1": ["hello"]})
+    )
+
+    test_data_combined_4 = pd.concat(
+        [
+            test_data_combined[
+                ~test_data_combined["str1"].isin({"hello", "foobar"})
+            ].reset_index(drop=True),
+            test_data4,
+        ],
+        ignore_index=True,
+    )
+    t = conn.read("temp2")
+    t.to_pd().equals(test_data_combined_4)
+
+    conn.delete_all("temp2")
+    t = conn.read("temp2")
+    assert len(t.to_pd()) == 0

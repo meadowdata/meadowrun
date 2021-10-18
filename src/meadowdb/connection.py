@@ -95,6 +95,7 @@ class Connection:
         df: Optional[pd.DataFrame],
         userspace: str = prod_userspace_name,
         delete_where_equal_df: Optional[pd.DataFrame] = None,
+        delete_all: bool = False,
     ) -> None:
         """
         Writes df to userspace/table_name. df should be a pandas dataframe that matches
@@ -103,16 +104,21 @@ class Connection:
         If delete_where_equal_df is not None, applies the delete to table_name first,
         then writes df. See delete_where_equal for semantics of delete_where_equal_df
 
+        If delete_all is True, deletes everything in table_name first, then writes df.
+        Cannot be used together with delete_where_equal_df. See also
+        Connection.delete_all.
+
         At least one of df and delete_where_equal_df must be not None
         """
         # TODO in the current implementation, would be pretty easy to support arbitrary
-        #  WHERE clauses for deletes, is that the right thing to do?
+        #  WHERE clauses for delete_where_equal_df, is that the right thing to do?
         written_version = writer.write(
             self.table_versions_client,
             userspace,
             table_name,
             df,
             delete_where_equal_df,
+            delete_all,
         )
         self.effects.tables_written.setdefault((userspace, table_name), set()).add(
             written_version
@@ -126,8 +132,8 @@ class Connection:
     ) -> None:
         """
         delete_where_equal_df should also be a pandas dataframe that has a subset of the
-        columns in table_name. Any existing rows matching the values in deletes will be
-        "deleted". E.g. if deletes is
+        columns in table_name. Any existing rows matching the values in
+        delete_where_equal_df will be "deleted". E.g. if delete_where_equal_df is
 
         a | b
         1 | 2
@@ -137,6 +143,10 @@ class Connection:
         and b = 4)
         """
         self.write(table_name, None, userspace, delete_where_equal_df)
+
+    def delete_all(self, table_name: str, userspace: str = prod_userspace_name) -> None:
+        """Deletes all data in the specified table"""
+        self.write(table_name, None, userspace, None, True)
 
     def read(
         self,

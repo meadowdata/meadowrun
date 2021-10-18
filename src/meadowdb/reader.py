@@ -33,17 +33,23 @@ def read(
     data_list = pd.read_pickle(
         table_version_client.prepend_data_dir(table_version.data_list_filename)
     )
+    data_list_with_full_path = []
+    for d in data_list:
+        # TODO ugly
+        if d.data_file_type == "delete_all":
+            data_list_with_full_path.append(d)
+        else:
+            data_list_with_full_path.append(
+                DataFileEntry(
+                    d.data_file_type,
+                    table_version_client.prepend_data_dir(d.data_filename),
+                )
+            )
 
     return MdbTable(
         table_version.version_number,
         table_schema,
-        [
-            DataFileEntry(
-                d.data_file_type,
-                table_version_client.prepend_data_dir(d.data_filename),  # TODO ugly
-            )
-            for d in data_list
-        ],
+        data_list_with_full_path,
         [],
     )
 
@@ -267,6 +273,9 @@ class MdbTable:
                         "Deletes on different sets of columns is not supported"
                     )
                 deletes = pd.concat([deletes, d])
+            elif data_file.data_file_type == "delete_all":
+                # delete_all means stop iterating
+                break
             else:
                 raise ValueError(
                     f"data_file_type {data_file.data_file_type} is not supported"

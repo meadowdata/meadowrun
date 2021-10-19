@@ -73,8 +73,10 @@ class TableVersion:
     #  too confusing...
     table_id: uuid.UUID
 
-    # Points to a file which contains a TableSchema
-    table_schema_filename: str
+    # Points to a file which contains a TableSchema. None means first try to fall back
+    # on the parent userspace's table's schema, then fall back on the default
+    # TableSchema
+    table_schema_filename: Optional[str]
 
     # Points to a file which contains an ordered list of DataFileEntry
     data_list_filename: str
@@ -88,7 +90,7 @@ class TableVersion:
 @dataclass(frozen=True)
 class TableSchema:
     # TODO currently not used
-    column_names_and_types: None
+    column_names_and_types: None = None
 
     # If this is not None, rows will automatically be deduplicated (newest rows
     # preserved) based on the columns specified by deduplication_keys. E.g. if
@@ -97,7 +99,7 @@ class TableSchema:
     # effectively deleted. As a result, when you read from t, every row will have a
     # distinct deduplication key. If deduplication_keys is None, then new rows are
     # appended normally.
-    deduplication_keys: Optional[List[str]]
+    deduplication_keys: Optional[List[str]] = None
 
 
 @dataclass(frozen=True)

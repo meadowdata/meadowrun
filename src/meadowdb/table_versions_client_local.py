@@ -84,7 +84,7 @@ class TableVersionsClientLocal:
         userspace: str,
         table_name: str,
         table_id: uuid.UUID,
-        table_schema_filename: str,
+        table_schema_filename: Optional[str],
         data_list_filename: str,
     ) -> Optional[int]:
         """

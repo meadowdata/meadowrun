@@ -63,13 +63,6 @@ def write(
     # Write the data list file, schema file if this is a brand new table, and update the
     # table versions server
     if prev_table_version is None:
-        # if this is a brand new table, we need to write a schema as well
-        table_schema_filename = f"table_schema.{table_id}.{uuid.uuid4()}.pkl"
-        # TODO use a real serialization format (not pickle)
-        pd.to_pickle(
-            TableSchema(None, None),
-            table_versions_client.prepend_data_dir(table_schema_filename),
-        )
         # write new data list
         pd.to_pickle(
             new_data_file_entries,
@@ -77,7 +70,7 @@ def write(
         )
         # update table versions server
         written_version = table_versions_client.add_initial_table_version(
-            userspace, table_name, table_id, table_schema_filename, data_list_filename
+            userspace, table_name, table_id, None, data_list_filename
         )
         # TODO retry on failure, same for `else` clause
         if written_version is None:

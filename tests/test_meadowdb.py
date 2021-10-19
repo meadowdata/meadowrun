@@ -223,3 +223,42 @@ def test_meadowdb_duplication_keys():
     conn.delete_all("temp2")
     t = conn.read("temp2")
     assert len(t.to_pd()) == 0
+
+
+def test_meadowdb_userspace():
+    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(_TEST_DATA_DIR))
+
+    prod_data = _random_df()
+    prod_data.loc[50, "str1"] = "hello"
+    us_data1 = _random_df()
+    us_data1.loc[50, "str1"] = "hello"
+    us_data2 = _random_df()
+
+    # first, delete_where_equal without any data in the prod table
+    conn.delete_where_equal("temp3", pd.DataFrame({"str1": ["hello"]}), "U1")
+
+    assert len(conn.read("temp3", "U1").to_pd()) == 0
+
+    # next write some data in the prod table, note that the deletes always get applied
+    # on top of prod because this userspace is in read_committed mode (the only
+    # currently available mode)
+    conn.write("temp3", prod_data)
+
+    assert conn.read("temp3").to_pd().equals(prod_data)
+    prod_data_filtered = prod_data[prod_data["str1"] != "hello"].reset_index(drop=True)
+    assert conn.read("temp3", "U1").to_pd().equals(prod_data_filtered)
+
+    # next, write some actual data into the userspace
+    conn.write("temp3", us_data1, userspace="U1")
+
+    assert conn.read("temp3").to_pd().equals(prod_data)
+    expected = pd.concat([prod_data_filtered, us_data1], ignore_index=True)
+    assert conn.read("temp3", "U1").to_pd().equals(expected)
+
+    # next, wipe everything and write new data
+    conn.write("temp3", us_data2, "U1", delete_all=True)
+
+    assert conn.read("temp3").to_pd().equals(prod_data)
+    assert conn.read("temp3", "U1").to_pd().equals(us_data2)
+
+    # TODO none of the table schema interactions are tested

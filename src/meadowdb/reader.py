@@ -9,8 +9,24 @@ from dataclasses import dataclass
 import pandas as pd
 import duckdb
 
+import meadowdb.connection
 from .table_versions_client_local import TableVersionsClientLocal
 from .readerwriter_shared import DataFileEntry, TableSchema
+
+
+def _prepend_data_dir_data_file_entries(
+    table_version_client: TableVersionsClientLocal, data_list: Iterable[DataFileEntry]
+) -> Iterable[DataFileEntry]:
+    """Helper function that calls prepend_data_dir on DataFileEntry.data_filename"""
+    # TODO ugly
+    for d in data_list:
+        if d.data_file_type == "delete_all":
+            yield d
+        else:
+            yield DataFileEntry(
+                d.data_file_type,
+                table_version_client.prepend_data_dir(d.data_filename),
+            )
 
 
 def read(
@@ -20,36 +36,81 @@ def read(
     max_version_number: Optional[int],
 ) -> MdbTable:
     """See Connection.read for usage docstring"""
+
+    # get the table version
     table_version = table_version_client.get_current_table_version(
         userspace, table_name, max_version_number
     )
-    if table_version is None:
-        raise ValueError(f"Requested table {userspace}/{table_name} does not exist")
+    data_list_filenames = []
 
-    table_schema = pd.read_pickle(
-        table_version_client.prepend_data_dir(table_version.table_schema_filename)
-    )
+    if userspace == meadowdb.connection.prod_userspace_name:
+        # simple case, no userspace layering
 
-    data_list = pd.read_pickle(
-        table_version_client.prepend_data_dir(table_version.data_list_filename)
-    )
-    data_list_with_full_path = []
-    for d in data_list:
-        # TODO ugly
-        if d.data_file_type == "delete_all":
-            data_list_with_full_path.append(d)
-        else:
-            data_list_with_full_path.append(
-                DataFileEntry(
-                    d.data_file_type,
-                    table_version_client.prepend_data_dir(d.data_filename),
-                )
+        if table_version is None:
+            raise ValueError(f"Requested table {userspace}/{table_name} does not exist")
+
+        table_schema_filename = table_version.table_schema_filename
+
+        data_list_filenames.append(table_version.data_list_filename)
+    else:
+        # complicated case, userspace layering with prod
+        # TODO currently we only implement read_committed semantics but we plan on
+        #  supporting snapshot_isolation as well
+
+        # get the parent userspace (prod) table version
+        prod_table_version = table_version_client.get_current_table_version(
+            meadowdb.connection.prod_userspace_name, table_name, max_version_number
+        )
+
+        if table_version is None and prod_table_version is None:
+            raise ValueError(
+                f"Requested table {userspace}/{table_name} does not exist and "
+                f"{meadowdb.connection.prod_userspace_name}/{table_name} also does not exist"
             )
+
+        # get the table schema filename, falling back on the prod table's schema if the
+        # userspace table doesn't have a schema specified, and then falling back on None
+        # (i.e. the default TableSchema) if the prod table doesn't exist exist
+        if (
+            table_version is not None
+            and table_version.table_schema_filename is not None
+        ):
+            table_schema_filename = table_version.table_schema_filename
+        elif prod_table_version is not None:
+            table_schema_filename = prod_table_version.table_schema_filename
+        else:
+            table_schema_filename = None
+
+        # populate data_list_filenames. Order is important here, we always want to apply
+        # the userspace's writes on top of the prod writes regardless of the original
+        # order of writes.
+        if prod_table_version is not None:
+            data_list_filenames.append(prod_table_version.data_list_filename)
+        if table_version is not None:
+            data_list_filenames.append(table_version.data_list_filename)
+
+    if table_schema_filename is not None:
+        table_schema = pd.read_pickle(
+            table_version_client.prepend_data_dir(table_schema_filename)
+        )
+    else:
+        # table_schema_filename is optional, if it's missing, we just use a default
+        # schema
+        table_schema = TableSchema()
 
     return MdbTable(
         table_version.version_number,
         table_schema,
-        data_list_with_full_path,
+        [
+            data_file_entry
+            for data_list_filename in data_list_filenames
+            for data_file_entry in _prepend_data_dir_data_file_entries(
+                table_version_client,
+                pd.read_pickle(
+                    table_version_client.prepend_data_dir(data_list_filename)
+                ),
+            )
+        ],
         [],
     )
 

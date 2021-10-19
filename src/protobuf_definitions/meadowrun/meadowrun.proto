@@ -5,6 +5,12 @@ syntax = "proto3";
 package meadowrun;
 
 
+message StringPair {
+    string key = 1;
+    string value = 2;
+}
+
+
 // Represents a folder (or folders) that presumably contain code that the meadowrun server
 // can access directly
 message ServerAvailableFolder {
@@ -35,7 +41,8 @@ message RunPyCommandRequest {
     }
     repeated string command_line = 5;
     bytes pickled_context_variables = 6;
-    int32 result_highest_pickle_protocol = 7;
+    repeated StringPair environment_variables = 7;
+    int32 result_highest_pickle_protocol = 8;
 }
 
 
@@ -50,7 +57,8 @@ message RunPyFuncRequest {
     string module_name = 5;
     string function_name = 6;
     bytes pickled_function_arguments = 7;
-    int32 result_highest_pickle_protocol = 8;
+    repeated StringPair environment_variables = 8;
+    int32 result_highest_pickle_protocol = 9;
 }
 
 

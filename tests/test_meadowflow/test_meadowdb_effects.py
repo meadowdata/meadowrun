@@ -10,6 +10,7 @@ from meadowflow.jobs import (
     LocalFunction,
     Actions,
     AnyJobStateEventFilter,
+    JobRunOverrides,
 )
 from meadowflow.effects import MeadowdbDynamicDependency, UntilMeadowdbWritten
 from meadowflow.meadowrun_job_runner import MeadowRunJobRunner
@@ -167,10 +168,9 @@ def test_meadowdb_dependency():
         assert_b_events(10, 7, 7, 4)
 
 
-def test_meadowdb_dependency_command():
+def test_meadowdb_effects():
     """
-    Tests that meadowdb effects come through meadowrun commands and functions correctly
-    as well.
+    Tests that meadowdb effects come through meadowrun commands and functions
     """
     with meadowrun.server_main.main_in_child_process(), Scheduler(
         job_runner_poll_delay_seconds=0.05
@@ -223,6 +223,22 @@ def test_meadowdb_dependency_command():
             effects: MeadowdbEffects = list(all_effects.values())[0]
             assert list(effects.tables_read.keys()) == [("prod", "A")]
             assert list(effects.tables_written.keys()) == [("prod", "A")]
+
+        # do everything again with meadowdb_userspace set
+        scheduler.manual_run(pname("Command"), JobRunOverrides(meadowdb_userspace="U1"))
+        scheduler.manual_run(pname("Func"), JobRunOverrides(meadowdb_userspace="U1"))
+        _wait_for_scheduler(scheduler)
+
+        command_events = scheduler.events_of(pname("Command"))
+        func_events = scheduler.events_of(pname("Func"))
+        for events in (command_events, func_events):
+            assert 7 == len(events)
+            assert "SUCCEEDED" == events[0].payload.state
+            all_effects = events[0].payload.effects.meadowdb_effects
+            assert len(all_effects) == 1
+            effects: MeadowdbEffects = list(all_effects.values())[0]
+            assert list(effects.tables_read.keys()) == [("U1", "A")]
+            assert list(effects.tables_written.keys()) == [("U1", "A")]
 
 
 _write_on_third_try_runs = 0

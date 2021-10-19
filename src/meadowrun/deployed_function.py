@@ -33,6 +33,7 @@ class MeadowRunDeployedCommand:
     deployment: Deployment
     command_line: Sequence[str]
     context_variables: Optional[Dict[str, Any]] = None
+    environment_variables: Optional[Dict[str, str]] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,6 +47,7 @@ class MeadowRunDeployedFunction:
 
     deployment: Deployment
     meadowrun_function: MeadowRunFunction
+    environment_variables: Optional[Dict[str, str]] = None
 
 
 def convert_local_to_deployed_function(

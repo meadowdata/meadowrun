@@ -1,5 +1,5 @@
 import pickle
-from typing import List, Union
+from typing import List, Union, Iterable, Dict
 
 import grpc
 import grpc.aio
@@ -17,11 +17,19 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFolder,
     GitRepoCommit,
     RunPyCommandRequest,
+    StringPair,
 )
 from meadowrun.meadowrun_pb2_grpc import MeadowRunServerStub
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
+
+
+def _string_pairs_from_dict(d: Dict[str, str]) -> Iterable[StringPair]:
+    """Opposite of _string_pairs_to_dict in server.py. Helper dicts in protobuf."""
+    if d is not None:
+        for key, value in d.items():
+            yield StringPair(key=key, value=value)
 
 
 def _add_deployment_to_request(
@@ -82,6 +90,9 @@ def _create_run_py_command_request(
         log_file_name=log_file_name,
         command_line=deployed_command.command_line,
         pickled_context_variables=pickled_context_variables,
+        environment_variables=_string_pairs_from_dict(
+            deployed_command.environment_variables
+        ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
     )
     _add_deployment_to_request(result, deployed_command.deployment)
@@ -114,6 +125,9 @@ def _create_run_py_func_request(
         module_name=deployed_function.meadowrun_function.module_name,
         function_name=deployed_function.meadowrun_function.function_name,
         pickled_function_arguments=pickled_function_arguments,
+        environment_variables=_string_pairs_from_dict(
+            deployed_function.environment_variables
+        ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
     )
 

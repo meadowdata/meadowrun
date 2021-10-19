@@ -261,10 +261,14 @@ class MeadowRunCommandGitRepo(VersionedJobRunnerFunction):
     git_repo: GitRepo
     command_line: Sequence[str]
     context_variables: Optional[Dict[str, Any]] = None
+    environment_variables: Optional[Dict[str, str]] = None
 
     def get_job_runner_function(self) -> MeadowRunDeployedCommand:
         return MeadowRunDeployedCommand(
-            self.git_repo.get_commit(), self.command_line, self.context_variables
+            self.git_repo.get_commit(),
+            self.command_line,
+            self.context_variables,
+            self.environment_variables,
         )
 
 
@@ -274,8 +278,11 @@ class MeadowRunFunctionGitRepo(VersionedJobRunnerFunction):
 
     git_repo: GitRepo
     meadowrun_function: MeadowRunFunction
+    environment_variables: Optional[Dict[str, str]] = None
 
     def get_job_runner_function(self) -> MeadowRunDeployedFunction:
         return MeadowRunDeployedFunction(
-            self.git_repo.get_commit(), self.meadowrun_function
+            self.git_repo.get_commit(),
+            self.meadowrun_function,
+            self.environment_variables,
         )

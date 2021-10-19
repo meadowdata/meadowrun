@@ -200,6 +200,10 @@ class JobRunOverrides:
     function_args: Optional[Sequence[Any]] = None
     function_kwargs: Optional[Dict[str, Any]] = None
     context_variables: Optional[Dict[str, Any]] = None
+
+    # Equivalent to meadowdb.connection.set_default_userspace
+    meadowdb_userspace: Optional[str] = None
+
     # TODO add things like branch/commit override for git-based deployments
 
 
@@ -245,6 +249,30 @@ def _apply_job_run_overrides(
                     "run_overrides specified context_variables but job_runner_function "
                     f"is of type {type(job_runner_function)} and we don't know how to "
                     "apply context_variables to that type of job_runner_function"
+                )
+
+        if run_overrides.meadowdb_userspace:
+            if isinstance(
+                job_runner_function,
+                (MeadowRunDeployedCommand, MeadowRunDeployedFunction),
+            ):
+                # this needs to line up with
+                # meadowdb.connection._MEADOWDB_DEFAULT_USERSPACE but we prefer not
+                # taking the dependency here
+                new_dict = {
+                    "MEADOWDB_DEFAULT_USERSPACE": run_overrides.meadowdb_userspace
+                }
+                if job_runner_function.environment_variables:
+                    job_runner_function.environment_variables.update(**new_dict)
+                else:
+                    job_runner_function = dataclasses.replace(
+                        job_runner_function, environment_variables=new_dict
+                    )
+            else:
+                raise ValueError(
+                    "run_overrides specified meadowdb_userspace but job_runner_function"
+                    f" is of type {type(job_runner_function)}, and we don't know how to"
+                    "apply meadowdb_userspace to that type of job_runner_function"
                 )
 
     return job_runner_function

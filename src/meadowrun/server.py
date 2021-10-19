@@ -21,6 +21,7 @@ from meadowrun.meadowrun_pb2 import (
     ProcessStates,
     GitRepoCommit,
     RunPyCommandRequest,
+    StringPair,
 )
 from meadowrun.meadowrun_pb2_grpc import (
     MeadowRunServerServicer,
@@ -42,6 +43,14 @@ _FUNC_RUNNER_PATH = str(
         pathlib.Path(__file__).parent / "func_runner" / "__meadowrun_func_runner.py"
     ).resolve()
 )
+
+
+def _string_pairs_to_dict(pairs: List[StringPair]) -> Dict[str, str]:
+    """Opposite of _string_pairs_from_dict in client.py. Helper dicts in protobuf."""
+    result = {}
+    for pair in pairs:
+        result[pair.key] = pair.value
+    return result
 
 
 def _pickle_exception(e: Exception, pickle_protocol: int) -> bytes:
@@ -207,6 +216,7 @@ class MeadowRunServerHandler(MeadowRunServerServicer):
             # need the current server process' code for the child process, the user
             # needs to include it directly
             environment["PYTHONPATH"] = ";".join(code_paths)
+            environment.update(**_string_pairs_to_dict(request.environment_variables))
 
             # We believe that interpreter_path can be one of two formats,
             # python_or_venv_dir/python or python_or_venv_dir/Scripts/python. We need to
@@ -331,6 +341,7 @@ class MeadowRunServerHandler(MeadowRunServerServicer):
             # need the current server process' code for the child process, the user
             # needs to include it directly
             environment["PYTHONPATH"] = ";".join(code_paths)
+            environment.update(**_string_pairs_to_dict(request.environment_variables))
 
             log_file_name = os.path.join(
                 self._job_logs_folder,

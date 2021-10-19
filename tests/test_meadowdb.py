@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 import meadowdb
+from meadowdb.connection import set_default_userspace, prod_userspace_name
 
 
 def _random_string(n=5):
@@ -246,17 +247,21 @@ def test_meadowdb_userspace():
 
     assert conn.read("temp3").to_pd().equals(prod_data)
     prod_data_filtered = prod_data[prod_data["str1"] != "hello"].reset_index(drop=True)
-    assert conn.read("temp3", "U1").to_pd().equals(prod_data_filtered)
+    # we throw in a random userspace here but it shouldn't matter because we always
+    # explicitly specify the userspace
+    with set_default_userspace("U2"):
+        assert conn.read("temp3", "U1").to_pd().equals(prod_data_filtered)
 
-    # next, write some actual data into the userspace
-    conn.write("temp3", us_data1, userspace="U1")
+        # next, write some actual data into the userspace
+        conn.write("temp3", us_data1, userspace="U1")
 
-    assert conn.read("temp3").to_pd().equals(prod_data)
+        assert conn.read("temp3", prod_userspace_name).to_pd().equals(prod_data)
     expected = pd.concat([prod_data_filtered, us_data1], ignore_index=True)
-    assert conn.read("temp3", "U1").to_pd().equals(expected)
+    with set_default_userspace("U1"):
+        assert conn.read("temp3").to_pd().equals(expected)
 
-    # next, wipe everything and write new data
-    conn.write("temp3", us_data2, "U1", delete_all=True)
+        # next, wipe everything and write new data
+        conn.write("temp3", us_data2, delete_all=True)
 
     assert conn.read("temp3").to_pd().equals(prod_data)
     assert conn.read("temp3", "U1").to_pd().equals(us_data2)

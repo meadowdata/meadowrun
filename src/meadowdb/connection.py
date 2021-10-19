@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import os
 from typing import Optional, List, Dict, Tuple
 
 import pandas as pd
@@ -19,6 +21,51 @@ except Exception:
 
 
 prod_userspace_name = "prod"
+
+
+_MEADOWDB_DEFAULT_USERSPACE = "MEADOWDB_DEFAULT_USERSPACE"
+# Should only be accessed by get_default_userspace and set_default_userspace
+_default_userspace_name = None
+
+
+def get_default_userspace() -> str:
+    """
+    Gets the default userspace, which can be set via environment variable or by the
+    set_default_userspace function. Whenever userspace is not set, the default userspace
+    will be used.
+
+    Thematically, this would make sense in meadowflow.context, but preferable not to
+    introduce that dependency.
+    """
+    global _default_userspace_name
+    if _default_userspace_name is None:
+        if _MEADOWDB_DEFAULT_USERSPACE in os.environ:
+            _default_userspace_name = os.environ[_MEADOWDB_DEFAULT_USERSPACE]
+        else:
+            _default_userspace_name = prod_userspace_name
+
+    return _default_userspace_name
+
+
+@contextlib.contextmanager
+def set_default_userspace(userspace_name: str) -> None:
+    """
+    Usage:
+    with set_default_userspace("userspace_name"):
+        # read and write
+
+    In the with block, the default userspace will be "userspace_name".
+
+    Sets globally across all threads, not threadsafe
+    """
+    global _default_userspace_name
+
+    prev_default_userspace = _default_userspace_name
+    _default_userspace_name = userspace_name
+    try:
+        yield None
+    finally:
+        _default_userspace_name = prev_default_userspace
 
 
 # Keeps track of all connections created.
@@ -79,9 +126,12 @@ class Connection:
         self,
         table_name: str,
         table_schema: TableSchema,
-        userspace: str = prod_userspace_name,
+        userspace: str = None,
     ) -> None:
         """Creates or updates the table_schema (TableSchema) for userspace/table_name"""
+        if userspace is None:
+            userspace = get_default_userspace()
+
         written_version = writer.create_or_update_table_schema(
             self.table_versions_client, userspace, table_name, table_schema
         )
@@ -93,7 +143,7 @@ class Connection:
         self,
         table_name: str,
         df: Optional[pd.DataFrame],
-        userspace: str = prod_userspace_name,
+        userspace: str = None,
         delete_where_equal_df: Optional[pd.DataFrame] = None,
         delete_all: bool = False,
     ) -> None:
@@ -112,6 +162,10 @@ class Connection:
         """
         # TODO in the current implementation, would be pretty easy to support arbitrary
         #  WHERE clauses for delete_where_equal_df, is that the right thing to do?
+
+        if userspace is None:
+            userspace = get_default_userspace()
+
         written_version = writer.write(
             self.table_versions_client,
             userspace,
@@ -128,7 +182,7 @@ class Connection:
         self,
         table_name: str,
         delete_where_equal_df: pd.DataFrame,
-        userspace: str = prod_userspace_name,
+        userspace: str = None,
     ) -> None:
         """
         delete_where_equal_df should also be a pandas dataframe that has a subset of the
@@ -144,17 +198,21 @@ class Connection:
         """
         self.write(table_name, None, userspace, delete_where_equal_df)
 
-    def delete_all(self, table_name: str, userspace: str = prod_userspace_name) -> None:
+    def delete_all(self, table_name: str, userspace: str = None) -> None:
         """Deletes all data in the specified table"""
         self.write(table_name, None, userspace, None, True)
 
     def read(
         self,
         table_name: str,
-        userspace: str = prod_userspace_name,
+        userspace: str = None,
         max_version_number: int = None,
     ) -> reader.MdbTable:
         """Returns a MdbTable object that can be used to query userspace/table_name"""
+
+        if userspace is None:
+            userspace = get_default_userspace()
+
         result = reader.read(
             self.table_versions_client, userspace, table_name, max_version_number
         )

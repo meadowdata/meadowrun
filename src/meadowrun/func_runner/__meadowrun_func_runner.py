@@ -47,7 +47,10 @@ def main():
             *(function_args or ()), **(function_kwargs or {})
         )
     except Exception as e:
-        # send back exceptions
+        # first print the exception for the local log file
+        traceback.print_exc()
+
+        # next, send the exception back
         tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
         # see MeadowRunClientAsync for why we don't just pickle the exception
         with open(state_filename, "w", encoding="utf-8") as f:

@@ -37,6 +37,9 @@ def test_meadowdb():
     print(f"Using {_TEST_DATA_DIR} for test data")
     conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(_TEST_DATA_DIR))
 
+    # see TODO below
+    starting_version = conn.table_versions_client._version_number
+
     # generate and write some data
 
     test_data1 = _random_df()
@@ -133,19 +136,23 @@ def test_meadowdb():
     # test reading old versions
 
     # TODO we should have a better way of querying the version numbers
-    assert conn.read("temp1", max_version_number=0).to_pd().equals(test_data1)
     assert (
-        conn.read("temp1", max_version_number=1)
+        conn.read("temp1", max_version_number=starting_version)
+        .to_pd()
+        .equals(test_data1)
+    )
+    assert (
+        conn.read("temp1", max_version_number=starting_version + 1)
         .to_pd()
         .equals(pd.concat([test_data1, test_data2], ignore_index=True))
     )
     assert (
-        conn.read("temp1", max_version_number=2)
+        conn.read("temp1", max_version_number=starting_version + 2)
         .to_pd()
         .equals(pd.concat([test_data1, test_data2, test_data3], ignore_index=True))
     )
     assert (
-        conn.read("temp1", max_version_number=3)
+        conn.read("temp1", max_version_number=starting_version + 3)
         .to_pd()
         .equals(
             test_data_combined[test_data_combined["str1"] != "hello"].reset_index(
@@ -153,8 +160,12 @@ def test_meadowdb():
             )
         )
     )
-    assert conn.read("temp1", max_version_number=4).to_pd().equals(test_data_combined_4)
-    assert len(conn.read("temp1", max_version_number=5).to_pd()) == 0
+    assert (
+        conn.read("temp1", max_version_number=starting_version + 4)
+        .to_pd()
+        .equals(test_data_combined_4)
+    )
+    assert len(conn.read("temp1", max_version_number=starting_version + 5).to_pd()) == 0
 
 
 def test_meadowdb_duplication_keys():

@@ -23,11 +23,8 @@ from meadowflow.jobs import (
     JobRunOverrides,
 )
 from meadowflow.job_runner_predicates import JobRunnerTypePredicate
-from meadowflow.meadowrun_job_runner import (
-    MeadowRunJobRunner,
-    MeadowRunFunctionGitRepo,
-    GitRepo,
-)
+from meadowflow.meadowrun_job_runner import MeadowRunJobRunner, MeadowRunFunctionGitRepo
+from meadowflow.git_repo import GitRepo
 import meadowflow.server.config
 from meadowflow.scheduler import Scheduler
 import meadowflow.server.server_main
@@ -39,6 +36,7 @@ from meadowflow.topic import TriggerAction, NotPredicate
 from meadowrun.deployed_function import MeadowRunFunction
 
 from test_meadowflow.test_time_events import _TIME_INCREMENT
+from test_meadowrun import TEST_REPO
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
@@ -101,10 +99,6 @@ def test_simple_jobs_meadowrun_git() -> None:
     meadowdata repo.
     """
 
-    test_repo = str(
-        (pathlib.Path(__file__).parent.parent.parent.parent / "test_repo").resolve()
-    )
-
     with meadowrun.server_main.main_in_child_process():
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
@@ -113,7 +107,7 @@ def test_simple_jobs_meadowrun_git() -> None:
             _test_simple_jobs(
                 s,
                 lambda args: MeadowRunFunctionGitRepo(
-                    GitRepo(test_repo, "main", sys.executable),
+                    GitRepo(TEST_REPO, "main", sys.executable),
                     MeadowRunFunction("example_package.example", "join_strings", args),
                 ),
                 JobRunnerTypePredicate("meadowrun"),

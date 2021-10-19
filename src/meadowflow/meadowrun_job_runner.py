@@ -3,6 +3,7 @@ import dataclasses
 from typing import Iterable, Sequence, Union, Optional, Dict, Any
 
 from meadowflow.event_log import Event, EventLog
+from meadowflow.git_repo import GitRepo
 from meadowflow.topic_names import TopicName
 from meadowflow.jobs import (
     RaisedException,
@@ -20,7 +21,6 @@ from meadowrun.deployed_function import (
     convert_local_to_deployed_function,
     MeadowRunDeployedCommand,
 )
-from meadowrun.meadowrun_pb2 import GitRepoCommit
 
 
 class MeadowRunJobRunner(JobRunner):
@@ -69,7 +69,7 @@ class MeadowRunJobRunner(JobRunner):
             )
         elif result.state == ProcessStateEnum.RUN_REQUEST_FAILED:
             # TODO handle this case and test it
-            raise NotImplementedError()
+            raise NotImplementedError(str(pickle.loads(result.pickled_result)))
         else:
             raise ValueError(f"Did not expect ProcessStateEnum {result.state}")
 
@@ -221,37 +221,6 @@ class MeadowRunJobRunner(JobRunner):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return await self._client.__aexit__(exc_type, exc_val, exc_tb)
-
-
-@dataclasses.dataclass(frozen=True)
-class GitRepo:
-    """Represents a git repo"""
-
-    # specifies the url, will be provided to git clone, see
-    # https://git-scm.com/docs/git-clone
-    repo_url: str
-
-    default_branch: str
-
-    # TODO this should actually be the name of a file in the repository that specifies
-    #  what interpreter/libraries we should use. Currently it is just the path to the
-    #  interpreter on the local machine
-    interpreter_path: str
-
-    def get_commit(self):
-        # TODO this seems kind of silly right now, but we should move the logic for
-        #  converting from a branch name to a specific commit hash to this function from
-        #  _get_git_repo_commit_interpreter_and_code so we can show the user what commit
-        #  we actually ran with.
-        # TODO also we will add the ability to specify overrides (e.g. a specific commit
-        #  or an alternate branch)
-        return GitRepoCommit(
-            repo_url=self.repo_url,
-            # TODO this is very sketchy. Need to invest time in all of the possible
-            #  revision specifications
-            commit="origin/" + self.default_branch,
-            interpreter_path=self.interpreter_path,
-        )
 
 
 @dataclasses.dataclass(frozen=True)

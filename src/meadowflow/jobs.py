@@ -163,9 +163,9 @@ class Job(meadowflow.topic.Topic):
     # this job" (e.g. MeadowRunFunction), and "what are the arguments for that
     # function/executable/script". This can be a JobRunnerFunction, which is something
     # that at least one job runner will know how to run, or a
-    # "VersionedJobRunnerFunction" (currently the only implementation is
-    # MeadowRunFunctionGitRepo) which is something that can produce different versions
-    # of a JobRunnerFunction
+    # "VersionedJobRunnerFunction" (current implementations are MeadowRunCommandGitRepo
+    # and MeadowRunFunctionGitRepo) which is something that can produce different
+    # versions of a JobRunnerFunction
     job_function: JobFunction
 
     # specifies what actions to take when
@@ -212,69 +212,90 @@ def _apply_job_run_overrides(
 ) -> JobRunnerFunction:
     """Applies run_overrides to job_runner_function"""
     if run_overrides is not None:
-        if run_overrides.function_args or run_overrides.function_kwargs:
-            to_replace = {}
-            if run_overrides.function_args:
-                to_replace["function_args"] = run_overrides.function_args
-            if run_overrides.function_kwargs:
-                to_replace["function_kwargs"] = run_overrides.function_kwargs
+        job_runner_function = _apply_overrides_function_args_kwargs(
+            run_overrides, job_runner_function
+        )
+        job_runner_function = _apply_overrides_context_variables(
+            run_overrides, job_runner_function
+        )
+        job_runner_function = _apply_overrides_meadowdb_userspace(
+            run_overrides, job_runner_function
+        )
 
-            if isinstance(job_runner_function, LocalFunction):
-                job_runner_function = dataclasses.replace(
-                    job_runner_function, **to_replace
-                )
-            elif isinstance(job_runner_function, MeadowRunDeployedFunction):
-                job_runner_function = dataclasses.replace(
-                    job_runner_function,
-                    meadowrun_function=dataclasses.replace(
-                        job_runner_function.meadowrun_function, **to_replace
-                    ),
-                )
-            else:
-                raise ValueError(
-                    "run_overrides specified function_args/function_kwargs but "
-                    f"job_runner_function is of type {type(job_runner_function)}, "
-                    "and we don't know how to apply function_args/function_kwargs "
-                    "to that type of job_runner_function"
-                )
+    return job_runner_function
 
-        if run_overrides.context_variables:
-            if isinstance(job_runner_function, MeadowRunDeployedCommand):
-                job_runner_function = dataclasses.replace(
-                    job_runner_function,
-                    context_variables=run_overrides.context_variables,
-                )
-            else:
-                raise ValueError(
-                    "run_overrides specified context_variables but job_runner_function "
-                    f"is of type {type(job_runner_function)} and we don't know how to "
-                    "apply context_variables to that type of job_runner_function"
-                )
 
-        if run_overrides.meadowdb_userspace:
-            if isinstance(
+def _raise_override_error(
+    override_specified: str, job_runner_function: JobRunnerFunction
+) -> None:
+    raise ValueError(
+        f"run_overrides specified {override_specified} but job_runner_function is of "
+        f"type {type(job_runner_function)}, and we don't know how to apply "
+        f"{override_specified} to that type of job_runner_function"
+    )
+
+
+def _apply_overrides_function_args_kwargs(
+    run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
+) -> JobRunnerFunction:
+    """Breaking out _apply_job_run_overrides into more readable chunks"""
+    if run_overrides.function_args or run_overrides.function_kwargs:
+        to_replace = {}
+        if run_overrides.function_args:
+            to_replace["function_args"] = run_overrides.function_args
+        if run_overrides.function_kwargs:
+            to_replace["function_kwargs"] = run_overrides.function_kwargs
+
+        if isinstance(job_runner_function, LocalFunction):
+            job_runner_function = dataclasses.replace(job_runner_function, **to_replace)
+        elif isinstance(job_runner_function, MeadowRunDeployedFunction):
+            job_runner_function = dataclasses.replace(
                 job_runner_function,
-                (MeadowRunDeployedCommand, MeadowRunDeployedFunction),
-            ):
-                # this needs to line up with
-                # meadowdb.connection._MEADOWDB_DEFAULT_USERSPACE but we prefer not
-                # taking the dependency here
-                new_dict = {
-                    "MEADOWDB_DEFAULT_USERSPACE": run_overrides.meadowdb_userspace
-                }
-                if job_runner_function.environment_variables:
-                    job_runner_function.environment_variables.update(**new_dict)
-                else:
-                    job_runner_function = dataclasses.replace(
-                        job_runner_function, environment_variables=new_dict
-                    )
-            else:
-                raise ValueError(
-                    "run_overrides specified meadowdb_userspace but job_runner_function"
-                    f" is of type {type(job_runner_function)}, and we don't know how to"
-                    "apply meadowdb_userspace to that type of job_runner_function"
-                )
+                meadowrun_function=dataclasses.replace(
+                    job_runner_function.meadowrun_function, **to_replace
+                ),
+            )
+        else:
+            _raise_override_error("function_args/function_kwargs", job_runner_function)
+    return job_runner_function
 
+
+def _apply_overrides_context_variables(
+    run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
+) -> JobRunnerFunction:
+    """Breaking out _apply_job_run_overrides into more readable chunks"""
+    if run_overrides.context_variables:
+        if isinstance(job_runner_function, MeadowRunDeployedCommand):
+            job_runner_function = dataclasses.replace(
+                job_runner_function,
+                context_variables=run_overrides.context_variables,
+            )
+        else:
+            _raise_override_error("context_variables", job_runner_function)
+    return job_runner_function
+
+
+def _apply_overrides_meadowdb_userspace(
+    run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
+) -> JobRunnerFunction:
+    """Breaking out _apply_job_run_overrides into more readable chunks"""
+    if run_overrides.meadowdb_userspace:
+        if isinstance(
+            job_runner_function,
+            (MeadowRunDeployedCommand, MeadowRunDeployedFunction),
+        ):
+            # this needs to line up with
+            # meadowdb.connection._MEADOWDB_DEFAULT_USERSPACE but we prefer not
+            # taking the dependency here
+            new_dict = {"MEADOWDB_DEFAULT_USERSPACE": run_overrides.meadowdb_userspace}
+            if job_runner_function.environment_variables:
+                job_runner_function.environment_variables.update(**new_dict)
+            else:
+                job_runner_function = dataclasses.replace(
+                    job_runner_function, environment_variables=new_dict
+                )
+        else:
+            _raise_override_error("meadowdb_userspace", job_runner_function)
     return job_runner_function
 
 

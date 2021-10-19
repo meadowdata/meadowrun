@@ -409,7 +409,7 @@ class MeadowRunServerHandler(MeadowRunServerServicer):
             )
 
     async def _get_interpreter_and_code(
-        self, request: RunPyFuncRequest
+        self, request: Union[RunPyCommandRequest, RunPyFuncRequest]
     ) -> Tuple[str, List[str]]:
         """
         Returns interpreter_path, code_paths. code_paths will have at least one element

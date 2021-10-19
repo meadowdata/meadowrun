@@ -3,8 +3,8 @@ from typing import Optional
 
 import pandas as pd
 
-from .table_versions_client_local import TableVersionsClientLocal
-from .readerwriter_shared import DataFileEntry, TableSchema
+from meadowdb.table_versions_client_local import TableVersionsClientLocal
+from meadowdb.readerwriter_shared import DataFileEntry, TableSchema
 
 
 def write(

@@ -6,7 +6,7 @@ import bisect
 
 import pandas as pd
 
-from .readerwriter_shared import TableName, TableVersion
+from meadowdb.readerwriter_shared import TableName, TableVersion
 
 
 class TableVersionsClientLocal:

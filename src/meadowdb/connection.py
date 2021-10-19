@@ -7,9 +7,9 @@ from typing import Optional, List, Dict, Tuple
 
 import pandas as pd
 
-from . import writer, reader
-from .readerwriter_shared import TableSchema
-from .table_versions_client_local import TableVersionsClientLocal
+from meadowdb import writer, reader
+from meadowdb.readerwriter_shared import TableSchema
+from meadowdb.table_versions_client_local import TableVersionsClientLocal
 
 try:
     # we try to import meadowflow.effects because we want to make sure that

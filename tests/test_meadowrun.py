@@ -34,19 +34,17 @@ def test_meadowrun_server_available_folder():
     )
 
 
+TEST_REPO = str((pathlib.Path(__file__).parent.parent.parent / "test_repo").resolve())
+
+
 def test_meadowrun_server_git_repo_commit():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowdata repo.
     """
-
-    test_repo = str(
-        (pathlib.Path(__file__).parent.parent.parent / "test_repo").resolve()
-    )
-
     _test_meadowrun(
         GitRepoCommit(
-            repo_url=test_repo,
+            repo_url=TEST_REPO,
             commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
             interpreter_path=sys.executable,
         )

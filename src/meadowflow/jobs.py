@@ -23,11 +23,14 @@ from meadowflow.event_log import EventLog, Event, Timestamp
 import meadowflow.topic
 import meadowflow.effects
 import meadowflow.events_arg
+from meadowflow.git_repo import GitRepo
 from meadowflow.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
 from meadowflow.topic_names import TopicName, FrozenDict, CURRENT_JOB
 from meadowrun.deployed_function import (
     MeadowRunDeployedFunction,
     MeadowRunDeployedCommand,
+    DeploymentTypes,
+    Deployment,
 )
 
 JobState = Literal[
@@ -204,6 +207,8 @@ class JobRunOverrides:
     # Equivalent to meadowdb.connection.set_default_userspace
     meadowdb_userspace: Optional[str] = None
 
+    deployment: Union[GitRepo, Deployment] = None
+
     # TODO add things like branch/commit override for git-based deployments
 
 
@@ -219,6 +224,9 @@ def _apply_job_run_overrides(
             run_overrides, job_runner_function
         )
         job_runner_function = _apply_overrides_meadowdb_userspace(
+            run_overrides, job_runner_function
+        )
+        job_runner_function = _apply_overrides_deployment(
             run_overrides, job_runner_function
         )
 
@@ -296,6 +304,35 @@ def _apply_overrides_meadowdb_userspace(
                 )
         else:
             _raise_override_error("meadowdb_userspace", job_runner_function)
+    return job_runner_function
+
+
+def _apply_overrides_deployment(
+    run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
+) -> JobRunnerFunction:
+    """Breaking out _apply_job_run_overrides into more readable chunks"""
+    if run_overrides.deployment is not None:
+        # TODO this should be more generic--GitRepo should be just one instance of a
+        #  "VersionedDeployment" class which has a get_deployment() method
+        if isinstance(run_overrides.deployment, GitRepo):
+            new_deployment = run_overrides.deployment.get_commit()
+        elif isinstance(run_overrides.deployment, DeploymentTypes):
+            new_deployment = run_overrides.deployment
+        else:
+            raise ValueError(
+                "deployment must be a GitRepo or a Deployment, not a "
+                f"{type(run_overrides.deployment)}"
+            )
+
+        if isinstance(
+            job_runner_function,
+            (MeadowRunDeployedCommand, MeadowRunDeployedFunction),
+        ):
+            job_runner_function = dataclasses.replace(
+                job_runner_function, deployment=new_deployment
+            )
+        else:
+            _raise_override_error("deployment", job_runner_function)
     return job_runner_function
 
 

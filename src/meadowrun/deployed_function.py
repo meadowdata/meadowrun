@@ -16,7 +16,8 @@ class MeadowRunFunction:
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-Deployment = Union[ServerAvailableFolder, GitRepoCommit]
+DeploymentTypes = (ServerAvailableFolder, GitRepoCommit)
+Deployment = Union[DeploymentTypes]
 
 
 @dataclasses.dataclass(frozen=True)

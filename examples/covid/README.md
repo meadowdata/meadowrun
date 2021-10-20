@@ -4,7 +4,7 @@ covid cases and deaths from a CDC API and then running a "model" on it (computin
 7-day exponentially weighted average), and then producing a report via a jupyter
 notebook.
 
-## Key concepts:
+## Introducing meadowflow and meadowdb:
 
 In this example, we have three jobs. The first job downloads data from a CDC API and
 writes a pandas dataframe to meadowdb: 
@@ -113,6 +113,11 @@ date = meadowflow.context.variables().get("date", datetime.date(2021, 10, 11))
 
 (We also plan on supporting papermill for parameterizing notebooks; this requires adding
 support for chaining multiple processes together.)
+
+
+## Regression Test/Model Change Review
+Meadowdb has a concept of userspaces which makes it easy to run a [regression test or
+model change review](regression_test.md) for any job without any extra effort.
 
 
 ## How to run

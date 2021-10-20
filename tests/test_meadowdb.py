@@ -246,7 +246,7 @@ def test_meadowdb_userspace():
     us_data1.loc[50, "str1"] = "hello"
     us_data2 = _random_df()
 
-    # first, delete_where_equal without any data in the prod table
+    # first, delete_where_equal in U1 without any data in the prod table
     conn.delete_where_equal("temp3", pd.DataFrame({"str1": ["hello"]}), "U1")
 
     assert len(conn.read("temp3", "U1").to_pd()) == 0
@@ -258,12 +258,14 @@ def test_meadowdb_userspace():
 
     assert conn.read("temp3").to_pd().equals(prod_data)
     prod_data_filtered = prod_data[prod_data["str1"] != "hello"].reset_index(drop=True)
-    # we throw in a random userspace here but it shouldn't matter because we always
-    # explicitly specify the userspace
     with set_default_userspace("U2"):
+        # now read from a different (empty) userspace
+        assert conn.read("temp3").to_pd().equals(prod_data)
+        # override the in-context U2 with explicitly specified U1
         assert conn.read("temp3", "U1").to_pd().equals(prod_data_filtered)
 
-        # next, write some actual data into the userspace
+        # next, write some actual data into U1 (again override U2 by explicitly
+        # specifying U1)
         conn.write("temp3", us_data1, userspace="U1")
 
         assert conn.read("temp3", prod_userspace_name).to_pd().equals(prod_data)

@@ -52,6 +52,7 @@ def read(
         table_schema_filename = table_version.table_schema_filename
 
         data_list_filenames.append(table_version.data_list_filename)
+        table_version_number = table_version.version_number
     else:
         # complicated case, userspace layering with prod
         # TODO currently we only implement read_committed semantics but we plan on
@@ -81,13 +82,18 @@ def read(
         else:
             table_schema_filename = None
 
-        # populate data_list_filenames. Order is important here, we always want to apply
+        # Populate data_list_filenames. Order is important here, we always want to apply
         # the userspace's writes on top of the prod writes regardless of the original
-        # order of writes.
+        # order of writes. Also get the largest version_number at the same time
+        table_version_number = -1
         if prod_table_version is not None:
             data_list_filenames.append(prod_table_version.data_list_filename)
+            table_version_number = prod_table_version.version_number
         if table_version is not None:
             data_list_filenames.append(table_version.data_list_filename)
+            table_version_number = max(
+                table_version_number, table_version.version_number
+            )
 
     if table_schema_filename is not None:
         table_schema = pd.read_pickle(
@@ -99,7 +105,7 @@ def read(
         table_schema = TableSchema()
 
     return MdbTable(
-        table_version.version_number,
+        table_version_number,
         table_schema,
         [
             data_file_entry

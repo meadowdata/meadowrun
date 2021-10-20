@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Optional
 
 from meadowrun.meadowrun_pb2 import GitRepoCommit
 
@@ -18,6 +19,10 @@ class GitRepo:
     #  interpreter on the local machine
     interpreter_path: str
 
+    # specifies a path within the repo that this deployment should consider as the
+    # "root" directory. None is the same as "" or "."
+    path_in_repo: Optional[str] = None
+
     def get_commit(self) -> GitRepoCommit:
         # TODO this seems kind of silly right now, but we should move the logic for
         #  converting from a branch name to a specific commit hash to this function from
@@ -31,4 +36,5 @@ class GitRepo:
             #  revision specifications
             commit="origin/" + self.default_branch,
             interpreter_path=self.interpreter_path,
+            path_in_repo=self.path_in_repo,
         )

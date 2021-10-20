@@ -18,7 +18,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x19meadowrun/meadowrun.proto\x12\tmeadowrun"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"K\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t"\xdf\x02\n\x13RunPyCommandRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x15\n\rlog_file_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x03 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x04 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x14\n\x0c\x63ommand_line\x18\x05 \x03(\t\x12!\n\x19pickled_context_variables\x18\x06 \x01(\x0c\x12\x34\n\x15\x65nvironment_variables\x18\x07 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x08 \x01(\x05\x42\x0c\n\ndeployment"\xf3\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x15\n\rlog_file_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x03 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x04 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x05 \x01(\t\x12\x15\n\rfunction_name\x18\x06 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x07 \x01(\x0c\x12\x34\n\x15\x65nvironment_variables\x18\x08 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\t \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\x80\x03\n\x0cProcessState\x12\x37\n\x05state\x18\x01 \x01(\x0e\x32(.meadowrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xe5\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\n"@\n\rProcessStates\x12/\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x17.meadowrun.ProcessState2\xf8\x01\n\x0fMeadowRunServer\x12K\n\x0erun_py_command\x12\x1e.meadowrun.RunPyCommandRequest\x1a\x17.meadowrun.ProcessState"\x00\x12\x45\n\x0brun_py_func\x12\x1b.meadowrun.RunPyFuncRequest\x1a\x17.meadowrun.ProcessState"\x00\x12Q\n\x12get_process_states\x12\x1f.meadowrun.ProcessStatesRequest\x1a\x18.meadowrun.ProcessStates"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x19meadowrun/meadowrun.proto\x12\tmeadowrun"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"a\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x04 \x01(\t"\xdf\x02\n\x13RunPyCommandRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x15\n\rlog_file_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x03 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x04 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x14\n\x0c\x63ommand_line\x18\x05 \x03(\t\x12!\n\x19pickled_context_variables\x18\x06 \x01(\x0c\x12\x34\n\x15\x65nvironment_variables\x18\x07 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x08 \x01(\x05\x42\x0c\n\ndeployment"\xf3\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x15\n\rlog_file_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x03 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x04 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x05 \x01(\t\x12\x15\n\rfunction_name\x18\x06 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x07 \x01(\x0c\x12\x34\n\x15\x65nvironment_variables\x18\x08 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\t \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\x80\x03\n\x0cProcessState\x12\x37\n\x05state\x18\x01 \x01(\x0e\x32(.meadowrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xe5\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\n"@\n\rProcessStates\x12/\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x17.meadowrun.ProcessState2\xf8\x01\n\x0fMeadowRunServer\x12K\n\x0erun_py_command\x12\x1e.meadowrun.RunPyCommandRequest\x1a\x17.meadowrun.ProcessState"\x00\x12\x45\n\x0brun_py_func\x12\x1b.meadowrun.RunPyFuncRequest\x1a\x17.meadowrun.ProcessState"\x00\x12Q\n\x12get_process_states\x12\x1f.meadowrun.ProcessStatesRequest\x1a\x18.meadowrun.ProcessStates"\x00\x62\x06proto3',
 )
 
 
@@ -120,8 +120,8 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
     ],
     containing_type=None,
     serialized_options=None,
-    serialized_start=1159,
-    serialized_end=1388,
+    serialized_start=1181,
+    serialized_end=1410,
 )
 _sym_db.RegisterEnumDescriptor(_PROCESSSTATE_PROCESSSTATEENUM)
 
@@ -311,6 +311,25 @@ _GITREPOCOMMIT = _descriptor.Descriptor(
             file=DESCRIPTOR,
             create_key=_descriptor._internal_create_key,
         ),
+        _descriptor.FieldDescriptor(
+            name="path_in_repo",
+            full_name="meadowrun.GitRepoCommit.path_in_repo",
+            index=3,
+            number=4,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
     ],
     extensions=[],
     nested_types=[],
@@ -321,7 +340,7 @@ _GITREPOCOMMIT = _descriptor.Descriptor(
     extension_ranges=[],
     oneofs=[],
     serialized_start=153,
-    serialized_end=228,
+    serialized_end=250,
 )
 
 
@@ -503,8 +522,8 @@ _RUNPYCOMMANDREQUEST = _descriptor.Descriptor(
             fields=[],
         ),
     ],
-    serialized_start=231,
-    serialized_end=582,
+    serialized_start=253,
+    serialized_end=604,
 )
 
 
@@ -705,8 +724,8 @@ _RUNPYFUNCREQUEST = _descriptor.Descriptor(
             fields=[],
         ),
     ],
-    serialized_start=585,
-    serialized_end=956,
+    serialized_start=607,
+    serialized_end=978,
 )
 
 
@@ -746,8 +765,8 @@ _PROCESSSTATESREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=958,
-    serialized_end=1001,
+    serialized_start=980,
+    serialized_end=1023,
 )
 
 
@@ -865,8 +884,8 @@ _PROCESSSTATE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1004,
-    serialized_end=1388,
+    serialized_start=1026,
+    serialized_end=1410,
 )
 
 
@@ -906,8 +925,8 @@ _PROCESSSTATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1390,
-    serialized_end=1454,
+    serialized_start=1412,
+    serialized_end=1476,
 )
 
 _RUNPYCOMMANDREQUEST.fields_by_name[
@@ -1053,8 +1072,8 @@ _MEADOWRUNSERVER = _descriptor.ServiceDescriptor(
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=1457,
-    serialized_end=1705,
+    serialized_start=1479,
+    serialized_end=1727,
     methods=[
         _descriptor.MethodDescriptor(
             name="run_py_command",

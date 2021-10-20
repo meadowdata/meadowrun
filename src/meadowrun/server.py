@@ -524,7 +524,11 @@ class MeadowRunServerHandler(MeadowRunServerServicer):
                 #  copies of identical files
                 shutil.copytree(local_path, local_copy_path)
 
-        return git_repo_commit.interpreter_path, [local_copy_path]
+        # TODO raise a friendlier exception if this path doesn't exist
+        path_in_local_copy = str(
+            (pathlib.Path(local_copy_path) / git_repo_commit.path_in_repo).resolve()
+        )
+        return git_repo_commit.interpreter_path, [path_in_local_copy]
 
     async def get_process_states(
         self, request: ProcessStatesRequest, context: grpc.aio.ServicerContext

@@ -29,6 +29,8 @@ message GitRepoCommit {
     string commit = 2;
 
     string interpreter_path = 3;
+
+    string path_in_repo = 4;
 }
 
 

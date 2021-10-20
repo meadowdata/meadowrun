@@ -155,6 +155,47 @@ def _test_meadowrun(deployment: Deployment):
         asyncio.run(run())
 
 
+def test_meadowrun_server_path_in_repo():
+    """
+    Tests GitRepoCommit.path_in_repo
+
+    Running this requires cloning https://github.com/meadowdata/test_repo next to the
+    meadowdata repo.
+    """
+
+    with meadowrun.server_main.main_in_child_process():
+
+        async def run():
+            async with MeadowRunClientAsync() as client:
+
+                # run a remote process
+                arguments = ["foo"]
+                request_id = "request1"
+                await client.run_py_func(
+                    request_id,
+                    "example_runner",
+                    MeadowRunDeployedFunction(
+                        GitRepoCommit(
+                            repo_url=TEST_REPO,
+                            commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
+                            interpreter_path=sys.executable,
+                            path_in_repo="example_package",
+                        ),
+                        MeadowRunFunction("example", "example_runner", arguments),
+                    ),
+                )
+
+                results = await _wait_for_process(client, request_id)
+                assert results[0].state == ProcessStateEnum.SUCCEEDED
+
+                assert (
+                    pickle.loads(results[0].pickled_result)[0]
+                    == f"hello {arguments[0]}"
+                )
+
+        asyncio.run(run())
+
+
 def test_meadowrun_command_context_variables():
     """
     Runs example_script twice (in parallel), once with no context variables, and once

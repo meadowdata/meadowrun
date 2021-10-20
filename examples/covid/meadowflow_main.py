@@ -17,7 +17,13 @@ import types
 from typing import Optional, Sequence, Any, Dict, Callable
 
 import pytz
+from meadowflow.meadowrun_job_runner import (
+    MeadowRunFunctionGitRepo,
+    GitRepo,
+    MeadowRunCommandGitRepo,
+)
 
+import covid_data
 import covid_data.cdc_covid_data
 import covid_data.mdb.schema
 from meadowflow.effects import UntilMeadowdbWritten, MeadowdbDynamicDependency
@@ -47,14 +53,18 @@ from meadowrun.deployed_function import (
 )
 from meadowrun.meadowrun_pb2 import ServerAvailableFolder
 
-_CURRENT_FOLDER = str(pathlib.Path(__file__).parent.resolve())
+_GIT_REPO_ROOT = covid_data.ROOT_DIR
+_GIT_BRANCH = "main"
+_PATH_IN_REPO = "examples/covid"
 _PYTHON_INTERPRETER = sys.executable
 
 
 def initial_setup():
     # Pretend that we add the meadowflow_main function to meadowflow manually, either
     # via a UI or the command line. Inputs are:
-    current_folder = _CURRENT_FOLDER
+    git_repo_root = _GIT_REPO_ROOT
+    git_branch = _GIT_BRANCH
+    path_in_repo = _PATH_IN_REPO
     module = "meadowflow_main"
     function = "meadowflow_main"
 
@@ -64,10 +74,9 @@ def initial_setup():
         [
             Job(
                 pname(function),
-                MeadowRunDeployedFunction(
-                    ServerAvailableFolder(
-                        code_paths=[current_folder],
-                        interpreter_path=_PYTHON_INTERPRETER,
+                MeadowRunFunctionGitRepo(
+                    GitRepo(
+                        git_repo_root, git_branch, _PYTHON_INTERPRETER, path_in_repo
                     ),
                     MeadowRunFunction(module, function),
                 ),
@@ -115,11 +124,8 @@ def _function(
 
     return Job(
         pname(job_name),
-        MeadowRunDeployedFunction(
-            ServerAvailableFolder(
-                code_paths=[_CURRENT_FOLDER],
-                interpreter_path=_PYTHON_INTERPRETER,
-            ),
+        MeadowRunFunctionGitRepo(
+            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
             MeadowRunFunction(
                 module_name, function_name, function_args, function_kwargs
             ),
@@ -128,7 +134,7 @@ def _function(
     )
 
 
-REPORTS_DIR = pathlib.Path(__file__).parent.parent.parent / "test_data" / "reports"
+REPORTS_DIR = covid_data.ROOT_DIR / "test_data" / "reports"
 
 
 def _notebook(
@@ -174,11 +180,8 @@ def _notebook(
 
     return Job(
         pname(job_name),
-        MeadowRunDeployedCommand(
-            ServerAvailableFolder(
-                code_paths=[_CURRENT_FOLDER],
-                interpreter_path=_PYTHON_INTERPRETER,
-            ),
+        MeadowRunCommandGitRepo(
+            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
             command_line,
             context_variables,
         ),

@@ -120,6 +120,10 @@ This section is a work in progress.
 
 To run this example from the `examples/covid` directory:
 
+First, we unfortunately need to hardcode the location where you checked out the
+meadowdata repo. Go to `examples/covid/covid_data/__init__.py` and replace `ROOT_DIR`
+with the actual location of the repo.
+
 If you don't have poetry installed, [install
 it](https://python-poetry.org/docs/#installation) first. Then: 
 

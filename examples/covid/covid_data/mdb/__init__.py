@@ -1,21 +1,21 @@
 """This file defines connections to meadowdb"""
 
-import pathlib
+import os
 from typing import Optional
 
 import meadowdb
 
-_TEST_DATA_DIR = (
-    pathlib.Path(__file__).parent.parent.parent.parent.parent / "test_data" / "meadowdb"
-).resolve()
+import covid_data
+
+_TEST_DATA_DIR = os.path.join(covid_data.ROOT_DIR, "test_data", "meadowdb")
 
 
 _mdb_test: Optional[meadowdb.Connection] = None
 
 
-def mdb_test() -> meadowdb.Connection:
+def mdb_test(reset: bool = False) -> meadowdb.Connection:
     global _mdb_test
-    if _mdb_test is None:
+    if _mdb_test is None or reset:
         print(f"Using {_TEST_DATA_DIR} for test data")
         _mdb_test = meadowdb.Connection(
             meadowdb.TableVersionsClientLocal(str(_TEST_DATA_DIR))

@@ -1,8 +1,8 @@
 """
 A typical use case would have a meadowflow_main.py file which has three functions:
-- meadowflow_main: This is a job function which would get added to meadowflow manually via a
-  UI/command line (here simulated by initial_setup). This function will add two jobs,
-  instantiate_scopes and add_daily_jobs.
+- meadowflow_main: This is a job function which would get added to meadowflow manually
+  via a UI/command line (here simulated by initial_setup). This function will add two
+  jobs, instantiate_scopes and add_daily_jobs.
 - instantiate_scopes: This is a simple job function which just instantiates today's
   scope whenever it is run.
 - add_daily_jobs: This is a job function that is set up to be run any time a date-based
@@ -46,12 +46,7 @@ from meadowflow.topic import (
     AllPredicate,
 )
 from meadowflow.topic_names import pname, FrozenDict, TopicName
-from meadowrun.deployed_function import (
-    MeadowRunFunction,
-    MeadowRunDeployedFunction,
-    MeadowRunDeployedCommand,
-)
-from meadowrun.meadowrun_pb2 import ServerAvailableFolder
+from meadowrun.deployed_function import MeadowRunFunction
 
 _GIT_REPO_ROOT = covid_data.ROOT_DIR
 _GIT_BRANCH = "main"
@@ -134,7 +129,7 @@ def _function(
     )
 
 
-REPORTS_DIR = covid_data.ROOT_DIR / "test_data" / "reports"
+REPORTS_DIR = str(pathlib.Path(covid_data.ROOT_DIR) / "test_data" / "reports")
 
 
 def _notebook(

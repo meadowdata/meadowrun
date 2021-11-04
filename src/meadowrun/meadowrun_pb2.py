@@ -18,9 +18,48 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x19meadowrun/meadowrun.proto\x12\tmeadowrun"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"a\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x04 \x01(\t"\xdf\x02\n\x13RunPyCommandRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x15\n\rlog_file_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x03 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x04 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x14\n\x0c\x63ommand_line\x18\x05 \x03(\t\x12!\n\x19pickled_context_variables\x18\x06 \x01(\x0c\x12\x34\n\x15\x65nvironment_variables\x18\x07 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x08 \x01(\x05\x42\x0c\n\ndeployment"\xf3\x02\n\x10RunPyFuncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x15\n\rlog_file_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x03 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x04 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x13\n\x0bmodule_name\x18\x05 \x01(\t\x12\x15\n\rfunction_name\x18\x06 \x01(\t\x12"\n\x1apickled_function_arguments\x18\x07 \x01(\x0c\x12\x34\n\x15\x65nvironment_variables\x18\x08 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\t \x01(\x05\x42\x0c\n\ndeployment"+\n\x14ProcessStatesRequest\x12\x13\n\x0brequest_ids\x18\x01 \x03(\t"\x80\x03\n\x0cProcessState\x12\x37\n\x05state\x18\x01 \x01(\x0e\x32(.meadowrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xe5\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x18\n\x14REQUEST_IS_DUPLICATE\x10\x01\x12\x11\n\rRUN_REQUESTED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\n"@\n\rProcessStates\x12/\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x17.meadowrun.ProcessState2\xf8\x01\n\x0fMeadowRunServer\x12K\n\x0erun_py_command\x12\x1e.meadowrun.RunPyCommandRequest\x1a\x17.meadowrun.ProcessState"\x00\x12\x45\n\x0brun_py_func\x12\x1b.meadowrun.RunPyFuncRequest\x1a\x17.meadowrun.ProcessState"\x00\x12Q\n\x12get_process_states\x12\x1f.meadowrun.ProcessStatesRequest\x1a\x18.meadowrun.ProcessStates"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x19meadowrun/meadowrun.proto\x12\tmeadowrun"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"a\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x04 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa5\x01\n\rPyFunctionJob\x12\x43\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32 .meadowrun.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"t\n\tPyGridJob\x12*\n\x08\x66unction\x18\x01 \x01(\x0b\x32\x18.meadowrun.PyFunctionJob\x12"\n\x05tasks\x18\x02 \x03(\x0b\x32\x13.meadowrun.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"g\n\x18\x41\x64\x64TasksToGridJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12"\n\x05tasks\x18\x02 \x03(\x0b\x32\x13.meadowrun.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"\xbd\x03\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x10\n\x08priority\x18\x03 \x01(\x05\x12\x43\n\x17server_available_folder\x18\x04 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x05 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x34\n\x15\x65nvironment_variables\x18\x06 \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x07 \x01(\x05\x12-\n\npy_command\x18\x08 \x01(\x0b\x32\x17.meadowrun.PyCommandJobH\x01\x12/\n\x0bpy_function\x18\t \x01(\x0b\x32\x18.meadowrun.PyFunctionJobH\x01\x12\'\n\x07py_grid\x18\n \x01(\x0b\x32\x14.meadowrun.PyGridJobH\x01\x42\x0c\n\ndeploymentB\n\n\x08job_spec"\x7f\n\x0e\x41\x64\x64JobResponse\x12\x34\n\x05state\x18\x01 \x01(\x0e\x32%.meadowrun.AddJobResponse.AddJobState"7\n\x0b\x41\x64\x64JobState\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x41\x44\x44\x45\x44\x10\x01\x12\x10\n\x0cIS_DUPLICATE\x10\x02"\x10\n\x0eNextJobRequest"\xf4\x02\n\x0cProcessState\x12\x37\n\x05state\x18\x01 \x01(\x0e\x32(.meadowrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0c\n\x08\x41SSIGNED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\t\x12\x0b\n\x07UNKNOWN\x10\n"@\n\rProcessStates\x12/\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x17.meadowrun.ProcessState"#\n\x10JobStatesRequest\x12\x0f\n\x07job_ids\x18\x01 \x03(\t"P\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12.\n\rprocess_state\x18\x02 \x01(\x0b\x32\x17.meadowrun.ProcessState"@\n\x0fJobStateUpdates\x12-\n\njob_states\x18\x01 \x03(\x0b\x32\x19.meadowrun.JobStateUpdate"C\n\x15GridTaskStatesRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x1a\n\x12task_ids_to_ignore\x18\x02 \x03(\x05"P\n\rGridTaskState\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12.\n\rprocess_state\x18\x02 \x01(\x0b\x32\x17.meadowrun.ProcessState"?\n\x0eGridTaskStates\x12-\n\x0btask_states\x18\x01 \x03(\x0b\x32\x18.meadowrun.GridTaskState"r\n\x1fGridTaskUpdateAndGetNextRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\x05\x12.\n\rprocess_state\x18\x03 \x01(\x0b\x32\x17.meadowrun.ProcessState"\x15\n\x13UpdateStateResponse2\xcc\x04\n\x14MeadowRunCoordinator\x12\x36\n\x07\x61\x64\x64_job\x12\x0e.meadowrun.Job\x1a\x19.meadowrun.AddJobResponse"\x00\x12Y\n\x15\x61\x64\x64_tasks_to_grid_job\x12#.meadowrun.AddTasksToGridJobRequest\x1a\x19.meadowrun.AddJobResponse"\x00\x12Q\n\x11update_job_states\x12\x1a.meadowrun.JobStateUpdates\x1a\x1e.meadowrun.UpdateStateResponse"\x00\x12;\n\x0cget_next_job\x12\x19.meadowrun.NextJobRequest\x1a\x0e.meadowrun.Job"\x00\x12h\n#update_grid_task_state_and_get_next\x12*.meadowrun.GridTaskUpdateAndGetNextRequest\x1a\x13.meadowrun.GridTask"\x00\x12P\n\x15get_simple_job_states\x12\x1b.meadowrun.JobStatesRequest\x1a\x18.meadowrun.ProcessStates"\x00\x12U\n\x14get_grid_task_states\x12 .meadowrun.GridTaskStatesRequest\x1a\x19.meadowrun.GridTaskStates"\x00\x62\x06proto3',
 )
 
+
+_ADDJOBRESPONSE_ADDJOBSTATE = _descriptor.EnumDescriptor(
+    name="AddJobState",
+    full_name="meadowrun.AddJobResponse.AddJobState",
+    filename=None,
+    file=DESCRIPTOR,
+    create_key=_descriptor._internal_create_key,
+    values=[
+        _descriptor.EnumValueDescriptor(
+            name="DEFAULT",
+            index=0,
+            number=0,
+            serialized_options=None,
+            type=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.EnumValueDescriptor(
+            name="ADDED",
+            index=1,
+            number=1,
+            serialized_options=None,
+            type=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.EnumValueDescriptor(
+            name="IS_DUPLICATE",
+            index=2,
+            number=2,
+            serialized_options=None,
+            type=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    containing_type=None,
+    serialized_options=None,
+    serialized_start=1370,
+    serialized_end=1425,
+)
+_sym_db.RegisterEnumDescriptor(_ADDJOBRESPONSE_ADDJOBSTATE)
 
 _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
     name="ProcessStateEnum",
@@ -38,7 +77,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="REQUEST_IS_DUPLICATE",
+            name="RUN_REQUESTED",
             index=1,
             number=1,
             serialized_options=None,
@@ -46,7 +85,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="RUN_REQUESTED",
+            name="ASSIGNED",
             index=2,
             number=2,
             serialized_options=None,
@@ -102,7 +141,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="UNKNOWN",
+            name="ERROR_GETTING_STATE",
             index=9,
             number=9,
             serialized_options=None,
@@ -110,7 +149,7 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.EnumValueDescriptor(
-            name="ERROR_GETTING_STATE",
+            name="UNKNOWN",
             index=10,
             number=10,
             serialized_options=None,
@@ -120,8 +159,8 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
     ],
     containing_type=None,
     serialized_options=None,
-    serialized_start=1181,
-    serialized_end=1410,
+    serialized_start=1601,
+    serialized_end=1818,
 )
 _sym_db.RegisterEnumDescriptor(_PROCESSSTATE_PROCESSSTATEENUM)
 
@@ -344,95 +383,19 @@ _GITREPOCOMMIT = _descriptor.Descriptor(
 )
 
 
-_RUNPYCOMMANDREQUEST = _descriptor.Descriptor(
-    name="RunPyCommandRequest",
-    full_name="meadowrun.RunPyCommandRequest",
+_PYCOMMANDJOB = _descriptor.Descriptor(
+    name="PyCommandJob",
+    full_name="meadowrun.PyCommandJob",
     filename=None,
     file=DESCRIPTOR,
     containing_type=None,
     create_key=_descriptor._internal_create_key,
     fields=[
         _descriptor.FieldDescriptor(
-            name="request_id",
-            full_name="meadowrun.RunPyCommandRequest.request_id",
+            name="command_line",
+            full_name="meadowrun.PyCommandJob.command_line",
             index=0,
             number=1,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="log_file_name",
-            full_name="meadowrun.RunPyCommandRequest.log_file_name",
-            index=1,
-            number=2,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="server_available_folder",
-            full_name="meadowrun.RunPyCommandRequest.server_available_folder",
-            index=2,
-            number=3,
-            type=11,
-            cpp_type=10,
-            label=1,
-            has_default_value=False,
-            default_value=None,
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="git_repo_commit",
-            full_name="meadowrun.RunPyCommandRequest.git_repo_commit",
-            index=3,
-            number=4,
-            type=11,
-            cpp_type=10,
-            label=1,
-            has_default_value=False,
-            default_value=None,
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="command_line",
-            full_name="meadowrun.RunPyCommandRequest.command_line",
-            index=4,
-            number=5,
             type=9,
             cpp_type=9,
             label=3,
@@ -449,304 +412,14 @@ _RUNPYCOMMANDREQUEST = _descriptor.Descriptor(
         ),
         _descriptor.FieldDescriptor(
             name="pickled_context_variables",
-            full_name="meadowrun.RunPyCommandRequest.pickled_context_variables",
-            index=5,
-            number=6,
-            type=12,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"",
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="environment_variables",
-            full_name="meadowrun.RunPyCommandRequest.environment_variables",
-            index=6,
-            number=7,
-            type=11,
-            cpp_type=10,
-            label=3,
-            has_default_value=False,
-            default_value=[],
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="result_highest_pickle_protocol",
-            full_name="meadowrun.RunPyCommandRequest.result_highest_pickle_protocol",
-            index=7,
-            number=8,
-            type=5,
-            cpp_type=1,
-            label=1,
-            has_default_value=False,
-            default_value=0,
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-    ],
-    extensions=[],
-    nested_types=[],
-    enum_types=[],
-    serialized_options=None,
-    is_extendable=False,
-    syntax="proto3",
-    extension_ranges=[],
-    oneofs=[
-        _descriptor.OneofDescriptor(
-            name="deployment",
-            full_name="meadowrun.RunPyCommandRequest.deployment",
-            index=0,
-            containing_type=None,
-            create_key=_descriptor._internal_create_key,
-            fields=[],
-        ),
-    ],
-    serialized_start=253,
-    serialized_end=604,
-)
-
-
-_RUNPYFUNCREQUEST = _descriptor.Descriptor(
-    name="RunPyFuncRequest",
-    full_name="meadowrun.RunPyFuncRequest",
-    filename=None,
-    file=DESCRIPTOR,
-    containing_type=None,
-    create_key=_descriptor._internal_create_key,
-    fields=[
-        _descriptor.FieldDescriptor(
-            name="request_id",
-            full_name="meadowrun.RunPyFuncRequest.request_id",
-            index=0,
-            number=1,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="log_file_name",
-            full_name="meadowrun.RunPyFuncRequest.log_file_name",
+            full_name="meadowrun.PyCommandJob.pickled_context_variables",
             index=1,
             number=2,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="server_available_folder",
-            full_name="meadowrun.RunPyFuncRequest.server_available_folder",
-            index=2,
-            number=3,
-            type=11,
-            cpp_type=10,
-            label=1,
-            has_default_value=False,
-            default_value=None,
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="git_repo_commit",
-            full_name="meadowrun.RunPyFuncRequest.git_repo_commit",
-            index=3,
-            number=4,
-            type=11,
-            cpp_type=10,
-            label=1,
-            has_default_value=False,
-            default_value=None,
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="module_name",
-            full_name="meadowrun.RunPyFuncRequest.module_name",
-            index=4,
-            number=5,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="function_name",
-            full_name="meadowrun.RunPyFuncRequest.function_name",
-            index=5,
-            number=6,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="pickled_function_arguments",
-            full_name="meadowrun.RunPyFuncRequest.pickled_function_arguments",
-            index=6,
-            number=7,
             type=12,
             cpp_type=9,
             label=1,
             has_default_value=False,
             default_value=b"",
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="environment_variables",
-            full_name="meadowrun.RunPyFuncRequest.environment_variables",
-            index=7,
-            number=8,
-            type=11,
-            cpp_type=10,
-            label=3,
-            has_default_value=False,
-            default_value=[],
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="result_highest_pickle_protocol",
-            full_name="meadowrun.RunPyFuncRequest.result_highest_pickle_protocol",
-            index=8,
-            number=9,
-            type=5,
-            cpp_type=1,
-            label=1,
-            has_default_value=False,
-            default_value=0,
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-    ],
-    extensions=[],
-    nested_types=[],
-    enum_types=[],
-    serialized_options=None,
-    is_extendable=False,
-    syntax="proto3",
-    extension_ranges=[],
-    oneofs=[
-        _descriptor.OneofDescriptor(
-            name="deployment",
-            full_name="meadowrun.RunPyFuncRequest.deployment",
-            index=0,
-            containing_type=None,
-            create_key=_descriptor._internal_create_key,
-            fields=[],
-        ),
-    ],
-    serialized_start=607,
-    serialized_end=978,
-)
-
-
-_PROCESSSTATESREQUEST = _descriptor.Descriptor(
-    name="ProcessStatesRequest",
-    full_name="meadowrun.ProcessStatesRequest",
-    filename=None,
-    file=DESCRIPTOR,
-    containing_type=None,
-    create_key=_descriptor._internal_create_key,
-    fields=[
-        _descriptor.FieldDescriptor(
-            name="request_ids",
-            full_name="meadowrun.ProcessStatesRequest.request_ids",
-            index=0,
-            number=1,
-            type=9,
-            cpp_type=9,
-            label=3,
-            has_default_value=False,
-            default_value=[],
             message_type=None,
             enum_type=None,
             containing_type=None,
@@ -765,8 +438,667 @@ _PROCESSSTATESREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=980,
-    serialized_end=1023,
+    serialized_start=252,
+    serialized_end=323,
+)
+
+
+_QUALIFIEDFUNCTIONNAME = _descriptor.Descriptor(
+    name="QualifiedFunctionName",
+    full_name="meadowrun.QualifiedFunctionName",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="module_name",
+            full_name="meadowrun.QualifiedFunctionName.module_name",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="function_name",
+            full_name="meadowrun.QualifiedFunctionName.function_name",
+            index=1,
+            number=2,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=325,
+    serialized_end=392,
+)
+
+
+_PYFUNCTIONJOB = _descriptor.Descriptor(
+    name="PyFunctionJob",
+    full_name="meadowrun.PyFunctionJob",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="qualified_function_name",
+            full_name="meadowrun.PyFunctionJob.qualified_function_name",
+            index=0,
+            number=1,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="pickled_function",
+            full_name="meadowrun.PyFunctionJob.pickled_function",
+            index=1,
+            number=2,
+            type=12,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"",
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="pickled_function_arguments",
+            full_name="meadowrun.PyFunctionJob.pickled_function_arguments",
+            index=2,
+            number=3,
+            type=12,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"",
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[
+        _descriptor.OneofDescriptor(
+            name="function_spec",
+            full_name="meadowrun.PyFunctionJob.function_spec",
+            index=0,
+            containing_type=None,
+            create_key=_descriptor._internal_create_key,
+            fields=[],
+        ),
+    ],
+    serialized_start=395,
+    serialized_end=560,
+)
+
+
+_GRIDTASK = _descriptor.Descriptor(
+    name="GridTask",
+    full_name="meadowrun.GridTask",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="task_id",
+            full_name="meadowrun.GridTask.task_id",
+            index=0,
+            number=1,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="pickled_function_arguments",
+            full_name="meadowrun.GridTask.pickled_function_arguments",
+            index=1,
+            number=2,
+            type=12,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"",
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=562,
+    serialized_end=625,
+)
+
+
+_PYGRIDJOB = _descriptor.Descriptor(
+    name="PyGridJob",
+    full_name="meadowrun.PyGridJob",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="function",
+            full_name="meadowrun.PyGridJob.function",
+            index=0,
+            number=1,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="tasks",
+            full_name="meadowrun.PyGridJob.tasks",
+            index=1,
+            number=2,
+            type=11,
+            cpp_type=10,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="all_tasks_added",
+            full_name="meadowrun.PyGridJob.all_tasks_added",
+            index=2,
+            number=3,
+            type=8,
+            cpp_type=7,
+            label=1,
+            has_default_value=False,
+            default_value=False,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=627,
+    serialized_end=743,
+)
+
+
+_ADDTASKSTOGRIDJOBREQUEST = _descriptor.Descriptor(
+    name="AddTasksToGridJobRequest",
+    full_name="meadowrun.AddTasksToGridJobRequest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_id",
+            full_name="meadowrun.AddTasksToGridJobRequest.job_id",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="tasks",
+            full_name="meadowrun.AddTasksToGridJobRequest.tasks",
+            index=1,
+            number=2,
+            type=11,
+            cpp_type=10,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="all_tasks_added",
+            full_name="meadowrun.AddTasksToGridJobRequest.all_tasks_added",
+            index=2,
+            number=3,
+            type=8,
+            cpp_type=7,
+            label=1,
+            has_default_value=False,
+            default_value=False,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=745,
+    serialized_end=848,
+)
+
+
+_JOB = _descriptor.Descriptor(
+    name="Job",
+    full_name="meadowrun.Job",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_id",
+            full_name="meadowrun.Job.job_id",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="job_friendly_name",
+            full_name="meadowrun.Job.job_friendly_name",
+            index=1,
+            number=2,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="priority",
+            full_name="meadowrun.Job.priority",
+            index=2,
+            number=3,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="server_available_folder",
+            full_name="meadowrun.Job.server_available_folder",
+            index=3,
+            number=4,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="git_repo_commit",
+            full_name="meadowrun.Job.git_repo_commit",
+            index=4,
+            number=5,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="environment_variables",
+            full_name="meadowrun.Job.environment_variables",
+            index=5,
+            number=6,
+            type=11,
+            cpp_type=10,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="result_highest_pickle_protocol",
+            full_name="meadowrun.Job.result_highest_pickle_protocol",
+            index=6,
+            number=7,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="py_command",
+            full_name="meadowrun.Job.py_command",
+            index=7,
+            number=8,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="py_function",
+            full_name="meadowrun.Job.py_function",
+            index=8,
+            number=9,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="py_grid",
+            full_name="meadowrun.Job.py_grid",
+            index=9,
+            number=10,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[
+        _descriptor.OneofDescriptor(
+            name="deployment",
+            full_name="meadowrun.Job.deployment",
+            index=0,
+            containing_type=None,
+            create_key=_descriptor._internal_create_key,
+            fields=[],
+        ),
+        _descriptor.OneofDescriptor(
+            name="job_spec",
+            full_name="meadowrun.Job.job_spec",
+            index=1,
+            containing_type=None,
+            create_key=_descriptor._internal_create_key,
+            fields=[],
+        ),
+    ],
+    serialized_start=851,
+    serialized_end=1296,
+)
+
+
+_ADDJOBRESPONSE = _descriptor.Descriptor(
+    name="AddJobResponse",
+    full_name="meadowrun.AddJobResponse",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="state",
+            full_name="meadowrun.AddJobResponse.state",
+            index=0,
+            number=1,
+            type=14,
+            cpp_type=8,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[
+        _ADDJOBRESPONSE_ADDJOBSTATE,
+    ],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=1298,
+    serialized_end=1425,
+)
+
+
+_NEXTJOBREQUEST = _descriptor.Descriptor(
+    name="NextJobRequest",
+    full_name="meadowrun.NextJobRequest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=1427,
+    serialized_end=1443,
 )
 
 
@@ -884,8 +1216,8 @@ _PROCESSSTATE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1026,
-    serialized_end=1410,
+    serialized_start=1446,
+    serialized_end=1818,
 )
 
 
@@ -925,55 +1257,489 @@ _PROCESSSTATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1412,
-    serialized_end=1476,
+    serialized_start=1820,
+    serialized_end=1884,
 )
 
-_RUNPYCOMMANDREQUEST.fields_by_name[
-    "server_available_folder"
-].message_type = _SERVERAVAILABLEFOLDER
-_RUNPYCOMMANDREQUEST.fields_by_name["git_repo_commit"].message_type = _GITREPOCOMMIT
-_RUNPYCOMMANDREQUEST.fields_by_name["environment_variables"].message_type = _STRINGPAIR
-_RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"].fields.append(
-    _RUNPYCOMMANDREQUEST.fields_by_name["server_available_folder"]
+
+_JOBSTATESREQUEST = _descriptor.Descriptor(
+    name="JobStatesRequest",
+    full_name="meadowrun.JobStatesRequest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_ids",
+            full_name="meadowrun.JobStatesRequest.job_ids",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=1886,
+    serialized_end=1921,
 )
-_RUNPYCOMMANDREQUEST.fields_by_name[
-    "server_available_folder"
-].containing_oneof = _RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"]
-_RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"].fields.append(
-    _RUNPYCOMMANDREQUEST.fields_by_name["git_repo_commit"]
+
+
+_JOBSTATEUPDATE = _descriptor.Descriptor(
+    name="JobStateUpdate",
+    full_name="meadowrun.JobStateUpdate",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_id",
+            full_name="meadowrun.JobStateUpdate.job_id",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="process_state",
+            full_name="meadowrun.JobStateUpdate.process_state",
+            index=1,
+            number=2,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=1923,
+    serialized_end=2003,
 )
-_RUNPYCOMMANDREQUEST.fields_by_name[
-    "git_repo_commit"
-].containing_oneof = _RUNPYCOMMANDREQUEST.oneofs_by_name["deployment"]
-_RUNPYFUNCREQUEST.fields_by_name[
-    "server_available_folder"
-].message_type = _SERVERAVAILABLEFOLDER
-_RUNPYFUNCREQUEST.fields_by_name["git_repo_commit"].message_type = _GITREPOCOMMIT
-_RUNPYFUNCREQUEST.fields_by_name["environment_variables"].message_type = _STRINGPAIR
-_RUNPYFUNCREQUEST.oneofs_by_name["deployment"].fields.append(
-    _RUNPYFUNCREQUEST.fields_by_name["server_available_folder"]
+
+
+_JOBSTATEUPDATES = _descriptor.Descriptor(
+    name="JobStateUpdates",
+    full_name="meadowrun.JobStateUpdates",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_states",
+            full_name="meadowrun.JobStateUpdates.job_states",
+            index=0,
+            number=1,
+            type=11,
+            cpp_type=10,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=2005,
+    serialized_end=2069,
 )
-_RUNPYFUNCREQUEST.fields_by_name[
-    "server_available_folder"
-].containing_oneof = _RUNPYFUNCREQUEST.oneofs_by_name["deployment"]
-_RUNPYFUNCREQUEST.oneofs_by_name["deployment"].fields.append(
-    _RUNPYFUNCREQUEST.fields_by_name["git_repo_commit"]
+
+
+_GRIDTASKSTATESREQUEST = _descriptor.Descriptor(
+    name="GridTaskStatesRequest",
+    full_name="meadowrun.GridTaskStatesRequest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_id",
+            full_name="meadowrun.GridTaskStatesRequest.job_id",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="task_ids_to_ignore",
+            full_name="meadowrun.GridTaskStatesRequest.task_ids_to_ignore",
+            index=1,
+            number=2,
+            type=5,
+            cpp_type=1,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=2071,
+    serialized_end=2138,
 )
-_RUNPYFUNCREQUEST.fields_by_name[
-    "git_repo_commit"
-].containing_oneof = _RUNPYFUNCREQUEST.oneofs_by_name["deployment"]
+
+
+_GRIDTASKSTATE = _descriptor.Descriptor(
+    name="GridTaskState",
+    full_name="meadowrun.GridTaskState",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="task_id",
+            full_name="meadowrun.GridTaskState.task_id",
+            index=0,
+            number=1,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="process_state",
+            full_name="meadowrun.GridTaskState.process_state",
+            index=1,
+            number=2,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=2140,
+    serialized_end=2220,
+)
+
+
+_GRIDTASKSTATES = _descriptor.Descriptor(
+    name="GridTaskStates",
+    full_name="meadowrun.GridTaskStates",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="task_states",
+            full_name="meadowrun.GridTaskStates.task_states",
+            index=0,
+            number=1,
+            type=11,
+            cpp_type=10,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=2222,
+    serialized_end=2285,
+)
+
+
+_GRIDTASKUPDATEANDGETNEXTREQUEST = _descriptor.Descriptor(
+    name="GridTaskUpdateAndGetNextRequest",
+    full_name="meadowrun.GridTaskUpdateAndGetNextRequest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="job_id",
+            full_name="meadowrun.GridTaskUpdateAndGetNextRequest.job_id",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="task_id",
+            full_name="meadowrun.GridTaskUpdateAndGetNextRequest.task_id",
+            index=1,
+            number=2,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="process_state",
+            full_name="meadowrun.GridTaskUpdateAndGetNextRequest.process_state",
+            index=2,
+            number=3,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=2287,
+    serialized_end=2401,
+)
+
+
+_UPDATESTATERESPONSE = _descriptor.Descriptor(
+    name="UpdateStateResponse",
+    full_name="meadowrun.UpdateStateResponse",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=2403,
+    serialized_end=2424,
+)
+
+_PYFUNCTIONJOB.fields_by_name[
+    "qualified_function_name"
+].message_type = _QUALIFIEDFUNCTIONNAME
+_PYFUNCTIONJOB.oneofs_by_name["function_spec"].fields.append(
+    _PYFUNCTIONJOB.fields_by_name["qualified_function_name"]
+)
+_PYFUNCTIONJOB.fields_by_name[
+    "qualified_function_name"
+].containing_oneof = _PYFUNCTIONJOB.oneofs_by_name["function_spec"]
+_PYFUNCTIONJOB.oneofs_by_name["function_spec"].fields.append(
+    _PYFUNCTIONJOB.fields_by_name["pickled_function"]
+)
+_PYFUNCTIONJOB.fields_by_name[
+    "pickled_function"
+].containing_oneof = _PYFUNCTIONJOB.oneofs_by_name["function_spec"]
+_PYGRIDJOB.fields_by_name["function"].message_type = _PYFUNCTIONJOB
+_PYGRIDJOB.fields_by_name["tasks"].message_type = _GRIDTASK
+_ADDTASKSTOGRIDJOBREQUEST.fields_by_name["tasks"].message_type = _GRIDTASK
+_JOB.fields_by_name["server_available_folder"].message_type = _SERVERAVAILABLEFOLDER
+_JOB.fields_by_name["git_repo_commit"].message_type = _GITREPOCOMMIT
+_JOB.fields_by_name["environment_variables"].message_type = _STRINGPAIR
+_JOB.fields_by_name["py_command"].message_type = _PYCOMMANDJOB
+_JOB.fields_by_name["py_function"].message_type = _PYFUNCTIONJOB
+_JOB.fields_by_name["py_grid"].message_type = _PYGRIDJOB
+_JOB.oneofs_by_name["deployment"].fields.append(
+    _JOB.fields_by_name["server_available_folder"]
+)
+_JOB.fields_by_name["server_available_folder"].containing_oneof = _JOB.oneofs_by_name[
+    "deployment"
+]
+_JOB.oneofs_by_name["deployment"].fields.append(_JOB.fields_by_name["git_repo_commit"])
+_JOB.fields_by_name["git_repo_commit"].containing_oneof = _JOB.oneofs_by_name[
+    "deployment"
+]
+_JOB.oneofs_by_name["job_spec"].fields.append(_JOB.fields_by_name["py_command"])
+_JOB.fields_by_name["py_command"].containing_oneof = _JOB.oneofs_by_name["job_spec"]
+_JOB.oneofs_by_name["job_spec"].fields.append(_JOB.fields_by_name["py_function"])
+_JOB.fields_by_name["py_function"].containing_oneof = _JOB.oneofs_by_name["job_spec"]
+_JOB.oneofs_by_name["job_spec"].fields.append(_JOB.fields_by_name["py_grid"])
+_JOB.fields_by_name["py_grid"].containing_oneof = _JOB.oneofs_by_name["job_spec"]
+_ADDJOBRESPONSE.fields_by_name["state"].enum_type = _ADDJOBRESPONSE_ADDJOBSTATE
+_ADDJOBRESPONSE_ADDJOBSTATE.containing_type = _ADDJOBRESPONSE
 _PROCESSSTATE.fields_by_name["state"].enum_type = _PROCESSSTATE_PROCESSSTATEENUM
 _PROCESSSTATE_PROCESSSTATEENUM.containing_type = _PROCESSSTATE
 _PROCESSSTATES.fields_by_name["process_states"].message_type = _PROCESSSTATE
+_JOBSTATEUPDATE.fields_by_name["process_state"].message_type = _PROCESSSTATE
+_JOBSTATEUPDATES.fields_by_name["job_states"].message_type = _JOBSTATEUPDATE
+_GRIDTASKSTATE.fields_by_name["process_state"].message_type = _PROCESSSTATE
+_GRIDTASKSTATES.fields_by_name["task_states"].message_type = _GRIDTASKSTATE
+_GRIDTASKUPDATEANDGETNEXTREQUEST.fields_by_name[
+    "process_state"
+].message_type = _PROCESSSTATE
 DESCRIPTOR.message_types_by_name["StringPair"] = _STRINGPAIR
 DESCRIPTOR.message_types_by_name["ServerAvailableFolder"] = _SERVERAVAILABLEFOLDER
 DESCRIPTOR.message_types_by_name["GitRepoCommit"] = _GITREPOCOMMIT
-DESCRIPTOR.message_types_by_name["RunPyCommandRequest"] = _RUNPYCOMMANDREQUEST
-DESCRIPTOR.message_types_by_name["RunPyFuncRequest"] = _RUNPYFUNCREQUEST
-DESCRIPTOR.message_types_by_name["ProcessStatesRequest"] = _PROCESSSTATESREQUEST
+DESCRIPTOR.message_types_by_name["PyCommandJob"] = _PYCOMMANDJOB
+DESCRIPTOR.message_types_by_name["QualifiedFunctionName"] = _QUALIFIEDFUNCTIONNAME
+DESCRIPTOR.message_types_by_name["PyFunctionJob"] = _PYFUNCTIONJOB
+DESCRIPTOR.message_types_by_name["GridTask"] = _GRIDTASK
+DESCRIPTOR.message_types_by_name["PyGridJob"] = _PYGRIDJOB
+DESCRIPTOR.message_types_by_name["AddTasksToGridJobRequest"] = _ADDTASKSTOGRIDJOBREQUEST
+DESCRIPTOR.message_types_by_name["Job"] = _JOB
+DESCRIPTOR.message_types_by_name["AddJobResponse"] = _ADDJOBRESPONSE
+DESCRIPTOR.message_types_by_name["NextJobRequest"] = _NEXTJOBREQUEST
 DESCRIPTOR.message_types_by_name["ProcessState"] = _PROCESSSTATE
 DESCRIPTOR.message_types_by_name["ProcessStates"] = _PROCESSSTATES
+DESCRIPTOR.message_types_by_name["JobStatesRequest"] = _JOBSTATESREQUEST
+DESCRIPTOR.message_types_by_name["JobStateUpdate"] = _JOBSTATEUPDATE
+DESCRIPTOR.message_types_by_name["JobStateUpdates"] = _JOBSTATEUPDATES
+DESCRIPTOR.message_types_by_name["GridTaskStatesRequest"] = _GRIDTASKSTATESREQUEST
+DESCRIPTOR.message_types_by_name["GridTaskState"] = _GRIDTASKSTATE
+DESCRIPTOR.message_types_by_name["GridTaskStates"] = _GRIDTASKSTATES
+DESCRIPTOR.message_types_by_name[
+    "GridTaskUpdateAndGetNextRequest"
+] = _GRIDTASKUPDATEANDGETNEXTREQUEST
+DESCRIPTOR.message_types_by_name["UpdateStateResponse"] = _UPDATESTATERESPONSE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 StringPair = _reflection.GeneratedProtocolMessageType(
@@ -1009,38 +1775,104 @@ GitRepoCommit = _reflection.GeneratedProtocolMessageType(
 )
 _sym_db.RegisterMessage(GitRepoCommit)
 
-RunPyCommandRequest = _reflection.GeneratedProtocolMessageType(
-    "RunPyCommandRequest",
+PyCommandJob = _reflection.GeneratedProtocolMessageType(
+    "PyCommandJob",
     (_message.Message,),
     {
-        "DESCRIPTOR": _RUNPYCOMMANDREQUEST,
+        "DESCRIPTOR": _PYCOMMANDJOB,
         "__module__": "meadowrun.meadowrun_pb2"
-        # @@protoc_insertion_point(class_scope:meadowrun.RunPyCommandRequest)
+        # @@protoc_insertion_point(class_scope:meadowrun.PyCommandJob)
     },
 )
-_sym_db.RegisterMessage(RunPyCommandRequest)
+_sym_db.RegisterMessage(PyCommandJob)
 
-RunPyFuncRequest = _reflection.GeneratedProtocolMessageType(
-    "RunPyFuncRequest",
+QualifiedFunctionName = _reflection.GeneratedProtocolMessageType(
+    "QualifiedFunctionName",
     (_message.Message,),
     {
-        "DESCRIPTOR": _RUNPYFUNCREQUEST,
+        "DESCRIPTOR": _QUALIFIEDFUNCTIONNAME,
         "__module__": "meadowrun.meadowrun_pb2"
-        # @@protoc_insertion_point(class_scope:meadowrun.RunPyFuncRequest)
+        # @@protoc_insertion_point(class_scope:meadowrun.QualifiedFunctionName)
     },
 )
-_sym_db.RegisterMessage(RunPyFuncRequest)
+_sym_db.RegisterMessage(QualifiedFunctionName)
 
-ProcessStatesRequest = _reflection.GeneratedProtocolMessageType(
-    "ProcessStatesRequest",
+PyFunctionJob = _reflection.GeneratedProtocolMessageType(
+    "PyFunctionJob",
     (_message.Message,),
     {
-        "DESCRIPTOR": _PROCESSSTATESREQUEST,
+        "DESCRIPTOR": _PYFUNCTIONJOB,
         "__module__": "meadowrun.meadowrun_pb2"
-        # @@protoc_insertion_point(class_scope:meadowrun.ProcessStatesRequest)
+        # @@protoc_insertion_point(class_scope:meadowrun.PyFunctionJob)
     },
 )
-_sym_db.RegisterMessage(ProcessStatesRequest)
+_sym_db.RegisterMessage(PyFunctionJob)
+
+GridTask = _reflection.GeneratedProtocolMessageType(
+    "GridTask",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _GRIDTASK,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.GridTask)
+    },
+)
+_sym_db.RegisterMessage(GridTask)
+
+PyGridJob = _reflection.GeneratedProtocolMessageType(
+    "PyGridJob",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _PYGRIDJOB,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.PyGridJob)
+    },
+)
+_sym_db.RegisterMessage(PyGridJob)
+
+AddTasksToGridJobRequest = _reflection.GeneratedProtocolMessageType(
+    "AddTasksToGridJobRequest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _ADDTASKSTOGRIDJOBREQUEST,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.AddTasksToGridJobRequest)
+    },
+)
+_sym_db.RegisterMessage(AddTasksToGridJobRequest)
+
+Job = _reflection.GeneratedProtocolMessageType(
+    "Job",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _JOB,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.Job)
+    },
+)
+_sym_db.RegisterMessage(Job)
+
+AddJobResponse = _reflection.GeneratedProtocolMessageType(
+    "AddJobResponse",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _ADDJOBRESPONSE,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.AddJobResponse)
+    },
+)
+_sym_db.RegisterMessage(AddJobResponse)
+
+NextJobRequest = _reflection.GeneratedProtocolMessageType(
+    "NextJobRequest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _NEXTJOBREQUEST,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.NextJobRequest)
+    },
+)
+_sym_db.RegisterMessage(NextJobRequest)
 
 ProcessState = _reflection.GeneratedProtocolMessageType(
     "ProcessState",
@@ -1064,51 +1896,179 @@ ProcessStates = _reflection.GeneratedProtocolMessageType(
 )
 _sym_db.RegisterMessage(ProcessStates)
 
+JobStatesRequest = _reflection.GeneratedProtocolMessageType(
+    "JobStatesRequest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _JOBSTATESREQUEST,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.JobStatesRequest)
+    },
+)
+_sym_db.RegisterMessage(JobStatesRequest)
 
-_MEADOWRUNSERVER = _descriptor.ServiceDescriptor(
-    name="MeadowRunServer",
-    full_name="meadowrun.MeadowRunServer",
+JobStateUpdate = _reflection.GeneratedProtocolMessageType(
+    "JobStateUpdate",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _JOBSTATEUPDATE,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.JobStateUpdate)
+    },
+)
+_sym_db.RegisterMessage(JobStateUpdate)
+
+JobStateUpdates = _reflection.GeneratedProtocolMessageType(
+    "JobStateUpdates",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _JOBSTATEUPDATES,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.JobStateUpdates)
+    },
+)
+_sym_db.RegisterMessage(JobStateUpdates)
+
+GridTaskStatesRequest = _reflection.GeneratedProtocolMessageType(
+    "GridTaskStatesRequest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _GRIDTASKSTATESREQUEST,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.GridTaskStatesRequest)
+    },
+)
+_sym_db.RegisterMessage(GridTaskStatesRequest)
+
+GridTaskState = _reflection.GeneratedProtocolMessageType(
+    "GridTaskState",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _GRIDTASKSTATE,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.GridTaskState)
+    },
+)
+_sym_db.RegisterMessage(GridTaskState)
+
+GridTaskStates = _reflection.GeneratedProtocolMessageType(
+    "GridTaskStates",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _GRIDTASKSTATES,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.GridTaskStates)
+    },
+)
+_sym_db.RegisterMessage(GridTaskStates)
+
+GridTaskUpdateAndGetNextRequest = _reflection.GeneratedProtocolMessageType(
+    "GridTaskUpdateAndGetNextRequest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _GRIDTASKUPDATEANDGETNEXTREQUEST,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.GridTaskUpdateAndGetNextRequest)
+    },
+)
+_sym_db.RegisterMessage(GridTaskUpdateAndGetNextRequest)
+
+UpdateStateResponse = _reflection.GeneratedProtocolMessageType(
+    "UpdateStateResponse",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _UPDATESTATERESPONSE,
+        "__module__": "meadowrun.meadowrun_pb2"
+        # @@protoc_insertion_point(class_scope:meadowrun.UpdateStateResponse)
+    },
+)
+_sym_db.RegisterMessage(UpdateStateResponse)
+
+
+_MEADOWRUNCOORDINATOR = _descriptor.ServiceDescriptor(
+    name="MeadowRunCoordinator",
+    full_name="meadowrun.MeadowRunCoordinator",
     file=DESCRIPTOR,
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=1479,
-    serialized_end=1727,
+    serialized_start=2427,
+    serialized_end=3015,
     methods=[
         _descriptor.MethodDescriptor(
-            name="run_py_command",
-            full_name="meadowrun.MeadowRunServer.run_py_command",
+            name="add_job",
+            full_name="meadowrun.MeadowRunCoordinator.add_job",
             index=0,
             containing_service=None,
-            input_type=_RUNPYCOMMANDREQUEST,
-            output_type=_PROCESSSTATE,
+            input_type=_JOB,
+            output_type=_ADDJOBRESPONSE,
             serialized_options=None,
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.MethodDescriptor(
-            name="run_py_func",
-            full_name="meadowrun.MeadowRunServer.run_py_func",
+            name="add_tasks_to_grid_job",
+            full_name="meadowrun.MeadowRunCoordinator.add_tasks_to_grid_job",
             index=1,
             containing_service=None,
-            input_type=_RUNPYFUNCREQUEST,
-            output_type=_PROCESSSTATE,
+            input_type=_ADDTASKSTOGRIDJOBREQUEST,
+            output_type=_ADDJOBRESPONSE,
             serialized_options=None,
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.MethodDescriptor(
-            name="get_process_states",
-            full_name="meadowrun.MeadowRunServer.get_process_states",
+            name="update_job_states",
+            full_name="meadowrun.MeadowRunCoordinator.update_job_states",
             index=2,
             containing_service=None,
-            input_type=_PROCESSSTATESREQUEST,
+            input_type=_JOBSTATEUPDATES,
+            output_type=_UPDATESTATERESPONSE,
+            serialized_options=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.MethodDescriptor(
+            name="get_next_job",
+            full_name="meadowrun.MeadowRunCoordinator.get_next_job",
+            index=3,
+            containing_service=None,
+            input_type=_NEXTJOBREQUEST,
+            output_type=_JOB,
+            serialized_options=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.MethodDescriptor(
+            name="update_grid_task_state_and_get_next",
+            full_name="meadowrun.MeadowRunCoordinator.update_grid_task_state_and_get_next",
+            index=4,
+            containing_service=None,
+            input_type=_GRIDTASKUPDATEANDGETNEXTREQUEST,
+            output_type=_GRIDTASK,
+            serialized_options=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.MethodDescriptor(
+            name="get_simple_job_states",
+            full_name="meadowrun.MeadowRunCoordinator.get_simple_job_states",
+            index=5,
+            containing_service=None,
+            input_type=_JOBSTATESREQUEST,
             output_type=_PROCESSSTATES,
+            serialized_options=None,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.MethodDescriptor(
+            name="get_grid_task_states",
+            full_name="meadowrun.MeadowRunCoordinator.get_grid_task_states",
+            index=6,
+            containing_service=None,
+            input_type=_GRIDTASKSTATESREQUEST,
+            output_type=_GRIDTASKSTATES,
             serialized_options=None,
             create_key=_descriptor._internal_create_key,
         ),
     ],
 )
-_sym_db.RegisterServiceDescriptor(_MEADOWRUNSERVER)
+_sym_db.RegisterServiceDescriptor(_MEADOWRUNCOORDINATOR)
 
-DESCRIPTOR.services_by_name["MeadowRunServer"] = _MEADOWRUNSERVER
+DESCRIPTOR.services_by_name["MeadowRunCoordinator"] = _MEADOWRUNCOORDINATOR
 
 # @@protoc_insertion_point(module_scope)

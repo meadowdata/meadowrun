@@ -1,40 +1,38 @@
 import datetime
-import pathlib
 import sys
+import time
 from typing import Any, Sequence, Callable, List, Optional
 
 import pytz
 
-from meadowflow.server.client import MeadowFlowClientSync
+import meadowflow.server.config
+import meadowflow.server.server_main
+import meadowrun.coordinator_main
+import meadowrun.job_worker_main
 from meadowflow.event_log import Event
 from meadowflow.events_arg import LatestEventsArg
-from meadowflow.scopes import ScopeValues, ScopeInstantiated
-from meadowflow.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
+from meadowflow.git_repo import GitRepo
+from meadowflow.job_runner_predicates import JobRunnerTypePredicate
 from meadowflow.jobs import (
     Actions,
-    Job,
-    AnyJobStateEventFilter,
-    JobRunnerPredicate,
-    JobFunction,
-    LocalFunction,
     AllJobStatePredicate,
+    AnyJobStateEventFilter,
+    Job,
+    JobFunction,
     JobPayload,
-    add_scope_jobs_decorator,
     JobRunOverrides,
+    JobRunnerPredicate,
+    LocalFunction,
+    add_scope_jobs_decorator,
 )
-from meadowflow.job_runner_predicates import JobRunnerTypePredicate
 from meadowflow.meadowrun_job_runner import MeadowRunJobRunner, MeadowRunFunctionGitRepo
-from meadowflow.git_repo import GitRepo
-import meadowflow.server.config
 from meadowflow.scheduler import Scheduler
-import meadowflow.server.server_main
-import time
-
-import meadowrun.server_main
+from meadowflow.scopes import ScopeValues, ScopeInstantiated
+from meadowflow.server.client import MeadowFlowClientSync
 from meadowflow.time_event_publisher import PointInTime, PointInTimePredicate
 from meadowflow.topic import TriggerAction, NotPredicate
+from meadowflow.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
 from meadowrun.deployed_function import MeadowRunFunction
-
 from test_meadowflow.test_time_events import _TIME_INCREMENT
 from test_meadowrun import TEST_REPO
 
@@ -77,7 +75,10 @@ def test_simple_jobs_meadowrun_server_available() -> None:
     Tests a simple use case using the meadowrun jobrunner with a ServerAvailableFolder
     deployment
     """
-    with meadowrun.server_main.main_in_child_process():
+    with (
+        meadowrun.coordinator_main.main_in_child_process(),
+        meadowrun.job_worker_main.main_in_child_process(),
+    ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
@@ -99,7 +100,10 @@ def test_simple_jobs_meadowrun_git() -> None:
     meadowdata repo.
     """
 
-    with meadowrun.server_main.main_in_child_process():
+    with (
+        meadowrun.coordinator_main.main_in_child_process(),
+        meadowrun.job_worker_main.main_in_child_process(),
+    ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
@@ -108,7 +112,9 @@ def test_simple_jobs_meadowrun_git() -> None:
                 s,
                 lambda args: MeadowRunFunctionGitRepo(
                     GitRepo(TEST_REPO, "main", sys.executable),
-                    MeadowRunFunction("example_package.example", "join_strings", args),
+                    MeadowRunFunction.from_name(
+                        "example_package.example", "join_strings", args
+                    ),
                 ),
                 JobRunnerTypePredicate("meadowrun"),
             )
@@ -210,99 +216,96 @@ def test_simple_jobs_meadowflow_server() -> None:
     """
 
     with meadowflow.server.server_main.main_in_child_process(
-        meadowflow.server.config.DEFAULT_HOST,
-        meadowflow.server.config.DEFAULT_PORT,
-        0.05,
-    ), meadowrun.server_main.main_in_child_process(
+        job_runner_poll_delay_seconds=0.05,
+    ), meadowrun.coordinator_main.main_in_child_process(
         meadowflow_address=meadowflow.server.config.DEFAULT_ADDRESS
-    ), meadowflow.server.client.MeadowFlowClientSync(
-        meadowflow.server.config.DEFAULT_ADDRESS
-    ) as client:
-        # wait for the meadowrun job runner to register itself with the scheduler
-        time.sleep(3)
+    ), meadowrun.job_worker_main.main_in_child_process():
+        with meadowflow.server.client.MeadowFlowClientSync() as client:
+            # wait for the meadowrun job runner to register itself with the scheduler
+            time.sleep(3)
 
-        client.add_jobs(
-            [
-                Job(
-                    pname("A"),
-                    LocalFunction(_run_func, ["hello", "there"]),
-                    [],
-                    JobRunnerTypePredicate("meadowrun"),
-                ),
-                Job(
-                    pname("B"),
-                    LocalFunction(_run_func),
-                    [
-                        TriggerAction(
-                            Actions.run,
-                            [
-                                AnyJobStateEventFilter(
-                                    [pname("A")], ["SUCCEEDED", "FAILED"]
-                                )
-                            ],
-                        )
-                    ],
-                    JobRunnerTypePredicate("meadowrun"),
-                ),
-                Job(
-                    pname("T"),
-                    LocalFunction(_run_func),
-                    [
-                        TriggerAction(
-                            Actions.run,
-                            [
-                                PointInTime(
-                                    meadowflow.time_event_publisher._utc_now()
-                                    + datetime.timedelta(seconds=1)
-                                )
-                            ],
-                        )
-                    ],
-                    JobRunnerTypePredicate("meadowrun"),
-                ),
+            client.add_jobs(
+                [
+                    Job(
+                        pname("A"),
+                        LocalFunction(_run_func, ["hello", "there"]),
+                        [],
+                        JobRunnerTypePredicate("meadowrun"),
+                    ),
+                    Job(
+                        pname("B"),
+                        LocalFunction(_run_func),
+                        [
+                            TriggerAction(
+                                Actions.run,
+                                [
+                                    AnyJobStateEventFilter(
+                                        [pname("A")], ["SUCCEEDED", "FAILED"]
+                                    )
+                                ],
+                            )
+                        ],
+                        JobRunnerTypePredicate("meadowrun"),
+                    ),
+                    Job(
+                        pname("T"),
+                        LocalFunction(_run_func),
+                        [
+                            TriggerAction(
+                                Actions.run,
+                                [
+                                    PointInTime(
+                                        meadowflow.time_event_publisher._utc_now()
+                                        + datetime.timedelta(seconds=1)
+                                    )
+                                ],
+                            )
+                        ],
+                        JobRunnerTypePredicate("meadowrun"),
+                    ),
+                ]
+            )
+
+            # wait for initial WAITING events to get created
+            _wait_for_events(client, 1, pname("B"), 1)
+            # This is a little sketchy because we aren't strictly guaranteed that A will
+            # get created before B, but this is good enough for now
+            assert 1 == len(client.get_events([pname("A")]))
+            assert 1 == len(client.get_events([pname("B")]))
+
+            # now run manually and then poll for 10s for events on A and B to show up
+            client.manual_run(pname("A"))
+            _wait_for_events(client, 10, pname("B"), 4)
+            a_events = client.get_events([pname("A")])
+            b_events = client.get_events([pname("B")])
+            assert 4 == len(a_events)
+            assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
+                e.payload.state for e in a_events
             ]
-        )
+            assert "hello, there" == a_events[0].payload.result_value
+            assert 4 == len(b_events)
 
-        # wait for initial WAITING events to get created
-        _wait_for_events(client, 1, pname("B"), 1)
-        # This is a little sketchy because we aren't strictly guaranteed that A will get
-        # created before B, but this is good enough for now
-        assert 1 == len(client.get_events([pname("A")]))
-        assert 1 == len(client.get_events([pname("B")]))
+            # Now run B manually with an args override and make sure the arguments make
+            # it through. Also use wait_for_completion=True, which means we don't need
+            # to use _wait_for_events
+            client.manual_run(
+                pname("B"),
+                JobRunOverrides(["manual", "override"]),
+                wait_for_completion=True,
+            )
+            assert (
+                "manual, override"
+                == client.get_events([pname("B")])[0].payload.result_value
+            )
 
-        # now run manually and then poll for 10s for events on A and B to show up
-        client.manual_run(pname("A"))
-        _wait_for_events(client, 10, pname("B"), 4)
-        a_events = client.get_events([pname("A")])
-        b_events = client.get_events([pname("B")])
-        assert 4 == len(a_events)
-        assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
-            e.payload.state for e in a_events
-        ]
-        assert "hello, there" == a_events[0].payload.result_value
-        assert 4 == len(b_events)
-
-        # Now run B manually with an args override and make sure the arguments make it
-        # through. Also use wait_for_completion=True, which means we don't need to use
-        # _wait_for_events
-        client.manual_run(
-            pname("B"),
-            JobRunOverrides(["manual", "override"]),
-            wait_for_completion=True,
-        )
-        assert (
-            "manual, override"
-            == client.get_events([pname("B")])[0].payload.result_value
-        )
-
-        # wait up to 2s, which means that T should have automatically been triggered and
-        # completed running
-        _wait_for_events(client, 2, pname("T"), 4)
-        t_events = client.get_events([pname("T")])
-        assert 4 == len(t_events)
-        assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
-            e.payload.state for e in t_events
-        ]
+            # wait up to 2s, which means that T should have automatically been triggered
+            # and completed running
+            _wait_for_events(client, 2, pname("T"), 4)
+            t_events = client.get_events([pname("T")])
+            assert 4 == len(t_events)
+            assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
+                e.payload.state for e in t_events
+            ]
 
 
 def test_triggers() -> None:

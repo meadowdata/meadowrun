@@ -73,7 +73,7 @@ def initial_setup():
                     GitRepo(
                         git_repo_root, git_branch, _PYTHON_INTERPRETER, path_in_repo
                     ),
-                    MeadowRunFunction(module, function),
+                    MeadowRunFunction.from_name(module, function),
                 ),
                 (),
             )
@@ -121,7 +121,7 @@ def _function(
         pname(job_name),
         MeadowRunFunctionGitRepo(
             GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
-            MeadowRunFunction(
+            MeadowRunFunction.from_name(
                 module_name, function_name, function_args, function_kwargs
             ),
         ),

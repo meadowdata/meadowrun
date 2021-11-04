@@ -25,7 +25,7 @@ def _function_wrapper(
     kwargs: Optional[Dict[str, Any]],
 ) -> Tuple[Any, meadowflow.effects.Effects]:
     """
-    This is roughly the LocalJobRunner equivalent to __meadowrun_func_runner.py, it will
+    This is roughly the LocalJobRunner equivalent to __meadowrun_func_worker.py, it will
     run in the ProcessPoolExecutor child processes
     """
 

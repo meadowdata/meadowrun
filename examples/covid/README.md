@@ -136,9 +136,10 @@ it](https://python-poetry.org/docs/#installation) first. Then:
 # one time setup of virtualenv
 poetry install
 
-# run these two commands in their own shell
+# run these three commands in their own shells
 poetry run meadowflow_
-poetry run meadowrun_ --meadowflow-address localhost:15321
+poetry run meadowrun_coordinator_ --meadowflow-address localhost:15321
+poetry run meadowrun_job_worker_
 
 # now simulate using the UI/command line
 poetry run python

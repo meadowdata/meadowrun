@@ -38,7 +38,7 @@ JobState = Literal[
     "WAITING",
     # A run of the job has been requested on a job runner
     "RUN_REQUESTED",
-    # The job is currently running. JobPayload.pid will be populated
+    # The job is currently running. JobPayload.pid may be populated
     "RUNNING",
     # The job has completed normally. JobPayload.result_value and pid will be populated
     "SUCCEEDED",

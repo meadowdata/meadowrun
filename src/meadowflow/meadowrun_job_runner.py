@@ -1,10 +1,9 @@
-import pickle
 import dataclasses
+import pickle
 from typing import Iterable, Sequence, Union, Optional, Dict, Any
 
 from meadowflow.event_log import Event, EventLog
 from meadowflow.git_repo import GitRepo
-from meadowflow.topic_names import TopicName
 from meadowflow.jobs import (
     RaisedException,
     JobPayload,
@@ -13,8 +12,12 @@ from meadowflow.jobs import (
     JobRunner,
     VersionedJobRunnerFunction,
 )
-from meadowrun.client import MeadowRunClientAsync, ProcessStateEnum
-from meadowrun.config import DEFAULT_ADDRESS
+from meadowflow.topic_names import TopicName
+from meadowrun.config import DEFAULT_COORDINATOR_ADDRESS
+from meadowrun.coordinator_client import (
+    MeadowRunCoordinatorClientAsync,
+    ProcessStateEnum,
+)
 from meadowrun.deployed_function import (
     MeadowRunFunction,
     MeadowRunDeployedFunction,
@@ -26,8 +29,8 @@ from meadowrun.deployed_function import (
 class MeadowRunJobRunner(JobRunner):
     """Integrates meadowrun with meadowflow. Runs jobs on a meadowrun server."""
 
-    def __init__(self, event_log: EventLog, address: str = DEFAULT_ADDRESS):
-        self._client = MeadowRunClientAsync(address)
+    def __init__(self, event_log: EventLog, address: str = DEFAULT_COORDINATOR_ADDRESS):
+        self._client = MeadowRunCoordinatorClientAsync(address)
         self._event_log = event_log
 
     async def _run_deployed_function(
@@ -41,11 +44,11 @@ class MeadowRunJobRunner(JobRunner):
         )
 
         if isinstance(deployed_function, MeadowRunDeployedCommand):
-            result = await self._client.run_py_command(
+            result = await self._client.add_py_command_job(
                 run_request_id, job_name.as_file_name(), deployed_function
             )
         elif isinstance(deployed_function, MeadowRunDeployedFunction):
-            result = await self._client.run_py_func(
+            result = await self._client.add_py_func_job(
                 run_request_id, job_name.as_file_name(), deployed_function
             )
         else:
@@ -53,25 +56,13 @@ class MeadowRunJobRunner(JobRunner):
                 f"Unexpected type of deployed_function {type(deployed_function)}"
             )
 
-        if result.state == ProcessStateEnum.REQUEST_IS_DUPLICATE:
+        if result == "IS_DUPLICATE":
             # TODO handle this case and test it
             raise NotImplementedError()
-        elif result.state == ProcessStateEnum.RUNNING:
-            # TODO there is a very bad race condition here--the sequence of events could
-            #  be:
-            #  - run records RUN_REQUESTED
-            #  - the meadowrun server runs the job and it completes
-            #  - poll_jobs runs and records SUCCEEDED
-            #  - the post-await continuation of run happens and records RUNNING
-            self._event_log.append_event(
-                job_name,
-                JobPayload(run_request_id, "RUNNING", pid=result.pid),
-            )
-        elif result.state == ProcessStateEnum.RUN_REQUEST_FAILED:
-            # TODO handle this case and test it
-            raise NotImplementedError(str(pickle.loads(result.pickled_result)))
+        elif result == "ADDED":
+            pass  # success
         else:
-            raise ValueError(f"Did not expect ProcessStateEnum {result.state}")
+            raise ValueError(f"Did not expect AddJobState {result}")
 
     async def run(
         self,
@@ -109,7 +100,7 @@ class MeadowRunJobRunner(JobRunner):
         """
 
         last_events = list(last_events)
-        process_states = await self._client.get_process_states(
+        process_states = await self._client.get_simple_job_states(
             [e.payload.request_id for e in last_events]
         )
 
@@ -131,7 +122,13 @@ class MeadowRunJobRunner(JobRunner):
                 new_payload = JobPayload(
                     request_id, "RUN_REQUESTED", pid=process_state.pid
                 )
+            elif process_state.state == ProcessStateEnum.ASSIGNED:
+                new_payload = JobPayload(request_id, "RUNNING")
             elif process_state.state == ProcessStateEnum.RUNNING:
+                # TODO if we already created a RUNNING event without a pid based on a
+                #  ProcessStateEnum.ASSIGNED, this update will be ignored and we'll
+                #  never get the pid of the process. This could be okay, or we could fix
+                #  this.
                 new_payload = JobPayload(request_id, "RUNNING", pid=process_state.pid)
             elif process_state.state == ProcessStateEnum.SUCCEEDED:
                 if process_state.pickled_result:

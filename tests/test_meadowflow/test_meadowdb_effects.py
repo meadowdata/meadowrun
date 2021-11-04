@@ -4,7 +4,6 @@ import sys
 import pandas as pd
 
 import meadowdb
-import meadowrun.server_main
 from meadowflow.jobs import (
     Job,
     LocalFunction,
@@ -19,6 +18,8 @@ from meadowflow.scopes import BASE_SCOPE, ALL_SCOPES, ScopeValues
 from meadowflow.topic import TriggerAction
 from meadowflow.topic_names import pname
 from meadowdb.connection import MeadowdbEffects, prod_userspace_name
+import meadowrun.coordinator_main
+import meadowrun.job_worker_main
 from meadowrun.deployed_function import (
     MeadowRunDeployedCommand,
     MeadowRunDeployedFunction,
@@ -57,73 +58,76 @@ def test_meadowdb_effects():
     """
     Tests that meadowdb effects come through meadowrun commands and functions
     """
-    with meadowrun.server_main.main_in_child_process(), Scheduler(
-        job_runner_poll_delay_seconds=0.05
-    ) as scheduler:
-        scheduler.register_job_runner(MeadowRunJobRunner)
+    with (
+        meadowrun.coordinator_main.main_in_child_process(),
+        meadowrun.job_worker_main.main_in_child_process(),
+    ):
+        with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+            scheduler.register_job_runner(MeadowRunJobRunner)
 
-        scheduler.add_jobs(
-            [
-                Job(
-                    pname("Command"),
-                    MeadowRunDeployedCommand(
-                        ServerAvailableFolder(
-                            code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
-                            interpreter_path=sys.executable,
+            scheduler.add_jobs(
+                [
+                    Job(
+                        pname("Command"),
+                        MeadowRunDeployedCommand(
+                            ServerAvailableFolder(
+                                code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
+                                interpreter_path=sys.executable,
+                            ),
+                            command_line=["python", "write_to_table.py"],
                         ),
-                        command_line=["python", "write_to_table.py"],
+                        (),
                     ),
-                    (),
-                ),
-                Job(
-                    pname("Func"),
-                    MeadowRunDeployedFunction(
-                        ServerAvailableFolder(
-                            code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
-                            interpreter_path=sys.executable,
+                    Job(
+                        pname("Func"),
+                        MeadowRunDeployedFunction(
+                            ServerAvailableFolder(
+                                code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
+                                interpreter_path=sys.executable,
+                            ),
+                            MeadowRunFunction.from_name("write_to_table", "main"),
                         ),
-                        MeadowRunFunction(
-                            module_name="write_to_table",
-                            function_name="main",
-                        ),
+                        (),
                     ),
-                    (),
-                ),
-            ]
-        )
+                ]
+            )
 
-        scheduler.main_loop()
+            scheduler.main_loop()
 
-        scheduler.manual_run(pname("Command"))
-        scheduler.manual_run(pname("Func"))
-        _wait_for_scheduler(scheduler)
+            scheduler.manual_run(pname("Command"))
+            scheduler.manual_run(pname("Func"))
+            _wait_for_scheduler(scheduler)
 
-        command_events = scheduler.events_of(pname("Command"))
-        func_events = scheduler.events_of(pname("Func"))
-        for events in (command_events, func_events):
-            assert 4 == len(events)
-            assert "SUCCEEDED" == events[0].payload.state
-            all_effects = events[0].payload.effects.meadowdb_effects
-            assert len(all_effects) == 1
-            effects: MeadowdbEffects = list(all_effects.values())[0]
-            assert list(effects.tables_read.keys()) == [("prod", "A")]
-            assert list(effects.tables_written.keys()) == [("prod", "A")]
+            command_events = scheduler.events_of(pname("Command"))
+            func_events = scheduler.events_of(pname("Func"))
+            for events in (command_events, func_events):
+                assert 4 == len(events)
+                assert "SUCCEEDED" == events[0].payload.state
+                all_effects = events[0].payload.effects.meadowdb_effects
+                assert len(all_effects) == 1
+                effects: MeadowdbEffects = list(all_effects.values())[0]
+                assert list(effects.tables_read.keys()) == [("prod", "A")]
+                assert list(effects.tables_written.keys()) == [("prod", "A")]
 
-        # do everything again with meadowdb_userspace set
-        scheduler.manual_run(pname("Command"), JobRunOverrides(meadowdb_userspace="U1"))
-        scheduler.manual_run(pname("Func"), JobRunOverrides(meadowdb_userspace="U1"))
-        _wait_for_scheduler(scheduler)
+            # do everything again with meadowdb_userspace set
+            scheduler.manual_run(
+                pname("Command"), JobRunOverrides(meadowdb_userspace="U1")
+            )
+            scheduler.manual_run(
+                pname("Func"), JobRunOverrides(meadowdb_userspace="U1")
+            )
+            _wait_for_scheduler(scheduler)
 
-        command_events = scheduler.events_of(pname("Command"))
-        func_events = scheduler.events_of(pname("Func"))
-        for events in (command_events, func_events):
-            assert 7 == len(events)
-            assert "SUCCEEDED" == events[0].payload.state
-            all_effects = events[0].payload.effects.meadowdb_effects
-            assert len(all_effects) == 1
-            effects: MeadowdbEffects = list(all_effects.values())[0]
-            assert list(effects.tables_read.keys()) == [("U1", "A")]
-            assert list(effects.tables_written.keys()) == [("U1", "A")]
+            command_events = scheduler.events_of(pname("Command"))
+            func_events = scheduler.events_of(pname("Func"))
+            for events in (command_events, func_events):
+                assert 7 == len(events)
+                assert "SUCCEEDED" == events[0].payload.state
+                all_effects = events[0].payload.effects.meadowdb_effects
+                assert len(all_effects) == 1
+                effects: MeadowdbEffects = list(all_effects.values())[0]
+                assert list(effects.tables_read.keys()) == [("U1", "A")]
+                assert list(effects.tables_written.keys()) == [("U1", "A")]
 
 
 def test_meadowdb_dependency():

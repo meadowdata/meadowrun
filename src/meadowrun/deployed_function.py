@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 import importlib
 import sys
@@ -9,11 +11,50 @@ from meadowrun.meadowrun_pb2 import GitRepoCommit, ServerAvailableFolder
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunFunction:
+class MeadowRunFunctionName:
+    # module_name can have dots like outer_package.inner_package.module as usual
     module_name: str
+    # the name of a module-level function in the module specified by module_name
     function_name: str
+
+
+@dataclasses.dataclass(frozen=True)
+class MeadowRunFunction:
+    # bytes should be interpreted as a pickled function
+    function_spec: Union[MeadowRunFunctionName, bytes]
     function_args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
+
+    @classmethod
+    def from_pickled(
+        cls,
+        pickled_function: bytes,
+        function_args: Optional[Sequence[Any]] = None,
+        function_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> MeadowRunFunction:
+        if function_args is None:
+            function_args = []
+        if function_kwargs is None:
+            function_kwargs = {}
+        return cls(pickled_function, function_args, function_kwargs)
+
+    @classmethod
+    def from_name(
+        cls,
+        module_name: str,
+        function_name: str,
+        function_args: Optional[Sequence[Any]] = None,
+        function_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> MeadowRunFunction:
+        if function_args is None:
+            function_args = []
+        if function_kwargs is None:
+            function_kwargs = {}
+        return cls(
+            MeadowRunFunctionName(module_name, function_name),
+            function_args,
+            function_kwargs,
+        )
 
 
 DeploymentTypes = (ServerAvailableFolder, GitRepoCommit)
@@ -23,7 +64,7 @@ Deployment = Union[DeploymentTypes]
 @dataclasses.dataclass(frozen=True)
 class MeadowRunDeployedCommand:
     """
-    A command that the MeadowRun server can run. Specifies a deployment that tells a
+    A command that a MeadowRun worker can run. Specifies a deployment that tells a
     MeadowRun server where to find the codebase (and by extension the python
     interpreter). The command is then run with the codebase as the working directory and
     the python interpreter's Scripts folder in the path. This allows you to run commands
@@ -51,6 +92,7 @@ class MeadowRunDeployedFunction:
     environment_variables: Optional[Dict[str, str]] = None
 
 
+# maybe convert this to just use cloudpickle?
 def convert_local_to_deployed_function(
     function_pointer: Callable[..., Any],
     function_args: Sequence[Any],
@@ -114,7 +156,7 @@ def convert_local_to_deployed_function(
 
     return MeadowRunDeployedFunction(
         ServerAvailableFolder(code_paths=code_paths, interpreter_path=sys.executable),
-        MeadowRunFunction(
+        MeadowRunFunction.from_name(
             function_pointer.__module__,
             function_pointer.__qualname__,
             function_args,

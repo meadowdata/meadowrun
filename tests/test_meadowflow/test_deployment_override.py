@@ -1,12 +1,13 @@
 import sys
 from typing import Union
 
-import meadowrun.server_main
 from meadowflow.git_repo import GitRepo
 from meadowflow.jobs import Job, JobRunOverrides
 from meadowflow.meadowrun_job_runner import MeadowRunJobRunner
 from meadowflow.scheduler import Scheduler
 from meadowflow.topic_names import pname
+import meadowrun.coordinator_main
+import meadowrun.job_worker_main
 from meadowrun.deployed_function import (
     MeadowRunDeployedFunction,
     MeadowRunFunction,
@@ -19,7 +20,10 @@ from test_meadowrun import EXAMPLE_CODE, MEADOWDATA_CODE, TEST_REPO
 
 def test_deployment_override() -> None:
     """Tests using JobRunOverride.deployment"""
-    with meadowrun.server_main.main_in_child_process():
+    with (
+        meadowrun.coordinator_main.main_in_child_process(),
+        meadowrun.job_worker_main.main_in_child_process(),
+    ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
@@ -34,9 +38,8 @@ def test_deployment_override() -> None:
                                 code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
                                 interpreter_path=sys.executable,
                             ),
-                            MeadowRunFunction(
-                                module_name="example_package.example",
-                                function_name="unique_per_deployment",
+                            MeadowRunFunction.from_name(
+                                "example_package.example", "unique_per_deployment"
                             ),
                         ),
                         (),

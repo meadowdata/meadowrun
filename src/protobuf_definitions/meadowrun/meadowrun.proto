@@ -11,16 +11,23 @@ message StringPair {
 }
 
 
-// Represents a folder (or folders) that presumably contain code that the meadowrun server
-// can access directly
+// Represents a folder (or folders) that presumably contain code that the meadowrun
+// server can access directly
 message ServerAvailableFolder {
+    // code_paths[0] will be set as the working directory, and all code_paths will be
+    // added to the PYTHONPATH. These code_paths must "make sense" on the machine where
+    // the meadowrun worker is running. The typical use case for this is that the
+    // meadowrun workers have access to a shared filesystem where code has been deployed.
+    // Order matters as usual for PYTHONPATH. There must be at least one code_path.
     repeated string code_paths = 1;
+
+    // The path to the python interpreter to use
     string interpreter_path = 2;
 }
 
 
-// Represents a git repo at a specific commit. See MeadowRunFunctionGitRepo for docstrings
-// on repo_url and interpreter_path
+// Represents a git repo at a specific commit. See MeadowRunFunctionGitRepo for
+// docstrings on repo_url and interpreter_path
 message GitRepoCommit {
     string repo_url = 1;
 
@@ -30,59 +37,161 @@ message GitRepoCommit {
 
     string interpreter_path = 3;
 
+    // specifies a relative path within the repo to treat as the "root" directory for
+    // the purposes of this deployment
     string path_in_repo = 4;
 }
 
 
-message RunPyCommandRequest {
-    string request_id = 1;
-    string log_file_name = 2;
-    oneof deployment {
-        ServerAvailableFolder server_available_folder = 3;
-        GitRepoCommit git_repo_commit = 4;
-    }
-    repeated string command_line = 5;
-    bytes pickled_context_variables = 6;
-    repeated StringPair environment_variables = 7;
-    int32 result_highest_pickle_protocol = 8;
+message PyCommandJob {
+    repeated string command_line = 1;
+    bytes pickled_context_variables = 2;
 }
 
 
-message RunPyFuncRequest {
-    string request_id = 1;
-    string log_file_name = 2;
+message QualifiedFunctionName {
+    string module_name = 1;
+    string function_name = 2;
+}
+
+
+message PyFunctionJob {
+    oneof function_spec {
+        QualifiedFunctionName qualified_function_name = 1;
+        bytes pickled_function = 2;
+    }
+    bytes pickled_function_arguments = 3;
+}
+
+
+message GridTask {
+    int32 task_id = 1;
+    bytes pickled_function_arguments = 2;
+}
+
+
+message PyGridJob {
+    PyFunctionJob function = 1;
+    repeated GridTask tasks = 2;
+    bool all_tasks_added = 3;
+}
+
+
+message AddTasksToGridJobRequest {
+    string job_id = 1;
+    repeated GridTask tasks = 2;
+    bool all_tasks_added = 3;
+}
+
+
+message Job {
+
+    // job_id uniquely identifies this request to avoid duplicates and for getting the
+    // results later. Make sure job_id is unique! Multiple requests with the same job_id
+    // will be treated as duplicates even if all of the other parameters are different.
+    // Also, job_id may only use string.ascii_letters, numbers, ., -, and _.
+    string job_id = 1;
+    string job_friendly_name = 2;
+
+    // priority determines which jobs are worked on first. The likelihood that a
+    // coordinator assigns a particular job to the next available worker is the priority
+    // of that job relative to the sum of the priorities of all jobs that need to be
+    // worked on. Roughly, the overall intended effect is that if a particular job has
+    // e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowrun compute
+    // resources will be dedicated to this job.
+    int32 priority = 3;
+
+    // TODO possible that deployment belongs in job_spec?
     oneof deployment {
-        ServerAvailableFolder server_available_folder = 3;
-        GitRepoCommit git_repo_commit = 4;
+        ServerAvailableFolder server_available_folder = 4;
+        GitRepoCommit git_repo_commit = 5;
         // TODO add more options here, e.g. S3 folder
     }
-    string module_name = 5;
-    string function_name = 6;
-    bytes pickled_function_arguments = 7;
-    repeated StringPair environment_variables = 8;
-    int32 result_highest_pickle_protocol = 9;
+    repeated StringPair environment_variables = 6;
+
+    // result_highest_pickle_protocol tells the remote code what the highest pickle
+    // protocol we can read on this end is which will help it determine what pickle
+    // protocol to use to send back results. This should almost always be set to
+    // pickle.HIGHEST_PROTOCOL in the calling python process
+    int32 result_highest_pickle_protocol = 7;
+
+    // determines what kind of job this is
+    oneof job_spec {
+        PyCommandJob py_command = 8;
+        PyFunctionJob py_function = 9;
+        PyGridJob py_grid = 10;
+    }
 }
 
 
-message ProcessStatesRequest {
-    repeated string request_ids = 1;
+message AddJobResponse {
+    enum AddJobState {
+        DEFAULT = 0;
+        ADDED = 1;
+        IS_DUPLICATE = 2;
+    }
+    AddJobState state = 1;
 }
 
 
+message NextJobRequest {
+    // TODO this should also include resources, and we should let users know if there's
+    // a job that won't run because its required resources aren't available
+}
+
+
+// Represents the state of a process, can apply to a job or a grid task
 message ProcessState {
     enum ProcessStateEnum {
+        // Reserved, not used
         DEFAULT = 0;
-        REQUEST_IS_DUPLICATE = 1;
-        RUN_REQUESTED = 2;
-        RUNNING = 3;
-        SUCCEEDED = 4;
 
+        // These states represent a job that is "in progress"
+
+        // The meadowrun coordinator has received the Job
+        RUN_REQUESTED = 1;
+        // The meadowrun coordinator has assigned the Job to a worker
+        // TODO add worker_id
+        ASSIGNED = 2;
+        // The assigned worker has launched the job. pid and log_file_name will be
+        // populated.
+        RUNNING = 3;
+
+        // These states represent a job that is "done". pid, log_file_name, and
+        // return_code will be populated unless otherwise noted.
+
+        // The job has completed normally. pickled_result may be populated.
+        SUCCEEDED = 4;
+        // There was an exception before launching the job process. pid, log_file_name,
+        // and return_code will not be populated. pickled_result will be populated with
+        // a tuple representing the python exception from the job_worker process (see
+        // PYTHON_EXCEPTION for the format).
         RUN_REQUEST_FAILED = 5;
+        // A python exception was thrown from the job process. pickled_result will be a
+        // pickled tuple (exception_type, exception_message, exception_traceback). We
+        // don't pickle the exception itself because it may not be unpicklable on this
+        // end (e.g. it involves types that don't exist in the current process' code
+        // base). Exceptions are by their nature unexpected, so we shouldn't expect that
+        // they can be unpickled on the client.
         PYTHON_EXCEPTION = 6;
+        // The process exited with a non-zero return code. This could mean that a
+        // non-python exception was thrown (e.g. in the interpreter itself, or in a C
+        // extension), or os.exit was called with a non-zero argument, or there was a
+        // python exception thrown in the meadowrun worker code.
         NON_ZERO_RETURN_CODE = 7;
+        // Cancelled by request. pid, log_file_name, and return_code may not be
+        // populated.
+        // TODO implement cancelling
         CANCELLED = 8;
-        UNKNOWN = 9;
-        ERROR_GETTING_STATE = 10;
+        // There was an error while reading the outputs of the process. This could mean
+        // that the child process somehow silently failed to write its outputs correctly
+        // or there was a python exception thrown in the meadowrun worker code.
+        ERROR_GETTING_STATE = 9;
+
+        // This state represents a job that is neither "done" nor "in progress"
+
+        // We do not know the job id
+        UNKNOWN = 10;
     }
     ProcessStateEnum state = 1;
     int32 pid = 2;
@@ -91,15 +200,86 @@ message ProcessState {
     int32 return_code = 5;
 }
 
+
 message ProcessStates {
     repeated ProcessState process_states = 1;
 }
 
 
-service MeadowRunServer {
-    rpc run_py_command(RunPyCommandRequest) returns (ProcessState) {};
+// A general note on terminology below: a StateRequest is when a client requests the
+// state of a Job or GridTask. A plain State is a response to that kind of request. A
+// StateUpdate is when a worker is updating the coordinator that a Job/GridTask has
+// entered a new state.
 
-    rpc run_py_func(RunPyFuncRequest) returns (ProcessState) {};
 
-    rpc get_process_states(ProcessStatesRequest) returns (ProcessStates) {};
+// For requesting states of a job
+message JobStatesRequest {
+    repeated string job_ids = 1;
+}
+
+
+// For updating the state of a job
+message JobStateUpdate {
+    string job_id = 1;
+    ProcessState process_state = 2;
+}
+
+
+// For updating the states of jobs
+message JobStateUpdates {
+    repeated JobStateUpdate job_states = 1;
+}
+
+
+// For requesting the states of grid tasks
+message GridTaskStatesRequest {
+    string job_id = 1;
+    repeated int32 task_ids_to_ignore = 2;
+}
+
+
+// For getting the state of a grid task
+message GridTaskState {
+    int32 task_id = 1;
+    ProcessState process_state = 2;
+}
+
+
+// For getting the states of grid tasks
+message GridTaskStates {
+    repeated GridTaskState task_states = 1;
+}
+
+
+// For updating the state of a grid task and getting the next task
+message GridTaskUpdateAndGetNextRequest {
+    // required, indicates what grid_job we're (optionally) updating and what grid_job
+    // the next task should come from
+    string job_id = 1;
+
+    // -1 means we don't have a completed task to update. >= 0 means we are updating the
+    // state on the specified task
+    int32 task_id = 2;
+
+    // the updated state for the specified task if task_id >= 0
+    ProcessState process_state = 3;
+}
+
+
+message UpdateStateResponse {
+}
+
+
+service MeadowRunCoordinator {
+    rpc add_job(Job) returns (AddJobResponse) {};
+    rpc add_tasks_to_grid_job(AddTasksToGridJobRequest) returns (AddJobResponse) {};
+
+    rpc update_job_states(JobStateUpdates) returns (UpdateStateResponse) {};
+    rpc get_next_job(NextJobRequest) returns (Job) {};
+
+    // this can only get tasks from the same job
+    rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
+
+    rpc get_simple_job_states(JobStatesRequest) returns (ProcessStates) {};
+    rpc get_grid_task_states(GridTaskStatesRequest) returns (GridTaskStates) {};
 }

@@ -7,10 +7,10 @@ from typing import Optional, Tuple, Any, Dict, Union
 from meadowflow.event_log import EventLog, Event, Timestamp
 import meadowflow.jobs
 from meadowflow.topic_names import TopicName, FrozenDict
-from meadowrun.deployed_function import (
-    MeadowRunFunction,
-    MeadowRunDeployedFunction,
-    MeadowRunDeployedCommand,
+from meadowgrid.deployed_function import (
+    MeadowGridFunction,
+    MeadowGridDeployedFunction,
+    MeadowGridDeployedCommand,
 )
 
 
@@ -45,17 +45,17 @@ def replace_latest_events(
         return _replace_latest_events_function(
             job_runner_function, job, event_log, latest_timestamp
         )[1]
-    elif isinstance(job_runner_function, MeadowRunDeployedFunction):
+    elif isinstance(job_runner_function, MeadowGridDeployedFunction):
         need_replacement, new_function = _replace_latest_events_function(
-            job_runner_function.meadowrun_function, job, event_log, latest_timestamp
+            job_runner_function.meadowgrid_function, job, event_log, latest_timestamp
         )
         if need_replacement:
             return dataclasses.replace(
-                job_runner_function, meadowrun_function=new_function
+                job_runner_function, meadowgrid_function=new_function
             )
         else:
             return job_runner_function
-    elif isinstance(job_runner_function, MeadowRunDeployedCommand):
+    elif isinstance(job_runner_function, MeadowGridDeployedCommand):
         if job_runner_function.context_variables:
             need_replacement, new_vars = _replace_latest_events_dict(
                 job_runner_function.context_variables, job, event_log, latest_timestamp
@@ -68,11 +68,11 @@ def replace_latest_events(
 
 
 def _replace_latest_events_function(
-    function: Union[meadowflow.jobs.LocalFunction, MeadowRunFunction],
+    function: Union[meadowflow.jobs.LocalFunction, MeadowGridFunction],
     job: meadowflow.jobs.Job,
     event_log: EventLog,
     latest_timestamp: Timestamp,
-) -> Tuple[bool, Union[meadowflow.jobs.LocalFunction, MeadowRunFunction]]:
+) -> Tuple[bool, Union[meadowflow.jobs.LocalFunction, MeadowGridFunction]]:
     """
     Helper for replace_latest_events. This function should work on any dataclass that
     has a function_args and function_kwargs property

@@ -89,7 +89,7 @@ class MeadowFlowClientAsync:
         Tells the meadowflow server to create a job runner of type job_runner_type
         pointed at address.
 
-        Currently the only supported types are "meadowrun".
+        Currently the only supported types are "meadowgrid".
 
         # TODO error handling, think about return type
         """

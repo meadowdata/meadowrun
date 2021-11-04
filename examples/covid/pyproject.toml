@@ -8,8 +8,8 @@ packages = [{ include = "scripts_redirect.py" }]
 # This section should not be necessary, this is a workaround until
 # https://github.com/python-poetry/poetry/issues/3265 is fixed
 [tool.poetry.scripts]
-meadowrun_coordinator_ = 'scripts_redirect:meadowrun_coordinator_'
-meadowrun_job_worker_ = 'scripts_redirect:meadowrun_job_worker_'
+meadowgrid_coordinator_ = 'scripts_redirect:meadowgrid_coordinator_'
+meadowgrid_job_worker_ = 'scripts_redirect:meadowgrid_job_worker_'
 meadowflow_ = 'scripts_redirect:meadowflow_'
 
 [tool.poetry.dependencies]

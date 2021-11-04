@@ -5,7 +5,7 @@ import pathlib
 import shutil
 from typing import Literal, List, Optional, Tuple, Dict
 
-from meadowrun.meadowrun_pb2 import Job, GitRepoCommit
+from meadowgrid.meadowgrid_pb2 import Job, GitRepoCommit
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 

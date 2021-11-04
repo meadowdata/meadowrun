@@ -7,30 +7,30 @@ from typing import Sequence
 
 import pip
 
-import meadowrun.coordinator
-import meadowrun.coordinator_main
-import meadowrun.job_worker_main
-from meadowrun.coordinator_client import (
-    MeadowRunCoordinatorClientAsync,
+import meadowgrid.coordinator
+import meadowgrid.coordinator_main
+import meadowgrid.job_worker_main
+from meadowgrid.coordinator_client import (
+    MeadowGridCoordinatorClientAsync,
     ProcessStateEnum,
 )
-from meadowrun.deployed_function import (
-    MeadowRunFunction,
+from meadowgrid.deployed_function import (
+    MeadowGridFunction,
     Deployment,
-    MeadowRunDeployedCommand,
-    MeadowRunDeployedFunction,
+    MeadowGridDeployedCommand,
+    MeadowGridDeployedFunction,
 )
-from meadowrun.grid import grid_map
-from meadowrun.meadowrun_pb2 import ServerAvailableFolder, GitRepoCommit, ProcessState
+from meadowgrid.grid import grid_map
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, GitRepoCommit, ProcessState
 
 
 EXAMPLE_CODE = str((pathlib.Path(__file__).parent / "example_user_code").resolve())
 MEADOWDATA_CODE = str((pathlib.Path(__file__).parent.parent / "src").resolve())
 
 
-def test_meadowrun_server_available_folder():
+def test_meadowgrid_server_available_folder():
 
-    _test_meadowrun(
+    _test_meadowgrid(
         ServerAvailableFolder(
             code_paths=[EXAMPLE_CODE], interpreter_path=sys.executable
         )
@@ -44,12 +44,12 @@ TEST_REPO = str((pathlib.Path(__file__).parent.parent.parent / "test_repo").reso
 # separately and the child processes we start in these tests will just silently fail.
 
 
-def test_meadowrun_server_git_repo_commit():
+def test_meadowgrid_server_git_repo_commit():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowdata repo.
     """
-    _test_meadowrun(
+    _test_meadowgrid(
         GitRepoCommit(
             repo_url=TEST_REPO,
             commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
@@ -59,7 +59,7 @@ def test_meadowrun_server_git_repo_commit():
 
 
 async def _wait_for_process(
-    client: MeadowRunCoordinatorClientAsync, job_id: str
+    client: MeadowGridCoordinatorClientAsync, job_id: str
 ) -> Sequence[ProcessState]:
     """wait (no more than ~10s) for the remote process to finish"""
     i = 0
@@ -100,14 +100,14 @@ def assert_successful(state: ProcessState) -> None:
         )
 
 
-def _test_meadowrun(deployment: Deployment):
+def _test_meadowgrid(deployment: Deployment):
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
 
         async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
+            async with MeadowGridCoordinatorClientAsync() as client:
 
                 # run a remote process
                 arguments = ["foo"]
@@ -115,9 +115,9 @@ def _test_meadowrun(deployment: Deployment):
                 add_job_state = await client.add_py_func_job(
                     request_id,
                     "example_runner",
-                    MeadowRunDeployedFunction(
+                    MeadowGridDeployedFunction(
                         deployment,
-                        MeadowRunFunction.from_name(
+                        MeadowGridFunction.from_name(
                             "example_package.example", "example_runner", arguments
                         ),
                     ),
@@ -128,12 +128,12 @@ def _test_meadowrun(deployment: Deployment):
                 duplicate_add_job_state = await client.add_py_func_job(
                     request_id,
                     "baz",
-                    MeadowRunDeployedFunction(
+                    MeadowGridDeployedFunction(
                         ServerAvailableFolder(
                             code_paths=["foo"],
                             interpreter_path=sys.executable,
                         ),
-                        MeadowRunFunction.from_name("foo.bar", "baz", ["foo"]),
+                        MeadowGridFunction.from_name("foo.bar", "baz", ["foo"]),
                     ),
                 )
                 assert duplicate_add_job_state == "IS_DUPLICATE"
@@ -171,7 +171,7 @@ def _test_meadowrun(deployment: Deployment):
                 add_job_state = await client.add_py_command_job(
                     request_id,
                     "pip",
-                    MeadowRunDeployedCommand(deployment, ["pip", "--version"]),
+                    MeadowGridDeployedCommand(deployment, ["pip", "--version"]),
                 )
                 assert add_job_state == "ADDED"
 
@@ -185,7 +185,7 @@ def _test_meadowrun(deployment: Deployment):
         asyncio.run(run())
 
 
-def test_meadowrun_server_path_in_repo():
+def test_meadowgrid_server_path_in_repo():
     """
     Tests GitRepoCommit.path_in_repo
 
@@ -194,12 +194,12 @@ def test_meadowrun_server_path_in_repo():
     """
 
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
 
         async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
+            async with MeadowGridCoordinatorClientAsync() as client:
 
                 # run a remote process
                 arguments = ["foo"]
@@ -207,14 +207,14 @@ def test_meadowrun_server_path_in_repo():
                 await client.add_py_func_job(
                     request_id,
                     "example_runner",
-                    MeadowRunDeployedFunction(
+                    MeadowGridDeployedFunction(
                         GitRepoCommit(
                             repo_url=TEST_REPO,
                             commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
                             interpreter_path=sys.executable,
                             path_in_repo="example_package",
                         ),
-                        MeadowRunFunction.from_name(
+                        MeadowGridFunction.from_name(
                             "example", "example_runner", arguments
                         ),
                     ),
@@ -231,7 +231,7 @@ def test_meadowrun_server_path_in_repo():
         asyncio.run(run())
 
 
-def test_meadowrun_command_context_variables():
+def test_meadowgrid_command_context_variables():
     """
     Runs example_script twice (in parallel), once with no context variables, and once
     with context variables. Makes sure the output is the same in both cases.
@@ -242,25 +242,25 @@ def test_meadowrun_command_context_variables():
     )
 
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
 
         async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
+            async with MeadowGridCoordinatorClientAsync() as client:
                 request_id3 = "request3"
                 request_id4 = "request4"
                 await client.add_py_command_job(
                     request_id3,
                     "example_script",
-                    MeadowRunDeployedCommand(
+                    MeadowGridDeployedCommand(
                         deployment, ["python", "example_script.py"]
                     ),
                 )
                 await client.add_py_command_job(
                     request_id4,
                     "example_script",
-                    MeadowRunDeployedCommand(
+                    MeadowGridDeployedCommand(
                         deployment, ["python", "example_script.py"], {"foo": "bar"}
                     ),
                 )
@@ -280,10 +280,10 @@ def test_meadowrun_command_context_variables():
         asyncio.run(run())
 
 
-def test_meadowrun_grid_job():
+def test_meadowgrid_grid_job():
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
         results = grid_map(
             lambda s: f"hello {s}",

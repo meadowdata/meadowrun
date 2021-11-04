@@ -7,8 +7,8 @@ import pytz
 
 import meadowflow.server.config
 import meadowflow.server.server_main
-import meadowrun.coordinator_main
-import meadowrun.job_worker_main
+import meadowgrid.coordinator_main
+import meadowgrid.job_worker_main
 from meadowflow.event_log import Event
 from meadowflow.events_arg import LatestEventsArg
 from meadowflow.git_repo import GitRepo
@@ -25,16 +25,19 @@ from meadowflow.jobs import (
     LocalFunction,
     add_scope_jobs_decorator,
 )
-from meadowflow.meadowrun_job_runner import MeadowRunJobRunner, MeadowRunFunctionGitRepo
+from meadowflow.meadowgrid_job_runner import (
+    MeadowGridJobRunner,
+    MeadowGridFunctionGitRepo,
+)
 from meadowflow.scheduler import Scheduler
 from meadowflow.scopes import ScopeValues, ScopeInstantiated
 from meadowflow.server.client import MeadowFlowClientSync
 from meadowflow.time_event_publisher import PointInTime, PointInTimePredicate
 from meadowflow.topic import TriggerAction, NotPredicate
 from meadowflow.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
-from meadowrun.deployed_function import MeadowRunFunction
+from meadowgrid.deployed_function import MeadowGridFunction
 from test_meadowflow.test_time_events import _TIME_INCREMENT
-from test_meadowrun import TEST_REPO
+from test_meadowgrid import TEST_REPO
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
@@ -70,53 +73,53 @@ def test_simple_jobs_local() -> None:
         )
 
 
-def test_simple_jobs_meadowrun_server_available() -> None:
+def test_simple_jobs_meadowgrid_server_available() -> None:
     """
-    Tests a simple use case using the meadowrun jobrunner with a ServerAvailableFolder
+    Tests a simple use case using the meadowgrid jobrunner with a ServerAvailableFolder
     deployment
     """
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
-            s.register_job_runner(MeadowRunJobRunner)
+            s.register_job_runner(MeadowGridJobRunner)
             _test_simple_jobs(
                 s,
-                # TODO MeadowRunJobRunner automatically converts LocalFunctions into
+                # TODO MeadowGridJobRunner automatically converts LocalFunctions into
                 #  ServerAvailableFolder, not sure if that really makes sense.
                 lambda args: LocalFunction(_run_func, args),
-                JobRunnerTypePredicate("meadowrun"),
+                JobRunnerTypePredicate("meadowgrid"),
             )
 
 
-def test_simple_jobs_meadowrun_git() -> None:
+def test_simple_jobs_meadowgrid_git() -> None:
     """
-    Tests a simple use case using the meadowrun jobrunner with a git repo deployment
+    Tests a simple use case using the meadowgrid jobrunner with a git repo deployment
 
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowdata repo.
     """
 
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
-            s.register_job_runner(MeadowRunJobRunner)
+            s.register_job_runner(MeadowGridJobRunner)
             _test_simple_jobs(
                 s,
-                lambda args: MeadowRunFunctionGitRepo(
+                lambda args: MeadowGridFunctionGitRepo(
                     GitRepo(TEST_REPO, "main", sys.executable),
-                    MeadowRunFunction.from_name(
+                    MeadowGridFunction.from_name(
                         "example_package.example", "join_strings", args
                     ),
                 ),
-                JobRunnerTypePredicate("meadowrun"),
+                JobRunnerTypePredicate("meadowgrid"),
             )
 
 
@@ -209,7 +212,7 @@ def test_simple_jobs_meadowflow_server() -> None:
     local in-process scheduler).
 
     to run under the debugger as separate processes, launch
-    `meadowflow/server/server_main.py`, then `meadowrun/server_main.py
+    `meadowflow/server/server_main.py`, then `meadowgrid/server_main.py
     --meadowflow_address localhost:15321`, then run this test. The child processes we
     try to spawn will fail to bind to their ports, but that won't prevent the main test
     logic from completing successfully.
@@ -217,11 +220,11 @@ def test_simple_jobs_meadowflow_server() -> None:
 
     with meadowflow.server.server_main.main_in_child_process(
         job_runner_poll_delay_seconds=0.05,
-    ), meadowrun.coordinator_main.main_in_child_process(
+    ), meadowgrid.coordinator_main.main_in_child_process(
         meadowflow_address=meadowflow.server.config.DEFAULT_ADDRESS
-    ), meadowrun.job_worker_main.main_in_child_process():
+    ), meadowgrid.job_worker_main.main_in_child_process():
         with meadowflow.server.client.MeadowFlowClientSync() as client:
-            # wait for the meadowrun job runner to register itself with the scheduler
+            # wait for the meadowgrid job runner to register itself with the scheduler
             time.sleep(3)
 
             client.add_jobs(
@@ -230,7 +233,7 @@ def test_simple_jobs_meadowflow_server() -> None:
                         pname("A"),
                         LocalFunction(_run_func, ["hello", "there"]),
                         [],
-                        JobRunnerTypePredicate("meadowrun"),
+                        JobRunnerTypePredicate("meadowgrid"),
                     ),
                     Job(
                         pname("B"),
@@ -245,7 +248,7 @@ def test_simple_jobs_meadowflow_server() -> None:
                                 ],
                             )
                         ],
-                        JobRunnerTypePredicate("meadowrun"),
+                        JobRunnerTypePredicate("meadowgrid"),
                     ),
                     Job(
                         pname("T"),
@@ -261,7 +264,7 @@ def test_simple_jobs_meadowflow_server() -> None:
                                 ],
                             )
                         ],
-                        JobRunnerTypePredicate("meadowrun"),
+                        JobRunnerTypePredicate("meadowgrid"),
                     ),
                 ]
             )

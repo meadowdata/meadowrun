@@ -17,10 +17,10 @@ import types
 from typing import Optional, Sequence, Any, Dict, Callable
 
 import pytz
-from meadowflow.meadowrun_job_runner import (
-    MeadowRunFunctionGitRepo,
+from meadowflow.meadowgrid_job_runner import (
+    MeadowGridFunctionGitRepo,
     GitRepo,
-    MeadowRunCommandGitRepo,
+    MeadowGridCommandGitRepo,
 )
 
 import covid_data
@@ -46,7 +46,7 @@ from meadowflow.topic import (
     AllPredicate,
 )
 from meadowflow.topic_names import pname, FrozenDict, TopicName
-from meadowrun.deployed_function import MeadowRunFunction
+from meadowgrid.deployed_function import MeadowGridFunction
 
 _GIT_REPO_ROOT = covid_data.ROOT_DIR
 _GIT_BRANCH = "main"
@@ -69,11 +69,11 @@ def initial_setup():
         [
             Job(
                 pname(function),
-                MeadowRunFunctionGitRepo(
+                MeadowGridFunctionGitRepo(
                     GitRepo(
                         git_repo_root, git_branch, _PYTHON_INTERPRETER, path_in_repo
                     ),
-                    MeadowRunFunction.from_name(module, function),
+                    MeadowGridFunction.from_name(module, function),
                 ),
                 (),
             )
@@ -95,7 +95,7 @@ def _function(
 ):
     """
     This is a helper function to reduce the ceremony in defining jobs. For this example,
-    we're assuming here that the meadowflow/meadowrun servers are running locally, so
+    we're assuming here that the meadowflow/meadowgrid servers are running locally, so
     when we use "ServerAvailableFolder" this is effectively a local folder. job_name
     defaults to the function_name
 
@@ -119,9 +119,9 @@ def _function(
 
     return Job(
         pname(job_name),
-        MeadowRunFunctionGitRepo(
+        MeadowGridFunctionGitRepo(
             GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
-            MeadowRunFunction.from_name(
+            MeadowGridFunction.from_name(
                 module_name, function_name, function_args, function_kwargs
             ),
         ),
@@ -175,7 +175,7 @@ def _notebook(
 
     return Job(
         pname(job_name),
-        MeadowRunCommandGitRepo(
+        MeadowGridCommandGitRepo(
             GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
             command_line,
             context_variables,

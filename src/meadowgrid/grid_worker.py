@@ -1,4 +1,4 @@
-"""Lots of similarities with __meadowrun_func_worker.py"""
+"""Lots of similarities with __meadowgrid_func_worker.py"""
 
 import argparse
 import functools
@@ -8,9 +8,9 @@ import pickle
 import traceback
 from typing import Optional, Tuple, Any, Callable
 
-from meadowrun.coordinator_client import MeadowRunCoordinatorClientForWorkersSync
-from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.shared import pickle_exception
+from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersSync
+from meadowgrid.meadowgrid_pb2 import ProcessState
+from meadowgrid.shared import pickle_exception
 
 
 def _main_loop(
@@ -38,7 +38,7 @@ def _main_loop(
     # (task_id, process_state)
     previous_task_state: Optional[Tuple[int, Any]] = None
 
-    client = MeadowRunCoordinatorClientForWorkersSync(coordinator_address)
+    client = MeadowGridCoordinatorClientForWorkersSync(coordinator_address)
 
     while True:
         next_task = client.update_grid_task_state_and_get_next(

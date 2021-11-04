@@ -26,9 +26,9 @@ import meadowflow.events_arg
 from meadowflow.git_repo import GitRepo
 from meadowflow.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
 from meadowflow.topic_names import TopicName, FrozenDict, CURRENT_JOB
-from meadowrun.deployed_function import (
-    MeadowRunDeployedFunction,
-    MeadowRunDeployedCommand,
+from meadowgrid.deployed_function import (
+    MeadowGridDeployedFunction,
+    MeadowGridDeployedCommand,
     DeploymentTypes,
     Deployment,
 )
@@ -90,8 +90,8 @@ class LocalFunction:
 
 JobRunnerFunctionTypes = (
     LocalFunction,
-    MeadowRunDeployedCommand,
-    MeadowRunDeployedFunction,
+    MeadowGridDeployedCommand,
+    MeadowGridDeployedFunction,
 )
 # A JobRunnerFunction is a function/executable/script that one or more JobRunners will
 # know how to run along with the arguments for that function/executable/script
@@ -162,12 +162,12 @@ class Job(meadowflow.topic.Topic):
     # these fields should be frozen
 
     # job_function specifies "where is the codebase and interpreter" (called a
-    # "deployment" in meadowrun), "how do we invoke the function/executable/script for
-    # this job" (e.g. MeadowRunFunction), and "what are the arguments for that
+    # "deployment" in meadowgrid), "how do we invoke the function/executable/script for
+    # this job" (e.g. MeadowGridFunction), and "what are the arguments for that
     # function/executable/script". This can be a JobRunnerFunction, which is something
     # that at least one job runner will know how to run, or a
-    # "VersionedJobRunnerFunction" (current implementations are MeadowRunCommandGitRepo
-    # and MeadowRunFunctionGitRepo) which is something that can produce different
+    # "VersionedJobRunnerFunction" (current implementations are MeadowGridCommandGitRepo
+    # and MeadowGridFunctionGitRepo) which is something that can produce different
     # versions of a JobRunnerFunction
     job_function: JobFunction
 
@@ -256,11 +256,11 @@ def _apply_overrides_function_args_kwargs(
 
         if isinstance(job_runner_function, LocalFunction):
             job_runner_function = dataclasses.replace(job_runner_function, **to_replace)
-        elif isinstance(job_runner_function, MeadowRunDeployedFunction):
+        elif isinstance(job_runner_function, MeadowGridDeployedFunction):
             job_runner_function = dataclasses.replace(
                 job_runner_function,
-                meadowrun_function=dataclasses.replace(
-                    job_runner_function.meadowrun_function, **to_replace
+                meadowgrid_function=dataclasses.replace(
+                    job_runner_function.meadowgrid_function, **to_replace
                 ),
             )
         else:
@@ -273,7 +273,7 @@ def _apply_overrides_context_variables(
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.context_variables:
-        if isinstance(job_runner_function, MeadowRunDeployedCommand):
+        if isinstance(job_runner_function, MeadowGridDeployedCommand):
             job_runner_function = dataclasses.replace(
                 job_runner_function,
                 context_variables=run_overrides.context_variables,
@@ -290,7 +290,7 @@ def _apply_overrides_meadowdb_userspace(
     if run_overrides.meadowdb_userspace:
         if isinstance(
             job_runner_function,
-            (MeadowRunDeployedCommand, MeadowRunDeployedFunction),
+            (MeadowGridDeployedCommand, MeadowGridDeployedFunction),
         ):
             # this needs to line up with
             # meadowdb.connection._MEADOWDB_DEFAULT_USERSPACE but we prefer not
@@ -326,7 +326,7 @@ def _apply_overrides_deployment(
 
         if isinstance(
             job_runner_function,
-            (MeadowRunDeployedCommand, MeadowRunDeployedFunction),
+            (MeadowGridDeployedCommand, MeadowGridDeployedFunction),
         ):
             job_runner_function = dataclasses.replace(
                 job_runner_function, deployment=new_deployment

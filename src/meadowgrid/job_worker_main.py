@@ -6,15 +6,15 @@ import multiprocessing
 import pathlib
 from typing import Optional, ContextManager
 
-import meadowrun.job_worker
-from meadowrun.config import DEFAULT_COORDINATOR_ADDRESS
+import meadowgrid.job_worker
+from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS
 
 
 def main(coordinator_address: Optional[str] = None):
     # TODO read config file and rather than using test defaults
     test_working_folder = str(
         (
-            pathlib.Path(__file__).parent.parent.parent / "test_data" / "meadowrun"
+            pathlib.Path(__file__).parent.parent.parent / "test_data" / "meadowgrid"
         ).resolve()
     )
 
@@ -22,7 +22,7 @@ def main(coordinator_address: Optional[str] = None):
         coordinator_address = DEFAULT_COORDINATOR_ADDRESS
 
     asyncio.run(
-        meadowrun.job_worker.job_worker_main_loop(
+        meadowgrid.job_worker.job_worker_main_loop(
             test_working_folder, coordinator_address
         )
     )

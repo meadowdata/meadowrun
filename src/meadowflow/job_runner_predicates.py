@@ -7,7 +7,7 @@ imports.
 from typing import Dict, Type, Any
 
 import meadowflow.local_job_runner
-import meadowflow.meadowrun_job_runner
+import meadowflow.meadowgrid_job_runner
 from meadowflow.jobs import JobRunnerPredicate, JobRunner
 
 
@@ -42,7 +42,7 @@ class ValueInPropertyPredicate(JobRunnerPredicate):
 
 _JOB_RUNNER_TYPES: Dict[str, Type] = {
     "local": meadowflow.local_job_runner.LocalJobRunner,
-    "meadowrun": meadowflow.meadowrun_job_runner.MeadowRunJobRunner,
+    "meadowgrid": meadowflow.meadowgrid_job_runner.MeadowGridJobRunner,
 }
 
 

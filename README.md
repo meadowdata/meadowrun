@@ -5,7 +5,7 @@ for data scientists and data engineers:
 
 - meadowdb: A columnar database designed to make experimentation effortless
 - meadowflow: A job scheduler that automatically manages your data dependencies
-- meadowrun: A way to run your code on remote machines
+- meadowgrid: A way to run your code on remote machines
 
 ## Why MeadowData
 

@@ -9,12 +9,12 @@ keywords = []
 packages = [
     { include = "meadowflow", from = "src" },
     { include = "meadowdb", from = "src" },
-    { include = "meadowrun", from = "src" },
+    { include = "meadowgrid", from = "src" },
 ]
 
 [tool.poetry.scripts]
-meadowrun_coordinator = 'meadowrun.coordinator_main:command_line_main'
-meadowrun_job_worker = 'meadowrun.job_worker_main:command_line_main'
+meadowgrid_coordinator = 'meadowgrid.coordinator_main:command_line_main'
+meadowgrid_job_worker = 'meadowgrid.job_worker_main:command_line_main'
 meadowflow = 'meadowflow.server.server_main:command_line_main'
 
 [tool.poetry.dependencies]

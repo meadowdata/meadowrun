@@ -5,17 +5,17 @@ from typing import Callable, TypeVar, Iterable, Dict, Sequence, List, Optional, 
 
 import cloudpickle
 
-from meadowrun.config import DEFAULT_COORDINATOR_ADDRESS
-from meadowrun.coordinator_client import (
-    MeadowRunCoordinatorClientAsync,
-    MeadowRunCoordinatorClientSync,
+from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS
+from meadowgrid.coordinator_client import (
+    MeadowGridCoordinatorClientAsync,
+    MeadowGridCoordinatorClientSync,
 )
-from meadowrun.deployed_function import (
+from meadowgrid.deployed_function import (
     Deployment,
-    MeadowRunDeployedFunction,
-    MeadowRunFunction,
+    MeadowGridDeployedFunction,
+    MeadowGridFunction,
 )
-from meadowrun.meadowrun_pb2 import ProcessState
+from meadowgrid.meadowgrid_pb2 import ProcessState
 
 
 _T = TypeVar("_T")
@@ -23,26 +23,26 @@ _U = TypeVar("_U")
 
 
 # Caches of all coordinator clients
-_coordinator_clients_async: Dict[str, MeadowRunCoordinatorClientAsync] = {}
-_coordinator_clients_sync: Dict[str, MeadowRunCoordinatorClientSync] = {}
+_coordinator_clients_async: Dict[str, MeadowGridCoordinatorClientAsync] = {}
+_coordinator_clients_sync: Dict[str, MeadowGridCoordinatorClientSync] = {}
 
 
-def _get_coordinator_client_async(address: str) -> MeadowRunCoordinatorClientAsync:
+def _get_coordinator_client_async(address: str) -> MeadowGridCoordinatorClientAsync:
     """Get the cached coordinator client"""
     if address in _coordinator_clients_async:
         client = _coordinator_clients_async[address]
     else:
-        client = MeadowRunCoordinatorClientAsync(address)
+        client = MeadowGridCoordinatorClientAsync(address)
         _coordinator_clients_async[address] = client
     return client
 
 
-def _get_coordinator_client_sync(address: str) -> MeadowRunCoordinatorClientSync:
+def _get_coordinator_client_sync(address: str) -> MeadowGridCoordinatorClientSync:
     """Get the cached coordinator client"""
     if address in _coordinator_clients_sync:
         client = _coordinator_clients_sync[address]
     else:
-        client = MeadowRunCoordinatorClientSync(address)
+        client = MeadowGridCoordinatorClientSync(address)
         _coordinator_clients_sync[address] = client
     return client
 
@@ -66,7 +66,7 @@ def grid_map(
     coordinator_address: str = DEFAULT_COORDINATOR_ADDRESS,
 ) -> Sequence[_U]:
     """
-    The equivalent of map(function, args) but runs distributed on meadowrun
+    The equivalent of map(function, args) but runs distributed on meadowgrid
     """
 
     # TODO the grid_map API should be significantly more sophisticated, supporting
@@ -90,7 +90,7 @@ def grid_map(
     # add_py_grid_job expects (task_id, args, kwargs)
     args = [(i, (arg,), {}) for i, arg in enumerate(args)]
 
-    # add the grid job to the meadowrun coordinator
+    # add the grid job to the meadowgrid coordinator
 
     # TODO if the current process is itself a Job, we should pass through everything
     #  that was specified when this was launched, i.e. environment variables, priority,
@@ -99,9 +99,9 @@ def grid_map(
     client.add_py_grid_job(
         job_id,
         friendly_name,
-        MeadowRunDeployedFunction(
+        MeadowGridDeployedFunction(
             deployment,
-            MeadowRunFunction.from_pickled(pickled_function),
+            MeadowGridFunction.from_pickled(pickled_function),
         ),
         args,
         True,

@@ -5,15 +5,15 @@ import grpc
 import grpc.aio
 import grpc.aio
 
-from meadowrun.config import DEFAULT_COORDINATOR_ADDRESS, JOB_ID_VALID_CHARACTERS
-from meadowrun.deployed_function import (
+from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS, JOB_ID_VALID_CHARACTERS
+from meadowgrid.deployed_function import (
     Deployment,
-    MeadowRunDeployedCommand,
-    MeadowRunDeployedFunction,
-    MeadowRunFunction,
-    MeadowRunFunctionName,
+    MeadowGridDeployedCommand,
+    MeadowGridDeployedFunction,
+    MeadowGridFunction,
+    MeadowGridFunctionName,
 )
-from meadowrun.meadowrun_pb2 import (
+from meadowgrid.meadowgrid_pb2 import (
     AddJobResponse,
     AddTasksToGridJobRequest,
     GridTaskUpdateAndGetNextRequest,
@@ -34,7 +34,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFolder,
     StringPair,
 )
-from meadowrun.meadowrun_pb2_grpc import MeadowRunCoordinatorStub
+from meadowgrid.meadowgrid_pb2_grpc import MeadowGridCoordinatorStub
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
@@ -95,7 +95,7 @@ def _pickle_protocol_for_deployed_interpreter() -> int:
 def _create_py_command_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_command: MeadowRunDeployedCommand,
+    deployed_command: MeadowGridDeployedCommand,
     priority: int,
 ) -> Job:
     # TODO see below about optimizations we could do for transferring pickled data
@@ -125,7 +125,7 @@ def _create_py_command_job(
 
 
 def _create_py_function(
-    meadowrun_function: MeadowRunFunction, pickle_protocol: int
+    meadowgrid_function: MeadowGridFunction, pickle_protocol: int
 ) -> PyFunctionJob:
     """
     Returns a PyFunctionJob, called by _create_py_func_job which creates a Job that has a
@@ -142,9 +142,9 @@ def _create_py_function(
     # TODO also add the ability to write this to a shared location so that we don't need
     #  to pass it through the server.
 
-    if meadowrun_function.function_args or meadowrun_function.function_kwargs:
+    if meadowgrid_function.function_args or meadowgrid_function.function_kwargs:
         pickled_function_arguments = pickle.dumps(
-            (meadowrun_function.function_args, meadowrun_function.function_kwargs),
+            (meadowgrid_function.function_args, meadowgrid_function.function_kwargs),
             protocol=pickle_protocol,
         )
     else:
@@ -153,8 +153,8 @@ def _create_py_function(
     # then, construct the PyFunctionJob
     py_function = PyFunctionJob(pickled_function_arguments=pickled_function_arguments)
 
-    function_spec = meadowrun_function.function_spec
-    if isinstance(function_spec, MeadowRunFunctionName):
+    function_spec = meadowgrid_function.function_spec
+    if isinstance(function_spec, MeadowGridFunctionName):
         py_function.qualified_function_name.CopyFrom(
             QualifiedFunctionName(
                 module_name=function_spec.module_name,
@@ -172,7 +172,7 @@ def _create_py_function(
 def _create_py_func_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_function: MeadowRunDeployedFunction,
+    deployed_function: MeadowGridDeployedFunction,
     priority: int,
 ) -> Job:
     job = Job(
@@ -184,7 +184,7 @@ def _create_py_func_job(
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=_create_py_function(
-            deployed_function.meadowrun_function,
+            deployed_function.meadowgrid_function,
             _pickle_protocol_for_deployed_interpreter(),
         ),
     )
@@ -195,7 +195,7 @@ def _create_py_func_job(
 def _create_py_grid_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_function: MeadowRunDeployedFunction,
+    deployed_function: MeadowGridDeployedFunction,
     tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
     all_tasks_added: bool,
     priority: int,
@@ -211,7 +211,7 @@ def _create_py_grid_job(
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_grid=PyGridJob(
             function=_create_py_function(
-                deployed_function.meadowrun_function, pickle_protocol
+                deployed_function.meadowgrid_function, pickle_protocol
             ),
             tasks=_create_task_requests(tasks, pickle_protocol),
             all_tasks_added=all_tasks_added,
@@ -254,29 +254,29 @@ def _add_job_state_string(state: AddJobResponse) -> AddJobState:
         raise ValueError(f"Unknown AddJobState {state.state}")
 
 
-class MeadowRunCoordinatorClientAsync:
+class MeadowGridCoordinatorClientAsync:
     """
-    A client for MeadowRunCoordinator for "users" of the system. Effectively allows
+    A client for MeadowGridCoordinator for "users" of the system. Effectively allows
     users to add jobs i.e. request that jobs get run, and then poll for their status.
 
-    See also MeadowRunCoordinatorHandler docstring.
+    See also MeadowGridCoordinatorHandler docstring.
     """
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
         self._channel = grpc.aio.insecure_channel(address)
-        self._stub = MeadowRunCoordinatorStub(self._channel)
+        self._stub = MeadowGridCoordinatorStub(self._channel)
 
     async def add_py_command_job(
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_command: MeadowRunDeployedCommand,
+        deployed_command: MeadowGridDeployedCommand,
         priority: int = 100,
     ) -> AddJobState:
         """
         Requests a run of the specified command in the context of a python environment
-        on a meadowrun worker. See also MeadowRunDeployedCommand docstring and Job in
-        meadowrun.proto.
+        on a meadowgrid worker. See also MeadowGridDeployedCommand docstring and Job in
+        meadowgrid.proto.
 
         Return value will either be ADDED (success) or IS_DUPLICATE, indicating that
         the job_id has already been used.
@@ -293,12 +293,12 @@ class MeadowRunCoordinatorClientAsync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowRunDeployedFunction,
+        deployed_function: MeadowGridDeployedFunction,
         priority: int = 100,
     ) -> AddJobState:
         """
-        Requests a run of the specified function on a meadowrun worker. See also
-        MeadowRunDeployedFunction docstring and Job in meadowrun.proto.
+        Requests a run of the specified function on a meadowgrid worker. See also
+        MeadowGridDeployedFunction docstring and Job in meadowgrid.proto.
 
         Return value will either be ADDED (success) or IS_DUPLICATE, indicating that
         the job_id has already been used.
@@ -315,14 +315,14 @@ class MeadowRunCoordinatorClientAsync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowRunDeployedFunction,
+        deployed_function: MeadowGridDeployedFunction,
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: int = 100,
     ) -> AddJobState:
         """
-        Creates a grid job. See also MeadowRunDeployedFunction, Job in meadowrun.proto,
-        and grid_map.
+        Creates a grid job. See also MeadowGridDeployedFunction, Job in
+        meadowgrid.proto, and grid_map.
 
         If the request contains multiple tasks with the same id, only the first one
         will be taken and subsequent tasks will be ignored.
@@ -372,7 +372,7 @@ class MeadowRunCoordinatorClientAsync:
         Gets the states and results for the jobs corresponding to the specified
         job_ids. Will return one ProcessState for each job_id in the same order.
 
-        See also ProcessStateEnum in meadowrun.proto.
+        See also ProcessStateEnum in meadowgrid.proto.
 
         TODO add the ability to send results back to a shared location so that we don't
          need to pass through the results through the server
@@ -409,18 +409,18 @@ class MeadowRunCoordinatorClientAsync:
         return await self._channel.__aexit__(exc_type, exc_val, exc_tb)
 
 
-class MeadowRunCoordinatorClientSync:
-    """The non-async version of MeadowRunCoordinatorClientAsync"""
+class MeadowGridCoordinatorClientSync:
+    """The non-async version of MeadowGridCoordinatorClientAsync"""
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
         self._channel = grpc.insecure_channel(address)
-        self._stub = MeadowRunCoordinatorStub(self._channel)
+        self._stub = MeadowGridCoordinatorStub(self._channel)
 
     def add_py_command_job(
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_command: MeadowRunDeployedCommand,
+        deployed_command: MeadowGridDeployedCommand,
         priority: int = 100,
     ) -> AddJobState:
         return _add_job_state_string(
@@ -435,7 +435,7 @@ class MeadowRunCoordinatorClientSync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowRunDeployedFunction,
+        deployed_function: MeadowGridDeployedFunction,
         priority: int = 100,
     ) -> AddJobState:
         return _add_job_state_string(
@@ -450,7 +450,7 @@ class MeadowRunCoordinatorClientSync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowRunDeployedFunction,
+        deployed_function: MeadowGridDeployedFunction,
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: int = 100,
@@ -502,16 +502,16 @@ class MeadowRunCoordinatorClientSync:
         return self._channel.__exit__(exc_type, exc_val, exc_tb)
 
 
-class MeadowRunCoordinatorClientForWorkersAsync:
+class MeadowGridCoordinatorClientForWorkersAsync:
     """
-    Talks to the same MeadowRunCoordinator server as MeadowRunCoordinatorClientAsync,
+    Talks to the same MeadowGridCoordinator server as MeadowGridCoordinatorClientAsync,
     but only has the functions needed by the workers. The separation is just for keeping
     the code organized.
     """
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
         self._channel = grpc.aio.insecure_channel(address)
-        self._stub = MeadowRunCoordinatorStub(self._channel)
+        self._stub = MeadowGridCoordinatorStub(self._channel)
 
     async def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
         """
@@ -563,12 +563,12 @@ class MeadowRunCoordinatorClientForWorkersAsync:
         return await self._channel.__aexit__(exc_type, exc_val, exc_tb)
 
 
-class MeadowRunCoordinatorClientForWorkersSync:
-    """The non-async version of MeadowRunCoordinatorClientForWorkersAsync"""
+class MeadowGridCoordinatorClientForWorkersSync:
+    """The non-async version of MeadowGridCoordinatorClientForWorkersAsync"""
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
         self._channel = grpc.insecure_channel(address)
-        self._stub = MeadowRunCoordinatorStub(self._channel)
+        self._stub = MeadowGridCoordinatorStub(self._channel)
 
     def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
         self._stub.update_job_states(JobStateUpdates(job_states=job_states))

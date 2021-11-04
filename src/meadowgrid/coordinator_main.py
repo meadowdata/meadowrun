@@ -1,4 +1,4 @@
-"""A runnable script for running a meadowrun server"""
+"""A runnable script for running a meadowgrid server"""
 import argparse
 import logging
 import multiprocessing
@@ -6,8 +6,8 @@ import asyncio
 import contextlib
 from typing import ContextManager, Optional
 
-import meadowrun.coordinator
-from meadowrun.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
+import meadowgrid.coordinator
+from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
 
 
 def main(
@@ -15,7 +15,7 @@ def main(
     port: Optional[int] = None,
     meadowflow_address: Optional[str] = None,
 ) -> None:
-    """A function for running a meadowrun coordinator"""
+    """A function for running a meadowgrid coordinator"""
 
     if not host:
         host = DEFAULT_COORDINATOR_HOST
@@ -23,7 +23,7 @@ def main(
         port = DEFAULT_COORDINATOR_PORT
 
     asyncio.run(
-        meadowrun.coordinator.start_meadowrun_coordinator(
+        meadowgrid.coordinator.start_meadowgrid_coordinator(
             host, port, meadowflow_address
         )
     )

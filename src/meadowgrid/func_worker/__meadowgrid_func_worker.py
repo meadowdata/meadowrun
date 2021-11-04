@@ -1,5 +1,5 @@
 """
-This code gets "embedded" into the user's code, so that the meadowrun server can invoke
+This code gets "embedded" into the user's code, so that the meadowgrid server can invoke
 a function in the user's code base.
 
 This code should therefore have as few dependencies as possible (ideally none).
@@ -75,7 +75,7 @@ def main():
 
         # next, send the exception back
         tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-        # see MeadowRunClientAsync for why we don't just pickle the exception
+        # see MeadowGridClientAsync for why we don't just pickle the exception
         with open(state_filename, "w", encoding="utf-8") as f:
             f.write("PYTHON_EXCEPTION")
         with open(result_filename, "wb") as f:

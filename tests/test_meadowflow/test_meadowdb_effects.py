@@ -12,23 +12,23 @@ from meadowflow.jobs import (
     JobRunOverrides,
 )
 from meadowflow.effects import MeadowdbDynamicDependency, UntilMeadowdbWritten
-from meadowflow.meadowrun_job_runner import MeadowRunJobRunner
+from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
 from meadowflow.scheduler import Scheduler
 from meadowflow.scopes import BASE_SCOPE, ALL_SCOPES, ScopeValues
 from meadowflow.topic import TriggerAction
 from meadowflow.topic_names import pname
 from meadowdb.connection import MeadowdbEffects, prod_userspace_name
-import meadowrun.coordinator_main
-import meadowrun.job_worker_main
-from meadowrun.deployed_function import (
-    MeadowRunDeployedCommand,
-    MeadowRunDeployedFunction,
-    MeadowRunFunction,
+import meadowgrid.coordinator_main
+import meadowgrid.job_worker_main
+from meadowgrid.deployed_function import (
+    MeadowGridDeployedCommand,
+    MeadowGridDeployedFunction,
+    MeadowGridFunction,
 )
-from meadowrun.meadowrun_pb2 import ServerAvailableFolder
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder
 from test_meadowflow.test_scheduler import _wait_for_scheduler, _run_func
 import tests.test_meadowdb
-from test_meadowrun import MEADOWDATA_CODE, EXAMPLE_CODE
+from test_meadowgrid import MEADOWDATA_CODE, EXAMPLE_CODE
 
 
 def _get_connection():
@@ -56,20 +56,20 @@ def _read_from_table():
 
 def test_meadowdb_effects():
     """
-    Tests that meadowdb effects come through meadowrun commands and functions
+    Tests that meadowdb effects come through meadowgrid commands and functions
     """
     with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.job_worker_main.main_in_child_process(),
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
-            scheduler.register_job_runner(MeadowRunJobRunner)
+            scheduler.register_job_runner(MeadowGridJobRunner)
 
             scheduler.add_jobs(
                 [
                     Job(
                         pname("Command"),
-                        MeadowRunDeployedCommand(
+                        MeadowGridDeployedCommand(
                             ServerAvailableFolder(
                                 code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
                                 interpreter_path=sys.executable,
@@ -80,12 +80,12 @@ def test_meadowdb_effects():
                     ),
                     Job(
                         pname("Func"),
-                        MeadowRunDeployedFunction(
+                        MeadowGridDeployedFunction(
                             ServerAvailableFolder(
                                 code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
                                 interpreter_path=sys.executable,
                             ),
-                            MeadowRunFunction.from_name("write_to_table", "main"),
+                            MeadowGridFunction.from_name("write_to_table", "main"),
                         ),
                         (),
                     ),

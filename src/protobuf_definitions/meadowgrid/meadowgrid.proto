@@ -1,8 +1,8 @@
-// See src/meadowrun/client.py:MeadowRunClientAsync for docstrings
+// See src/meadowgrid/client.py:MeadowGridClientAsync for docstrings
 
 syntax = "proto3";
 
-package meadowrun;
+package meadowgrid;
 
 
 message StringPair {
@@ -11,14 +11,15 @@ message StringPair {
 }
 
 
-// Represents a folder (or folders) that presumably contain code that the meadowrun
+// Represents a folder (or folders) that presumably contain code that the meadowgrid
 // server can access directly
 message ServerAvailableFolder {
     // code_paths[0] will be set as the working directory, and all code_paths will be
     // added to the PYTHONPATH. These code_paths must "make sense" on the machine where
-    // the meadowrun worker is running. The typical use case for this is that the
-    // meadowrun workers have access to a shared filesystem where code has been deployed.
-    // Order matters as usual for PYTHONPATH. There must be at least one code_path.
+    // the meadowgrid worker is running. The typical use case for this is that the
+    // meadowgrid workers have access to a shared filesystem where code has been
+    // deployed. Order matters as usual for PYTHONPATH. There must be at least one
+    // code_path.
     repeated string code_paths = 1;
 
     // The path to the python interpreter to use
@@ -26,7 +27,7 @@ message ServerAvailableFolder {
 }
 
 
-// Represents a git repo at a specific commit. See MeadowRunFunctionGitRepo for
+// Represents a git repo at a specific commit. See MeadowGridFunctionGitRepo for
 // docstrings on repo_url and interpreter_path
 message GitRepoCommit {
     string repo_url = 1;
@@ -97,7 +98,7 @@ message Job {
     // coordinator assigns a particular job to the next available worker is the priority
     // of that job relative to the sum of the priorities of all jobs that need to be
     // worked on. Roughly, the overall intended effect is that if a particular job has
-    // e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowrun compute
+    // e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowgrid compute
     // resources will be dedicated to this job.
     int32 priority = 3;
 
@@ -148,9 +149,9 @@ message ProcessState {
 
         // These states represent a job that is "in progress"
 
-        // The meadowrun coordinator has received the Job
+        // The meadowgrid coordinator has received the Job
         RUN_REQUESTED = 1;
-        // The meadowrun coordinator has assigned the Job to a worker
+        // The meadowgrid coordinator has assigned the Job to a worker
         // TODO add worker_id
         ASSIGNED = 2;
         // The assigned worker has launched the job. pid and log_file_name will be
@@ -177,7 +178,7 @@ message ProcessState {
         // The process exited with a non-zero return code. This could mean that a
         // non-python exception was thrown (e.g. in the interpreter itself, or in a C
         // extension), or os.exit was called with a non-zero argument, or there was a
-        // python exception thrown in the meadowrun worker code.
+        // python exception thrown in the meadowgrid worker code.
         NON_ZERO_RETURN_CODE = 7;
         // Cancelled by request. pid, log_file_name, and return_code may not be
         // populated.
@@ -185,7 +186,7 @@ message ProcessState {
         CANCELLED = 8;
         // There was an error while reading the outputs of the process. This could mean
         // that the child process somehow silently failed to write its outputs correctly
-        // or there was a python exception thrown in the meadowrun worker code.
+        // or there was a python exception thrown in the meadowgrid worker code.
         ERROR_GETTING_STATE = 9;
 
         // This state represents a job that is neither "done" nor "in progress"
@@ -270,7 +271,7 @@ message UpdateStateResponse {
 }
 
 
-service MeadowRunCoordinator {
+service MeadowGridCoordinator {
     rpc add_job(Job) returns (AddJobResponse) {};
     rpc add_tasks_to_grid_job(AddTasksToGridJobRequest) returns (AddJobResponse) {};
 

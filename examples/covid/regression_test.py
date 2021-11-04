@@ -8,7 +8,7 @@ import os.path
 import sys
 import uuid
 
-from meadowrun.meadowrun_pb2 import ServerAvailableFolder
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder
 
 import covid_data
 from covid_data.mdb import mdb_test

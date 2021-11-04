@@ -7,11 +7,11 @@ import types
 
 from typing import Any, Dict, Union, Sequence, Callable, Optional
 
-from meadowrun.meadowrun_pb2 import GitRepoCommit, ServerAvailableFolder
+from meadowgrid.meadowgrid_pb2 import GitRepoCommit, ServerAvailableFolder
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunFunctionName:
+class MeadowGridFunctionName:
     # module_name can have dots like outer_package.inner_package.module as usual
     module_name: str
     # the name of a module-level function in the module specified by module_name
@@ -19,9 +19,9 @@ class MeadowRunFunctionName:
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunFunction:
+class MeadowGridFunction:
     # bytes should be interpreted as a pickled function
-    function_spec: Union[MeadowRunFunctionName, bytes]
+    function_spec: Union[MeadowGridFunctionName, bytes]
     function_args: Sequence[Any] = dataclasses.field(default_factory=lambda: [])
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
@@ -31,7 +31,7 @@ class MeadowRunFunction:
         pickled_function: bytes,
         function_args: Optional[Sequence[Any]] = None,
         function_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> MeadowRunFunction:
+    ) -> MeadowGridFunction:
         if function_args is None:
             function_args = []
         if function_kwargs is None:
@@ -45,13 +45,13 @@ class MeadowRunFunction:
         function_name: str,
         function_args: Optional[Sequence[Any]] = None,
         function_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> MeadowRunFunction:
+    ) -> MeadowGridFunction:
         if function_args is None:
             function_args = []
         if function_kwargs is None:
             function_kwargs = {}
         return cls(
-            MeadowRunFunctionName(module_name, function_name),
+            MeadowGridFunctionName(module_name, function_name),
             function_args,
             function_kwargs,
         )
@@ -62,10 +62,10 @@ Deployment = Union[DeploymentTypes]
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunDeployedCommand:
+class MeadowGridDeployedCommand:
     """
-    A command that a MeadowRun worker can run. Specifies a deployment that tells a
-    MeadowRun server where to find the codebase (and by extension the python
+    A command that a MeadowGrid worker can run. Specifies a deployment that tells a
+    MeadowGrid server where to find the codebase (and by extension the python
     interpreter). The command is then run with the codebase as the working directory and
     the python interpreter's Scripts folder in the path. This allows you to run commands
     like `jupyter nbconvert`, `jupyter kernel`, or `papermill` if those commands/scripts
@@ -79,16 +79,16 @@ class MeadowRunDeployedCommand:
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunDeployedFunction:
+class MeadowGridDeployedFunction:
     """
-    A function that a MeadowRun server is able to run. Specifies a deployment that tells
-    a MeadowRun server where to find the codebase (and by extension the python
+    A function that a MeadowGrid server is able to run. Specifies a deployment that
+    tells a MeadowGrid server where to find the codebase (and by extension the python
     interpreter), and then specifies a function in that codebase to run (including
     args.)
     """
 
     deployment: Deployment
-    meadowrun_function: MeadowRunFunction
+    meadowgrid_function: MeadowGridFunction
     environment_variables: Optional[Dict[str, str]] = None
 
 
@@ -97,7 +97,7 @@ def convert_local_to_deployed_function(
     function_pointer: Callable[..., Any],
     function_args: Sequence[Any],
     function_kwargs: Dict[str, Any],
-) -> MeadowRunDeployedFunction:
+) -> MeadowGridDeployedFunction:
     """
     TODO this should do an entire upload of the current environment, which we don't do
      right now. For now we just assume that we're on the same machine (or just have the
@@ -154,9 +154,9 @@ def convert_local_to_deployed_function(
             "probably not a totally normal module-level global python function"
         )
 
-    return MeadowRunDeployedFunction(
+    return MeadowGridDeployedFunction(
         ServerAvailableFolder(code_paths=code_paths, interpreter_path=sys.executable),
-        MeadowRunFunction.from_name(
+        MeadowGridFunction.from_name(
             function_pointer.__module__,
             function_pointer.__qualname__,
             function_args,

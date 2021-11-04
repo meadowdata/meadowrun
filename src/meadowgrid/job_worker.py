@@ -7,17 +7,17 @@ from typing import Dict, Optional, Literal, Iterable, Sequence, Set, Tuple, List
 
 import meadowflow.context
 import meadowflow.server.client
-from meadowrun.coordinator_client import MeadowRunCoordinatorClientForWorkersAsync
-from meadowrun.deployment_manager import DeploymentManager
-from meadowrun.exclusive_file_lock import exclusive_file_lock
-from meadowrun.meadowrun_pb2 import (
+from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersAsync
+from meadowgrid.deployment_manager import DeploymentManager
+from meadowgrid.exclusive_file_lock import exclusive_file_lock
+from meadowgrid.meadowgrid_pb2 import (
     Job,
     JobStateUpdate,
     ProcessState,
     PyFunctionJob,
     StringPair,
 )
-from meadowrun.shared import pickle_exception
+from meadowgrid.shared import pickle_exception
 
 ProcessStateEnum = ProcessState.ProcessStateEnum
 
@@ -76,10 +76,10 @@ def _prepare_py_command(
     """
 
     # request the results file
-    environment[meadowflow.context._MEADOWRUN_RESULT_FILE] = os.path.join(
+    environment[meadowflow.context._MEADOWGRID_RESULT_FILE] = os.path.join(
         io_folder, job.job_id + ".result"
     )
-    environment[meadowflow.context._MEADOWRUN_RESULT_PICKLE_PROTOCOL] = str(
+    environment[meadowflow.context._MEADOWGRID_RESULT_PICKLE_PROTOCOL] = str(
         job.result_highest_pickle_protocol
     )
 
@@ -93,7 +93,7 @@ def _prepare_py_command(
         # we can't communicate "directly" with the arbitrary command that the
         # user is running so we'll use environment variables
         environment[
-            meadowflow.context._MEADOWRUN_CONTEXT_VARIABLES
+            meadowflow.context._MEADOWGRID_CONTEXT_VARIABLES
         ] = context_variables_path
 
     # get the command line
@@ -105,7 +105,7 @@ def _prepare_py_command(
 
 _FUNC_WORKER_PATH = str(
     (
-        pathlib.Path(__file__).parent / "func_worker" / "__meadowrun_func_worker.py"
+        pathlib.Path(__file__).parent / "func_worker" / "__meadowgrid_func_worker.py"
     ).resolve()
 )
 
@@ -115,7 +115,7 @@ def _prepare_function(
 ) -> Iterable[str]:
     """
     Creates files in io_folder for the child process to use and returns command line
-    arguments that are compatible with grid_worker and __meadowrun_func_worker.
+    arguments that are compatible with grid_worker and __meadowgrid_func_worker.
     """
     function_spec = function.WhichOneof("function_spec")
     if function_spec == "qualified_function_name":
@@ -141,7 +141,7 @@ def _prepare_function_arguments(
 ) -> Iterable[str]:
     """
     Creates files in io_folder for the child process to use and returns command line
-    arguments that are compatible with grid_worker and __meadowrun_func_worker.
+    arguments that are compatible with grid_worker and __meadowgrid_func_worker.
     """
 
     if pickled_function_arguments:
@@ -156,7 +156,7 @@ def _prepare_function_arguments(
 def _prepare_py_function(job: Job, io_folder: str) -> Sequence[str]:
     """
     Creates files in io_folder for the child process to use and returns the command line
-    to run for this function. We use __meadowrun_func_worker to start the function in
+    to run for this function. We use __meadowgrid_func_worker to start the function in
     the child process.
     """
 
@@ -191,7 +191,7 @@ def _prepare_py_grid(
     command_line = [
         "python",
         "-m",
-        "meadowrun.grid_worker",
+        "meadowgrid.grid_worker",
         "--coordinator-address",
         coordinator_address,
         "--job-id",
@@ -445,7 +445,7 @@ async def job_worker_main_loop(working_folder: str, coordinator_address: str) ->
 
     # initialize some more state
 
-    client = MeadowRunCoordinatorClientForWorkersAsync(coordinator_address)
+    client = MeadowGridCoordinatorClientForWorkersAsync(coordinator_address)
 
     deployment_manager = DeploymentManager(git_repos_folder, local_copies_folder)
 

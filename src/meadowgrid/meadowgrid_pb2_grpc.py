@@ -2,10 +2,10 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from meadowrun import meadowrun_pb2 as meadowrun_dot_meadowrun__pb2
+from meadowgrid import meadowgrid_pb2 as meadowgrid_dot_meadowgrid__pb2
 
 
-class MeadowRunCoordinatorStub(object):
+class MeadowGridCoordinatorStub(object):
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -15,43 +15,43 @@ class MeadowRunCoordinatorStub(object):
             channel: A grpc.Channel.
         """
         self.add_job = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/add_job",
-            request_serializer=meadowrun_dot_meadowrun__pb2.Job.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.AddJobResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/add_job",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.Job.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.AddJobResponse.FromString,
         )
         self.add_tasks_to_grid_job = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/add_tasks_to_grid_job",
-            request_serializer=meadowrun_dot_meadowrun__pb2.AddTasksToGridJobRequest.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.AddJobResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/add_tasks_to_grid_job",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.AddTasksToGridJobRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.AddJobResponse.FromString,
         )
         self.update_job_states = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/update_job_states",
-            request_serializer=meadowrun_dot_meadowrun__pb2.JobStateUpdates.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.UpdateStateResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/update_job_states",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.JobStateUpdates.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.UpdateStateResponse.FromString,
         )
         self.get_next_job = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/get_next_job",
-            request_serializer=meadowrun_dot_meadowrun__pb2.NextJobRequest.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.Job.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_next_job",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.Job.FromString,
         )
         self.update_grid_task_state_and_get_next = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/update_grid_task_state_and_get_next",
-            request_serializer=meadowrun_dot_meadowrun__pb2.GridTaskUpdateAndGetNextRequest.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.GridTask.FromString,
+            "/meadowgrid.MeadowGridCoordinator/update_grid_task_state_and_get_next",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskUpdateAndGetNextRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTask.FromString,
         )
         self.get_simple_job_states = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/get_simple_job_states",
-            request_serializer=meadowrun_dot_meadowrun__pb2.JobStatesRequest.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.ProcessStates.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_simple_job_states",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.JobStatesRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.ProcessStates.FromString,
         )
         self.get_grid_task_states = channel.unary_unary(
-            "/meadowrun.MeadowRunCoordinator/get_grid_task_states",
-            request_serializer=meadowrun_dot_meadowrun__pb2.GridTaskStatesRequest.SerializeToString,
-            response_deserializer=meadowrun_dot_meadowrun__pb2.GridTaskStates.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_grid_task_states",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStates.FromString,
         )
 
 
-class MeadowRunCoordinatorServicer(object):
+class MeadowGridCoordinatorServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def add_job(self, request, context):
@@ -97,52 +97,52 @@ class MeadowRunCoordinatorServicer(object):
         raise NotImplementedError("Method not implemented!")
 
 
-def add_MeadowRunCoordinatorServicer_to_server(servicer, server):
+def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
     rpc_method_handlers = {
         "add_job": grpc.unary_unary_rpc_method_handler(
             servicer.add_job,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.Job.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.AddJobResponse.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.Job.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.AddJobResponse.SerializeToString,
         ),
         "add_tasks_to_grid_job": grpc.unary_unary_rpc_method_handler(
             servicer.add_tasks_to_grid_job,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.AddTasksToGridJobRequest.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.AddJobResponse.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.AddTasksToGridJobRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.AddJobResponse.SerializeToString,
         ),
         "update_job_states": grpc.unary_unary_rpc_method_handler(
             servicer.update_job_states,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.JobStateUpdates.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.UpdateStateResponse.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.JobStateUpdates.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.UpdateStateResponse.SerializeToString,
         ),
         "get_next_job": grpc.unary_unary_rpc_method_handler(
             servicer.get_next_job,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.NextJobRequest.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.Job.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.Job.SerializeToString,
         ),
         "update_grid_task_state_and_get_next": grpc.unary_unary_rpc_method_handler(
             servicer.update_grid_task_state_and_get_next,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.GridTaskUpdateAndGetNextRequest.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.GridTask.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskUpdateAndGetNextRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.GridTask.SerializeToString,
         ),
         "get_simple_job_states": grpc.unary_unary_rpc_method_handler(
             servicer.get_simple_job_states,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.JobStatesRequest.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.ProcessStates.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.JobStatesRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.ProcessStates.SerializeToString,
         ),
         "get_grid_task_states": grpc.unary_unary_rpc_method_handler(
             servicer.get_grid_task_states,
-            request_deserializer=meadowrun_dot_meadowrun__pb2.GridTaskStatesRequest.FromString,
-            response_serializer=meadowrun_dot_meadowrun__pb2.GridTaskStates.SerializeToString,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStates.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-        "meadowrun.MeadowRunCoordinator", rpc_method_handlers
+        "meadowgrid.MeadowGridCoordinator", rpc_method_handlers
     )
     server.add_generic_rpc_handlers((generic_handler,))
 
 
 # This class is part of an EXPERIMENTAL API.
-class MeadowRunCoordinator(object):
+class MeadowGridCoordinator(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -161,9 +161,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/add_job",
-            meadowrun_dot_meadowrun__pb2.Job.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.AddJobResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/add_job",
+            meadowgrid_dot_meadowgrid__pb2.Job.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.AddJobResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -190,9 +190,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/add_tasks_to_grid_job",
-            meadowrun_dot_meadowrun__pb2.AddTasksToGridJobRequest.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.AddJobResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/add_tasks_to_grid_job",
+            meadowgrid_dot_meadowgrid__pb2.AddTasksToGridJobRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.AddJobResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -219,9 +219,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/update_job_states",
-            meadowrun_dot_meadowrun__pb2.JobStateUpdates.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.UpdateStateResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/update_job_states",
+            meadowgrid_dot_meadowgrid__pb2.JobStateUpdates.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.UpdateStateResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -248,9 +248,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/get_next_job",
-            meadowrun_dot_meadowrun__pb2.NextJobRequest.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.Job.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_next_job",
+            meadowgrid_dot_meadowgrid__pb2.NextJobRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.Job.FromString,
             options,
             channel_credentials,
             insecure,
@@ -277,9 +277,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/update_grid_task_state_and_get_next",
-            meadowrun_dot_meadowrun__pb2.GridTaskUpdateAndGetNextRequest.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.GridTask.FromString,
+            "/meadowgrid.MeadowGridCoordinator/update_grid_task_state_and_get_next",
+            meadowgrid_dot_meadowgrid__pb2.GridTaskUpdateAndGetNextRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.GridTask.FromString,
             options,
             channel_credentials,
             insecure,
@@ -306,9 +306,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/get_simple_job_states",
-            meadowrun_dot_meadowrun__pb2.JobStatesRequest.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.ProcessStates.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_simple_job_states",
+            meadowgrid_dot_meadowgrid__pb2.JobStatesRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.ProcessStates.FromString,
             options,
             channel_credentials,
             insecure,
@@ -335,9 +335,9 @@ class MeadowRunCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowrun.MeadowRunCoordinator/get_grid_task_states",
-            meadowrun_dot_meadowrun__pb2.GridTaskStatesRequest.SerializeToString,
-            meadowrun_dot_meadowrun__pb2.GridTaskStates.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_grid_task_states",
+            meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.GridTaskStates.FromString,
             options,
             channel_credentials,
             insecure,

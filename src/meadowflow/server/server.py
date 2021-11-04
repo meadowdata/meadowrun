@@ -3,7 +3,7 @@ import pickle
 
 import grpc.aio
 
-from meadowflow.meadowrun_job_runner import MeadowRunJobRunner
+from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
 from meadowflow.scheduler import Scheduler
 from meadowflow.server.config import DEFAULT_HOST, DEFAULT_PORT
 from meadowflow.server.meadowflow_pb2 import (
@@ -63,9 +63,9 @@ class MeadowFlowServerHandler(MeadowFlowServerServicer):
         self, request: RegisterJobRunnerRequest, context: grpc.aio.ServicerContext
     ) -> RegisterJobRunnerResponse:
         # TODO some resemblance to jobs._JOB_RUNNER_TYPES here
-        if request.job_runner_type == "meadowrun":
+        if request.job_runner_type == "meadowgrid":
             job_runner_constructor = functools.partial(
-                MeadowRunJobRunner, address=request.address
+                MeadowGridJobRunner, address=request.address
             )
         elif request.job_runner_type == "local":
             # TODO figure out how to configure the local job runner

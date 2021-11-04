@@ -180,9 +180,9 @@ class UntilMeadowdbWritten(meadowflow.topic.StatePredicate):
 
 def _save_effects(result_file, result_pickle_protocol):
     """
-    When meadowrun runs a command, it's not able to wrap the process to guarantee that
+    When meadowgrid runs a command, it's not able to wrap the process to guarantee that
     the effects get written out. If that's the case, we will do our best to make sure
-    that we write effects to the file that meadowrun requests via environment variables
+    that we write effects to the file that meadowgrid requests via environment variables
     """
     with open(result_file, "wb") as f:
         pickle.dump((None, get_effects()), f, protocol=result_pickle_protocol)

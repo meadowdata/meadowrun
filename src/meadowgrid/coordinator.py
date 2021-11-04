@@ -8,8 +8,8 @@ from typing import Dict, List, Union, Iterable, Optional
 
 import grpc.aio
 
-from meadowrun.config import JOB_ID_VALID_CHARACTERS
-from meadowrun.meadowrun_pb2 import (
+from meadowgrid.config import JOB_ID_VALID_CHARACTERS
+from meadowgrid.meadowgrid_pb2 import (
     AddJobResponse,
     AddTasksToGridJobRequest,
     GridTaskUpdateAndGetNextRequest,
@@ -25,9 +25,9 @@ from meadowrun.meadowrun_pb2 import (
     ProcessStates,
     UpdateStateResponse,
 )
-from meadowrun.meadowrun_pb2_grpc import (
-    MeadowRunCoordinatorServicer,
-    add_MeadowRunCoordinatorServicer_to_server,
+from meadowgrid.meadowgrid_pb2_grpc import (
+    MeadowGridCoordinatorServicer,
+    add_MeadowGridCoordinatorServicer_to_server,
 )
 
 
@@ -111,16 +111,16 @@ def _add_tasks_to_grid_job(grid_job: _GridJob, tasks: Iterable[GridTask]) -> Non
             )
 
 
-class MeadowRunCoordinatorHandler(MeadowRunCoordinatorServicer):
+class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     """
-    The meadowrun coordinator is effectively a job queue. Clients (e.g. meadowflow,
+    The meadowgrid coordinator is effectively a job queue. Clients (e.g. meadowflow,
     users, etc.) will add jobs to the queue with add_job and get results with
-    get_simple_job_states and get_grid_task_states. Meanwhile meadowrun.job_workers will
-    call get_next_job so that they can work on jobs and send results to the coordinator
-    with update_job_states.
+    get_simple_job_states and get_grid_task_states. Meanwhile meadowgrid.job_workers
+    will call get_next_job so that they can work on jobs and send results to the
+    coordinator with update_job_states.
 
-    Also see MeadowRunCoordinatorClientAsync and
-    MeadowRunCoordinatorClientForWorkersAsync
+    Also see MeadowGridCoordinatorClientAsync and
+    MeadowGridCoordinatorClientForWorkersAsync
     """
 
     # TODO we don't have any locks because we don't have any awaits, so we know that
@@ -253,7 +253,7 @@ class MeadowRunCoordinatorHandler(MeadowRunCoordinatorServicer):
         )
 
         if len(available_jobs) > 0:
-            # See the docstring on Job.priority in meadowrun.proto for how jobs get
+            # See the docstring on Job.priority in meadowgrid.proto for how jobs get
             # selected.
 
             job = random.choices(
@@ -279,8 +279,8 @@ class MeadowRunCoordinatorHandler(MeadowRunCoordinatorServicer):
         request: GridTaskUpdateAndGetNextRequest,
         context: grpc.aio.ServicerContext,
     ) -> GridTask:
-        # See MeadowRunCoordinatorClientAsync docstring for this function and
-        # GridTaskUpdateAndGetNextRequest in meadowrun.proto
+        # See MeadowGridCoordinatorClientAsync docstring for this function and
+        # GridTaskUpdateAndGetNextRequest in meadowgrid.proto
 
         if request.job_id not in self._grid_jobs:
             # TODO this indicates something really weird going on, we should log it
@@ -364,18 +364,18 @@ class MeadowRunCoordinatorHandler(MeadowRunCoordinatorServicer):
         )
 
 
-async def start_meadowrun_coordinator(
+async def start_meadowgrid_coordinator(
     host: str, port: int, meadowflow_address: Optional[str]
 ) -> None:
     """
-    Runs the meadowrun coordinator server.
+    Runs the meadowgrid coordinator server.
 
     If meadowflow_address is provided, this process will try to register itself with the
     meadowflow server at that address.
     """
 
     server = grpc.aio.server()
-    add_MeadowRunCoordinatorServicer_to_server(MeadowRunCoordinatorHandler(), server)
+    add_MeadowGridCoordinatorServicer_to_server(MeadowGridCoordinatorHandler(), server)
     address = f"{host}:{port}"
     server.add_insecure_port(address)
     await server.start()
@@ -388,7 +388,7 @@ async def start_meadowrun_coordinator(
         async with meadowflow.server.client.MeadowFlowClientAsync(
             meadowflow_address
         ) as c:
-            await c.register_job_runner("meadowrun", address)
+            await c.register_job_runner("meadowgrid", address)
 
     try:
         await server.wait_for_termination()

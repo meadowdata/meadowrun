@@ -13,41 +13,41 @@ from meadowflow.jobs import (
     VersionedJobRunnerFunction,
 )
 from meadowflow.topic_names import TopicName
-from meadowrun.config import DEFAULT_COORDINATOR_ADDRESS
-from meadowrun.coordinator_client import (
-    MeadowRunCoordinatorClientAsync,
+from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS
+from meadowgrid.coordinator_client import (
+    MeadowGridCoordinatorClientAsync,
     ProcessStateEnum,
 )
-from meadowrun.deployed_function import (
-    MeadowRunFunction,
-    MeadowRunDeployedFunction,
+from meadowgrid.deployed_function import (
+    MeadowGridFunction,
+    MeadowGridDeployedFunction,
     convert_local_to_deployed_function,
-    MeadowRunDeployedCommand,
+    MeadowGridDeployedCommand,
 )
 
 
-class MeadowRunJobRunner(JobRunner):
-    """Integrates meadowrun with meadowflow. Runs jobs on a meadowrun server."""
+class MeadowGridJobRunner(JobRunner):
+    """Integrates meadowgrid with meadowflow. Runs jobs on a meadowgrid server."""
 
     def __init__(self, event_log: EventLog, address: str = DEFAULT_COORDINATOR_ADDRESS):
-        self._client = MeadowRunCoordinatorClientAsync(address)
+        self._client = MeadowGridCoordinatorClientAsync(address)
         self._event_log = event_log
 
     async def _run_deployed_function(
         self,
         job_name: TopicName,
         run_request_id: str,
-        deployed_function: Union[MeadowRunDeployedCommand, MeadowRunDeployedFunction],
+        deployed_function: Union[MeadowGridDeployedCommand, MeadowGridDeployedFunction],
     ) -> None:
         self._event_log.append_event(
             job_name, JobPayload(run_request_id, "RUN_REQUESTED")
         )
 
-        if isinstance(deployed_function, MeadowRunDeployedCommand):
+        if isinstance(deployed_function, MeadowGridDeployedCommand):
             result = await self._client.add_py_command_job(
                 run_request_id, job_name.as_file_name(), deployed_function
             )
-        elif isinstance(deployed_function, MeadowRunDeployedFunction):
+        elif isinstance(deployed_function, MeadowGridDeployedFunction):
             result = await self._client.add_py_func_job(
                 run_request_id, job_name.as_file_name(), deployed_function
             )
@@ -70,9 +70,9 @@ class MeadowRunJobRunner(JobRunner):
         run_request_id: str,
         job_runner_function: JobRunnerFunction,
     ) -> None:
-        """Dispatches to _run_deployed_function which calls meadowrun"""
+        """Dispatches to _run_deployed_function which calls meadowgrid"""
         if isinstance(
-            job_runner_function, (MeadowRunDeployedCommand, MeadowRunDeployedFunction)
+            job_runner_function, (MeadowGridDeployedCommand, MeadowGridDeployedFunction)
         ):
             await self._run_deployed_function(
                 job_name, run_request_id, job_runner_function
@@ -90,12 +90,12 @@ class MeadowRunJobRunner(JobRunner):
         else:
             raise ValueError(
                 f"job_runner_function of type {type(job_runner_function)} is not "
-                "supported by MeadowRunJobRunner"
+                "supported by MeadowGridJobRunner"
             )
 
     async def poll_jobs(self, last_events: Iterable[Event[JobPayload]]) -> None:
         """
-        See docstring on base class. This code basically translates the meadowrun
+        See docstring on base class. This code basically translates the meadowgrid
         ProcessState into a JobPayload
         """
 
@@ -209,7 +209,7 @@ class MeadowRunJobRunner(JobRunner):
     def can_run_function(self, job_runner_function: JobRunnerFunction) -> bool:
         return isinstance(
             job_runner_function,
-            (MeadowRunDeployedCommand, MeadowRunDeployedFunction, LocalFunction),
+            (MeadowGridDeployedCommand, MeadowGridDeployedFunction, LocalFunction),
         )
 
     async def __aenter__(self):
@@ -221,16 +221,16 @@ class MeadowRunJobRunner(JobRunner):
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunCommandGitRepo(VersionedJobRunnerFunction):
-    """Represents a MeadowRunCommand in a git repo"""
+class MeadowGridCommandGitRepo(VersionedJobRunnerFunction):
+    """Represents a MeadowGridCommand in a git repo"""
 
     git_repo: GitRepo
     command_line: Sequence[str]
     context_variables: Optional[Dict[str, Any]] = None
     environment_variables: Optional[Dict[str, str]] = None
 
-    def get_job_runner_function(self) -> MeadowRunDeployedCommand:
-        return MeadowRunDeployedCommand(
+    def get_job_runner_function(self) -> MeadowGridDeployedCommand:
+        return MeadowGridDeployedCommand(
             self.git_repo.get_commit(),
             self.command_line,
             self.context_variables,
@@ -239,16 +239,16 @@ class MeadowRunCommandGitRepo(VersionedJobRunnerFunction):
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowRunFunctionGitRepo(VersionedJobRunnerFunction):
-    """Represents a MeadowRunFunction in a git repo"""
+class MeadowGridFunctionGitRepo(VersionedJobRunnerFunction):
+    """Represents a MeadowGridFunction in a git repo"""
 
     git_repo: GitRepo
-    meadowrun_function: MeadowRunFunction
+    meadowgrid_function: MeadowGridFunction
     environment_variables: Optional[Dict[str, str]] = None
 
-    def get_job_runner_function(self) -> MeadowRunDeployedFunction:
-        return MeadowRunDeployedFunction(
+    def get_job_runner_function(self) -> MeadowGridDeployedFunction:
+        return MeadowGridDeployedFunction(
             self.git_repo.get_commit(),
-            self.meadowrun_function,
+            self.meadowgrid_function,
             self.environment_variables,
         )

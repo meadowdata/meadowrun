@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Optional
 
-from meadowrun.meadowrun_pb2 import GitRepoCommit
+from meadowgrid.meadowgrid_pb2 import GitRepoCommit
 
 
 @dataclasses.dataclass(frozen=True)

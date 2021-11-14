@@ -5,7 +5,7 @@ _TK = TypeVar("_TK")
 _TV = TypeVar("_TV")
 
 
-class FrozenDict(collections.Mapping[_TK, _TV]):
+class FrozenDict(collections.abc.Mapping[_TK, _TV]):
     """
     Heavily based on
     https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict

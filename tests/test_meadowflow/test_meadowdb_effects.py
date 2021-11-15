@@ -27,13 +27,13 @@ from meadowgrid.deployed_function import (
 )
 from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder
 from test_meadowflow.test_scheduler import _wait_for_scheduler, _run_func
-import tests.test_meadowdb
+import test_meadowdb
 from test_meadowgrid import MEADOWDATA_CODE, EXAMPLE_CODE
 
 
 def _get_connection():
     return meadowdb.Connection(
-        meadowdb.TableVersionsClientLocal(tests.test_meadowdb._TEST_DATA_DIR)
+        meadowdb.TableVersionsClientLocal(test_meadowdb._TEST_DATA_DIR)
     )
 
 

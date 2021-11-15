@@ -753,8 +753,10 @@ class _CallAt:
                 print(f"About to sleep for {next_callback.timestamp - now}")
                 await asyncio.wait(
                     [
-                        self._queue_modified.wait(),
-                        asyncio.sleep(next_callback.timestamp - now),
+                        asyncio.create_task(self._queue_modified.wait()),
+                        asyncio.create_task(
+                            asyncio.sleep(next_callback.timestamp - now)
+                        ),
                     ],
                     return_when=asyncio.FIRST_COMPLETED,
                 )

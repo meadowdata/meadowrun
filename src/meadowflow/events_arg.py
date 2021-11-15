@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections import Sequence
+from collections.abc import Sequence
 from typing import Optional, Tuple, Any, Dict, Union
 
 from meadowflow.event_log import EventLog, Event, Timestamp

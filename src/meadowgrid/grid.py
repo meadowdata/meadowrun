@@ -1,11 +1,22 @@
+import asyncio
 import pickle
 import time
 import uuid
-from typing import Callable, TypeVar, Iterable, Dict, Sequence, List, Optional, Set
+from typing import (
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    TypeVar,
+    Union,
+)
 
 import cloudpickle
 
-from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS
+from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
     MeadowGridCoordinatorClientSync,
@@ -15,9 +26,10 @@ from meadowgrid.deployed_function import (
     InterpreterDeployment,
     MeadowGridDeployedRunnable,
     MeadowGridFunction,
+    VersionedCodeDeployment,
+    VersionedInterpreterDeployment,
 )
-from meadowgrid.meadowgrid_pb2 import ProcessState
-
+from meadowgrid.meadowgrid_pb2 import ProcessState, ServerAvailableFolder
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -63,9 +75,12 @@ _COMPLETED_PROCESS_STATES = {
 def grid_map(
     function: Callable[[_T], _U],
     args: Iterable[_T],
-    code_deployment: CodeDeployment,
-    interpreter_deployment: InterpreterDeployment,
-    coordinator_address: str = DEFAULT_COORDINATOR_ADDRESS,
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
+    coordinator_host: str = DEFAULT_COORDINATOR_HOST,
+    coordinator_port: int = DEFAULT_COORDINATOR_PORT,
 ) -> Sequence[_U]:
     """
     The equivalent of map(function, args) but runs distributed on meadowgrid
@@ -75,7 +90,7 @@ def grid_map(
     #  asyncio and running tasks even while other tasks are being generated, as well as
     #  returning Future-like objects that give more detailed information about failures
 
-    client = _get_coordinator_client_sync(coordinator_address)
+    client = _get_coordinator_client_sync(f"{coordinator_host}:{coordinator_port}")
 
     # prepare the job
 
@@ -91,6 +106,15 @@ def grid_map(
 
     # add_py_grid_job expects (task_id, args, kwargs)
     args = [(i, (arg,), {}) for i, arg in enumerate(args)]
+
+    # TODO potentially add sync interfaces for these functions
+    if isinstance(code_deployment, VersionedCodeDeployment):
+        code_deployment = asyncio.run(code_deployment.get_latest())
+    elif code_deployment is None:
+        code_deployment = ServerAvailableFolder()
+
+    if isinstance(interpreter_deployment, VersionedInterpreterDeployment):
+        interpreter_deployment = asyncio.run(interpreter_deployment.get_latest())
 
     # add the grid job to the meadowgrid coordinator
 

@@ -58,6 +58,10 @@ TEST_REPO = str(
     (pathlib.Path(__file__).parent.parent.parent.parent / "test_repo").resolve()
 )
 
+TEST_WORKING_FOLDER = str(
+    (pathlib.Path(__file__).parent.parent.parent / "test_data" / "meadowgrid").resolve()
+)
+
 
 # For all of these processes, to debug the coordinator and job_worker, just run them
 # separately and the child processes we start in these tests will just silently fail.
@@ -141,7 +145,7 @@ def _test_meadowgrid(
 ):
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -237,7 +241,7 @@ def test_meadowgrid_server_path_in_repo():
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -286,7 +290,7 @@ def test_meadowgrid_command_context_variables():
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -336,7 +340,7 @@ def test_meadowgrid_containers():
     """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -371,7 +375,7 @@ def test_meadowgrid_containers():
 def test_meadowgrid_grid_job():
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         interpreters = [
             ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),

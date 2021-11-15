@@ -38,7 +38,7 @@ from meadowgrid.deployed_function import (
 )
 from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter
 from test_meadowflow.test_time_events import _TIME_INCREMENT
-from test_meadowgrid.test_meadowgrid_basics import TEST_REPO
+from test_meadowgrid.test_meadowgrid_basics import TEST_REPO, TEST_WORKING_FOLDER
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
@@ -81,7 +81,7 @@ def test_simple_jobs_meadowgrid_server_available() -> None:
     """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
@@ -106,7 +106,7 @@ def test_simple_jobs_meadowgrid_git() -> None:
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
@@ -224,7 +224,9 @@ def test_simple_jobs_meadowflow_server() -> None:
         job_runner_poll_delay_seconds=0.05,
     ), meadowgrid.coordinator_main.main_in_child_process(
         meadowflow_address=meadowflow.server.config.DEFAULT_ADDRESS
-    ), meadowgrid.job_worker_main.main_in_child_process():
+    ), meadowgrid.job_worker_main.main_in_child_process(
+        TEST_WORKING_FOLDER
+    ):
         with meadowflow.server.client.MeadowFlowClientSync() as client:
             # wait for the meadowgrid job runner to register itself with the scheduler
             time.sleep(3)

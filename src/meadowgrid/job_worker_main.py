@@ -3,34 +3,46 @@ import asyncio
 import contextlib
 import logging
 import multiprocessing
-import pathlib
+import os
+import os.path
 from typing import Optional, ContextManager
 
 import meadowgrid.job_worker
-from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS
+from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
 
 
-def main(coordinator_address: Optional[str] = None):
-    # TODO read config file and rather than using test defaults
-    test_working_folder = str(
-        (
-            pathlib.Path(__file__).parent.parent.parent / "test_data" / "meadowgrid"
-        ).resolve()
-    )
+def main(
+    working_folder: Optional[str] = None,
+    coordinator_host: Optional[str] = None,
+    coordinator_port: Optional[int] = None,
+):
+    if working_folder is None:
+        # figure out the default working_folder based on the OS
+        if os.name == "nt":
+            working_folder = os.path.join(os.environ["USERPROFILE"], "meadowgrid")
+        elif os.name == "posix":
+            working_folder = os.path.join(os.environ["HOME"], "meadowgrid")
+        else:
+            raise ValueError(f"Unexpected os.name {os.name}")
+        os.makedirs(working_folder, exist_ok=True)
 
-    if not coordinator_address:
-        coordinator_address = DEFAULT_COORDINATOR_ADDRESS
+    if coordinator_host is None:
+        coordinator_host = DEFAULT_COORDINATOR_HOST
+    if coordinator_port is None:
+        coordinator_port = DEFAULT_COORDINATOR_PORT
 
     asyncio.run(
         meadowgrid.job_worker.job_worker_main_loop(
-            test_working_folder, coordinator_address
+            working_folder, f"{coordinator_host}:{coordinator_port}"
         )
     )
 
 
 @contextlib.contextmanager
 def main_in_child_process(
-    coordinator_address: Optional[str] = None,
+    working_folder: Optional[str] = None,
+    coordinator_host: Optional[str] = None,
+    coordinator_port: Optional[int] = None,
 ) -> ContextManager[None]:
     """
     Launch worker in a child process. Usually for unit tests. For debugging, it's better
@@ -38,7 +50,9 @@ def main_in_child_process(
     see logs, etc. If there's an existing worker already running, the child process will
     just die immediately without doing anything.
     """
-    server_process = multiprocessing.Process(target=main, args=(coordinator_address,))
+    server_process = multiprocessing.Process(
+        target=main, args=(working_folder, coordinator_host, coordinator_port)
+    )
     server_process.start()
 
     try:
@@ -50,16 +64,14 @@ def main_in_child_process(
 def command_line_main():
     logging.basicConfig(level=logging.INFO)
 
-    usage = (
-        "If --coordinator-address [host]:[port] is not specified, we will connect to "
-        "the default address"
-    )
-    parser = argparse.ArgumentParser(usage=usage)
-    parser.add_argument("--coordinator-address")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--working-folder")
+    parser.add_argument("--coordinator-host")
+    parser.add_argument("--coordinator-port")
 
     args = parser.parse_args()
 
-    main(coordinator_address=args.coordinator_address)
+    main(args.working_folder, args.coordinator_host, args.coordinator_port)
 
 
 if __name__ == "__main__":

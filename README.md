@@ -5,7 +5,8 @@ for data scientists and data engineers:
 
 - meadowdb: A columnar database designed to make experimentation effortless
 - meadowflow: A job scheduler that automatically manages your data dependencies
-- meadowgrid: A way to run your code on remote machines
+- meadowgrid: A cluster manager specifically designed to allocate resources batch jobs
+  and distributed compute jobs that run your code in parallel
 
 ## Why MeadowData
 
@@ -21,6 +22,7 @@ jobs. This effect system of sorts enables powerful scenarios. For example:
   while redirecting all of its outputs to a userspace for comparison.
 
 ## Getting started
+- See [examples/meadowgrid.md](examples/meadowgrid.md) for an introduction to meadowgrid.
 - See [examples/covid](examples/covid/README.md) for an introduction to meadowdb and
   meadowflow.
 - See [examples/covid/regression_test.md](examples/covid/regression_test.md) for a

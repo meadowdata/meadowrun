@@ -28,7 +28,11 @@ from meadowgrid.deployed_function import (
 from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, ServerAvailableInterpreter
 from test_meadowflow.test_scheduler import _wait_for_scheduler, _run_func
 import test_meadowdb
-from test_meadowgrid.test_meadowgrid_basics import MEADOWDATA_CODE, EXAMPLE_CODE
+from test_meadowgrid.test_meadowgrid_basics import (
+    MEADOWDATA_CODE,
+    EXAMPLE_CODE,
+    TEST_WORKING_FOLDER,
+)
 
 
 def _get_connection():
@@ -60,7 +64,7 @@ def test_meadowdb_effects():
     """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
             scheduler.register_job_runner(MeadowGridJobRunner)

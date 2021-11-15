@@ -24,6 +24,7 @@ from test_meadowgrid.test_meadowgrid_basics import (
     EXAMPLE_CODE,
     MEADOWDATA_CODE,
     TEST_REPO,
+    TEST_WORKING_FOLDER,
 )
 
 
@@ -31,7 +32,7 @@ def test_deployment_override() -> None:
     """Tests using JobRunOverride.deployment"""
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before

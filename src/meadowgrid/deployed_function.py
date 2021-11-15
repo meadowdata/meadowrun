@@ -139,7 +139,7 @@ class MeadowGridVersionedDeployedRunnable:
     TODO this interface is very incomplete
     """
 
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment]
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None]
     interpreter_deployment: Union[InterpreterDeployment, VersionedInterpreterDeployment]
     runnable: Runnable
     environment_variables: Optional[Dict[str, str]] = None
@@ -149,6 +149,8 @@ class MeadowGridVersionedDeployedRunnable:
             code_deployment = self.code_deployment
         elif isinstance(self.code_deployment, VersionedCodeDeployment):
             code_deployment = await self.code_deployment.get_latest()
+        elif self.code_deployment is None:
+            code_deployment = ServerAvailableFolder()
         else:
             raise ValueError(
                 f"Unexpected code_deployment type {type(self.code_deployment)}"

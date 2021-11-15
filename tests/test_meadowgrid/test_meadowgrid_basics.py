@@ -1,7 +1,6 @@
-import pickle
-import sys
 import asyncio
 import pathlib
+import pickle
 import time
 from typing import Sequence
 
@@ -9,35 +8,55 @@ import pip
 
 import meadowgrid.coordinator
 import meadowgrid.coordinator_main
+import meadowgrid.docker_controller
 import meadowgrid.job_worker_main
+from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
     ProcessStateEnum,
 )
 from meadowgrid.deployed_function import (
+    CodeDeployment,
+    ContainerRepo,
+    InterpreterDeployment,
+    MeadowGridCommand,
+    MeadowGridDeployedRunnable,
     MeadowGridFunction,
-    Deployment,
-    MeadowGridDeployedCommand,
-    MeadowGridDeployedFunction,
 )
 from meadowgrid.grid import grid_map
-from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, GitRepoCommit, ProcessState
+from meadowgrid.meadowgrid_pb2 import (
+    ContainerAtDigest,
+    GitRepoCommit,
+    ProcessState,
+    ServerAvailableContainer,
+    ServerAvailableFolder,
+    ServerAvailableInterpreter,
+)
 
 
-EXAMPLE_CODE = str((pathlib.Path(__file__).parent / "example_user_code").resolve())
-MEADOWDATA_CODE = str((pathlib.Path(__file__).parent.parent / "src").resolve())
+EXAMPLE_CODE = str(
+    (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()
+)
+MEADOWDATA_CODE = str((pathlib.Path(__file__).parent.parent.parent / "src").resolve())
 
 
 def test_meadowgrid_server_available_folder():
-
     _test_meadowgrid(
-        ServerAvailableFolder(
-            code_paths=[EXAMPLE_CODE], interpreter_path=sys.executable
-        )
+        ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
+        ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
     )
 
 
-TEST_REPO = str((pathlib.Path(__file__).parent.parent.parent / "test_repo").resolve())
+def test_meadowgrid_server_available_folder_container():
+    _test_meadowgrid(
+        ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
+        asyncio.run(ContainerRepo("python", "3.9.8-slim-buster").get_latest()),
+    )
+
+
+TEST_REPO = str(
+    (pathlib.Path(__file__).parent.parent.parent.parent / "test_repo").resolve()
+)
 
 
 # For all of these processes, to debug the coordinator and job_worker, just run them
@@ -51,17 +70,33 @@ def test_meadowgrid_server_git_repo_commit():
     """
     _test_meadowgrid(
         GitRepoCommit(
-            repo_url=TEST_REPO,
-            commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
-            interpreter_path=sys.executable,
-        )
+            repo_url=TEST_REPO, commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6"
+        ),
+        ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+    )
+
+
+def test_meadowgrid_server_git_repo_commit_container():
+    """
+    Running this requires cloning https://github.com/meadowdata/test_repo next to the
+    meadowdata repo.
+    """
+    # TODO first make sure the image we're looking for is NOT already cached on this
+    #  system, then run it again after it has been cached, as this works different code
+    #  paths
+    _test_meadowgrid(
+        GitRepoCommit(
+            repo_url=TEST_REPO, commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6"
+        ),
+        asyncio.run(ContainerRepo("python", "3.9.8-slim-buster").get_latest()),
     )
 
 
 async def _wait_for_process(
-    client: MeadowGridCoordinatorClientAsync, job_id: str
+    client: MeadowGridCoordinatorClientAsync, job_id: str, seconds_to_wait: float = 10
 ) -> Sequence[ProcessState]:
     """wait (no more than ~10s) for the remote process to finish"""
+    t0 = time.time()
     i = 0
     results = None
     while (
@@ -72,9 +107,10 @@ async def _wait_for_process(
             ProcessStateEnum.ASSIGNED,
             ProcessStateEnum.RUNNING,
         )
-        and i < 100
+        and (time.time() - t0) < seconds_to_wait
     ):
-        print("Waiting for remote process to finish")
+        if i == 0:
+            print("Waiting for remote process to finish")
         time.sleep(0.1)
         results = await client.get_simple_job_states([job_id])
         assert len(results) == 1
@@ -100,7 +136,9 @@ def assert_successful(state: ProcessState) -> None:
         )
 
 
-def _test_meadowgrid(deployment: Deployment):
+def _test_meadowgrid(
+    code_deployment: CodeDeployment, interpreter_deployment: InterpreterDeployment
+):
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(),
@@ -112,11 +150,12 @@ def _test_meadowgrid(deployment: Deployment):
                 # run a remote process
                 arguments = ["foo"]
                 request_id = "request1"
-                add_job_state = await client.add_py_func_job(
+                add_job_state = await client.add_py_runnable_job(
                     request_id,
                     "example_runner",
-                    MeadowGridDeployedFunction(
-                        deployment,
+                    MeadowGridDeployedRunnable(
+                        code_deployment,
+                        interpreter_deployment,
                         MeadowGridFunction.from_name(
                             "example_package.example", "example_runner", arguments
                         ),
@@ -125,14 +164,12 @@ def _test_meadowgrid(deployment: Deployment):
                 assert add_job_state == "ADDED"
 
                 # try running a duplicate
-                duplicate_add_job_state = await client.add_py_func_job(
+                duplicate_add_job_state = await client.add_py_runnable_job(
                     request_id,
                     "baz",
-                    MeadowGridDeployedFunction(
-                        ServerAvailableFolder(
-                            code_paths=["foo"],
-                            interpreter_path=sys.executable,
-                        ),
+                    MeadowGridDeployedRunnable(
+                        ServerAvailableFolder(code_paths=["foo"]),
+                        interpreter_deployment,
                         MeadowGridFunction.from_name("foo.bar", "baz", ["foo"]),
                     ),
                 )
@@ -147,11 +184,12 @@ def _test_meadowgrid(deployment: Deployment):
                     ProcessStateEnum.RUNNING,
                 )
 
-                results = await _wait_for_process(client, request_id)
+                # we need to wait longer if we need to pull a container image
+                results = await _wait_for_process(client, request_id, 600)
 
                 # confirm that it completed successfully
                 assert_successful(results[0])
-                assert results[0].pid > 0
+                assert bool(results[0].pid > 0) ^ bool(results[0].container_id)
                 assert (
                     pickle.loads(results[0].pickled_result)[0]
                     == f"hello {arguments[0]}"
@@ -168,16 +206,20 @@ def _test_meadowgrid(deployment: Deployment):
                 # test running a command rather than a function. pip should be available
                 # in the Scripts folder of the current python interpreter
                 request_id = "request2"
-                add_job_state = await client.add_py_command_job(
+                add_job_state = await client.add_py_runnable_job(
                     request_id,
                     "pip",
-                    MeadowGridDeployedCommand(deployment, ["pip", "--version"]),
+                    MeadowGridDeployedRunnable(
+                        code_deployment,
+                        interpreter_deployment,
+                        MeadowGridCommand(["pip", "--version"]),
+                    ),
                 )
                 assert add_job_state == "ADDED"
 
                 results = await _wait_for_process(client, request_id)
                 assert_successful(results[0])
-                assert results[0].pid > 0
+                assert bool(results[0].pid > 0) ^ bool(results[0].container_id)
                 with open(results[0].log_file_name, "r") as log_file:
                     text = log_file.read()
                 assert f"pip {pip.__version__}" in text
@@ -204,15 +246,17 @@ def test_meadowgrid_server_path_in_repo():
                 # run a remote process
                 arguments = ["foo"]
                 request_id = "request1"
-                await client.add_py_func_job(
+                await client.add_py_runnable_job(
                     request_id,
                     "example_runner",
-                    MeadowGridDeployedFunction(
+                    MeadowGridDeployedRunnable(
                         GitRepoCommit(
                             repo_url=TEST_REPO,
                             commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
-                            interpreter_path=sys.executable,
                             path_in_repo="example_package",
+                        ),
+                        ServerAvailableInterpreter(
+                            interpreter_path=MEADOWGRID_INTERPRETER,
                         ),
                         MeadowGridFunction.from_name(
                             "example", "example_runner", arguments
@@ -237,9 +281,8 @@ def test_meadowgrid_command_context_variables():
     with context variables. Makes sure the output is the same in both cases.
     """
 
-    deployment = ServerAvailableFolder(
-        code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE], interpreter_path=sys.executable
-    )
+    code = ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE])
+    interpreter = ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER)
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
@@ -250,18 +293,24 @@ def test_meadowgrid_command_context_variables():
             async with MeadowGridCoordinatorClientAsync() as client:
                 request_id3 = "request3"
                 request_id4 = "request4"
-                await client.add_py_command_job(
+                await client.add_py_runnable_job(
                     request_id3,
                     "example_script",
-                    MeadowGridDeployedCommand(
-                        deployment, ["python", "example_script.py"]
+                    MeadowGridDeployedRunnable(
+                        code,
+                        interpreter,
+                        MeadowGridCommand(["python", "example_script.py"]),
                     ),
                 )
-                await client.add_py_command_job(
+                await client.add_py_runnable_job(
                     request_id4,
                     "example_script",
-                    MeadowGridDeployedCommand(
-                        deployment, ["python", "example_script.py"], {"foo": "bar"}
+                    MeadowGridDeployedRunnable(
+                        code,
+                        interpreter,
+                        MeadowGridCommand(
+                            ["python", "example_script.py"], {"foo": "bar"}
+                        ),
                     ),
                 )
 
@@ -280,17 +329,62 @@ def test_meadowgrid_command_context_variables():
         asyncio.run(run())
 
 
+def test_meadowgrid_containers():
+    """
+    Basic test on running with containers, checks that different images behave as
+    expected
+    """
+    with (
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(),
+    ):
+
+        async def run():
+            async with MeadowGridCoordinatorClientAsync() as client:
+                for version in ["3.9.8", "3.8.12"]:
+                    digest = await (
+                        meadowgrid.docker_controller.get_latest_digest_from_registry(
+                            "python", f"{version}-slim-buster", None
+                        )
+                    )
+
+                    request_id = f"request-{version}"
+                    add_job_state = await client.add_py_runnable_job(
+                        request_id,
+                        f"python_version_check-{version}",
+                        MeadowGridDeployedRunnable(
+                            ServerAvailableFolder(),
+                            ContainerAtDigest(repository="python", digest=digest),
+                            MeadowGridCommand(["python", "--version"]),
+                        ),
+                    )
+                    assert add_job_state == "ADDED"
+                    results = await _wait_for_process(client, request_id, 600)
+                    assert_successful(results[0])
+                    with open(results[0].log_file_name, "r") as log_file:
+                        text = log_file.read()
+                    assert text.startswith(f"Python {version}")
+
+        asyncio.run(run())
+
+
 def test_meadowgrid_grid_job():
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(),
     ):
-        results = grid_map(
-            lambda s: f"hello {s}",
-            ["abc", "def", "ghi"],
-            ServerAvailableFolder(
-                code_paths=[EXAMPLE_CODE], interpreter_path=sys.executable
-            ),
-        )
+        interpreters = [
+            ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+            # We need an image that has meadowdata in it. This can be produced by
+            # running build_docker_image.bat
+            ServerAvailableContainer(image_name="meadowdata:latest"),
+        ]
+        for interpreter in interpreters:
+            results = grid_map(
+                lambda s: f"hello {s}",
+                ["abc", "def", "ghi"],
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE]),
+                interpreter,
+            )
 
-        assert results == ["hello abc", "hello def", "hello ghi"]
+            assert results == ["hello abc", "hello def", "hello ghi"]

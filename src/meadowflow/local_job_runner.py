@@ -54,9 +54,6 @@ class LocalJobRunner(JobRunner):
             return
 
         if isinstance(job_runner_function, LocalFunction):
-            self._event_log.append_event(
-                job_name, JobPayload(run_request_id, "RUN_REQUESTED")
-            )
             self._running[run_request_id] = self._executor.submit(
                 _function_wrapper,
                 job_runner_function.function_pointer,

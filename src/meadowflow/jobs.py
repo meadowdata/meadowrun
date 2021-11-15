@@ -4,6 +4,7 @@ import abc
 import dataclasses
 import functools
 import random
+import traceback
 import uuid
 from dataclasses import dataclass
 from typing import (
@@ -23,14 +24,16 @@ from meadowflow.event_log import EventLog, Event, Timestamp
 import meadowflow.topic
 import meadowflow.effects
 import meadowflow.events_arg
-from meadowflow.git_repo import GitRepo
 from meadowflow.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
 from meadowflow.topic_names import TopicName, FrozenDict, CURRENT_JOB
 from meadowgrid.deployed_function import (
-    MeadowGridDeployedFunction,
-    MeadowGridDeployedCommand,
-    DeploymentTypes,
-    Deployment,
+    CodeDeployment,
+    CodeDeploymentTypes,
+    MeadowGridCommand,
+    MeadowGridDeployedRunnable,
+    MeadowGridFunction,
+    MeadowGridVersionedDeployedRunnable,
+    VersionedCodeDeployment,
 )
 
 JobState = Literal[
@@ -88,11 +91,7 @@ class LocalFunction:
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-JobRunnerFunctionTypes = (
-    LocalFunction,
-    MeadowGridDeployedCommand,
-    MeadowGridDeployedFunction,
-)
+JobRunnerFunctionTypes = (LocalFunction, MeadowGridDeployedRunnable)
 # A JobRunnerFunction is a function/executable/script that one or more JobRunners will
 # know how to run along with the arguments for that function/executable/script
 JobRunnerFunction = Union[JobRunnerFunctionTypes]
@@ -125,22 +124,6 @@ class JobRunner(abc.ABC):
         pass
 
 
-class VersionedJobRunnerFunction(abc.ABC):
-    """
-    Similar to a JobRunnerFunction, but instead of a single version of the code (e.g. a
-    specific commit in a git repo), specifies a versioned codebase (e.g. a git repo),
-    along with a function/executable/script in that repo (and also including the
-    arguments to call that function/executable/script).
-
-    TODO this is not yet fully fleshed out and the interface will probably need to
-     change
-    """
-
-    @abc.abstractmethod
-    def get_job_runner_function(self) -> JobRunnerFunction:
-        pass
-
-
 class JobRunnerPredicate(abc.ABC):
     """JobRunnerPredicates specify which job runners a job can run on"""
 
@@ -149,7 +132,7 @@ class JobRunnerPredicate(abc.ABC):
         pass
 
 
-JobFunction = Union[JobRunnerFunction, VersionedJobRunnerFunction]
+JobFunction = Union[JobRunnerFunction, MeadowGridVersionedDeployedRunnable]
 
 
 @dataclass
@@ -161,14 +144,14 @@ class Job(meadowflow.topic.Topic):
 
     # these fields should be frozen
 
-    # job_function specifies "where is the codebase and interpreter" (called a
-    # "deployment" in meadowgrid), "how do we invoke the function/executable/script for
-    # this job" (e.g. MeadowGridFunction), and "what are the arguments for that
+    # job_function specifies "where is the codebase", "where is the interpreter", "how
+    # do we invoke the function/executable/script/runnable for this job" (e.g.
+    # MeadowGridFunction), and "what are the arguments for that
     # function/executable/script". This can be a JobRunnerFunction, which is something
     # that at least one job runner will know how to run, or a
-    # "VersionedJobRunnerFunction" (current implementations are MeadowGridCommandGitRepo
-    # and MeadowGridFunctionGitRepo) which is something that can produce different
-    # versions of a JobRunnerFunction
+    # "MeadowGridVersionedDeployedRunnable" which is something that can produce
+    # different versions of a JobRunnerFunction based on e.g. different versions of the
+    # codebase (GitRepo) or a container (ContainerRepo)
     job_function: JobFunction
 
     # specifies what actions to take when
@@ -207,12 +190,14 @@ class JobRunOverrides:
     # Equivalent to meadowdb.connection.set_default_userspace
     meadowdb_userspace: Optional[str] = None
 
-    deployment: Union[GitRepo, Deployment] = None
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment] = None
 
+    # TODO add: interpreter_deployment: Union[VersionedInterpreterDeployment,
+    #  InterpreterDeployment]
     # TODO add things like branch/commit override for git-based deployments
 
 
-def _apply_job_run_overrides(
+async def _apply_job_run_overrides(
     run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
 ) -> JobRunnerFunction:
     """Applies run_overrides to job_runner_function"""
@@ -226,7 +211,7 @@ def _apply_job_run_overrides(
         job_runner_function = _apply_overrides_meadowdb_userspace(
             run_overrides, job_runner_function
         )
-        job_runner_function = _apply_overrides_deployment(
+        job_runner_function = await _apply_overrides_code_deployment(
             run_overrides, job_runner_function
         )
 
@@ -236,10 +221,15 @@ def _apply_job_run_overrides(
 def _raise_override_error(
     override_specified: str, job_runner_function: JobRunnerFunction
 ) -> None:
+    if isinstance(job_runner_function, MeadowGridDeployedRunnable):
+        additional_type = f" and runnable is {type(job_runner_function.runnable)}"
+    else:
+        additional_type = ""
+
     raise ValueError(
         f"run_overrides specified {override_specified} but job_runner_function is of "
-        f"type {type(job_runner_function)}, and we don't know how to apply "
-        f"{override_specified} to that type of job_runner_function"
+        f"type {type(job_runner_function)}{additional_type}, and we don't know how to "
+        f"apply {override_specified} to that type of job_runner_function"
     )
 
 
@@ -256,11 +246,13 @@ def _apply_overrides_function_args_kwargs(
 
         if isinstance(job_runner_function, LocalFunction):
             job_runner_function = dataclasses.replace(job_runner_function, **to_replace)
-        elif isinstance(job_runner_function, MeadowGridDeployedFunction):
+        elif isinstance(job_runner_function, MeadowGridDeployedRunnable) and isinstance(
+            job_runner_function.runnable, MeadowGridFunction
+        ):
             job_runner_function = dataclasses.replace(
                 job_runner_function,
-                meadowgrid_function=dataclasses.replace(
-                    job_runner_function.meadowgrid_function, **to_replace
+                runnable=dataclasses.replace(
+                    job_runner_function.runnable, **to_replace
                 ),
             )
         else:
@@ -273,10 +265,15 @@ def _apply_overrides_context_variables(
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.context_variables:
-        if isinstance(job_runner_function, MeadowGridDeployedCommand):
+        if isinstance(job_runner_function, MeadowGridDeployedRunnable) and isinstance(
+            job_runner_function.runnable, MeadowGridCommand
+        ):
             job_runner_function = dataclasses.replace(
                 job_runner_function,
-                context_variables=run_overrides.context_variables,
+                runnable=dataclasses.replace(
+                    job_runner_function.runnable,
+                    context_variables=run_overrides.context_variables,
+                ),
             )
         else:
             _raise_override_error("context_variables", job_runner_function)
@@ -288,10 +285,7 @@ def _apply_overrides_meadowdb_userspace(
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.meadowdb_userspace:
-        if isinstance(
-            job_runner_function,
-            (MeadowGridDeployedCommand, MeadowGridDeployedFunction),
-        ):
+        if isinstance(job_runner_function, MeadowGridDeployedRunnable):
             # this needs to line up with
             # meadowdb.connection._MEADOWDB_DEFAULT_USERSPACE but we prefer not
             # taking the dependency here
@@ -307,32 +301,27 @@ def _apply_overrides_meadowdb_userspace(
     return job_runner_function
 
 
-def _apply_overrides_deployment(
+async def _apply_overrides_code_deployment(
     run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
-    if run_overrides.deployment is not None:
-        # TODO this should be more generic--GitRepo should be just one instance of a
-        #  "VersionedDeployment" class which has a get_deployment() method
-        if isinstance(run_overrides.deployment, GitRepo):
-            new_deployment = run_overrides.deployment.get_commit()
-        elif isinstance(run_overrides.deployment, DeploymentTypes):
-            new_deployment = run_overrides.deployment
+    if run_overrides.code_deployment is not None:
+        if isinstance(run_overrides.code_deployment, VersionedCodeDeployment):
+            new_deployment = await run_overrides.code_deployment.get_latest()
+        elif isinstance(run_overrides.code_deployment, CodeDeploymentTypes):
+            new_deployment = run_overrides.code_deployment
         else:
             raise ValueError(
-                "deployment must be a GitRepo or a Deployment, not a "
-                f"{type(run_overrides.deployment)}"
+                "deployment must be a VersionedCodeDeployment or a CodeDeployment, not "
+                f"a {type(run_overrides.code_deployment)}"
             )
 
-        if isinstance(
-            job_runner_function,
-            (MeadowGridDeployedCommand, MeadowGridDeployedFunction),
-        ):
+        if isinstance(job_runner_function, MeadowGridDeployedRunnable):
             job_runner_function = dataclasses.replace(
-                job_runner_function, deployment=new_deployment
+                job_runner_function, code_deployment=new_deployment
             )
         else:
-            _raise_override_error("deployment", job_runner_function)
+            _raise_override_error("code_deployment", job_runner_function)
     return job_runner_function
 
 
@@ -353,28 +342,36 @@ class Run(meadowflow.topic.Action):
         return the previous run request id (new run requests while the job is already
         requested/running are ignored)
         """
+
+        # first, make sure there are no other run requests on this job, then log that
+        # we've requested a run
+
         ev: Event[JobPayload] = event_log.last_event(job.name, timestamp)
         # TODO not clear that this is the right behavior, vs queuing up another run once
         #  the current run is done.
         if ev is not None and ev.payload.state in ["RUN_REQUESTED", "RUNNING"]:
             # TODO maybe indicate somehow that this job request already existed?
             return ev.payload.request_id
-        else:
-            run_request_id = str(uuid.uuid4())
+
+        run_request_id = str(uuid.uuid4())
+        event_log.append_event(job.name, JobPayload(run_request_id, "RUN_REQUESTED"))
+
+        try:
+            # now try to run the job
 
             # convert a job_function into a job_runner_function
-            if isinstance(job.job_function, VersionedJobRunnerFunction):
-                job_runner_function = job.job_function.get_job_runner_function()
+            if isinstance(job.job_function, MeadowGridVersionedDeployedRunnable):
+                job_runner_function = await job.job_function.get_latest()
             elif isinstance(job.job_function, JobRunnerFunctionTypes):
                 job_runner_function = job.job_function
             else:
                 raise ValueError(
-                    "job_run_spec is neither VersionedJobRunnerFunction nor a "
+                    "job_run_spec is neither MeadowGridVersionedDeployedRunnable nor a "
                     f"JobRunnerFunction, instead is a {type(job.job_function)}"
                 )
 
             # Apply any JobRunOverrides
-            job_runner_function = _apply_job_run_overrides(
+            job_runner_function = await _apply_job_run_overrides(
                 run_overrides, job_runner_function
             )
 
@@ -389,6 +386,25 @@ class Run(meadowflow.topic.Action):
             ).run(job.name, run_request_id, job_runner_function)
 
             return run_request_id
+        except Exception as e:
+            # We need to assume that any exception throw in the above try block means
+            # that we failed to actually request this job.
+            # TODO there's a more subtle failure case where we don't throw any exception
+            #  here, but still something went wrong that we don't realize--for that we
+            #  need to implement a timeout on how long things can be in the
+            #  "RUN_REQUESTED" state.
+            raised_exception = RaisedException(
+                str(type(e)), str(e), traceback.format_exc()
+            )
+            event_log.append_event(
+                job.name,
+                JobPayload(
+                    run_request_id,
+                    "FAILED",
+                    "RUN_REQUEST_FAILED",
+                    result_value=raised_exception,
+                ),
+            )
 
 
 def choose_job_runner(

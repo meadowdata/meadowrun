@@ -1,5 +1,4 @@
 import datetime
-import sys
 
 import pandas as pd
 
@@ -20,15 +19,16 @@ from meadowflow.topic_names import pname
 from meadowdb.connection import MeadowdbEffects, prod_userspace_name
 import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
+from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
-    MeadowGridDeployedCommand,
-    MeadowGridDeployedFunction,
+    MeadowGridCommand,
+    MeadowGridDeployedRunnable,
     MeadowGridFunction,
 )
-from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, ServerAvailableInterpreter
 from test_meadowflow.test_scheduler import _wait_for_scheduler, _run_func
 import test_meadowdb
-from test_meadowgrid import MEADOWDATA_CODE, EXAMPLE_CODE
+from test_meadowgrid.test_meadowgrid_basics import MEADOWDATA_CODE, EXAMPLE_CODE
 
 
 def _get_connection():
@@ -69,21 +69,27 @@ def test_meadowdb_effects():
                 [
                     Job(
                         pname("Command"),
-                        MeadowGridDeployedCommand(
+                        MeadowGridDeployedRunnable(
                             ServerAvailableFolder(
                                 code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
-                                interpreter_path=sys.executable,
                             ),
-                            command_line=["python", "write_to_table.py"],
+                            ServerAvailableInterpreter(
+                                interpreter_path=MEADOWGRID_INTERPRETER,
+                            ),
+                            MeadowGridCommand(
+                                command_line=["python", "write_to_table.py"]
+                            ),
                         ),
                         (),
                     ),
                     Job(
                         pname("Func"),
-                        MeadowGridDeployedFunction(
+                        MeadowGridDeployedRunnable(
                             ServerAvailableFolder(
                                 code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE],
-                                interpreter_path=sys.executable,
+                            ),
+                            ServerAvailableInterpreter(
+                                interpreter_path=MEADOWGRID_INTERPRETER,
                             ),
                             MeadowGridFunction.from_name("write_to_table", "main"),
                         ),

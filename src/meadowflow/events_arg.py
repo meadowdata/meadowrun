@@ -8,9 +8,9 @@ from meadowflow.event_log import EventLog, Event, Timestamp
 import meadowflow.jobs
 from meadowflow.topic_names import TopicName, FrozenDict
 from meadowgrid.deployed_function import (
+    MeadowGridCommand,
+    MeadowGridDeployedRunnable,
     MeadowGridFunction,
-    MeadowGridDeployedFunction,
-    MeadowGridDeployedCommand,
 )
 
 
@@ -45,24 +45,35 @@ def replace_latest_events(
         return _replace_latest_events_function(
             job_runner_function, job, event_log, latest_timestamp
         )[1]
-    elif isinstance(job_runner_function, MeadowGridDeployedFunction):
-        need_replacement, new_function = _replace_latest_events_function(
-            job_runner_function.meadowgrid_function, job, event_log, latest_timestamp
-        )
-        if need_replacement:
-            return dataclasses.replace(
-                job_runner_function, meadowgrid_function=new_function
-            )
-        else:
-            return job_runner_function
-    elif isinstance(job_runner_function, MeadowGridDeployedCommand):
-        if job_runner_function.context_variables:
-            need_replacement, new_vars = _replace_latest_events_dict(
-                job_runner_function.context_variables, job, event_log, latest_timestamp
+    elif isinstance(job_runner_function, MeadowGridDeployedRunnable):
+        if isinstance(job_runner_function.runnable, MeadowGridFunction):
+            need_replacement, new_function = _replace_latest_events_function(
+                job_runner_function.runnable, job, event_log, latest_timestamp
             )
             if need_replacement:
-                dataclasses.replace(job_runner_function, context_variables=new_vars)
-        return job_runner_function
+                return dataclasses.replace(job_runner_function, runnable=new_function)
+            else:
+                return job_runner_function
+        elif isinstance(job_runner_function.runnable, MeadowGridCommand):
+            if job_runner_function.runnable.context_variables:
+                need_replacement, new_vars = _replace_latest_events_dict(
+                    job_runner_function.runnable.context_variables,
+                    job,
+                    event_log,
+                    latest_timestamp,
+                )
+                if need_replacement:
+                    dataclasses.replace(
+                        job_runner_function,
+                        runnable=dataclasses.replace(
+                            job_runner_function.runnable, context_variables=new_vars
+                        ),
+                    )
+            return job_runner_function
+        else:
+            raise ValueError(
+                f"Unknown runnable type {type(job_runner_function.runnable)}"
+            )
     else:
         raise ValueError(f"Unknown type {type(job_runner_function)}")
 

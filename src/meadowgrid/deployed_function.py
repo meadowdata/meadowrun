@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import abc
 import dataclasses
 import importlib
 import sys
 import types
+from typing import Any, Dict, Sequence, Callable, Optional, Union
 
-from typing import Any, Dict, Union, Sequence, Callable, Optional
+from meadowgrid.docker_controller import get_latest_digest_from_registry
+from meadowgrid.meadowgrid_pb2 import (
+    GitRepoCommit,
+    ContainerAtDigest,
+    ServerAvailableContainer,
+)
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, ServerAvailableInterpreter
 
-from meadowgrid.meadowgrid_pb2 import GitRepoCommit, ServerAvailableFolder
+
+@dataclasses.dataclass(frozen=True)
+class MeadowGridCommand:
+    command_line: Sequence[str]
+    context_variables: Optional[Dict[str, Any]] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,39 +69,157 @@ class MeadowGridFunction:
         )
 
 
-DeploymentTypes = (ServerAvailableFolder, GitRepoCommit)
-Deployment = Union[DeploymentTypes]
+Runnable = Union[MeadowGridCommand, MeadowGridFunction]
+
+CodeDeploymentTypes = (ServerAvailableFolder, GitRepoCommit)
+CodeDeployment = Union[CodeDeploymentTypes]
+
+InterpreterDeploymentTypes = (
+    ServerAvailableInterpreter,
+    ContainerAtDigest,
+    ServerAvailableContainer,
+)
+InterpreterDeployment = Union[InterpreterDeploymentTypes]
+
+
+class VersionedCodeDeployment(abc.ABC):
+    """
+    Similar to a CodeDeployment, but instead of a single version of the code (e.g. a
+    specific commit in a git repo), specifies a versioned codebase (e.g. a git repo)
+    where we can e.g. get the latest, select an old version.
+
+    TODO this interface is very incomplete
+    """
+
+    @abc.abstractmethod
+    async def get_latest(self) -> CodeDeployment:
+        pass
+
+
+class VersionedInterpreterDeployment(abc.ABC):
+    """
+    Similar to InterpreterDeployment, but instead of a single version fo the interpreter
+    (e.g. a specific digest in a container repository), specifies a versioned set of
+    interpreters (e.g. an entire container repository) where we can e.g. get the latest
+    or select an old version.
+
+    TODO this interface is very incomplete
+    """
+
+    @abc.abstractmethod
+    async def get_latest(self) -> InterpreterDeployment:
+        pass
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowGridDeployedCommand:
+class MeadowGridDeployedRunnable:
     """
-    A command that a MeadowGrid worker can run. Specifies a deployment that tells a
-    MeadowGrid server where to find the codebase (and by extension the python
-    interpreter). The command is then run with the codebase as the working directory and
-    the python interpreter's Scripts folder in the path. This allows you to run commands
-    like `jupyter nbconvert`, `jupyter kernel`, or `papermill` if those commands/scripts
-    are installed in the specified python environment.
+    A "runnable" that a MeadowGrid worker can run. A runnable can either be a python
+    function or a command line. Specifies deployments that tell a MeadowGrid worker
+    where to find the codebase and interpreter. The command is then run with the
+    codebase as the working directory and the python interpreter's Scripts folder in the
+    path. This allows you to run commands like `jupyter nbconvert`, `jupyter kernel`, or
+    `papermill` if those commands/scripts are installed in the specified python
+    environment.
     """
 
-    deployment: Deployment
-    command_line: Sequence[str]
-    context_variables: Optional[Dict[str, Any]] = None
+    code_deployment: CodeDeployment
+    interpreter_deployment: InterpreterDeployment
+    runnable: Runnable
     environment_variables: Optional[Dict[str, str]] = None
 
 
 @dataclasses.dataclass(frozen=True)
-class MeadowGridDeployedFunction:
+class MeadowGridVersionedDeployedRunnable:
     """
-    A function that a MeadowGrid server is able to run. Specifies a deployment that
-    tells a MeadowGrid server where to find the codebase (and by extension the python
-    interpreter), and then specifies a function in that codebase to run (including
-    args.)
+    Like MeadowGridDeployedRunnable, but code_deployment and interpreter_deployment can
+    be versioned. (They can also be simple unversioned CodeDeployment or
+    InterpreterDeployment.)
+
+    TODO this interface is very incomplete
     """
 
-    deployment: Deployment
-    meadowgrid_function: MeadowGridFunction
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment]
+    interpreter_deployment: Union[InterpreterDeployment, VersionedInterpreterDeployment]
+    runnable: Runnable
     environment_variables: Optional[Dict[str, str]] = None
+
+    async def get_latest(self) -> MeadowGridDeployedRunnable:
+        if isinstance(self.code_deployment, CodeDeploymentTypes):
+            code_deployment = self.code_deployment
+        elif isinstance(self.code_deployment, VersionedCodeDeployment):
+            code_deployment = await self.code_deployment.get_latest()
+        else:
+            raise ValueError(
+                f"Unexpected code_deployment type {type(self.code_deployment)}"
+            )
+
+        if isinstance(self.interpreter_deployment, InterpreterDeploymentTypes):
+            interpreter_deployment = self.interpreter_deployment
+        elif isinstance(self.code_deployment, VersionedInterpreterDeployment):
+            interpreter_deployment = await self.interpreter_deployment.get_latest()
+        else:
+            raise ValueError(
+                "Unexpected interpreter_deployment type "
+                f"{type(self.interpreter_deployment)}"
+            )
+
+        return MeadowGridDeployedRunnable(
+            code_deployment,
+            interpreter_deployment,
+            self.runnable,
+            self.environment_variables,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class GitRepo(VersionedCodeDeployment):
+    """Represents a git repo"""
+
+    # specifies the url, will be provided to git clone, see
+    # https://git-scm.com/docs/git-clone
+    repo_url: str
+
+    default_branch: str = "main"
+
+    # specifies a path within the repo that this deployment should consider as the
+    # "root" directory. None is the same as "" or "."
+    path_in_repo: Optional[str] = None
+
+    async def get_latest(self) -> CodeDeployment:
+        # TODO this seems kind of silly right now, but we should move the logic for
+        #  converting from a branch name to a specific commit hash to this function from
+        #  _get_git_repo_commit_interpreter_and_code so we can show the user what commit
+        #  we actually ran with.
+        # TODO also we will add the ability to specify overrides (e.g. a specific commit
+        #  or an alternate branch)
+        return GitRepoCommit(
+            repo_url=self.repo_url,
+            # TODO this is very sketchy. Need to invest time in all of the possible
+            #  revision specifications
+            commit="origin/" + self.default_branch,
+            path_in_repo=self.path_in_repo,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class ContainerRepo(VersionedInterpreterDeployment):
+    """Represents a container repository"""
+
+    # repository name, i.e. used in `docker pull [repository]:[tag]`
+    repository: str
+
+    # tag name
+    tag: str = "latest"
+
+    async def get_latest(self) -> InterpreterDeployment:
+        # TODO add ability to provide credentials
+        return ContainerAtDigest(
+            repository=self.repository,
+            digest=await get_latest_digest_from_registry(
+                self.repository, self.tag, None
+            ),
+        )
 
 
 # maybe convert this to just use cloudpickle?
@@ -97,7 +227,7 @@ def convert_local_to_deployed_function(
     function_pointer: Callable[..., Any],
     function_args: Sequence[Any],
     function_kwargs: Dict[str, Any],
-) -> MeadowGridDeployedFunction:
+) -> MeadowGridDeployedRunnable:
     """
     TODO this should do an entire upload of the current environment, which we don't do
      right now. For now we just assume that we're on the same machine (or just have the
@@ -154,8 +284,9 @@ def convert_local_to_deployed_function(
             "probably not a totally normal module-level global python function"
         )
 
-    return MeadowGridDeployedFunction(
-        ServerAvailableFolder(code_paths=code_paths, interpreter_path=sys.executable),
+    return MeadowGridDeployedRunnable(
+        ServerAvailableFolder(code_paths=code_paths),
+        ServerAvailableInterpreter(interpreter_path=sys.executable),
         MeadowGridFunction.from_name(
             function_pointer.__module__,
             function_pointer.__qualname__,

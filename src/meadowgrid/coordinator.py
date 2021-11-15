@@ -37,6 +37,8 @@ class _SimpleJob:
     Keeps track of the state of a simple job. Simple jobs (unlike grid jobs) only
     require running a single command or function. Job.py_command or Job.py_function will
     be populated.
+
+    Coordinator server-side equivalent to MeadowGridDeployedRunnable
     """
 
     job: Job

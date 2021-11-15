@@ -1,5 +1,4 @@
 import datetime
-import sys
 import time
 from typing import Any, Sequence, Callable, List, Optional
 
@@ -11,7 +10,6 @@ import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
 from meadowflow.event_log import Event
 from meadowflow.events_arg import LatestEventsArg
-from meadowflow.git_repo import GitRepo
 from meadowflow.job_runner_predicates import JobRunnerTypePredicate
 from meadowflow.jobs import (
     Actions,
@@ -25,19 +23,22 @@ from meadowflow.jobs import (
     LocalFunction,
     add_scope_jobs_decorator,
 )
-from meadowflow.meadowgrid_job_runner import (
-    MeadowGridJobRunner,
-    MeadowGridFunctionGitRepo,
-)
+from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
 from meadowflow.scheduler import Scheduler
 from meadowflow.scopes import ScopeValues, ScopeInstantiated
 from meadowflow.server.client import MeadowFlowClientSync
 from meadowflow.time_event_publisher import PointInTime, PointInTimePredicate
 from meadowflow.topic import TriggerAction, NotPredicate
 from meadowflow.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
-from meadowgrid.deployed_function import MeadowGridFunction
+from meadowgrid.config import MEADOWGRID_INTERPRETER
+from meadowgrid.deployed_function import (
+    GitRepo,
+    MeadowGridFunction,
+    MeadowGridVersionedDeployedRunnable,
+)
+from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter
 from test_meadowflow.test_time_events import _TIME_INCREMENT
-from test_meadowgrid import TEST_REPO
+from test_meadowgrid.test_meadowgrid_basics import TEST_REPO
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
@@ -113,8 +114,9 @@ def test_simple_jobs_meadowgrid_git() -> None:
             s.register_job_runner(MeadowGridJobRunner)
             _test_simple_jobs(
                 s,
-                lambda args: MeadowGridFunctionGitRepo(
-                    GitRepo(TEST_REPO, "main", sys.executable),
+                lambda args: MeadowGridVersionedDeployedRunnable(
+                    GitRepo(TEST_REPO, "main"),
+                    ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
                     MeadowGridFunction.from_name(
                         "example_package.example", "join_strings", args
                     ),

@@ -11,24 +11,22 @@ message StringPair {
 }
 
 
-// Represents a folder (or folders) that presumably contain code that the meadowgrid
-// server can access directly
+// Represents a folder (or folders) that contain code that the meadowgrid server can
+// access directly
 message ServerAvailableFolder {
     // code_paths[0] will be set as the working directory, and all code_paths will be
     // added to the PYTHONPATH. These code_paths must "make sense" on the machine where
-    // the meadowgrid worker is running. The typical use case for this is that the
+    // the meadowgrid worker is running. One typical use case for this is that the
     // meadowgrid workers have access to a shared filesystem where code has been
-    // deployed. Order matters as usual for PYTHONPATH. There must be at least one
-    // code_path.
+    // deployed. Order matters as usual for PYTHONPATH. Another typical use case is to
+    // provide no code_paths because all of the code needed is already specified in the
+    // interpreter_deployment
     repeated string code_paths = 1;
-
-    // The path to the python interpreter to use
-    string interpreter_path = 2;
 }
 
 
 // Represents a git repo at a specific commit. See MeadowGridFunctionGitRepo for
-// docstrings on repo_url and interpreter_path
+// docstrings on repo_url
 message GitRepoCommit {
     string repo_url = 1;
 
@@ -36,11 +34,35 @@ message GitRepoCommit {
     // https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection
     string commit = 2;
 
-    string interpreter_path = 3;
-
     // specifies a relative path within the repo to treat as the "root" directory for
     // the purposes of this deployment
-    string path_in_repo = 4;
+    string path_in_repo = 3;
+}
+
+
+// Represents an interpreter that the meadowgrid server can access directly.
+// interpreter_path can be set to meadowgrid.config.MEADOWGRID_INTERPRETER to indicate
+// that this job should run using the same interpreter that's being used to run
+// meadowgrid, which is only recommended for testing.
+message ServerAvailableInterpreter {
+    string interpreter_path = 1;
+}
+
+
+// Represents a specific version (aka digest) of a container
+message ContainerAtDigest {
+    // Together, repository and digest should be such that `docker pull
+    // [repository]@[digest]` works
+    string repository = 1;
+    string digest = 2;
+}
+
+
+// Only recommended for testing. Represents a container image that already exists on the
+// meadowgrid server. Helpful for testing with locally built images that haven't been
+// uploaded to a repository and don't have a digest
+message ServerAvailableContainer {
+    string image_name = 1;
 }
 
 
@@ -102,25 +124,37 @@ message Job {
     // resources will be dedicated to this job.
     int32 priority = 3;
 
-    // TODO possible that deployment belongs in job_spec?
-    oneof deployment {
+    oneof code_deployment {
         ServerAvailableFolder server_available_folder = 4;
         GitRepoCommit git_repo_commit = 5;
-        // TODO add more options here, e.g. S3 folder
     }
-    repeated StringPair environment_variables = 6;
+    oneof interpreter_deployment {
+        ServerAvailableInterpreter server_available_interpreter = 6;
+
+        // The container specified should be such that running `docker run
+        // [repository]@[digest] python --version` works. Currently only works with
+        // Linux containers. If code_deployment specifies any code folders, they will be
+        // mounted in the container as /meadowgrid/code0, /meadowgrid/code1, etc.
+        ContainerAtDigest container_at_digest = 7;
+
+        ServerAvailableContainer server_available_container = 8;
+
+        // TODO add requirements_in_code, or conda_environment_yml_in_code etc.
+    }
+
+    repeated StringPair environment_variables = 9;
 
     // result_highest_pickle_protocol tells the remote code what the highest pickle
     // protocol we can read on this end is which will help it determine what pickle
     // protocol to use to send back results. This should almost always be set to
     // pickle.HIGHEST_PROTOCOL in the calling python process
-    int32 result_highest_pickle_protocol = 7;
+    int32 result_highest_pickle_protocol = 10;
 
     // determines what kind of job this is
     oneof job_spec {
-        PyCommandJob py_command = 8;
-        PyFunctionJob py_function = 9;
-        PyGridJob py_grid = 10;
+        PyCommandJob py_command = 11;
+        PyFunctionJob py_function = 12;
+        PyGridJob py_grid = 13;
     }
 }
 
@@ -158,15 +192,15 @@ message ProcessState {
         // populated.
         RUNNING = 3;
 
-        // These states represent a job that is "done". pid, log_file_name, and
-        // return_code will be populated unless otherwise noted.
+        // These states represent a job that is "done". log_file_name, return_code, and
+        // one of pid/container_id will be populated unless otherwise noted.
 
         // The job has completed normally. pickled_result may be populated.
         SUCCEEDED = 4;
-        // There was an exception before launching the job process. pid, log_file_name,
-        // and return_code will not be populated. pickled_result will be populated with
-        // a tuple representing the python exception from the job_worker process (see
-        // PYTHON_EXCEPTION for the format).
+        // There was an exception before launching the job process. pid/container_id,
+        // log_file_name, and return_code will not be populated. pickled_result will be
+        // populated with a tuple representing the python exception from the job_worker
+        // process (see PYTHON_EXCEPTION for the format).
         RUN_REQUEST_FAILED = 5;
         // A python exception was thrown from the job process. pickled_result will be a
         // pickled tuple (exception_type, exception_message, exception_traceback). We
@@ -180,8 +214,8 @@ message ProcessState {
         // extension), or os.exit was called with a non-zero argument, or there was a
         // python exception thrown in the meadowgrid worker code.
         NON_ZERO_RETURN_CODE = 7;
-        // Cancelled by request. pid, log_file_name, and return_code may not be
-        // populated.
+        // Cancelled by request. pid/container_id, log_file_name, and return_code may
+        // not be populated.
         // TODO implement cancelling
         CANCELLED = 8;
         // There was an error while reading the outputs of the process. This could mean
@@ -196,9 +230,10 @@ message ProcessState {
     }
     ProcessStateEnum state = 1;
     int32 pid = 2;
-    string log_file_name = 3;
-    bytes pickled_result = 4;
-    int32 return_code = 5;
+    string container_id = 3;
+    string log_file_name = 4;
+    bytes pickled_result = 5;
+    int32 return_code = 6;
 }
 
 

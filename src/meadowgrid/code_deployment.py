@@ -3,7 +3,7 @@ import dataclasses
 import os
 import pathlib
 import shutil
-from typing import Literal, List, Optional, Tuple, Dict
+from typing import Literal, List, Optional, Tuple, Dict, Sequence
 
 from meadowgrid.meadowgrid_pb2 import Job, GitRepoCommit
 
@@ -52,7 +52,7 @@ async def _run_git(args: List[str], cwd: Optional[str] = None) -> Tuple[str, str
     return stdout.decode(), stderr.decode()
 
 
-class DeploymentManager:
+class CodeDeploymentManager:
     """
     get_interpreter_and_code is this class' only public API. This is a class instead
     of a function because we need to cache data/folders for get_interpreter_and_code
@@ -81,10 +81,11 @@ class DeploymentManager:
         # that local clone)
         self._git_local_clones_lock = asyncio.Lock()
 
-    async def get_interpreter_and_code(self, job: Job) -> Tuple[str, List[str]]:
+    async def get_code_paths(self, job: Job) -> Sequence[str]:
         """
-        Returns interpreter_path, code_paths based on Job.deployment. code_paths will
-        have at least one element.
+        Returns code_paths based on Job.code_deployment. code_paths will have paths to
+        folders that are available on this machine that contain "the user's code". Code
+        paths can be empty, which would mean that we don't need any user code.
 
         For ServerAvailableFolder, this function will effectively use code_paths as
         specified.
@@ -92,22 +93,15 @@ class DeploymentManager:
         For GitRepoCommit, this function will create an immutable local copy of the
         specific commit.
         """
-        case = job.WhichOneof("deployment")
+        case = job.WhichOneof("code_deployment")
         if case == "server_available_folder":
-            r = job.server_available_folder
-            if len(r.code_paths) == 0:
-                raise ValueError(
-                    "At least one server_available_folder.code_path must be specified"
-                )
-            return r.interpreter_path, r.code_paths
+            return job.server_available_folder.code_paths
         elif case == "git_repo_commit":
-            return await self._get_git_repo_commit_interpreter_and_code(
-                job.git_repo_commit
-            )
+            return await self._get_git_repo_commit_code_paths(job.git_repo_commit)
         elif case is None:
-            raise ValueError("One of interpreter_and_code must be set!")
+            raise ValueError("One of code_deployment must be set!")
         else:
-            raise ValueError(f"Unrecognized interpreter_and_code {case}")
+            raise ValueError(f"Unrecognized code_deployment {case}")
 
     async def _get_git_repo_local_clone(self, repo_url: str) -> _GitRepoLocalClone:
         """Clones the specified repo locally"""
@@ -160,10 +154,10 @@ class DeploymentManager:
 
             return local_clone
 
-    async def _get_git_repo_commit_interpreter_and_code(
+    async def _get_git_repo_commit_code_paths(
         self, git_repo_commit: GitRepoCommit
-    ) -> Tuple[str, List[str]]:
-        """Returns interpreter_path, code_paths for GitRepoCommit"""
+    ) -> Sequence[str]:
+        """Returns code_paths for GitRepoCommit"""
 
         local_clone = await self._get_git_repo_local_clone(git_repo_commit.repo_url)
 
@@ -206,4 +200,4 @@ class DeploymentManager:
         path_in_local_copy = str(
             (pathlib.Path(local_copy_path) / git_repo_commit.path_in_repo).resolve()
         )
-        return git_repo_commit.interpreter_path, [path_in_local_copy]
+        return [path_in_local_copy]

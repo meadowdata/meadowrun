@@ -53,9 +53,7 @@ client.manual_run(
     pname("cdc_covid_data_smoothed", date=t0),
     JobRunOverrides(
         meadowdb_userspace=test_userspace,
-        deployment=ServerAvailableFolder(
-            code_paths=[current_code], interpreter_path=sys.executable
-        ),
+        deployment=ServerAvailableFolder(code_paths=[current_code]),
     ),
     wait_for_completion=True,
 )

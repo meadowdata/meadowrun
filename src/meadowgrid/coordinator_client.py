@@ -7,20 +7,22 @@ import grpc.aio
 
 from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS, JOB_ID_VALID_CHARACTERS
 from meadowgrid.deployed_function import (
-    Deployment,
-    MeadowGridDeployedCommand,
-    MeadowGridDeployedFunction,
+    CodeDeployment,
+    InterpreterDeployment,
+    MeadowGridCommand,
+    MeadowGridDeployedRunnable,
     MeadowGridFunction,
     MeadowGridFunctionName,
 )
 from meadowgrid.meadowgrid_pb2 import (
     AddJobResponse,
     AddTasksToGridJobRequest,
-    GridTaskUpdateAndGetNextRequest,
+    ContainerAtDigest,
     GitRepoCommit,
     GridTask,
     GridTaskState,
     GridTaskStatesRequest,
+    GridTaskUpdateAndGetNextRequest,
     Job,
     JobStateUpdate,
     JobStateUpdates,
@@ -31,7 +33,9 @@ from meadowgrid.meadowgrid_pb2 import (
     PyFunctionJob,
     PyGridJob,
     QualifiedFunctionName,
+    ServerAvailableContainer,
     ServerAvailableFolder,
+    ServerAvailableInterpreter,
     StringPair,
 )
 from meadowgrid.meadowgrid_pb2_grpc import MeadowGridCoordinatorStub
@@ -53,17 +57,32 @@ def _string_pairs_from_dict(d: Dict[str, str]) -> Iterable[StringPair]:
             yield StringPair(key=key, value=value)
 
 
-def _add_deployment_to_job(job: Job, deployment: Deployment) -> None:
+def _add_deployments_to_job(
+    job: Job,
+    code_deployment: CodeDeployment,
+    interpreter_deployment: InterpreterDeployment,
+) -> None:
     """
-    Think of this as job.deployment = deployment, but it's complicated because it's
-    a protobuf oneof
+    Think of this as job.code_deployment = code_deployment; job.interpreter_deployment =
+    interpreter_deployment, but it's complicated because these are protobuf oneofs
     """
-    if isinstance(deployment, ServerAvailableFolder):
-        job.server_available_folder.CopyFrom(deployment)
-    elif isinstance(deployment, GitRepoCommit):
-        job.git_repo_commit.CopyFrom(deployment)
+    if isinstance(code_deployment, ServerAvailableFolder):
+        job.server_available_folder.CopyFrom(code_deployment)
+    elif isinstance(code_deployment, GitRepoCommit):
+        job.git_repo_commit.CopyFrom(code_deployment)
     else:
-        raise ValueError(f"Unknown deployment type {type(deployment)}")
+        raise ValueError(f"Unknown code deployment type {type(code_deployment)}")
+
+    if isinstance(interpreter_deployment, ServerAvailableInterpreter):
+        job.server_available_interpreter.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, ContainerAtDigest):
+        job.container_at_digest.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, ServerAvailableContainer):
+        job.server_available_container.CopyFrom(interpreter_deployment)
+    else:
+        raise ValueError(
+            f"Unknown interpreter deployment type {type(interpreter_deployment)}"
+        )
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:
@@ -92,44 +111,12 @@ def _pickle_protocol_for_deployed_interpreter() -> int:
     return min(protocol, pickle.HIGHEST_PROTOCOL)
 
 
-def _create_py_command_job(
-    job_id: str,
-    job_friendly_name: str,
-    deployed_command: MeadowGridDeployedCommand,
-    priority: int,
-) -> Job:
-    # TODO see below about optimizations we could do for transferring pickled data
-    if deployed_command.context_variables:
-        pickled_context_variables = pickle.dumps(
-            deployed_command.context_variables,
-            protocol=_pickle_protocol_for_deployed_interpreter(),
-        )
-    else:
-        pickled_context_variables = None
-
-    job = Job(
-        job_id=_make_valid_job_id(job_id),
-        job_friendly_name=_make_valid_job_id(job_friendly_name),
-        priority=priority,
-        environment_variables=_string_pairs_from_dict(
-            deployed_command.environment_variables
-        ),
-        result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        py_command=PyCommandJob(
-            command_line=deployed_command.command_line,
-            pickled_context_variables=pickled_context_variables,
-        ),
-    )
-    _add_deployment_to_job(job, deployed_command.deployment)
-    return job
-
-
 def _create_py_function(
     meadowgrid_function: MeadowGridFunction, pickle_protocol: int
 ) -> PyFunctionJob:
     """
-    Returns a PyFunctionJob, called by _create_py_func_job which creates a Job that has a
-    PyFunctionJob in it.
+    Returns a PyFunctionJob, called by _create_py_runnable_job which creates a Job that
+    has a PyFunctionJob in it.
 
     pickle_protocol should be the highest pickle protocol that the deployed function
     will be able to understand.
@@ -169,10 +156,10 @@ def _create_py_function(
     return py_function
 
 
-def _create_py_func_job(
+def _create_py_runnable_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_function: MeadowGridDeployedFunction,
+    deployed_runnable: MeadowGridDeployedRunnable,
     priority: int,
 ) -> Job:
     job = Job(
@@ -180,26 +167,54 @@ def _create_py_func_job(
         job_friendly_name=_make_valid_job_id(job_friendly_name),
         priority=priority,
         environment_variables=_string_pairs_from_dict(
-            deployed_function.environment_variables
+            deployed_runnable.environment_variables
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        py_function=_create_py_function(
-            deployed_function.meadowgrid_function,
-            _pickle_protocol_for_deployed_interpreter(),
-        ),
     )
-    _add_deployment_to_job(job, deployed_function.deployment)
+    _add_deployments_to_job(
+        job, deployed_runnable.code_deployment, deployed_runnable.interpreter_deployment
+    )
+
+    if isinstance(deployed_runnable.runnable, MeadowGridCommand):
+        # TODO see _create_py_function about optimizations we could do for transferring
+        #  pickled data
+        if deployed_runnable.runnable.context_variables:
+            pickled_context_variables = pickle.dumps(
+                deployed_runnable.runnable.context_variables,
+                protocol=_pickle_protocol_for_deployed_interpreter(),
+            )
+        else:
+            pickled_context_variables = None
+
+        job.py_command.CopyFrom(
+            PyCommandJob(
+                command_line=deployed_runnable.runnable.command_line,
+                pickled_context_variables=pickled_context_variables,
+            )
+        )
+    elif isinstance(deployed_runnable.runnable, MeadowGridFunction):
+        job.py_function.CopyFrom(
+            _create_py_function(
+                deployed_runnable.runnable, _pickle_protocol_for_deployed_interpreter()
+            )
+        )
+    else:
+        raise ValueError(f"Unexpected runnable type {type(deployed_runnable.runnable)}")
+
     return job
 
 
 def _create_py_grid_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_function: MeadowGridDeployedFunction,
+    deployed_function: MeadowGridDeployedRunnable,
     tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
     all_tasks_added: bool,
     priority: int,
 ) -> Job:
+    if not isinstance(deployed_function.runnable, MeadowGridFunction):
+        raise ValueError("simple_job must have a MeadowGridFunction runnable")
+
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     job = Job(
         job_id=_make_valid_job_id(job_id),
@@ -210,14 +225,14 @@ def _create_py_grid_job(
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_grid=PyGridJob(
-            function=_create_py_function(
-                deployed_function.meadowgrid_function, pickle_protocol
-            ),
+            function=_create_py_function(deployed_function.runnable, pickle_protocol),
             tasks=_create_task_requests(tasks, pickle_protocol),
             all_tasks_added=all_tasks_added,
         ),
     )
-    _add_deployment_to_job(job, deployed_function.deployment)
+    _add_deployments_to_job(
+        job, deployed_function.code_deployment, deployed_function.interpreter_deployment
+    )
     return job
 
 
@@ -266,16 +281,16 @@ class MeadowGridCoordinatorClientAsync:
         self._channel = grpc.aio.insecure_channel(address)
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    async def add_py_command_job(
+    async def add_py_runnable_job(
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_command: MeadowGridDeployedCommand,
+        deployed_runnable: MeadowGridDeployedRunnable,
         priority: int = 100,
     ) -> AddJobState:
         """
-        Requests a run of the specified command in the context of a python environment
-        on a meadowgrid worker. See also MeadowGridDeployedCommand docstring and Job in
+        Requests a run of the specified runnable in the context of a python environment
+        on a meadowgrid worker. See also MeadowGridDeployedRunnable docstring and Job in
         meadowgrid.proto.
 
         Return value will either be ADDED (success) or IS_DUPLICATE, indicating that
@@ -283,30 +298,8 @@ class MeadowGridCoordinatorClientAsync:
         """
         return _add_job_state_string(
             await self._stub.add_job(
-                _create_py_command_job(
-                    job_id, job_friendly_name, deployed_command, priority
-                )
-            )
-        )
-
-    async def add_py_func_job(
-        self,
-        job_id: str,
-        job_friendly_name: str,
-        deployed_function: MeadowGridDeployedFunction,
-        priority: int = 100,
-    ) -> AddJobState:
-        """
-        Requests a run of the specified function on a meadowgrid worker. See also
-        MeadowGridDeployedFunction docstring and Job in meadowgrid.proto.
-
-        Return value will either be ADDED (success) or IS_DUPLICATE, indicating that
-        the job_id has already been used.
-        """
-        return _add_job_state_string(
-            await self._stub.add_job(
-                _create_py_func_job(
-                    job_id, job_friendly_name, deployed_function, priority
+                _create_py_runnable_job(
+                    job_id, job_friendly_name, deployed_runnable, priority
                 )
             )
         )
@@ -315,14 +308,17 @@ class MeadowGridCoordinatorClientAsync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowGridDeployedFunction,
+        deployed_function: MeadowGridDeployedRunnable,
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: int = 100,
     ) -> AddJobState:
         """
-        Creates a grid job. See also MeadowGridDeployedFunction, Job in
+        Creates a grid job. See also MeadowGridDeployedRunnable, Job in
         meadowgrid.proto, and grid_map.
+
+        deployed_function.runnable must be a MeadowGridFunction. This is a bit hacky but
+        seems okay for an internal API
 
         If the request contains multiple tasks with the same id, only the first one
         will be taken and subsequent tasks will be ignored.
@@ -416,31 +412,16 @@ class MeadowGridCoordinatorClientSync:
         self._channel = grpc.insecure_channel(address)
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    def add_py_command_job(
+    def add_py_simple_job(
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_command: MeadowGridDeployedCommand,
+        deployed_function: MeadowGridDeployedRunnable,
         priority: int = 100,
     ) -> AddJobState:
         return _add_job_state_string(
             self._stub.add_job(
-                _create_py_command_job(
-                    job_id, job_friendly_name, deployed_command, priority
-                )
-            )
-        )
-
-    def add_py_func_job(
-        self,
-        job_id: str,
-        job_friendly_name: str,
-        deployed_function: MeadowGridDeployedFunction,
-        priority: int = 100,
-    ) -> AddJobState:
-        return _add_job_state_string(
-            self._stub.add_job(
-                _create_py_func_job(
+                _create_py_runnable_job(
                     job_id, job_friendly_name, deployed_function, priority
                 )
             )
@@ -450,7 +431,7 @@ class MeadowGridCoordinatorClientSync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowGridDeployedFunction,
+        deployed_function: MeadowGridDeployedRunnable,
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: int = 100,

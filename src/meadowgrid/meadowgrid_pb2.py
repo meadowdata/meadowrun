@@ -18,7 +18,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x1bmeadowgrid/meadowgrid.proto\x12\nmeadowgrid"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"E\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t\x12\x18\n\x10interpreter_path\x18\x02 \x01(\t"a\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x18\n\x10interpreter_path\x18\x03 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x04 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa6\x01\n\rPyFunctionJob\x12\x44\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32!.meadowgrid.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"v\n\tPyGridJob\x12+\n\x08\x66unction\x18\x01 \x01(\x0b\x32\x19.meadowgrid.PyFunctionJob\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"h\n\x18\x41\x64\x64TasksToGridJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"\xc3\x03\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x10\n\x08priority\x18\x03 \x01(\x05\x12\x44\n\x17server_available_folder\x18\x04 \x01(\x0b\x32!.meadowgrid.ServerAvailableFolderH\x00\x12\x34\n\x0fgit_repo_commit\x18\x05 \x01(\x0b\x32\x19.meadowgrid.GitRepoCommitH\x00\x12\x35\n\x15\x65nvironment_variables\x18\x06 \x03(\x0b\x32\x16.meadowgrid.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x07 \x01(\x05\x12.\n\npy_command\x18\x08 \x01(\x0b\x32\x18.meadowgrid.PyCommandJobH\x01\x12\x30\n\x0bpy_function\x18\t \x01(\x0b\x32\x19.meadowgrid.PyFunctionJobH\x01\x12(\n\x07py_grid\x18\n \x01(\x0b\x32\x15.meadowgrid.PyGridJobH\x01\x42\x0c\n\ndeploymentB\n\n\x08job_spec"\x80\x01\n\x0e\x41\x64\x64JobResponse\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.meadowgrid.AddJobResponse.AddJobState"7\n\x0b\x41\x64\x64JobState\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x41\x44\x44\x45\x44\x10\x01\x12\x10\n\x0cIS_DUPLICATE\x10\x02"\x10\n\x0eNextJobRequest"\xf5\x02\n\x0cProcessState\x12\x38\n\x05state\x18\x01 \x01(\x0e\x32).meadowgrid.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x15\n\rlog_file_name\x18\x03 \x01(\t\x12\x16\n\x0epickled_result\x18\x04 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x05 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0c\n\x08\x41SSIGNED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\t\x12\x0b\n\x07UNKNOWN\x10\n"A\n\rProcessStates\x12\x30\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x18.meadowgrid.ProcessState"#\n\x10JobStatesRequest\x12\x0f\n\x07job_ids\x18\x01 \x03(\t"Q\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"A\n\x0fJobStateUpdates\x12.\n\njob_states\x18\x01 \x03(\x0b\x32\x1a.meadowgrid.JobStateUpdate"C\n\x15GridTaskStatesRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x1a\n\x12task_ids_to_ignore\x18\x02 \x03(\x05"Q\n\rGridTaskState\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"@\n\x0eGridTaskStates\x12.\n\x0btask_states\x18\x01 \x03(\x0b\x32\x19.meadowgrid.GridTaskState"s\n\x1fGridTaskUpdateAndGetNextRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\x05\x12/\n\rprocess_state\x18\x03 \x01(\x0b\x32\x18.meadowgrid.ProcessState"\x15\n\x13UpdateStateResponse2\xdb\x04\n\x15MeadowGridCoordinator\x12\x38\n\x07\x61\x64\x64_job\x12\x0f.meadowgrid.Job\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12[\n\x15\x61\x64\x64_tasks_to_grid_job\x12$.meadowgrid.AddTasksToGridJobRequest\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12S\n\x11update_job_states\x12\x1b.meadowgrid.JobStateUpdates\x1a\x1f.meadowgrid.UpdateStateResponse"\x00\x12=\n\x0cget_next_job\x12\x1a.meadowgrid.NextJobRequest\x1a\x0f.meadowgrid.Job"\x00\x12j\n#update_grid_task_state_and_get_next\x12+.meadowgrid.GridTaskUpdateAndGetNextRequest\x1a\x14.meadowgrid.GridTask"\x00\x12R\n\x15get_simple_job_states\x12\x1c.meadowgrid.JobStatesRequest\x1a\x19.meadowgrid.ProcessStates"\x00\x12W\n\x14get_grid_task_states\x12!.meadowgrid.GridTaskStatesRequest\x1a\x1a.meadowgrid.GridTaskStates"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x1bmeadowgrid/meadowgrid.proto\x12\nmeadowgrid"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"+\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t"G\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x03 \x01(\t"6\n\x1aServerAvailableInterpreter\x12\x18\n\x10interpreter_path\x18\x01 \x01(\t"7\n\x11\x43ontainerAtDigest\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0e\n\x06\x64igest\x18\x02 \x01(\t".\n\x18ServerAvailableContainer\x12\x12\n\nimage_name\x18\x01 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa6\x01\n\rPyFunctionJob\x12\x44\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32!.meadowgrid.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"v\n\tPyGridJob\x12+\n\x08\x66unction\x18\x01 \x01(\x0b\x32\x19.meadowgrid.PyFunctionJob\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"h\n\x18\x41\x64\x64TasksToGridJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"\xbc\x05\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x10\n\x08priority\x18\x03 \x01(\x05\x12\x44\n\x17server_available_folder\x18\x04 \x01(\x0b\x32!.meadowgrid.ServerAvailableFolderH\x00\x12\x34\n\x0fgit_repo_commit\x18\x05 \x01(\x0b\x32\x19.meadowgrid.GitRepoCommitH\x00\x12N\n\x1cserver_available_interpreter\x18\x06 \x01(\x0b\x32&.meadowgrid.ServerAvailableInterpreterH\x01\x12<\n\x13\x63ontainer_at_digest\x18\x07 \x01(\x0b\x32\x1d.meadowgrid.ContainerAtDigestH\x01\x12J\n\x1aserver_available_container\x18\x08 \x01(\x0b\x32$.meadowgrid.ServerAvailableContainerH\x01\x12\x35\n\x15\x65nvironment_variables\x18\t \x03(\x0b\x32\x16.meadowgrid.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\n \x01(\x05\x12.\n\npy_command\x18\x0b \x01(\x0b\x32\x18.meadowgrid.PyCommandJobH\x02\x12\x30\n\x0bpy_function\x18\x0c \x01(\x0b\x32\x19.meadowgrid.PyFunctionJobH\x02\x12(\n\x07py_grid\x18\r \x01(\x0b\x32\x15.meadowgrid.PyGridJobH\x02\x42\x11\n\x0f\x63ode_deploymentB\x18\n\x16interpreter_deploymentB\n\n\x08job_spec"\x80\x01\n\x0e\x41\x64\x64JobResponse\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.meadowgrid.AddJobResponse.AddJobState"7\n\x0b\x41\x64\x64JobState\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x41\x44\x44\x45\x44\x10\x01\x12\x10\n\x0cIS_DUPLICATE\x10\x02"\x10\n\x0eNextJobRequest"\x8b\x03\n\x0cProcessState\x12\x38\n\x05state\x18\x01 \x01(\x0e\x32).meadowgrid.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x14\n\x0c\x63ontainer_id\x18\x03 \x01(\t\x12\x15\n\rlog_file_name\x18\x04 \x01(\t\x12\x16\n\x0epickled_result\x18\x05 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x06 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0c\n\x08\x41SSIGNED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\t\x12\x0b\n\x07UNKNOWN\x10\n"A\n\rProcessStates\x12\x30\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x18.meadowgrid.ProcessState"#\n\x10JobStatesRequest\x12\x0f\n\x07job_ids\x18\x01 \x03(\t"Q\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"A\n\x0fJobStateUpdates\x12.\n\njob_states\x18\x01 \x03(\x0b\x32\x1a.meadowgrid.JobStateUpdate"C\n\x15GridTaskStatesRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x1a\n\x12task_ids_to_ignore\x18\x02 \x03(\x05"Q\n\rGridTaskState\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"@\n\x0eGridTaskStates\x12.\n\x0btask_states\x18\x01 \x03(\x0b\x32\x19.meadowgrid.GridTaskState"s\n\x1fGridTaskUpdateAndGetNextRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\x05\x12/\n\rprocess_state\x18\x03 \x01(\x0b\x32\x18.meadowgrid.ProcessState"\x15\n\x13UpdateStateResponse2\xdb\x04\n\x15MeadowGridCoordinator\x12\x38\n\x07\x61\x64\x64_job\x12\x0f.meadowgrid.Job\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12[\n\x15\x61\x64\x64_tasks_to_grid_job\x12$.meadowgrid.AddTasksToGridJobRequest\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12S\n\x11update_job_states\x12\x1b.meadowgrid.JobStateUpdates\x1a\x1f.meadowgrid.UpdateStateResponse"\x00\x12=\n\x0cget_next_job\x12\x1a.meadowgrid.NextJobRequest\x1a\x0f.meadowgrid.Job"\x00\x12j\n#update_grid_task_state_and_get_next\x12+.meadowgrid.GridTaskUpdateAndGetNextRequest\x1a\x14.meadowgrid.GridTask"\x00\x12R\n\x15get_simple_job_states\x12\x1c.meadowgrid.JobStatesRequest\x1a\x19.meadowgrid.ProcessStates"\x00\x12W\n\x14get_grid_task_states\x12!.meadowgrid.GridTaskStatesRequest\x1a\x1a.meadowgrid.GridTaskStates"\x00\x62\x06proto3',
 )
 
 
@@ -56,8 +56,8 @@ _ADDJOBRESPONSE_ADDJOBSTATE = _descriptor.EnumDescriptor(
     ],
     containing_type=None,
     serialized_options=None,
-    serialized_start=1385,
-    serialized_end=1440,
+    serialized_start=1743,
+    serialized_end=1798,
 )
 _sym_db.RegisterEnumDescriptor(_ADDJOBRESPONSE_ADDJOBSTATE)
 
@@ -159,8 +159,8 @@ _PROCESSSTATE_PROCESSSTATEENUM = _descriptor.EnumDescriptor(
     ],
     containing_type=None,
     serialized_options=None,
-    serialized_start=1617,
-    serialized_end=1834,
+    serialized_start=1997,
+    serialized_end=2214,
 )
 _sym_db.RegisterEnumDescriptor(_PROCESSSTATE_PROCESSSTATEENUM)
 
@@ -252,25 +252,6 @@ _SERVERAVAILABLEFOLDER = _descriptor.Descriptor(
             file=DESCRIPTOR,
             create_key=_descriptor._internal_create_key,
         ),
-        _descriptor.FieldDescriptor(
-            name="interpreter_path",
-            full_name="meadowgrid.ServerAvailableFolder.interpreter_path",
-            index=1,
-            number=2,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
     ],
     extensions=[],
     nested_types=[],
@@ -281,7 +262,7 @@ _SERVERAVAILABLEFOLDER = _descriptor.Descriptor(
     extension_ranges=[],
     oneofs=[],
     serialized_start=85,
-    serialized_end=154,
+    serialized_end=128,
 )
 
 
@@ -332,29 +313,10 @@ _GITREPOCOMMIT = _descriptor.Descriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.FieldDescriptor(
-            name="interpreter_path",
-            full_name="meadowgrid.GitRepoCommit.interpreter_path",
-            index=2,
-            number=3,
-            type=9,
-            cpp_type=9,
-            label=1,
-            has_default_value=False,
-            default_value=b"".decode("utf-8"),
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
             name="path_in_repo",
             full_name="meadowgrid.GitRepoCommit.path_in_repo",
-            index=3,
-            number=4,
+            index=2,
+            number=3,
             type=9,
             cpp_type=9,
             label=1,
@@ -378,8 +340,150 @@ _GITREPOCOMMIT = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=156,
-    serialized_end=253,
+    serialized_start=130,
+    serialized_end=201,
+)
+
+
+_SERVERAVAILABLEINTERPRETER = _descriptor.Descriptor(
+    name="ServerAvailableInterpreter",
+    full_name="meadowgrid.ServerAvailableInterpreter",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="interpreter_path",
+            full_name="meadowgrid.ServerAvailableInterpreter.interpreter_path",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=203,
+    serialized_end=257,
+)
+
+
+_CONTAINERATDIGEST = _descriptor.Descriptor(
+    name="ContainerAtDigest",
+    full_name="meadowgrid.ContainerAtDigest",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="repository",
+            full_name="meadowgrid.ContainerAtDigest.repository",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="digest",
+            full_name="meadowgrid.ContainerAtDigest.digest",
+            index=1,
+            number=2,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=259,
+    serialized_end=314,
+)
+
+
+_SERVERAVAILABLECONTAINER = _descriptor.Descriptor(
+    name="ServerAvailableContainer",
+    full_name="meadowgrid.ServerAvailableContainer",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="image_name",
+            full_name="meadowgrid.ServerAvailableContainer.image_name",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=316,
+    serialized_end=362,
 )
 
 
@@ -438,8 +542,8 @@ _PYCOMMANDJOB = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=255,
-    serialized_end=326,
+    serialized_start=364,
+    serialized_end=435,
 )
 
 
@@ -498,8 +602,8 @@ _QUALIFIEDFUNCTIONNAME = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=328,
-    serialized_end=395,
+    serialized_start=437,
+    serialized_end=504,
 )
 
 
@@ -586,8 +690,8 @@ _PYFUNCTIONJOB = _descriptor.Descriptor(
             fields=[],
         ),
     ],
-    serialized_start=398,
-    serialized_end=564,
+    serialized_start=507,
+    serialized_end=673,
 )
 
 
@@ -646,8 +750,8 @@ _GRIDTASK = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=566,
-    serialized_end=629,
+    serialized_start=675,
+    serialized_end=738,
 )
 
 
@@ -725,8 +829,8 @@ _PYGRIDJOB = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=631,
-    serialized_end=749,
+    serialized_start=740,
+    serialized_end=858,
 )
 
 
@@ -804,8 +908,8 @@ _ADDTASKSTOGRIDJOBREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=751,
-    serialized_end=855,
+    serialized_start=860,
+    serialized_end=964,
 )
 
 
@@ -913,34 +1017,15 @@ _JOB = _descriptor.Descriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.FieldDescriptor(
-            name="environment_variables",
-            full_name="meadowgrid.Job.environment_variables",
+            name="server_available_interpreter",
+            full_name="meadowgrid.Job.server_available_interpreter",
             index=5,
             number=6,
             type=11,
             cpp_type=10,
-            label=3,
-            has_default_value=False,
-            default_value=[],
-            message_type=None,
-            enum_type=None,
-            containing_type=None,
-            is_extension=False,
-            extension_scope=None,
-            serialized_options=None,
-            file=DESCRIPTOR,
-            create_key=_descriptor._internal_create_key,
-        ),
-        _descriptor.FieldDescriptor(
-            name="result_highest_pickle_protocol",
-            full_name="meadowgrid.Job.result_highest_pickle_protocol",
-            index=6,
-            number=7,
-            type=5,
-            cpp_type=1,
             label=1,
             has_default_value=False,
-            default_value=0,
+            default_value=None,
             message_type=None,
             enum_type=None,
             containing_type=None,
@@ -951,8 +1036,27 @@ _JOB = _descriptor.Descriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.FieldDescriptor(
-            name="py_command",
-            full_name="meadowgrid.Job.py_command",
+            name="container_at_digest",
+            full_name="meadowgrid.Job.container_at_digest",
+            index=6,
+            number=7,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="server_available_container",
+            full_name="meadowgrid.Job.server_available_container",
             index=7,
             number=8,
             type=11,
@@ -970,10 +1074,67 @@ _JOB = _descriptor.Descriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.FieldDescriptor(
-            name="py_function",
-            full_name="meadowgrid.Job.py_function",
+            name="environment_variables",
+            full_name="meadowgrid.Job.environment_variables",
             index=8,
             number=9,
+            type=11,
+            cpp_type=10,
+            label=3,
+            has_default_value=False,
+            default_value=[],
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="result_highest_pickle_protocol",
+            full_name="meadowgrid.Job.result_highest_pickle_protocol",
+            index=9,
+            number=10,
+            type=5,
+            cpp_type=1,
+            label=1,
+            has_default_value=False,
+            default_value=0,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="py_command",
+            full_name="meadowgrid.Job.py_command",
+            index=10,
+            number=11,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="py_function",
+            full_name="meadowgrid.Job.py_function",
+            index=11,
+            number=12,
             type=11,
             cpp_type=10,
             label=1,
@@ -991,8 +1152,8 @@ _JOB = _descriptor.Descriptor(
         _descriptor.FieldDescriptor(
             name="py_grid",
             full_name="meadowgrid.Job.py_grid",
-            index=9,
-            number=10,
+            index=12,
+            number=13,
             type=11,
             cpp_type=10,
             label=1,
@@ -1017,9 +1178,17 @@ _JOB = _descriptor.Descriptor(
     extension_ranges=[],
     oneofs=[
         _descriptor.OneofDescriptor(
-            name="deployment",
-            full_name="meadowgrid.Job.deployment",
+            name="code_deployment",
+            full_name="meadowgrid.Job.code_deployment",
             index=0,
+            containing_type=None,
+            create_key=_descriptor._internal_create_key,
+            fields=[],
+        ),
+        _descriptor.OneofDescriptor(
+            name="interpreter_deployment",
+            full_name="meadowgrid.Job.interpreter_deployment",
+            index=1,
             containing_type=None,
             create_key=_descriptor._internal_create_key,
             fields=[],
@@ -1027,14 +1196,14 @@ _JOB = _descriptor.Descriptor(
         _descriptor.OneofDescriptor(
             name="job_spec",
             full_name="meadowgrid.Job.job_spec",
-            index=1,
+            index=2,
             containing_type=None,
             create_key=_descriptor._internal_create_key,
             fields=[],
         ),
     ],
-    serialized_start=858,
-    serialized_end=1309,
+    serialized_start=967,
+    serialized_end=1667,
 )
 
 
@@ -1076,8 +1245,8 @@ _ADDJOBRESPONSE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1312,
-    serialized_end=1440,
+    serialized_start=1670,
+    serialized_end=1798,
 )
 
 
@@ -1097,8 +1266,8 @@ _NEXTJOBREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1442,
-    serialized_end=1458,
+    serialized_start=1800,
+    serialized_end=1816,
 )
 
 
@@ -1149,8 +1318,8 @@ _PROCESSSTATE = _descriptor.Descriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.FieldDescriptor(
-            name="log_file_name",
-            full_name="meadowgrid.ProcessState.log_file_name",
+            name="container_id",
+            full_name="meadowgrid.ProcessState.container_id",
             index=2,
             number=3,
             type=9,
@@ -1168,10 +1337,29 @@ _PROCESSSTATE = _descriptor.Descriptor(
             create_key=_descriptor._internal_create_key,
         ),
         _descriptor.FieldDescriptor(
-            name="pickled_result",
-            full_name="meadowgrid.ProcessState.pickled_result",
+            name="log_file_name",
+            full_name="meadowgrid.ProcessState.log_file_name",
             index=3,
             number=4,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+        _descriptor.FieldDescriptor(
+            name="pickled_result",
+            full_name="meadowgrid.ProcessState.pickled_result",
+            index=4,
+            number=5,
             type=12,
             cpp_type=9,
             label=1,
@@ -1189,8 +1377,8 @@ _PROCESSSTATE = _descriptor.Descriptor(
         _descriptor.FieldDescriptor(
             name="return_code",
             full_name="meadowgrid.ProcessState.return_code",
-            index=4,
-            number=5,
+            index=5,
+            number=6,
             type=5,
             cpp_type=1,
             label=1,
@@ -1216,8 +1404,8 @@ _PROCESSSTATE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1461,
-    serialized_end=1834,
+    serialized_start=1819,
+    serialized_end=2214,
 )
 
 
@@ -1257,8 +1445,8 @@ _PROCESSSTATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1836,
-    serialized_end=1901,
+    serialized_start=2216,
+    serialized_end=2281,
 )
 
 
@@ -1298,8 +1486,8 @@ _JOBSTATESREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1903,
-    serialized_end=1938,
+    serialized_start=2283,
+    serialized_end=2318,
 )
 
 
@@ -1358,8 +1546,8 @@ _JOBSTATEUPDATE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=1940,
-    serialized_end=2021,
+    serialized_start=2320,
+    serialized_end=2401,
 )
 
 
@@ -1399,8 +1587,8 @@ _JOBSTATEUPDATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=2023,
-    serialized_end=2088,
+    serialized_start=2403,
+    serialized_end=2468,
 )
 
 
@@ -1459,8 +1647,8 @@ _GRIDTASKSTATESREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=2090,
-    serialized_end=2157,
+    serialized_start=2470,
+    serialized_end=2537,
 )
 
 
@@ -1519,8 +1707,8 @@ _GRIDTASKSTATE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=2159,
-    serialized_end=2240,
+    serialized_start=2539,
+    serialized_end=2620,
 )
 
 
@@ -1560,8 +1748,8 @@ _GRIDTASKSTATES = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=2242,
-    serialized_end=2306,
+    serialized_start=2622,
+    serialized_end=2686,
 )
 
 
@@ -1639,8 +1827,8 @@ _GRIDTASKUPDATEANDGETNEXTREQUEST = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=2308,
-    serialized_end=2423,
+    serialized_start=2688,
+    serialized_end=2803,
 )
 
 
@@ -1660,8 +1848,8 @@ _UPDATESTATERESPONSE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=2425,
-    serialized_end=2446,
+    serialized_start=2805,
+    serialized_end=2826,
 )
 
 _PYFUNCTIONJOB.fields_by_name[
@@ -1684,20 +1872,47 @@ _PYGRIDJOB.fields_by_name["tasks"].message_type = _GRIDTASK
 _ADDTASKSTOGRIDJOBREQUEST.fields_by_name["tasks"].message_type = _GRIDTASK
 _JOB.fields_by_name["server_available_folder"].message_type = _SERVERAVAILABLEFOLDER
 _JOB.fields_by_name["git_repo_commit"].message_type = _GITREPOCOMMIT
+_JOB.fields_by_name[
+    "server_available_interpreter"
+].message_type = _SERVERAVAILABLEINTERPRETER
+_JOB.fields_by_name["container_at_digest"].message_type = _CONTAINERATDIGEST
+_JOB.fields_by_name[
+    "server_available_container"
+].message_type = _SERVERAVAILABLECONTAINER
 _JOB.fields_by_name["environment_variables"].message_type = _STRINGPAIR
 _JOB.fields_by_name["py_command"].message_type = _PYCOMMANDJOB
 _JOB.fields_by_name["py_function"].message_type = _PYFUNCTIONJOB
 _JOB.fields_by_name["py_grid"].message_type = _PYGRIDJOB
-_JOB.oneofs_by_name["deployment"].fields.append(
+_JOB.oneofs_by_name["code_deployment"].fields.append(
     _JOB.fields_by_name["server_available_folder"]
 )
 _JOB.fields_by_name["server_available_folder"].containing_oneof = _JOB.oneofs_by_name[
-    "deployment"
+    "code_deployment"
 ]
-_JOB.oneofs_by_name["deployment"].fields.append(_JOB.fields_by_name["git_repo_commit"])
+_JOB.oneofs_by_name["code_deployment"].fields.append(
+    _JOB.fields_by_name["git_repo_commit"]
+)
 _JOB.fields_by_name["git_repo_commit"].containing_oneof = _JOB.oneofs_by_name[
-    "deployment"
+    "code_deployment"
 ]
+_JOB.oneofs_by_name["interpreter_deployment"].fields.append(
+    _JOB.fields_by_name["server_available_interpreter"]
+)
+_JOB.fields_by_name[
+    "server_available_interpreter"
+].containing_oneof = _JOB.oneofs_by_name["interpreter_deployment"]
+_JOB.oneofs_by_name["interpreter_deployment"].fields.append(
+    _JOB.fields_by_name["container_at_digest"]
+)
+_JOB.fields_by_name["container_at_digest"].containing_oneof = _JOB.oneofs_by_name[
+    "interpreter_deployment"
+]
+_JOB.oneofs_by_name["interpreter_deployment"].fields.append(
+    _JOB.fields_by_name["server_available_container"]
+)
+_JOB.fields_by_name[
+    "server_available_container"
+].containing_oneof = _JOB.oneofs_by_name["interpreter_deployment"]
 _JOB.oneofs_by_name["job_spec"].fields.append(_JOB.fields_by_name["py_command"])
 _JOB.fields_by_name["py_command"].containing_oneof = _JOB.oneofs_by_name["job_spec"]
 _JOB.oneofs_by_name["job_spec"].fields.append(_JOB.fields_by_name["py_function"])
@@ -1719,6 +1934,11 @@ _GRIDTASKUPDATEANDGETNEXTREQUEST.fields_by_name[
 DESCRIPTOR.message_types_by_name["StringPair"] = _STRINGPAIR
 DESCRIPTOR.message_types_by_name["ServerAvailableFolder"] = _SERVERAVAILABLEFOLDER
 DESCRIPTOR.message_types_by_name["GitRepoCommit"] = _GITREPOCOMMIT
+DESCRIPTOR.message_types_by_name[
+    "ServerAvailableInterpreter"
+] = _SERVERAVAILABLEINTERPRETER
+DESCRIPTOR.message_types_by_name["ContainerAtDigest"] = _CONTAINERATDIGEST
+DESCRIPTOR.message_types_by_name["ServerAvailableContainer"] = _SERVERAVAILABLECONTAINER
 DESCRIPTOR.message_types_by_name["PyCommandJob"] = _PYCOMMANDJOB
 DESCRIPTOR.message_types_by_name["QualifiedFunctionName"] = _QUALIFIEDFUNCTIONNAME
 DESCRIPTOR.message_types_by_name["PyFunctionJob"] = _PYFUNCTIONJOB
@@ -1774,6 +1994,39 @@ GitRepoCommit = _reflection.GeneratedProtocolMessageType(
     },
 )
 _sym_db.RegisterMessage(GitRepoCommit)
+
+ServerAvailableInterpreter = _reflection.GeneratedProtocolMessageType(
+    "ServerAvailableInterpreter",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _SERVERAVAILABLEINTERPRETER,
+        "__module__": "meadowgrid.meadowgrid_pb2"
+        # @@protoc_insertion_point(class_scope:meadowgrid.ServerAvailableInterpreter)
+    },
+)
+_sym_db.RegisterMessage(ServerAvailableInterpreter)
+
+ContainerAtDigest = _reflection.GeneratedProtocolMessageType(
+    "ContainerAtDigest",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _CONTAINERATDIGEST,
+        "__module__": "meadowgrid.meadowgrid_pb2"
+        # @@protoc_insertion_point(class_scope:meadowgrid.ContainerAtDigest)
+    },
+)
+_sym_db.RegisterMessage(ContainerAtDigest)
+
+ServerAvailableContainer = _reflection.GeneratedProtocolMessageType(
+    "ServerAvailableContainer",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _SERVERAVAILABLECONTAINER,
+        "__module__": "meadowgrid.meadowgrid_pb2"
+        # @@protoc_insertion_point(class_scope:meadowgrid.ServerAvailableContainer)
+    },
+)
+_sym_db.RegisterMessage(ServerAvailableContainer)
 
 PyCommandJob = _reflection.GeneratedProtocolMessageType(
     "PyCommandJob",
@@ -1992,8 +2245,8 @@ _MEADOWGRIDCOORDINATOR = _descriptor.ServiceDescriptor(
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=2449,
-    serialized_end=3052,
+    serialized_start=2829,
+    serialized_end=3432,
     methods=[
         _descriptor.MethodDescriptor(
             name="add_job",

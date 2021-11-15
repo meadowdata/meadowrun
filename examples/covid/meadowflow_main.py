@@ -12,16 +12,10 @@ A typical use case would have a meadowflow_main.py file which has three function
 import datetime
 import os
 import pathlib
-import sys
 import types
 from typing import Optional, Sequence, Any, Dict, Callable
 
 import pytz
-from meadowflow.meadowgrid_job_runner import (
-    MeadowGridFunctionGitRepo,
-    GitRepo,
-    MeadowGridCommandGitRepo,
-)
 
 import covid_data
 import covid_data.cdc_covid_data
@@ -46,12 +40,19 @@ from meadowflow.topic import (
     AllPredicate,
 )
 from meadowflow.topic_names import pname, FrozenDict, TopicName
-from meadowgrid.deployed_function import MeadowGridFunction
+from meadowgrid.config import MEADOWGRID_INTERPRETER
+from meadowgrid.deployed_function import (
+    MeadowGridFunction,
+    MeadowGridVersionedDeployedRunnable,
+    GitRepo,
+    MeadowGridCommand,
+)
+from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter
 
 _GIT_REPO_ROOT = covid_data.ROOT_DIR
 _GIT_BRANCH = "main"
 _PATH_IN_REPO = "examples/covid"
-_PYTHON_INTERPRETER = sys.executable
+_INTERPRETER = ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER)
 
 
 def initial_setup():
@@ -69,10 +70,9 @@ def initial_setup():
         [
             Job(
                 pname(function),
-                MeadowGridFunctionGitRepo(
-                    GitRepo(
-                        git_repo_root, git_branch, _PYTHON_INTERPRETER, path_in_repo
-                    ),
+                MeadowGridVersionedDeployedRunnable(
+                    GitRepo(git_repo_root, git_branch, path_in_repo),
+                    _INTERPRETER,
                     MeadowGridFunction.from_name(module, function),
                 ),
                 (),
@@ -119,8 +119,9 @@ def _function(
 
     return Job(
         pname(job_name),
-        MeadowGridFunctionGitRepo(
-            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
+        MeadowGridVersionedDeployedRunnable(
+            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PATH_IN_REPO),
+            _INTERPRETER,
             MeadowGridFunction.from_name(
                 module_name, function_name, function_args, function_kwargs
             ),
@@ -175,10 +176,10 @@ def _notebook(
 
     return Job(
         pname(job_name),
-        MeadowGridCommandGitRepo(
-            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PYTHON_INTERPRETER, _PATH_IN_REPO),
-            command_line,
-            context_variables,
+        MeadowGridVersionedDeployedRunnable(
+            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PATH_IN_REPO),
+            _INTERPRETER,
+            MeadowGridCommand(command_line, context_variables),
         ),
         [TriggerAction(Actions.run, run_on, run_state_predicate)],
     )

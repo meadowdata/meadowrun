@@ -11,8 +11,9 @@ from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientSync,
 )
 from meadowgrid.deployed_function import (
-    Deployment,
-    MeadowGridDeployedFunction,
+    CodeDeployment,
+    InterpreterDeployment,
+    MeadowGridDeployedRunnable,
     MeadowGridFunction,
 )
 from meadowgrid.meadowgrid_pb2 import ProcessState
@@ -62,7 +63,8 @@ _COMPLETED_PROCESS_STATES = {
 def grid_map(
     function: Callable[[_T], _U],
     args: Iterable[_T],
-    deployment: Deployment,
+    code_deployment: CodeDeployment,
+    interpreter_deployment: InterpreterDeployment,
     coordinator_address: str = DEFAULT_COORDINATOR_ADDRESS,
 ) -> Sequence[_U]:
     """
@@ -99,8 +101,9 @@ def grid_map(
     client.add_py_grid_job(
         job_id,
         friendly_name,
-        MeadowGridDeployedFunction(
-            deployment,
+        MeadowGridDeployedRunnable(
+            code_deployment,
+            interpreter_deployment,
             MeadowGridFunction.from_pickled(pickled_function),
         ),
         args,

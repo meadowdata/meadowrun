@@ -1,61 +1,31 @@
-import string
-import pathlib
-
-import pandas as pd
-import numpy as np
-
 import meadowdb
-from meadowdb.connection import set_default_userspace, prod_userspace_name
+import pandas as pd
+from meadowdb.connection import prod_userspace_name, set_default_userspace
 
 
-def _random_string(n=5):
-    return "".join(
-        string.ascii_lowercase[i]
-        for i in np.random.randint(len(string.ascii_lowercase), size=n)
-    )
-
-
-def _random_df(n=100):
-    return pd.DataFrame(
-        {
-            "int1": np.random.randint(1000, size=n),
-            "int2": np.random.randint(1000, size=n),
-            "float1": np.random.randn(n),
-            "str1": [_random_string() for _ in range(n)],
-            "timestamp1": pd.date_range("2011-01-01", periods=n, freq="D"),
-        }
-    )
-
-
-_TEST_DATA_DIR = str(
-    (pathlib.Path(__file__).parent.parent / "test_data" / "meadowdb").resolve()
-)
-
-
-def test_meadowdb():
-    # set up connection
-    print(f"Using {_TEST_DATA_DIR} for test data")
-    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(_TEST_DATA_DIR))
-
+def test_meadowdb(
+    mdb_connection: meadowdb.Connection,
+    random_df,
+):
+    mdb = mdb_connection
     # see TODO below
-    starting_version = conn.table_versions_client._version_number
-
+    starting_version = mdb.table_versions_client._version_number
+    table = "temp1"
     # generate and write some data
-
-    test_data1 = _random_df()
+    test_data1 = random_df()
     test_data1.loc[50, "str1"] = "hello"
     test_data1.loc[51, "str1"] = "foobar"
     test_data1.loc[52, "str1"] = "foobar"
-    test_data2 = _random_df()
-    test_data3 = _random_df()
-    conn.write("temp1", test_data1)
-    conn.write("temp1", test_data2)
-    conn.write("temp1", test_data3)
+    test_data2 = random_df()
+    test_data3 = random_df()
+    mdb.write(table, test_data1)
+    mdb.write(table, test_data2)
+    mdb.write(table, test_data3)
 
     test_data_combined = pd.concat(
         [test_data1, test_data2, test_data3], ignore_index=True
     )
-    t = conn.read("temp1")
+    t = mdb.read(table)
 
     # test some queries
 
@@ -99,9 +69,9 @@ def test_meadowdb():
 
     # test simple delete_where_equal
 
-    conn.delete_where_equal("temp1", pd.DataFrame({"str1": ["hello"]}))
+    mdb.delete_where_equal("temp1", pd.DataFrame({"str1": ["hello"]}))
 
-    t = conn.read("temp1")
+    t = mdb.read("temp1")
     assert t.to_pd().equals(
         test_data_combined[test_data_combined["str1"] != "hello"].reset_index(drop=True)
     )
@@ -109,9 +79,9 @@ def test_meadowdb():
     # test delete_where_equal and write at the same time, make sure the write gets
     # applied after the delete
 
-    test_data4 = _random_df(1)
+    test_data4 = random_df(1)
     test_data4.loc[0, "str1"] = "foobar"
-    conn.write(
+    mdb.write(
         "temp1", test_data4, delete_where_equal_df=pd.DataFrame({"str1": ["foobar"]})
     )
 
@@ -124,35 +94,35 @@ def test_meadowdb():
         ],
         ignore_index=True,
     )
-    t = conn.read("temp1")
+    t = mdb.read("temp1")
     t.to_pd().equals(test_data_combined_4)
 
     # now delete everything
 
-    conn.delete_all("temp1")
-    t = conn.read("temp1")
+    mdb.delete_all("temp1")
+    t = mdb.read("temp1")
     assert len(t.to_pd()) == 0
 
     # test reading old versions
 
     # TODO we should have a better way of querying the version numbers
     assert (
-        conn.read("temp1", max_version_number=starting_version)
+        mdb.read("temp1", max_version_number=starting_version)
         .to_pd()
         .equals(test_data1)
     )
     assert (
-        conn.read("temp1", max_version_number=starting_version + 1)
+        mdb.read("temp1", max_version_number=starting_version + 1)
         .to_pd()
         .equals(pd.concat([test_data1, test_data2], ignore_index=True))
     )
     assert (
-        conn.read("temp1", max_version_number=starting_version + 2)
+        mdb.read("temp1", max_version_number=starting_version + 2)
         .to_pd()
         .equals(pd.concat([test_data1, test_data2, test_data3], ignore_index=True))
     )
     assert (
-        conn.read("temp1", max_version_number=starting_version + 3)
+        mdb.read("temp1", max_version_number=starting_version + 3)
         .to_pd()
         .equals(
             test_data_combined[test_data_combined["str1"] != "hello"].reset_index(
@@ -161,43 +131,41 @@ def test_meadowdb():
         )
     )
     assert (
-        conn.read("temp1", max_version_number=starting_version + 4)
+        mdb.read("temp1", max_version_number=starting_version + 4)
         .to_pd()
         .equals(test_data_combined_4)
     )
-    assert len(conn.read("temp1", max_version_number=starting_version + 5).to_pd()) == 0
+    assert len(mdb.read("temp1", max_version_number=starting_version + 5).to_pd()) == 0
 
 
-def test_meadowdb_duplication_keys():
-    """Test deduplication_keys"""
+def test_meadowdb_duplication_keys(random_df, mdb_connection: meadowdb.Connection):
 
-    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(_TEST_DATA_DIR))
-
-    test_data1 = _random_df().drop_duplicates(["int1", "str1"])
+    mdb = mdb_connection
+    test_data1 = random_df().drop_duplicates(["int1", "str1"])
     test_data1.loc[50, "str1"] = "hello"
     test_data1.loc[51, "str1"] = "foobar"
     test_data1.loc[52, "str1"] = "foobar"
-    test_data2 = _random_df().drop_duplicates(["int1", "str1"])
+    test_data2 = random_df().drop_duplicates(["int1", "str1"])
     test_data2.loc[0:50, ["int1", "str1"]] = test_data1.loc[0:50, ["int1", "str1"]]
-    test_data3 = _random_df().drop_duplicates(["int1", "str1"])
+    test_data3 = random_df().drop_duplicates(["int1", "str1"])
     test_data3.loc[25:75, ["int1", "str1"]] = test_data1.loc[25:75, ["int1", "str1"]]
     test_data_combined = pd.concat(
         [test_data1.loc[76:], test_data2[0:25], test_data2[51:], test_data3],
         ignore_index=True,
     )
 
-    conn.create_or_update_table_schema(
+    mdb.create_or_update_table_schema(
         "temp2", meadowdb.TableSchema(None, ["int1", "str1"])
     )
 
-    t = conn.read("temp2")
+    t = mdb.read("temp2")
     t.to_pd()
 
-    conn.write("temp2", test_data1)
-    conn.write("temp2", test_data2)
-    conn.write("temp2", test_data3)
+    mdb.write("temp2", test_data1)
+    mdb.write("temp2", test_data2)
+    mdb.write("temp2", test_data3)
 
-    t = conn.read("temp2")
+    t = mdb.read("temp2")
     assert t.to_pd().equals(test_data_combined)
     assert (
         t[t["int1"] < 250]
@@ -207,16 +175,16 @@ def test_meadowdb_duplication_keys():
         )
     )
 
-    conn.delete_where_equal("temp2", pd.DataFrame({"str1": ["hello"]}))
+    mdb.delete_where_equal("temp2", pd.DataFrame({"str1": ["hello"]}))
 
-    t = conn.read("temp2")
+    t = mdb.read("temp2")
     assert t.to_pd().equals(
         test_data_combined[test_data_combined["str1"] != "hello"].reset_index(drop=True)
     )
 
-    test_data4 = _random_df(1)
+    test_data4 = random_df(1)
     test_data4.loc[0, "str1"] = "foobar"
-    conn.write(
+    mdb.write(
         "temp2", test_data4, delete_where_equal_df=pd.DataFrame({"str1": ["hello"]})
     )
 
@@ -229,54 +197,54 @@ def test_meadowdb_duplication_keys():
         ],
         ignore_index=True,
     )
-    t = conn.read("temp2")
+    t = mdb.read("temp2")
     t.to_pd().equals(test_data_combined_4)
 
-    conn.delete_all("temp2")
-    t = conn.read("temp2")
+    mdb.delete_all("temp2")
+    t = mdb.read("temp2")
     assert len(t.to_pd()) == 0
 
 
-def test_meadowdb_userspace():
-    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(_TEST_DATA_DIR))
+def test_meadowdb_userspace(random_df, mdb_connection: meadowdb.Connection):
+    mdb = mdb_connection
 
-    prod_data = _random_df()
+    prod_data = random_df()
     prod_data.loc[50, "str1"] = "hello"
-    us_data1 = _random_df()
+    us_data1 = random_df()
     us_data1.loc[50, "str1"] = "hello"
-    us_data2 = _random_df()
+    us_data2 = random_df()
 
     # first, delete_where_equal in U1 without any data in the prod table
-    conn.delete_where_equal("temp3", pd.DataFrame({"str1": ["hello"]}), "U1")
+    mdb.delete_where_equal("temp3", pd.DataFrame({"str1": ["hello"]}), "U1")
 
-    assert len(conn.read("temp3", "U1").to_pd()) == 0
+    assert len(mdb.read("temp3", "U1").to_pd()) == 0
 
     # next write some data in the prod table, note that the deletes always get applied
     # on top of prod because this userspace is in read_committed mode (the only
     # currently available mode)
-    conn.write("temp3", prod_data)
+    mdb.write("temp3", prod_data)
 
-    assert conn.read("temp3").to_pd().equals(prod_data)
+    assert mdb.read("temp3").to_pd().equals(prod_data)
     prod_data_filtered = prod_data[prod_data["str1"] != "hello"].reset_index(drop=True)
     with set_default_userspace("U2"):
         # now read from a different (empty) userspace
-        assert conn.read("temp3").to_pd().equals(prod_data)
+        assert mdb.read("temp3").to_pd().equals(prod_data)
         # override the in-context U2 with explicitly specified U1
-        assert conn.read("temp3", "U1").to_pd().equals(prod_data_filtered)
+        assert mdb.read("temp3", "U1").to_pd().equals(prod_data_filtered)
 
         # next, write some actual data into U1 (again override U2 by explicitly
         # specifying U1)
-        conn.write("temp3", us_data1, userspace="U1")
+        mdb.write("temp3", us_data1, userspace="U1")
 
-        assert conn.read("temp3", prod_userspace_name).to_pd().equals(prod_data)
+        assert mdb.read("temp3", prod_userspace_name).to_pd().equals(prod_data)
     expected = pd.concat([prod_data_filtered, us_data1], ignore_index=True)
     with set_default_userspace("U1"):
-        assert conn.read("temp3").to_pd().equals(expected)
+        assert mdb.read("temp3").to_pd().equals(expected)
 
         # next, wipe everything and write new data
-        conn.write("temp3", us_data2, delete_all=True)
+        mdb.write("temp3", us_data2, delete_all=True)
 
-    assert conn.read("temp3").to_pd().equals(prod_data)
-    assert conn.read("temp3", "U1").to_pd().equals(us_data2)
+    assert mdb.read("temp3").to_pd().equals(prod_data)
+    assert mdb.read("temp3", "U1").to_pd().equals(us_data2)
 
     # TODO none of the table schema interactions are tested

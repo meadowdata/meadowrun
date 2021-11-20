@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import datetime
-import collections.abc
 import abc
-from typing import Final, List, Iterable, Tuple, Literal, Union, Optional
+import collections.abc
+import datetime
 from dataclasses import dataclass
+from typing import Iterable, List, Literal, Optional, Tuple, Union, overload
 
-import pandas as pd
 import duckdb
+import pandas as pd
 
 import meadowdb.connection
-from meadowdb.table_versions_client_local import TableVersionsClientLocal
 from meadowdb.readerwriter_shared import DataFileEntry, TableSchema
+from meadowdb.table_versions_client_local import TableVersionsClientLocal
 
 
 def _prepend_data_dir_data_file_entries(
@@ -162,6 +162,18 @@ class MdbTable:
         self._data_list = data_list
         # a list of query operations to apply before we materialize
         self._ops = ops
+
+    @overload
+    def __getitem__(self, item: str) -> MdbColumn:
+        ...
+
+    # Need to specialize Iterable here, because str is an Iterable[str]
+    # see https://github.com/python/typing/issues/256
+    @overload
+    def __getitem__(
+        self, item: Union[List[str], Tuple[str, ...], MdbColumn, MdbBoolColumn]
+    ) -> MdbTable:
+        ...
 
     def __getitem__(
         self, item: Union[str, Iterable[str], MdbColumn, MdbBoolColumn]

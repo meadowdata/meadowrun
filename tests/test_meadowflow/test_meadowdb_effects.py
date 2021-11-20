@@ -1,24 +1,23 @@
 import datetime
 
-import pandas as pd
-
 import meadowdb
-from meadowflow.jobs import (
-    Job,
-    LocalFunction,
-    Actions,
-    AnyJobStateEventFilter,
-    JobRunOverrides,
-)
-from meadowflow.effects import MeadowdbDynamicDependency, UntilMeadowdbWritten
-from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
-from meadowflow.scheduler import Scheduler
-from meadowflow.scopes import BASE_SCOPE, ALL_SCOPES, ScopeValues
-from meadowflow.topic import TriggerAction
-from meadowflow.topic_names import pname
-from meadowdb.connection import MeadowdbEffects, prod_userspace_name
 import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
+import pandas as pd
+from meadowdb.connection import MeadowdbEffects, prod_userspace_name
+from meadowflow.effects import MeadowdbDynamicDependency, UntilMeadowdbWritten
+from meadowflow.jobs import (
+    Actions,
+    AnyJobStateEventFilter,
+    Job,
+    JobRunOverrides,
+    LocalFunction,
+)
+from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
+from meadowflow.scheduler import Scheduler
+from meadowflow.scopes import ALL_SCOPES, BASE_SCOPE, ScopeValues
+from meadowflow.topic import TriggerAction
+from meadowflow.topic_names import pname
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
     MeadowGridCommand,
@@ -26,24 +25,18 @@ from meadowgrid.deployed_function import (
     MeadowGridFunction,
 )
 from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, ServerAvailableInterpreter
-from test_meadowflow.test_scheduler import _wait_for_scheduler, _run_func
-import test_meadowdb
 from test_meadowgrid.test_meadowgrid_basics import (
-    MEADOWDATA_CODE,
     EXAMPLE_CODE,
+    MEADOWDATA_CODE,
     TEST_WORKING_FOLDER,
 )
 
-
-def _get_connection():
-    return meadowdb.Connection(
-        meadowdb.TableVersionsClientLocal(test_meadowdb._TEST_DATA_DIR)
-    )
+from test_meadowflow.test_scheduler import _run_func, _wait_for_scheduler
 
 
-def _write_to_table():
-    """A fake job. Writes to Table A"""
-    conn = _get_connection()
+def _write_to_table(mdb_data_dir):
+    """Create a fake job that writes to Table A"""
+    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(mdb_data_dir))
     conn.write("A", pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]}))
     # TODO this should happen automatically in meadowdb
     conn.table_versions_client._save_table_versions()
@@ -52,10 +45,12 @@ def _write_to_table():
     conn.read("A").to_pd()
 
 
-def _read_from_table():
-    """Another fake job. Reads from Table A"""
-    conn = _get_connection()
+def _read_from_table(mdb_data_dir):
+    """Create a fake job that reads from Table A"""
+    conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(mdb_data_dir))
     conn.read("A").to_pd()
+
+    return _read_from_table
 
 
 def test_meadowdb_effects():
@@ -140,7 +135,7 @@ def test_meadowdb_effects():
                 assert list(effects.tables_written.keys()) == [("U1", "A")]
 
 
-def test_meadowdb_dependency():
+def test_meadowdb_dependency(mdb_data_dir):
     """Tests MeadowdbDynamicDependency"""
     date = datetime.date(2021, 9, 1)
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
@@ -148,7 +143,7 @@ def test_meadowdb_dependency():
             [
                 Job(
                     pname("A"),
-                    LocalFunction(_write_to_table),
+                    LocalFunction(_write_to_table, [mdb_data_dir]),
                     [
                         TriggerAction(
                             Actions.run, [MeadowdbDynamicDependency(ALL_SCOPES)]
@@ -158,7 +153,7 @@ def test_meadowdb_dependency():
                 ),
                 Job(
                     pname("A", date=date),
-                    LocalFunction(_write_to_table),
+                    LocalFunction(_write_to_table, [mdb_data_dir]),
                     [
                         TriggerAction(
                             Actions.run, [MeadowdbDynamicDependency(ALL_SCOPES)]
@@ -168,7 +163,7 @@ def test_meadowdb_dependency():
                 ),
                 Job(
                     pname("B_ALL"),
-                    LocalFunction(_read_from_table),
+                    LocalFunction(_read_from_table, [mdb_data_dir]),
                     [
                         TriggerAction(
                             Actions.run, [MeadowdbDynamicDependency(ALL_SCOPES)]
@@ -177,7 +172,7 @@ def test_meadowdb_dependency():
                 ),
                 Job(
                     pname("B_BASE"),
-                    LocalFunction(_read_from_table),
+                    LocalFunction(_read_from_table, [mdb_data_dir]),
                     [
                         TriggerAction(
                             Actions.run, [MeadowdbDynamicDependency(BASE_SCOPE)]
@@ -186,7 +181,7 @@ def test_meadowdb_dependency():
                 ),
                 Job(
                     pname("B_DATE"),
-                    LocalFunction(_read_from_table),
+                    LocalFunction(_read_from_table, [mdb_data_dir]),
                     [
                         TriggerAction(
                             Actions.run,
@@ -196,7 +191,7 @@ def test_meadowdb_dependency():
                 ),
                 Job(
                     pname("B_WRONG_DATE"),
-                    LocalFunction(_read_from_table),
+                    LocalFunction(_read_from_table, [mdb_data_dir]),
                     [
                         TriggerAction(
                             Actions.run,
@@ -258,19 +253,20 @@ def test_meadowdb_dependency():
 _write_on_third_try_runs = 0
 
 
-def _write_on_third_try():
+def _write_on_third_try(mdb_data_dir):
     """
     Fake job. Does nothing the first two times it's run, afterwards writes to Table T
     """
+
     global _write_on_third_try_runs
     if _write_on_third_try_runs >= 2:
-        conn = _get_connection()
+        conn = meadowdb.Connection(meadowdb.TableVersionsClientLocal(mdb_data_dir))
         conn.write("T", pd.DataFrame({"col1": [1, 2, 3]}))
 
     _write_on_third_try_runs += 1
 
 
-def test_meadowdb_table_written():
+def test_meadowdb_table_written(mdb_data_dir):
     """Tests UntilMeadowdbWritten"""
     with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
@@ -278,7 +274,7 @@ def test_meadowdb_table_written():
                 Job(pname("A"), LocalFunction(_run_func), []),
                 Job(
                     pname("B"),
-                    LocalFunction(_write_on_third_try),
+                    LocalFunction(_write_on_third_try, (mdb_data_dir,)),
                     [
                         TriggerAction(
                             Actions.run,

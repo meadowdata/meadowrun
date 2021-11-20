@@ -1,8 +1,8 @@
-import threading
-import os
-from typing import List, Tuple, Dict, Optional
-import uuid
 import bisect
+import os
+import threading
+import uuid
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 

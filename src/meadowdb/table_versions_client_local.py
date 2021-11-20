@@ -127,7 +127,7 @@ class TableVersionsClientLocal:
         table_name: str,
         table_id: uuid.UUID,
         prev_version_number: int,
-        table_schema_filename: str,
+        table_schema_filename: Optional[str],
         data_list_filename: str,
     ) -> Optional[int]:
         """
@@ -192,7 +192,7 @@ class TableVersionsClientLocal:
             max_version_number is None
             or current_table_name.version_number <= max_version_number
         ):
-            table_id = current_table_name.table_id
+            table_id: Optional[uuid.UUID] = current_table_name.table_id
         else:
             table_id = None
 
@@ -232,9 +232,9 @@ class TableVersionsClientLocal:
                 self._table_versions_history, TableVersion.dummy(max_version_number)
             )
             while i >= 0:
-                el = self._table_versions_history[i]
-                if el.table_id == table_id:
-                    return el
+                ev = self._table_versions_history[i]
+                if ev.table_id == table_id:
+                    return ev
                 i -= 1
 
             return None  # if we didn't find anything

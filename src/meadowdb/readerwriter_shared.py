@@ -29,7 +29,7 @@ Overview of overall data structure layout:
 from __future__ import annotations
 
 from typing import List, Literal, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import uuid
 
 
@@ -92,14 +92,14 @@ class TableSchema:
     # TODO currently not used
     column_names_and_types: None = None
 
-    # If this is not None, rows will automatically be deduplicated (newest rows
+    # If this list is not empty, rows will automatically be deduplicated (newest rows
     # preserved) based on the columns specified by deduplication_keys. E.g. if
     # deduplication_keys for table t is ['a', 'b'], this means that when you write to t,
     # with a = 1, b = 2, any existing rows in t where a = 1 and b = 2 will be
     # effectively deleted. As a result, when you read from t, every row will have a
-    # distinct deduplication key. If deduplication_keys is None, then new rows are
+    # distinct deduplication key. If deduplication_keys is empty, then new rows are
     # appended normally.
-    deduplication_keys: Optional[List[str]] = None
+    deduplication_keys: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

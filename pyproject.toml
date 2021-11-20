@@ -35,6 +35,7 @@ pylint = "^2.8.2"
 mypy = "^0.812"
 black = {version = "^21.6b0", allow-prereleases = true}
 grpcio-tools = "^1.39.0"
+pandas-stubs = "^1.2.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

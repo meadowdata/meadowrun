@@ -6,3 +6,6 @@ __pycache__
 
 # poetry packaging outputs
 /dist/
+
+# personal vscode settings
+.vscode/settings.json

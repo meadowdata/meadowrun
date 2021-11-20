@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
-from typing import Optional, List, Dict, Tuple
+from typing import Generator, Optional, List, Dict, Tuple
 
 import pandas as pd
 
@@ -25,7 +25,7 @@ prod_userspace_name = "prod"
 
 _MEADOWDB_DEFAULT_USERSPACE = "MEADOWDB_DEFAULT_USERSPACE"
 # Should only be accessed by get_default_userspace and set_default_userspace
-_default_userspace_name = None
+_default_userspace_name: Optional[str] = None
 
 
 def get_default_userspace() -> str:
@@ -48,7 +48,7 @@ def get_default_userspace() -> str:
 
 
 @contextlib.contextmanager
-def set_default_userspace(userspace_name: str) -> None:
+def set_default_userspace(userspace_name: str) -> Generator[None, None, None]:
     """
     Usage:
     with set_default_userspace("userspace_name"):

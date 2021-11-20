@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import collections.abc
 import abc
-from typing import List, Iterable, Tuple, Literal, Union, Optional
+from typing import Final, List, Iterable, Tuple, Literal, Union, Optional
 from dataclasses import dataclass
 
 import pandas as pd
@@ -20,7 +20,7 @@ def _prepend_data_dir_data_file_entries(
     """Helper function that calls prepend_data_dir on DataFileEntry.data_filename"""
     # TODO ugly
     for d in data_list:
-        if d.data_file_type == "delete_all":
+        if d.data_filename is None:  # only delete_all at this point
             yield d
         else:
             yield DataFileEntry(
@@ -198,21 +198,18 @@ class MdbTable:
             raise ValueError(f"MdbTable[{type(item)}] is not a valid operation")
 
     @property
-    def columns(self):
+    def columns(self) -> list[str]:
         # TODO implement
         raise NotImplementedError()
 
     @property
-    def empty(self):
-        if not self._data_list:
-            return True
-        else:
-            # TODO add more logic here--just because we have data files doesn't mean the
-            #  table isn't empty; we need to actually query the data. Probably head(1)
-            #  should be efficient enough.
-            return False
+    def empty(self) -> bool:
+        return not self._data_list
+        # TODO add more logic here--just because we have data files doesn't mean the
+        #  table isn't empty; we need to actually query the data. Probably head(1)
+        #  should be efficient enough.
 
-    def head(self, n=10):
+    def head(self, n: int = 10) -> pd.DataFrame:
         # TODO implement
         raise NotImplementedError("Should be straightforward to implement...")
 
@@ -229,7 +226,7 @@ class MdbTable:
         select_clause, where_clause = self._construct_sql()
 
         # stores the materialized pd.DataFrame for each partition
-        partition_results = []
+        partition_results: List[pd.DataFrame] = []
         deduplication_keys = self._table_schema.deduplication_keys  # this could be None
         # we'll keep track of the deduplication key values and deletes that we've seen
         # so that we can filter them out of older partitions
@@ -312,7 +309,7 @@ class MdbTable:
                 df = conn.fetchdf()
                 partition_results.append(df)
 
-                if deduplication_keys is not None:
+                if deduplication_keys:
                     # add this partition's deduplication keys to the list of
                     # deduplication keys we've seen
                     deduplication_keys_seen = pd.concat(
@@ -430,49 +427,49 @@ class MdbColumn:
         self._mdb_table = mdb_table
         self._column_name = column_name
 
-    def __eq__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+    def __eq__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:  # type: ignore[override]
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "=", other
         )
 
-    def __ne__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+    def __ne__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:  # type: ignore[override]
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "!=", other
         )
 
     def __gt__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, ">", other
         )
 
     def __lt__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "<", other
         )
 
     def __ge__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, ">=", other
         )
 
     def __le__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "<=", other
         )
 
     def between(
         self, a: COMPARISON_LITERAL_TYPE, b: COMPARISON_LITERAL_TYPE
     ) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpTwoArgs(
             self._mdb_table, self._column_name, "BETWEEN", (a, b)
         )
 
     def isin(self, items: Iterable[COMPARISON_LITERAL_TYPE]) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpManyArgs(
             self._mdb_table, self._column_name, "IN", items
         )
 
-    def head(self, n):
+    def head(self, n: int) -> pd.DataFrame:
         raise NotImplementedError()
 
     def __invert__(self) -> MdbBoolColumn:
@@ -480,7 +477,7 @@ class MdbColumn:
 
     def _interpret_as_bool(self) -> MdbBoolColumn:
         # TODO check if this can actually be interpreted as a bool?
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "=", "TRUE"
         )
 
@@ -520,7 +517,7 @@ class MdbBoolColumn(abc.ABC):
         pass
 
 
-class MdbComputedBoolColumnOpArg(MdbBoolColumn):
+class MdbComputedBoolColumnOpArg(MdbBoolColumn, abc.ABC):
     """
     Represents a bool computed column of the form column `op` arg, e.g.
     t['column1'] == 3
@@ -531,14 +528,50 @@ class MdbComputedBoolColumnOpArg(MdbBoolColumn):
         mdb_table: MdbTable,
         column_name: str,
         op: str,
-        arg: Union[COMPARISON_LITERAL_TYPE, Iterable[COMPARISON_LITERAL_TYPE]],
     ):
         self._mdb_table = mdb_table
         self._column_name = column_name
         self._op = op
+
+    def __and__(self, other: MdbBoolColumn) -> MdbBoolColumn:
+        return MdbComputedBoolColumnOpColumn(self, other, "AND")
+
+    def __or__(self, other: MdbBoolColumn) -> MdbBoolColumn:
+        return MdbComputedBoolColumnOpColumn(self, other, "OR")
+
+    def _single_arg_to_string(self, arg: COMPARISON_LITERAL_TYPE) -> str:
+        # TODO this needs to be way more sophisticated, will rely on
+        #  self._mdb_table.table_schema
+        if isinstance(arg, str) or isinstance(arg, datetime.datetime):
+            return f"'{arg}'"
+        else:
+            return str(arg)
+
+    def _assert_table_version_is_same(self, mdb_table: MdbTable) -> None:
+        if self._mdb_table._version_number != mdb_table._version_number:
+            raise ValueError(
+                f"Using a series from a different table in a row selector is not "
+                f"supported"
+            )
+
+
+class MdbComputedBoolColumnOpSingleArg(MdbComputedBoolColumnOpArg):
+    """
+    Represents a bool computed column of the form column `op` arg, with
+    a single argument e.g. t['column1'] == 3
+    """
+
+    def __init__(
+        self,
+        mdb_table: MdbTable,
+        column_name: str,
+        op: str,
+        arg: COMPARISON_LITERAL_TYPE,
+    ):
+        super().__init__(mdb_table, column_name, op)
         self._arg = arg
 
-    def __invert__(self) -> MdbBoolColumn:
+    def __invert__(self) -> MdbComputedBoolColumnOpSingleArg:
         if self._op == "=":
             new_op = "!="
         elif self._op == "!=":
@@ -551,58 +584,95 @@ class MdbComputedBoolColumnOpArg(MdbBoolColumn):
             new_op = ">="
         elif self._op == ">=":
             new_op = "<"
-        elif self._op == "BETWEEN":
+        else:
+            raise ValueError(f"Programming error: op {self._op} is not covered")
+
+        return MdbComputedBoolColumnOpSingleArg(
+            self._mdb_table, self._column_name, new_op, self._arg
+        )
+
+    def _construct_where_clause(self, mdb_table: MdbTable) -> str:
+        self._assert_table_version_is_same(mdb_table)
+
+        return (
+            f'({_table_name_placeholder}."{self._column_name}" {self._op} '
+            f"{self._single_arg_to_string(self._arg)})"
+        )
+
+
+class MdbComputedBoolColumnOpTwoArgs(MdbComputedBoolColumnOpArg):
+    """
+    Represents a bool computed column of the form column `op` arg with
+    two arguments, e.g. t['column1'],between(0, 3)
+    """
+
+    def __init__(
+        self,
+        mdb_table: MdbTable,
+        column_name: str,
+        op: str,
+        arg: Tuple[COMPARISON_LITERAL_TYPE, COMPARISON_LITERAL_TYPE],
+    ):
+        super().__init__(mdb_table, column_name, op)
+        self._arg = arg
+
+    def __invert__(self) -> MdbComputedBoolColumnOpTwoArgs:
+        if self._op == "BETWEEN":
             new_op = "NOT BETWEEN"
         elif self._op == "NOT BETWEEN":
             new_op = "BETWEEN"
-        elif self._op == "IN":
+        else:
+            raise ValueError(f"Programming error: op {self._op} is not covered")
+
+        return MdbComputedBoolColumnOpTwoArgs(
+            self._mdb_table, self._column_name, new_op, self._arg
+        )
+
+    def _construct_where_clause(self, mdb_table: MdbTable) -> str:
+        self._assert_table_version_is_same(mdb_table)
+
+        return (
+            f'({_table_name_placeholder}."{self._column_name}" {self._op} '
+            f"{self._single_arg_to_string(self._arg[0])} AND "
+            f"{self._single_arg_to_string(self._arg[1])})"
+        )
+
+
+class MdbComputedBoolColumnOpManyArgs(MdbComputedBoolColumnOpArg):
+    """
+    Represents a bool computed column of the form column `op` arg,
+    with many arguments e.g. t['column1'].isin(1,2,3)
+    """
+
+    def __init__(
+        self,
+        mdb_table: MdbTable,
+        column_name: str,
+        op: str,
+        arg: Iterable[COMPARISON_LITERAL_TYPE],
+    ):
+        super().__init__(mdb_table, column_name, op)
+        self._arg = arg
+
+    def __invert__(self) -> MdbComputedBoolColumnOpManyArgs:
+        if self._op == "IN":
             new_op = "NOT IN"
         elif self._op == "NOT IN":
             new_op = "IN"
         else:
             raise ValueError(f"Programming error: op {self._op} is not covered")
 
-        return MdbComputedBoolColumnOpArg(
+        return MdbComputedBoolColumnOpManyArgs(
             self._mdb_table, self._column_name, new_op, self._arg
         )
 
-    def __and__(self, other: MdbBoolColumn) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpColumn(self, other, "AND")
-
-    def __or__(self, other: MdbBoolColumn) -> MdbBoolColumn:
-        return MdbComputedBoolColumnOpColumn(self, other, "OR")
-
     def _construct_where_clause(self, mdb_table: MdbTable) -> str:
-        if self._mdb_table._version_number != mdb_table._version_number:
-            raise ValueError(
-                f"Using a series from a different table in a row selector is not "
-                f"supported"
-            )
+        self._assert_table_version_is_same(mdb_table)
 
-        if self._op == "BETWEEN" or self._op == "NOT BETWEEN":
-            return (
-                f'({_table_name_placeholder}."{self._column_name}" {self._op} '
-                f"{self._single_arg_to_string(self._arg[0])} AND "
-                f"{self._single_arg_to_string(self._arg[1])})"
-            )
-        if self._op == "IN" or self._op == "NOT IN":
-            return (
-                f'({_table_name_placeholder}."{self._column_name}" {self._op} '
-                f'({", ".join(self._single_arg_to_string(arg) for arg in self._arg)}))'
-            )
-        else:
-            return (
-                f'({_table_name_placeholder}."{self._column_name}" {self._op} '
-                f"{self._single_arg_to_string(self._arg)})"
-            )
-
-    def _single_arg_to_string(self, arg: COMPARISON_LITERAL_TYPE) -> str:
-        # TODO this needs to be way more sophisticated, will rely on
-        #  self._mdb_table.table_schema
-        if isinstance(arg, str) or isinstance(arg, datetime.datetime):
-            return f"'{arg}'"
-        else:
-            return str(arg)
+        return (
+            f'({_table_name_placeholder}."{self._column_name}" {self._op} '
+            f'({", ".join(self._single_arg_to_string(arg) for arg in self._arg)}))'
+        )
 
 
 class MdbComputedBoolColumnOpColumn(MdbBoolColumn):

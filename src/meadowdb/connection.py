@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-
 import contextlib
 import dataclasses
+
 import os
-from typing import Generator, Optional, List, Dict, Tuple
+from typing import Dict, Generator, List, Optional, Tuple
 
 import pandas as pd
 
-from meadowdb import writer, reader
+from meadowdb import reader, writer
 from meadowdb.readerwriter_shared import TableSchema
 from meadowdb.table_versions_client_local import TableVersionsClientLocal
 
@@ -105,9 +105,7 @@ class Connection:
 
     table_versions_client: TableVersionsClientLocal
     # Keeps track of the tables we read/wrote to in this job
-    effects: MeadowdbEffects = dataclasses.field(
-        default_factory=lambda: MeadowdbEffects()
-    )
+    effects: MeadowdbEffects = dataclasses.field(default_factory=MeadowdbEffects)
 
     def __post_init__(self) -> None:
         all_connections.append(self)
@@ -117,7 +115,7 @@ class Connection:
         Currently this is used to group Connections that operate on the same underlying
         data files for grouping together effects that happened "on the same data"
         """
-        return self.table_versions_client.data_dir
+        return self.table_versions_client.key
 
     def reset_effects(self) -> None:
         self.effects.tables_read.clear()

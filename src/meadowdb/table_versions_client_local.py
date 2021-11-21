@@ -1,12 +1,10 @@
 import bisect
-import os
 import threading
 import uuid
-from typing import Dict, List, Optional, Tuple
-
-import pandas as pd
+from typing import Dict, Final, List, Optional, Tuple
 
 from meadowdb.readerwriter_shared import TableName, TableVersion
+from meadowdb.storage import FileSystemStore, KeyValueStore
 
 
 class TableVersionsClientLocal:
@@ -20,13 +18,17 @@ class TableVersionsClientLocal:
     TODO add support for S3-compatible API
     """
 
+    TABLE_VERSIONS: Final = "table_versions.pkl"
+
     def __init__(self, data_dir: str):
         # The root directory for all data
-        self.data_dir = data_dir
+        self.store: KeyValueStore = FileSystemStore(data_dir)
+        # TODO deal with this more cleanly - see Connection.key()
+        self.key = data_dir
 
         self._lock = threading.RLock()
 
-        if not os.path.exists(self._table_versions_filename()):
+        if not self.store.exists(self.TABLE_VERSIONS):
             # This is for starting a brand new TableVersionsClientLocal in an empty
             # directory
 
@@ -41,10 +43,11 @@ class TableVersionsClientLocal:
             self._version_number: int = 0
         else:
             # This reads existing data created by a TableVersionsClientLocal
+            (
+                self._table_names_history,
+                self._table_versions_history,
+            ) = self.store.get_pickle(self.TABLE_VERSIONS)
 
-            self._table_names_history, self._table_versions_history = pd.read_pickle(
-                self._table_versions_filename()
-            )
             self._version_number = (
                 max(
                     max(t.version_number for t in self._table_versions_history),
@@ -63,21 +66,13 @@ class TableVersionsClientLocal:
             t.table_id: t for t in self._table_versions_history
         }
 
-    def prepend_data_dir(self, filename: str) -> str:
-        return os.path.join(self.data_dir, filename)
-
     def _save_table_versions(self) -> None:
         # TODO save every X seconds? Or on every update? currently this function is not
         #  called
-        pd.to_pickle(
+        self.store.set_pickle(
+            self.TABLE_VERSIONS,
             (self._table_names_history, self._table_versions_history),
-            self._table_versions_filename(),
         )
-
-    def _table_versions_filename(self) -> str:
-        # The path for storing table_versions data (i.e. the metadata that this class
-        # manages)
-        return os.path.join(self.data_dir, "table_versions.pkl")
 
     def add_initial_table_version(
         self,

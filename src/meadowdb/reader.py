@@ -4,29 +4,15 @@ import abc
 import collections.abc
 import datetime
 from dataclasses import dataclass
-from typing import Iterable, List, Literal, Optional, Tuple, Union, overload
+from typing import Iterable, List, Literal, Optional, Tuple, Union, cast, overload
 
 import duckdb
 import pandas as pd
 
 import meadowdb.connection
 from meadowdb.readerwriter_shared import DataFileEntry, TableSchema
+from meadowdb.storage import KeyValueStore
 from meadowdb.table_versions_client_local import TableVersionsClientLocal
-
-
-def _prepend_data_dir_data_file_entries(
-    table_version_client: TableVersionsClientLocal, data_list: Iterable[DataFileEntry]
-) -> Iterable[DataFileEntry]:
-    """Helper function that calls prepend_data_dir on DataFileEntry.data_filename"""
-    # TODO ugly
-    for d in data_list:
-        if d.data_filename is None:  # only delete_all at this point
-            yield d
-        else:
-            yield DataFileEntry(
-                d.data_file_type,
-                table_version_client.prepend_data_dir(d.data_filename),
-            )
 
 
 def read(
@@ -96,9 +82,7 @@ def read(
             )
 
     if table_schema_filename is not None:
-        table_schema = pd.read_pickle(
-            table_version_client.prepend_data_dir(table_schema_filename)
-        )
+        table_schema = table_version_client.store.get_pickle(table_schema_filename)
     else:
         # table_schema_filename is optional, if it's missing, we just use a default
         # schema
@@ -107,14 +91,12 @@ def read(
     return MdbTable(
         table_version_number,
         table_schema,
+        table_version_client.store,
         [
             data_file_entry
             for data_list_filename in data_list_filenames
-            for data_file_entry in _prepend_data_dir_data_file_entries(
-                table_version_client,
-                pd.read_pickle(
-                    table_version_client.prepend_data_dir(data_list_filename)
-                ),
+            for data_file_entry in table_version_client.store.get_pickle(
+                data_list_filename
             )
         ],
         [],
@@ -152,12 +134,14 @@ class MdbTable:
         self,
         version_number: int,
         table_schema: TableSchema,
+        store: KeyValueStore,
         data_list: List[DataFileEntry],
         ops: List[Union[_SelectColumnsOp, _SelectRowsOp]],
     ):
         # a unique identifier for this version of this table
         self._version_number = version_number
         self._table_schema = table_schema
+        self._store = store
         # a list of data files that we will read when we materialize
         self._data_list = data_list
         # a list of query operations to apply before we materialize
@@ -188,6 +172,7 @@ class MdbTable:
             return MdbTable(
                 self._version_number,
                 self._table_schema,
+                self._store,
                 self._data_list,
                 self._ops + [_SelectColumnsOp(item)],
             )
@@ -199,6 +184,7 @@ class MdbTable:
             return MdbTable(
                 self._version_number,
                 self._table_schema,
+                self._store,
                 self._data_list,
                 self._ops + [_SelectRowsOp(item)],
             )
@@ -239,7 +225,7 @@ class MdbTable:
 
         # stores the materialized pd.DataFrame for each partition
         partition_results: List[pd.DataFrame] = []
-        deduplication_keys = self._table_schema.deduplication_keys  # this could be None
+        deduplication_keys = self._table_schema.deduplication_keys
         # we'll keep track of the deduplication key values and deletes that we've seen
         # so that we can filter them out of older partitions
         # TODO possibly better to not keep deduplication_keys_seen and deletes in memory
@@ -249,12 +235,19 @@ class MdbTable:
         # we have to iterate newest partitions first so we know what to filter out of
         # older partitions
         for i, data_file in enumerate(reversed(self._data_list)):
-            if data_file.data_file_type == "write":
+            if (
+                data_file.data_file_type == "write"
+                and data_file.data_filename is not None
+            ):
                 # materialize the write into a pd.DataFrame, applying any filters the
                 # user specified (select_clause, where_clause), as well as any
                 # deduplication_key-based filters and deletes that we've seen so far
                 table_name = f"t{i}"
-                conn.from_parquet(data_file.data_filename).create_view(table_name)
+                table_relation = self._store.get_parquet_duckdb_relation(
+                    data_file.data_filename, conn
+                )
+                table_relation.create_view(table_name)
+
                 if len(deduplication_keys_seen) == 0:  # or deduplication_keys is None
                     if len(deletes) == 0:
                         # simplest case--no deletes or deduplication_keys to filter out
@@ -318,7 +311,7 @@ class MdbTable:
                 # Uncommenting this line is helpful in debugging the sql generation
                 # print(sql)
                 conn.execute(sql)
-                df = conn.fetchdf()
+                df = cast(pd.DataFrame, conn.fetchdf())
                 partition_results.append(df)
 
                 if deduplication_keys:
@@ -332,14 +325,20 @@ class MdbTable:
                             ),
                         ]
                     )
-            elif data_file.data_file_type == "delete":
+            elif (
+                data_file.data_file_type == "delete"
+                and data_file.data_filename is not None
+            ):
                 # Read deletes so we can use them to filter out rows in older partitions
 
                 # pd.read_parquet would be faster, but this way we're always using the
                 # same engine
-                conn.from_parquet(data_file.data_filename).create_view("d")
-                conn.execute("SELECT * FROM d")
-                d = conn.fetchdf()
+                d = cast(
+                    pd.DataFrame,
+                    self._store.get_parquet_duckdb_relation(
+                        data_file.data_filename, conn
+                    ).to_df(),
+                )
                 d[_indicator_column_name] = 1
 
                 if len(deletes) > 0 and sorted(deletes.columns) != sorted(d.columns):

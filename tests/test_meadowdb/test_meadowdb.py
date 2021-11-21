@@ -1,3 +1,4 @@
+from typing import Callable
 import meadowdb
 import pandas as pd
 from meadowdb.connection import prod_userspace_name, set_default_userspace
@@ -5,7 +6,7 @@ from meadowdb.connection import prod_userspace_name, set_default_userspace
 
 def test_meadowdb(
     mdb_connection: meadowdb.Connection,
-    random_df,
+    random_df: Callable[..., pd.DataFrame],
 ):
     mdb = mdb_connection
     # see TODO below

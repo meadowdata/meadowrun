@@ -39,8 +39,8 @@ def write(
             raise ValueError("Cannot specify both delete_where_equal_df and delete_all")
 
         delete_data_filename = f"delete.{table_id}.{uuid.uuid4()}.parquet"
-        delete_where_equal_df.to_parquet(
-            table_versions_client.prepend_data_dir(delete_data_filename), index=False
+        table_versions_client.store.set_parquet(
+            delete_data_filename, delete_where_equal_df
         )
         new_data_file_entries.append(DataFileEntry("delete", delete_data_filename))
 
@@ -48,9 +48,7 @@ def write(
         # TODO there probably needs to be some sort of segmentation so that every file
         #  doesn't end up in the same directory
         write_data_filename = f"write.{table_id}.{uuid.uuid4()}.parquet"
-        df.to_parquet(
-            table_versions_client.prepend_data_dir(write_data_filename), index=False
-        )
+        table_versions_client.store.set_parquet(write_data_filename, df)
         new_data_file_entries.append(DataFileEntry("write", write_data_filename))
 
     if len(new_data_file_entries) == 0:
@@ -64,10 +62,10 @@ def write(
     # table versions server
     if prev_table_version is None:
         # write new data list
-        pd.to_pickle(
-            new_data_file_entries,
-            table_versions_client.prepend_data_dir(data_list_filename),
+        table_versions_client.store.set_pickle(
+            data_list_filename, new_data_file_entries
         )
+
         # update table versions server
         written_version = table_versions_client.add_initial_table_version(
             userspace, table_name, table_id, None, data_list_filename
@@ -89,16 +87,13 @@ def write(
         else:
             # otherwise prepend the exist data_list to our new entries
             data_list = (
-                pd.read_pickle(
-                    table_versions_client.prepend_data_dir(
-                        prev_table_version.data_list_filename
-                    )
+                table_versions_client.store.get_pickle(
+                    prev_table_version.data_list_filename
                 )
                 + new_data_file_entries
             )
-        pd.to_pickle(
-            data_list, table_versions_client.prepend_data_dir(data_list_filename)
-        )
+        table_versions_client.store.set_pickle(data_list_filename, data_list)
+
         # update table versions server
         written_version = table_versions_client.add_table_version(
             userspace,
@@ -139,16 +134,14 @@ def create_or_update_table_schema(
 
     # Write the table_schema file
     table_schema_filename = f"table_schema.{table_id}.{uuid.uuid4()}.pkl"
-    pd.to_pickle(
-        table_schema, table_versions_client.prepend_data_dir(table_schema_filename)
-    )
+    table_versions_client.store.set_pickle(table_schema_filename, table_schema)
 
     # Write an empty data list if this is a brand new table, and update the table
     # versions server
     if prev_table_version is None:
         # write empty data list
         data_list_filename = f"data_list.{table_id}.{uuid.uuid4()}.pkl"
-        pd.to_pickle([], table_versions_client.prepend_data_dir(data_list_filename))
+        table_versions_client.store.set_pickle(data_list_filename, [])
 
         # update table versions server
         written_version = table_versions_client.add_initial_table_version(

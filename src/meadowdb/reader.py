@@ -10,7 +10,13 @@ import duckdb
 import pandas as pd
 
 import meadowdb.connection
-from meadowdb.readerwriter_shared import DataFileEntry, TableSchema
+from meadowdb.readerwriter_shared import (
+    DeleteAllLogEntry,
+    DeleteLogEntry,
+    TableLogEntry,
+    TableSchema,
+    WriteLogEntry,
+)
 from meadowdb.storage import KeyValueStore
 from meadowdb.table_versions_client_local import TableVersionsClientLocal
 
@@ -135,7 +141,7 @@ class MdbTable:
         version_number: int,
         table_schema: TableSchema,
         store: KeyValueStore,
-        data_list: List[DataFileEntry],
+        data_list: List[TableLogEntry],
         ops: List[Union[_SelectColumnsOp, _SelectRowsOp]],
     ):
         # a unique identifier for this version of this table
@@ -235,10 +241,7 @@ class MdbTable:
         # we have to iterate newest partitions first so we know what to filter out of
         # older partitions
         for i, data_file in enumerate(reversed(self._data_list)):
-            if (
-                data_file.data_file_type == "write"
-                and data_file.data_filename is not None
-            ):
+            if isinstance(data_file, WriteLogEntry):
                 # materialize the write into a pd.DataFrame, applying any filters the
                 # user specified (select_clause, where_clause), as well as any
                 # deduplication_key-based filters and deletes that we've seen so far
@@ -325,10 +328,7 @@ class MdbTable:
                             ),
                         ]
                     )
-            elif (
-                data_file.data_file_type == "delete"
-                and data_file.data_filename is not None
-            ):
+            elif isinstance(data_file, DeleteLogEntry):
                 # Read deletes so we can use them to filter out rows in older partitions
 
                 # pd.read_parquet would be faster, but this way we're always using the
@@ -348,13 +348,11 @@ class MdbTable:
                         "Deletes on different sets of columns is not supported"
                     )
                 deletes = pd.concat([deletes, d])
-            elif data_file.data_file_type == "delete_all":
+            elif isinstance(data_file, DeleteAllLogEntry):
                 # delete_all means stop iterating
                 break
             else:
-                raise ValueError(
-                    f"data_file_type {data_file.data_file_type} is not supported"
-                )
+                raise ValueError(f"data_file_type {data_file} is not supported")
 
         # put the results together
         partition_results.reverse()

@@ -28,10 +28,10 @@ Overview of overall data structure layout:
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
-from dataclasses import dataclass, field
+import abc
 import uuid
-
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 _dummy_uuid = uuid.UUID(int=0)
 
@@ -102,17 +102,30 @@ class TableSchema:
     deduplication_keys: List[str] = field(default_factory=list)
 
 
-@dataclass(frozen=True)
-class DataFileEntry:
+class TableLogEntry(abc.ABC):
+    # TODO add some statistics here to make querying faster
+
     # Can be "write", "delete", or "delete_all". "write" can be interpreted as an append
     # or an upsert depending on the table's deduplication_keys. "delete" is a delete
     # where equal (see Connection.delete_where_equal). "delete_all" means all existing
     # data was deleted at that point. "delete_all" is necessary (instead of just having
     # an empty data_list) so that a table in a userspace can ignore data in a parent
     # userspace.
-    data_file_type: Literal["write", "delete", "delete_all"]
+    pass
 
-    # Points to a parquet file. Will be None only if data_file_type == "delete_all"
-    data_filename: Optional[str]
 
-    # TODO add some statistics here to make querying faster
+@dataclass(frozen=True)
+class WriteLogEntry(TableLogEntry):
+    # Points to a parquet file.
+    data_filename: str
+
+
+@dataclass(frozen=True)
+class DeleteLogEntry(TableLogEntry):
+    # Points to a parquet file.
+    data_filename: str
+
+
+@dataclass(frozen=True)
+class DeleteAllLogEntry(TableLogEntry):
+    pass

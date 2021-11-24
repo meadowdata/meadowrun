@@ -24,7 +24,7 @@ Under construction
      sudo apt update
      sudo apt install python3.9
      python3.9 -m venv /home/<USER>/meadowgrid_env
-     /home/<USER>/meadowgrid_env/bin/pip install --extra-index-url https://test.pypi.org/simple meadowdata
+     /home/<USER>/meadowgrid_env/bin/pip install meadowdata
      ```
    - Set up meadowgrid_coordinator as a systemd service by creating a file at `/etc/systemd/system/meadowgrid_coordinator.service` with the contents:
      ```

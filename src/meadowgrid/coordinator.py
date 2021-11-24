@@ -4,7 +4,7 @@ import collections
 import dataclasses
 import itertools
 import random
-from typing import Dict, List, Union, Iterable, Optional
+from typing import Dict, List, Union, Iterable, Optional, Sequence
 
 import grpc.aio
 
@@ -23,6 +23,7 @@ from meadowgrid.meadowgrid_pb2 import (
     NextJobRequest,
     ProcessState,
     ProcessStates,
+    Resource,
     UpdateStateResponse,
 )
 from meadowgrid.meadowgrid_pb2_grpc import (
@@ -111,6 +112,18 @@ def _add_tasks_to_grid_job(grid_job: _GridJob, tasks: Iterable[GridTask]) -> Non
                 f"Ignoring duplicate task in job {grid_job.job.job_id} task "
                 f"{task_request.task_id}"
             )
+
+
+def _resources_required_are_available(
+    required: Sequence[Resource], available: Dict[str, float]
+) -> bool:
+    for r in required:
+        # special consideration--requiring 0 of a resource is considered the same as not
+        # requiring it at all
+        if r.value > 0 and (r.name not in available or available[r.name] < r.value):
+            return False
+
+    return True
 
 
 class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
@@ -233,6 +246,17 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     async def get_next_job(
         self, request: NextJobRequest, context: grpc.aio.ServicerContext
     ) -> Job:
+        # the resources available on the job worker that's asking for a new job
+        resources_available = {a.name: a.value for a in request.resources_available}
+
+        # TODO we should let users know if there's a job that won't run because its
+        #  required resources aren't available on any worker.
+        # TODO we should also consider thinking about "conserving resources" when we
+        #  assign jobs. E.g. if we have one worker with 1 CPU, and a second worker with
+        #  16 CPUs, it seems strictly better to assign a job that only requires 1 CPU to
+        #  the first worker. That way if a job comes along that requires 16 CPUs, we are
+        #  able to send it to the second worker.
+
         # get grid_jobs where the number of tasks left to run is greater
         # than the number of workers currently working
         # TODO this could be way more sophisticated, e.g. estimating how long it takes
@@ -243,12 +267,18 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             job
             for job in self._grid_jobs.values()
             if len(job.unassigned_tasks) > job.num_current_grid_workers
+            and _resources_required_are_available(
+                job.job.resources_required, resources_available
+            )
         )
         # get simple_jobs not being worked on
         available_simple_jobs = (
             job
             for job in self._simple_jobs.values()
             if job.state.state == ProcessState.ProcessStateEnum.RUN_REQUESTED
+            and _resources_required_are_available(
+                job.job.resources_required, resources_available
+            )
         )
         available_jobs: List[Union[_GridJob, _SimpleJob]] = list(
             itertools.chain(available_grid_jobs, available_simple_jobs)

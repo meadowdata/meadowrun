@@ -16,3 +16,26 @@ MEADOWGRID_INTERPRETER = "__MEADOWGRID_INTERPRETER__"
 # Paths for meadowgrid to bind to inside containers
 MEADOWGRID_CODE_MOUNT_LINUX = "/meadowgrid/code"
 MEADOWGRID_IO_MOUNT_LINUX = "/meadowgrid/io"
+
+
+# names of resources and default values
+MEMORY_GB = "memory_gb"
+LOGICAL_CPU = "logical_cpu"
+# these are totally arbitrary values...
+DEFAULT_MEMORY_GB_REQUIRED = 2
+DEFAULT_LOGICAL_CPU_REQUIRED = 1
+
+
+DEFAULT_PRIORITY = 100
+
+
+# names of environment variables to communicate with the child process
+
+# Will be set in child processes launched by a job worker, gives the pid of the job
+# worker that launched the child process. Mostly for testing/debugging.
+MEADOWGRID_JOB_WORKER_PID = "MEADOWGRID_JOB_WORKER_PID"
+
+
+# The job worker will log what its available resources are roughly every N seconds as
+# per this setting
+LOG_AVAILABLE_RESOURCES_INTERVAL_SECS = 15

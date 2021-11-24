@@ -5,7 +5,7 @@ import logging
 import multiprocessing
 import os
 import os.path
-from typing import Optional, ContextManager
+from typing import Optional, ContextManager, Dict
 
 import meadowgrid.job_worker
 from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
@@ -13,6 +13,7 @@ from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
 
 def main(
     working_folder: Optional[str] = None,
+    available_resources: Optional[Dict[str, float]] = None,
     coordinator_host: Optional[str] = None,
     coordinator_port: Optional[int] = None,
 ):
@@ -31,9 +32,14 @@ def main(
     if coordinator_port is None:
         coordinator_port = DEFAULT_COORDINATOR_PORT
 
+    if available_resources is None:
+        available_resources = {}
+
     asyncio.run(
         meadowgrid.job_worker.job_worker_main_loop(
-            working_folder, f"{coordinator_host}:{coordinator_port}"
+            working_folder,
+            available_resources,
+            f"{coordinator_host}:{coordinator_port}",
         )
     )
 
@@ -41,6 +47,7 @@ def main(
 @contextlib.contextmanager
 def main_in_child_process(
     working_folder: Optional[str] = None,
+    available_resources: Optional[Dict[str, float]] = None,
     coordinator_host: Optional[str] = None,
     coordinator_port: Optional[int] = None,
 ) -> ContextManager[None]:
@@ -51,12 +58,13 @@ def main_in_child_process(
     just die immediately without doing anything.
     """
     server_process = multiprocessing.Process(
-        target=main, args=(working_folder, coordinator_host, coordinator_port)
+        target=main,
+        args=(working_folder, available_resources, coordinator_host, coordinator_port),
     )
     server_process.start()
 
     try:
-        yield None
+        yield server_process.pid
     finally:
         server_process.kill()
 
@@ -66,12 +74,32 @@ def command_line_main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--working-folder")
+    parser.add_argument(
+        "--available-resource", action="append", nargs=2, metavar=("name", "value")
+    )
     parser.add_argument("--coordinator-host")
     parser.add_argument("--coordinator-port")
 
     args = parser.parse_args()
 
-    main(args.working_folder, args.coordinator_host, args.coordinator_port)
+    available_resources: Dict[str, float] = {}
+    if args.available_resource:
+        for name, value in args.available_resource:
+            try:
+                value = float(value)
+            except ValueError:
+                raise ValueError(
+                    "For --available-resource [name] [value], value must be a float"
+                )
+
+            available_resources[name] = value
+
+    main(
+        args.working_folder,
+        available_resources,
+        args.coordinator_host,
+        args.coordinator_port,
+    )
 
 
 if __name__ == "__main__":

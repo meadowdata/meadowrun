@@ -23,7 +23,7 @@ from meadowgrid.deployed_function import (
     MeadowGridDeployedRunnable,
     MeadowGridFunction,
 )
-from meadowgrid.grid import grid_map
+from meadowgrid.grid import grid_map, grid_map_async
 from meadowgrid.meadowgrid_pb2 import (
     ContainerAtDigest,
     GitRepoCommit,
@@ -392,3 +392,23 @@ def test_meadowgrid_grid_job():
             )
 
             assert results == ["hello abc", "hello def", "hello ghi"]
+
+
+def test_meadowgrid_grid_map_async():
+    with (
+        meadowgrid.coordinator_main.main_in_child_process(),
+        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+    ):
+
+        async def run():
+            tasks = await grid_map_async(
+                lambda s: f"hello {s}",
+                ["abc", "def", "ghi"],
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE]),
+                ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+            )
+
+            results = await asyncio.gather(*tasks)
+            assert results == ["hello abc", "hello def", "hello ghi"]
+
+        asyncio.run(run())

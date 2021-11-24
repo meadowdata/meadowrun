@@ -1,11 +1,19 @@
 import pickle
-from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal
+from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List
 
 import grpc
 import grpc.aio
 import grpc.aio
 
-from meadowgrid.config import DEFAULT_COORDINATOR_ADDRESS, JOB_ID_VALID_CHARACTERS
+from meadowgrid.config import (
+    DEFAULT_COORDINATOR_ADDRESS,
+    DEFAULT_LOGICAL_CPU_REQUIRED,
+    DEFAULT_MEMORY_GB_REQUIRED,
+    DEFAULT_PRIORITY,
+    JOB_ID_VALID_CHARACTERS,
+    LOGICAL_CPU,
+    MEMORY_GB,
+)
 from meadowgrid.deployed_function import (
     CodeDeployment,
     InterpreterDeployment,
@@ -33,6 +41,7 @@ from meadowgrid.meadowgrid_pb2 import (
     PyFunctionJob,
     PyGridJob,
     QualifiedFunctionName,
+    Resource,
     ServerAvailableContainer,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
@@ -42,6 +51,32 @@ from meadowgrid.meadowgrid_pb2_grpc import MeadowGridCoordinatorStub
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
+
+
+def _construct_resources_required(
+    resources: Optional[Dict[str, float]]
+) -> Sequence[Resource]:
+    """
+    If resources is None, provides the defaults for resources required. If resources is
+    not None, adds in the default resources if necessary. This means for default
+    resources like LOGICAL_CPU and MEMORY_GB, the only way to "opt-out" of these
+    resources is to explicitly set them to zero. Requiring zero of a resource is treated
+    the same as not requiring that resource at all.
+    """
+    if resources is None:
+        resources = {}
+
+    result = _construct_resources(resources)
+    if MEMORY_GB not in resources:
+        result.append(Resource(name=MEMORY_GB, value=DEFAULT_MEMORY_GB_REQUIRED))
+    if LOGICAL_CPU not in resources:
+        result.append(Resource(name=LOGICAL_CPU, value=DEFAULT_LOGICAL_CPU_REQUIRED))
+    return result
+
+
+def _construct_resources(resources: Dict[str, float]) -> List[Resource]:
+    """Small helper for constructing a sequence of Resource"""
+    return [Resource(name=name, value=value) for name, value in resources.items()]
 
 
 def _make_valid_job_id(job_id: str) -> str:
@@ -160,7 +195,8 @@ def _create_py_runnable_job(
     job_id: str,
     job_friendly_name: str,
     deployed_runnable: MeadowGridDeployedRunnable,
-    priority: int,
+    priority: float,
+    resources_required: Optional[Dict[str, float]],
 ) -> Job:
     job = Job(
         job_id=_make_valid_job_id(job_id),
@@ -170,6 +206,7 @@ def _create_py_runnable_job(
             deployed_runnable.environment_variables
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
+        resources_required=_construct_resources_required(resources_required),
     )
     _add_deployments_to_job(
         job, deployed_runnable.code_deployment, deployed_runnable.interpreter_deployment
@@ -210,7 +247,8 @@ def _create_py_grid_job(
     deployed_function: MeadowGridDeployedRunnable,
     tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
     all_tasks_added: bool,
-    priority: int,
+    priority: float,
+    resources_required_per_task: Optional[Dict[str, float]],
 ) -> Job:
     if not isinstance(deployed_function.runnable, MeadowGridFunction):
         raise ValueError("simple_job must have a MeadowGridFunction runnable")
@@ -224,6 +262,7 @@ def _create_py_grid_job(
             deployed_function.environment_variables
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
+        resources_required=_construct_resources_required(resources_required_per_task),
         py_grid=PyGridJob(
             function=_create_py_function(deployed_function.runnable, pickle_protocol),
             tasks=_create_task_requests(tasks, pickle_protocol),
@@ -286,7 +325,8 @@ class MeadowGridCoordinatorClientAsync:
         job_id: str,
         job_friendly_name: str,
         deployed_runnable: MeadowGridDeployedRunnable,
-        priority: int = 100,
+        priority: float = DEFAULT_PRIORITY,
+        resources_required: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
         """
         Requests a run of the specified runnable in the context of a python environment
@@ -299,7 +339,11 @@ class MeadowGridCoordinatorClientAsync:
         return _add_job_state_string(
             await self._stub.add_job(
                 _create_py_runnable_job(
-                    job_id, job_friendly_name, deployed_runnable, priority
+                    job_id,
+                    job_friendly_name,
+                    deployed_runnable,
+                    priority,
+                    resources_required,
                 )
             )
         )
@@ -311,7 +355,8 @@ class MeadowGridCoordinatorClientAsync:
         deployed_function: MeadowGridDeployedRunnable,
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
-        priority: int = 100,
+        priority: float = DEFAULT_PRIORITY,
+        resources_required_per_task: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
         """
         Creates a grid job. See also MeadowGridDeployedRunnable, Job in
@@ -332,6 +377,7 @@ class MeadowGridCoordinatorClientAsync:
                     tasks,
                     all_tasks_added,
                     priority,
+                    resources_required_per_task,
                 )
             )
         )
@@ -417,12 +463,17 @@ class MeadowGridCoordinatorClientSync:
         job_id: str,
         job_friendly_name: str,
         deployed_function: MeadowGridDeployedRunnable,
-        priority: int = 100,
+        priority: float = DEFAULT_PRIORITY,
+        resources_required: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
         return _add_job_state_string(
             self._stub.add_job(
                 _create_py_runnable_job(
-                    job_id, job_friendly_name, deployed_function, priority
+                    job_id,
+                    job_friendly_name,
+                    deployed_function,
+                    priority,
+                    resources_required,
                 )
             )
         )
@@ -434,7 +485,8 @@ class MeadowGridCoordinatorClientSync:
         deployed_function: MeadowGridDeployedRunnable,
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
-        priority: int = 100,
+        priority: float = DEFAULT_PRIORITY,
+        resources_required_per_task: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
         return _add_job_state_string(
             self._stub.add_job(
@@ -445,6 +497,7 @@ class MeadowGridCoordinatorClientSync:
                     tasks,
                     all_tasks_added,
                     priority,
+                    resources_required_per_task,
                 )
             )
         )
@@ -501,12 +554,16 @@ class MeadowGridCoordinatorClientForWorkersAsync:
         """
         await self._stub.update_job_states(JobStateUpdates(job_states=job_states))
 
-    async def get_next_job(self) -> Job:
+    async def get_next_job(self, resources_available: Dict[str, float]) -> Job:
         """
         Gets a job that the current worker should work on. If there are no jobs to work
         on, bool(Job.job_id) will be false.
         """
-        return await self._stub.get_next_job(NextJobRequest())
+        return await self._stub.get_next_job(
+            NextJobRequest(
+                resources_available=_construct_resources(resources_available)
+            )
+        )
 
     async def update_grid_task_state_and_get_next(
         self, job_id: str, task_state: Optional[Tuple[int, ProcessState]]
@@ -554,8 +611,12 @@ class MeadowGridCoordinatorClientForWorkersSync:
     def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
         self._stub.update_job_states(JobStateUpdates(job_states=job_states))
 
-    def get_next_job(self) -> Job:
-        return self._stub.get_next_job(NextJobRequest())
+    def get_next_job(self, resources_available: Dict[str, float]) -> Job:
+        return self._stub.get_next_job(
+            NextJobRequest(
+                resources_available=_construct_resources(resources_available)
+            )
+        )
 
     def update_grid_task_state_and_get_next(
         self, job_id: str, task_state: Optional[Tuple[int, ProcessState]]

@@ -3,6 +3,7 @@ import pickle
 import time
 import uuid
 from typing import (
+    Awaitable,
     Callable,
     Dict,
     Iterable,
@@ -10,13 +11,18 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
     TypeVar,
     Union,
 )
 
 import cloudpickle
 
-from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
+from meadowgrid.config import (
+    DEFAULT_COORDINATOR_HOST,
+    DEFAULT_COORDINATOR_PORT,
+    DEFAULT_PRIORITY,
+)
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
     MeadowGridCoordinatorClientSync,
@@ -36,17 +42,24 @@ _U = TypeVar("_U")
 
 
 # Caches of all coordinator clients
-_coordinator_clients_async: Dict[str, MeadowGridCoordinatorClientAsync] = {}
+_coordinator_clients_async: Dict[
+    Tuple[str, asyncio.AbstractEventLoop], MeadowGridCoordinatorClientAsync
+] = {}
 _coordinator_clients_sync: Dict[str, MeadowGridCoordinatorClientSync] = {}
 
 
 def _get_coordinator_client_async(address: str) -> MeadowGridCoordinatorClientAsync:
     """Get the cached coordinator client"""
+
+    event_loop = asyncio.get_event_loop()
+    # grpc doesn't actually call asyncio.get_event_loop(), but I assume the behavior is
+    # similar...
+    # https://github.com/grpc/grpc/blob/60028a82a9ec546141ef98e92655cf0dfb35180e/src/python/grpcio/grpc/aio/_channel.py#L287
     if address in _coordinator_clients_async:
-        client = _coordinator_clients_async[address]
+        client = _coordinator_clients_async[(address, event_loop)]
     else:
         client = MeadowGridCoordinatorClientAsync(address)
-        _coordinator_clients_async[address] = client
+        _coordinator_clients_async[(address, event_loop)] = client
     return client
 
 
@@ -72,28 +85,8 @@ _COMPLETED_PROCESS_STATES = {
 }
 
 
-def grid_map(
-    function: Callable[[_T], _U],
-    args: Iterable[_T],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-    coordinator_host: str = DEFAULT_COORDINATOR_HOST,
-    coordinator_port: int = DEFAULT_COORDINATOR_PORT,
-) -> Sequence[_U]:
-    """
-    The equivalent of map(function, args) but runs distributed on meadowgrid
-    """
-
-    # TODO the grid_map API should be significantly more sophisticated, supporting
-    #  asyncio and running tasks even while other tasks are being generated, as well as
-    #  returning Future-like objects that give more detailed information about failures
-
-    client = _get_coordinator_client_sync(f"{coordinator_host}:{coordinator_port}")
-
-    # prepare the job
-
+def _get_id_name_function(function: Callable[[_T], _U]) -> Tuple[str, str, bytes]:
+    """Returns job_id, friendly_name, pickled_function"""
     job_id = str(uuid.uuid4())
 
     friendly_name = getattr(function, "__name__", "")
@@ -103,6 +96,31 @@ def grid_map(
     pickled_function = cloudpickle.dumps(function)
     # TODO larger functions should get copied to S3/filesystem instead of sent directly
     print(f"Size of pickled function is {len(pickled_function)}")
+
+    return job_id, friendly_name, pickled_function
+
+
+def grid_map(
+    function: Callable[[_T], _U],
+    args: Iterable[_T],
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
+    priority: float = DEFAULT_PRIORITY,
+    resources_required_per_task: Optional[Dict[str, float]] = None,
+    coordinator_host: str = DEFAULT_COORDINATOR_HOST,
+    coordinator_port: int = DEFAULT_COORDINATOR_PORT,
+) -> Sequence[_U]:
+    """
+    The equivalent of map(function, args) but runs distributed on meadowgrid
+    """
+
+    client = _get_coordinator_client_sync(f"{coordinator_host}:{coordinator_port}")
+
+    # prepare the job
+
+    job_id, friendly_name, pickled_function = _get_id_name_function(function)
 
     # add_py_grid_job expects (task_id, args, kwargs)
     args = [(i, (arg,), {}) for i, arg in enumerate(args)]
@@ -132,6 +150,8 @@ def grid_map(
         ),
         args,
         True,
+        priority,
+        resources_required_per_task,
     )
 
     # poll the coordinator until all of the tasks are done
@@ -176,3 +196,96 @@ def grid_map(
     # TODO need to merge effects into the meadowflow.effects
 
     return curr_task_states
+
+
+async def grid_map_async(
+    function: Callable[[_T], _U],
+    args: Iterable[_T],
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
+    priority: float = DEFAULT_PRIORITY,
+    resources_required_per_task: Optional[Dict[str, float]] = None,
+    coordinator_host: str = DEFAULT_COORDINATOR_HOST,
+    coordinator_port: int = DEFAULT_COORDINATOR_PORT,
+) -> Sequence[Awaitable[_U]]:
+    """The equivalent of map(function, args) but runs distributed on meadowgrid."""
+
+    # Comments/todos on grid_map are not copied here, but most are also applicable here
+
+    client = _get_coordinator_client_async(f"{coordinator_host}:{coordinator_port}")
+
+    # prepare the job
+    job_id, friendly_name, pickled_function = _get_id_name_function(function)
+
+    # TODO given that we're starting an asyncio "background task" anyways, we should
+    #  iterate args and start the job at the same time, so that if args takes a long
+    #  time to iterate, we start working on the first set of tasks as soon as we're able
+    #  to
+    args = [(i, (arg,), {}) for i, arg in enumerate(args)]
+
+    if isinstance(code_deployment, VersionedCodeDeployment):
+        code_deployment = await code_deployment.get_latest()
+    elif code_deployment is None:
+        code_deployment = ServerAvailableFolder()
+
+    if isinstance(interpreter_deployment, VersionedInterpreterDeployment):
+        interpreter_deployment = await interpreter_deployment.get_latest()
+
+    # add the grid job to the meadowgrid coordinator
+    await client.add_py_grid_job(
+        job_id,
+        friendly_name,
+        MeadowGridDeployedRunnable(
+            code_deployment,
+            interpreter_deployment,
+            MeadowGridFunction.from_pickled(pickled_function),
+        ),
+        args,
+        True,
+        priority,
+        resources_required_per_task,
+    )
+
+    # poll the coordinator in the background until all of the tasks are done
+
+    # TODO it's possible that people will want to await the results on a different event
+    #  loop than the one that this function is running on
+    event_loop = asyncio.get_running_loop()
+    # TODO we should probably create a subclass of Future or an Awaitable that exposes
+    #  metadata about the task (e.g. log file locations, pids, etc.)
+    task_states: List[asyncio.Future[_U]] = [event_loop.create_future() for _ in args]
+
+    async def poll_for_results():
+        task_ids_with_results: Set[int] = set()
+
+        while len(task_ids_with_results) < len(task_states):
+            await asyncio.sleep(0.2)
+
+            # TODO if we're on the same event loop and talking to the same coordinator,
+            #  we should consolidate into a single get_grid_task_states call for
+            #  multiple jobs (also requires adding such an endpoint)
+            curr_task_states = await client.get_grid_task_states(
+                job_id, list(task_ids_with_results)
+            )
+            for task in curr_task_states:
+                if task.process_state.state in _COMPLETED_PROCESS_STATES:
+                    if (
+                        task.process_state.state
+                        != ProcessState.ProcessStateEnum.SUCCEEDED
+                    ):
+                        # TODO raise a better exception
+                        task_states[task.task_id].set_exception(
+                            ValueError("Task failed")
+                        )
+                    else:
+                        result, effects = pickle.loads(
+                            task.process_state.pickled_result
+                        )
+                        task_states[task.task_id].set_result(result)
+                    task_ids_with_results.add(task.task_id)
+
+    asyncio.create_task(poll_for_results())  # run in the background
+
+    return task_states

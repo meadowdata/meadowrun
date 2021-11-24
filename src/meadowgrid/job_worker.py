@@ -6,8 +6,10 @@ import os.path
 import pathlib
 import shutil
 import sys
+import time
 from typing import (
     Any,
+    Callable,
     Coroutine,
     Dict,
     Iterable,
@@ -20,13 +22,18 @@ from typing import (
 )
 
 import aiodocker.containers
+import psutil
 
 import meadowflow.context
 from meadowgrid.code_deployment import CodeDeploymentManager
 from meadowgrid.config import (
-    MEADOWGRID_INTERPRETER,
+    LOGICAL_CPU,
+    LOG_AVAILABLE_RESOURCES_INTERVAL_SECS,
     MEADOWGRID_CODE_MOUNT_LINUX,
+    MEADOWGRID_INTERPRETER,
     MEADOWGRID_IO_MOUNT_LINUX,
+    MEADOWGRID_JOB_WORKER_PID,
+    MEMORY_GB,
 )
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersAsync
 from meadowgrid.docker_controller import (
@@ -324,6 +331,7 @@ async def _launch_job(
     job_logs_folder: str,
     coordinator_address: str,
     deployment_manager: CodeDeploymentManager,
+    free_resources: Callable[[], None],
 ) -> Tuple[JobStateUpdate, Optional[asyncio.Task[Optional[JobStateUpdate]]]]:
     """
     Gets the deployment needed and launches a child process to run the specified job.
@@ -344,6 +352,9 @@ async def _launch_job(
 
     If the initial job state is RUN_REQUEST_FAILED, the continuation will be None, as
     there is no need for additional updates on the state of this job.
+
+    free_resources is a function that needs to be called whenever the function "ends",
+    regardless of how it ends
     """
 
     try:
@@ -374,6 +385,12 @@ async def _launch_job(
 
         # next, prepare a few other things
 
+        # add the job worker pid, but don't modify if it already exists somehow
+        if MEADOWGRID_JOB_WORKER_PID not in job_spec_transformed.environment_variables:
+            job_spec_transformed.environment_variables[MEADOWGRID_JOB_WORKER_PID] = str(
+                os.getpid()
+            )
+
         # Merge in the user specified environment, variables, these should always take
         # precedence. A little sloppy to modify in place, but should be fine
         # TODO consider warning if we're overwriting any variables that already exist
@@ -396,6 +413,7 @@ async def _launch_job(
                 log_file_name,
                 job,
                 io_folder,
+                free_resources,
             )
             # due to the way protobuf works, this is equivalent to None
             container_id = ""
@@ -420,6 +438,7 @@ async def _launch_job(
                 log_file_name,
                 job,
                 io_folder,
+                free_resources,
             )
             # due to the way protobuf works, this is equivalent to None
             pid = 0
@@ -444,6 +463,8 @@ async def _launch_job(
         )
     except Exception as e:
         # we failed to launch the process
+        free_resources()
+
         return (
             JobStateUpdate(
                 job_id=job.job_id,
@@ -465,6 +486,7 @@ async def _launch_non_container_job(
     log_file_name: str,
     job: Job,
     io_folder: str,
+    free_resources: Callable[[], None],
 ) -> Tuple[int, Coroutine[Any, Any, Optional[JobStateUpdate]]]:
     """
     Contains logic specific to launching jobs that run using
@@ -558,6 +580,7 @@ async def _launch_non_container_job(
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
+        free_resources,
     )
 
 
@@ -568,6 +591,7 @@ async def _non_container_job_continuation(
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
+    free_resources: Callable[[], None],
 ) -> Optional[JobStateUpdate]:
     """
     Takes an asyncio.subprocess.Process, waits for it to finish, gets results from
@@ -599,6 +623,8 @@ async def _non_container_job_continuation(
                 pickled_result=pickle_exception(e, result_highest_pickle_protocol),
             ),
         )
+    finally:
+        free_resources()
 
 
 async def _launch_container_job(
@@ -609,6 +635,7 @@ async def _launch_container_job(
     log_file_name: str,
     job: Job,
     io_folder: str,
+    free_resources: Callable[[], None],
 ) -> Tuple[str, Coroutine[Any, Any, Optional[JobStateUpdate]]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
@@ -689,6 +716,7 @@ async def _launch_container_job(
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
+        free_resources,
     )
 
 
@@ -699,6 +727,7 @@ async def _container_job_continuation(
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
+    free_resources: Callable[[], None],
 ) -> Optional[JobStateUpdate]:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
@@ -742,6 +771,8 @@ async def _container_job_continuation(
                 pickled_result=pickle_exception(e, result_highest_pickle_protocol),
             ),
         )
+    finally:
+        free_resources()
 
 
 async def _completed_job_state(
@@ -820,7 +851,9 @@ async def _completed_job_state(
     )
 
 
-async def job_worker_main_loop(working_folder: str, coordinator_address: str) -> None:
+async def job_worker_main_loop(
+    working_folder: str, available_resources: Dict[str, float], coordinator_address: str
+) -> None:
     """The main loop for the job_worker"""
 
     # TODO make this restartable if it crashes
@@ -864,6 +897,20 @@ async def job_worker_main_loop(working_folder: str, coordinator_address: str) ->
     ] = set()
     # represents jobs where the child process has been launched and is running
     running_jobs: Set[asyncio.Task[Optional[JobStateUpdate]]] = set()
+
+    # assume we can use the entire machine's resources
+    # TODO we should maybe also keep track of the actual resources available? And
+    #  potentially limit child processes using cgroups etc? Also account for system
+    #  processes/the job worker itself using some CPU/memory?
+    if MEMORY_GB not in available_resources:
+        available_resources[MEMORY_GB] = psutil.virtual_memory().total / (
+            1024 * 1024 * 1024
+        )
+    if LOGICAL_CPU not in available_resources:
+        available_resources[LOGICAL_CPU] = psutil.cpu_count(logical=True)
+
+    last_available_resources_update = time.time()
+    print(f"Available resources: {available_resources}")
 
     while True:
         # TODO a lot of try/catches needed here...
@@ -911,10 +958,29 @@ async def job_worker_main_loop(working_folder: str, coordinator_address: str) ->
 
         # now get another job if we can with our remaining resources
 
-        # TODO "resource management" is extremely simple now, just run 4 jobs at a time
-        if len(launching_jobs) + len(running_jobs) < 4:
-            job = await client.get_next_job()
+        if (
+            time.time() - last_available_resources_update
+            > LOG_AVAILABLE_RESOURCES_INTERVAL_SECS
+        ):
+            last_available_resources_update = time.time()
+            print(f"Available resources: {available_resources}")
+        # a bit of a hack, but no reason to make requests if we have no more memory or
+        # CPU to give out
+        if available_resources[MEMORY_GB] > 0 and available_resources[LOGICAL_CPU] > 0:
+            job = await client.get_next_job(available_resources)
             if job.job_id:
+                for resource in job.resources_required:
+                    # TODO this should never happen, but consider doing something if the
+                    #  resource does not exist on this worker or if this takes us below
+                    #  zero?
+                    if resource.name in available_resources:
+                        available_resources[resource.name] -= resource.value
+
+                def free_resources(resources_to_free=job.resources_required):
+                    for resource in resources_to_free:
+                        if resource.name in available_resources:
+                            available_resources[resource.name] += resource.value
+
                 launching_jobs.add(
                     asyncio.create_task(
                         _launch_job(
@@ -923,6 +989,7 @@ async def job_worker_main_loop(working_folder: str, coordinator_address: str) ->
                             job_logs_folder,
                             coordinator_address,
                             deployment_manager,
+                            free_resources,
                         )
                     )
                 )

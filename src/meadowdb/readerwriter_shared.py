@@ -3,26 +3,27 @@ Types/functions used by both the reader and writer.
 
 Overview of overall data structure layout:
 
-    TableVersionsServer:
-        # with history
-        userspace, table_name -> table_id
-        # with history
-        table_id -> TableVersion(table_schema_filename, data_list_filename,
-                                 version_number, branch_spec)
+    TableVersionsClientLocal:
+    # filename: 'table_versions'
+        table_names_history: List[TableName] 
+            versioned lookup of userspace and tablename to a stable id
+            userspace, table_name, version -> table_id
+        table_version_history: List[TableVersion]
+            versioned lookup of table id to schema and log
+            log determines contents of the table, containing writes and deletes
+            table_id, version -> table_schema_filename, table_log_filename
 
-    # convention is table_schema.{table_id}.{uuid}
-    table_schema_filename -> TableSchema(
-        columns_names_and_types: NOT IMPLEMENTED,
-        deduplication_keys: # list of column names to use as the key for deduplicating
-            rows
+    # table_schema_filename: 'table_schema.{table_id}.{uuid}'
+        table_schema: TableSchema
+            columns_names_and_types: NOT IMPLEMENTED,
+            deduplication_keys: list of column names to use as the key for deduplicating rows
 
-    # convention is data_list.{table_id}.{uuid}
-    data_list_filename -> List[DataFileEntry(data_file_type, data_filename)]
+    # table_log_filename: 'data_list.{table_id}.{uuid}'
+        table_log_entries: List[TableLogEntry]
+        TableLogEntry: Write data_filename | Delete data_filename | DeleteAll
 
-    data_file_type -> 'write' | 'delete'
-
-    # convention is {write|delete}.{table_id}.{uuid}]
-    data_filename -> DataFrame
+    # data_filename: '{write|delete}.{table_id}.{uuid}]'
+        data: DataFrame
 
 """
 
@@ -38,7 +39,7 @@ _dummy_uuid = uuid.UUID(int=0)
 
 @dataclass(frozen=True, order=True)
 class TableName:
-    """A TableName maps a userspace/table name to a table id"""
+    """A TableName maps a userspace,table name,version to a table id"""
 
     # This needs to be the first field! We rely on this being the first field and
     # therefore effectively defining the sort order

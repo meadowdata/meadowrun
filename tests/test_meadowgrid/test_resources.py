@@ -50,8 +50,8 @@ def test_resources():
                 tasks = await grid_map_async(
                     get_time_and_pid,
                     [1],
-                    ServerAvailableFolder(code_paths=[MEADOWDATA_CODE]),
                     ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+                    ServerAvailableFolder(code_paths=[MEADOWDATA_CODE]),
                     resources_required_per_task=resources_required_per_task,
                 )
 

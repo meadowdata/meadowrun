@@ -103,12 +103,12 @@ def _get_id_name_function(function: Callable[[_T], _U]) -> Tuple[str, str, bytes
 def grid_map(
     function: Callable[[_T], _U],
     args: Iterable[_T],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
     interpreter_deployment: Union[
         InterpreterDeployment, VersionedInterpreterDeployment
     ],
-    priority: float = DEFAULT_PRIORITY,
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
     resources_required_per_task: Optional[Dict[str, float]] = None,
+    priority: float = DEFAULT_PRIORITY,
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,
     coordinator_port: int = DEFAULT_COORDINATOR_PORT,
 ) -> Sequence[_U]:
@@ -201,12 +201,12 @@ def grid_map(
 async def grid_map_async(
     function: Callable[[_T], _U],
     args: Iterable[_T],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
     interpreter_deployment: Union[
         InterpreterDeployment, VersionedInterpreterDeployment
     ],
-    priority: float = DEFAULT_PRIORITY,
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
     resources_required_per_task: Optional[Dict[str, float]] = None,
+    priority: float = DEFAULT_PRIORITY,
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,
     coordinator_port: int = DEFAULT_COORDINATOR_PORT,
 ) -> Sequence[Awaitable[_U]]:

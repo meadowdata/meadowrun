@@ -387,8 +387,8 @@ def test_meadowgrid_grid_job():
             results = grid_map(
                 lambda s: f"hello {s}",
                 ["abc", "def", "ghi"],
-                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE]),
                 interpreter,
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE]),
             )
 
             assert results == ["hello abc", "hello def", "hello ghi"]
@@ -404,8 +404,8 @@ def test_meadowgrid_grid_map_async():
             tasks = await grid_map_async(
                 lambda s: f"hello {s}",
                 ["abc", "def", "ghi"],
-                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE]),
                 ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE]),
             )
 
             results = await asyncio.gather(*tasks)

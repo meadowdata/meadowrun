@@ -255,7 +255,12 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         #  assign jobs. E.g. if we have one worker with 1 CPU, and a second worker with
         #  16 CPUs, it seems strictly better to assign a job that only requires 1 CPU to
         #  the first worker. That way if a job comes along that requires 16 CPUs, we are
-        #  able to send it to the second worker.
+        #  able to send it to the second worker. Another related case is if we just have
+        #  the 16 CPU machine, it's possible to get bad behavior if we have many
+        #  low-priority jobs that require 1 CPU, and then a high-priority job requiring
+        #  16 CPUs comes along. Because we're constantly trying to schedule jobs, unless
+        #  all the low-priority jobs finish at the exact same time, we'll never "see"
+        #  the 16 available CPUs to run the high-priority job
 
         # get grid_jobs where the number of tasks left to run is greater
         # than the number of workers currently working

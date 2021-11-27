@@ -79,8 +79,8 @@ class TableVersion:
     # TableSchema
     table_schema_filename: Optional[str]
 
-    # Points to a file which contains an ordered list of DataFileEntry
-    data_list_filename: str
+    # Points to a file which contains an ordered list of TableLogEntry
+    table_log_filename: str
 
     @staticmethod
     def dummy(version_number: int) -> TableVersion:
@@ -110,7 +110,7 @@ class TableLogEntry(abc.ABC):
     # or an upsert depending on the table's deduplication_keys. "delete" is a delete
     # where equal (see Connection.delete_where_equal). "delete_all" means all existing
     # data was deleted at that point. "delete_all" is necessary (instead of just having
-    # an empty data_list) so that a table in a userspace can ignore data in a parent
+    # an empty data_filename) so that a table in a userspace can ignore data in a parent
     # userspace.
     pass
 

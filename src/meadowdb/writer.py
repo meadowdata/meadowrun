@@ -33,12 +33,12 @@ def write(
     else:
         table_id = prev_table_version.table_id
 
-    # Write data files for writes and deletes and construct DataFileEntry
-    new_log_entries: list[TableLogEntry] = []
+    # Write data files for writes and deletes and construct TableLogEntry
+    new_table_log: list[TableLogEntry] = []
 
     # deletes have to come before writes
     if delete_all:
-        new_log_entries.append(DeleteAllLogEntry())
+        new_table_log.append(DeleteAllLogEntry())
 
     if delete_where_equal_df is not None:
         if delete_all:
@@ -48,31 +48,31 @@ def write(
         table_versions_client.store.set_parquet(
             delete_data_filename, delete_where_equal_df
         )
-        new_log_entries.append(DeleteLogEntry(delete_data_filename))
+        new_table_log.append(DeleteLogEntry(delete_data_filename))
 
     if df is not None:
         # TODO there probably needs to be some sort of segmentation so that every file
         #  doesn't end up in the same directory
         write_data_filename = f"write.{table_id}.{uuid.uuid4()}.parquet"
         table_versions_client.store.set_parquet(write_data_filename, df)
-        new_log_entries.append(WriteLogEntry(write_data_filename))
+        new_table_log.append(WriteLogEntry(write_data_filename))
 
-    if len(new_log_entries) == 0:
+    if len(new_table_log) == 0:
         raise ValueError(
             "At least one of df, delete_where_equal_df, and delete_all must be set"
         )
 
-    data_list_filename = f"data_list.{table_id}.{uuid.uuid4()}.pkl"
+    table_log_filename = f"table_log.{table_id}.{uuid.uuid4()}.pkl"
 
     # Write the data list file, schema file if this is a brand new table, and update the
     # table versions server
     if prev_table_version is None:
         # write new data list
-        table_versions_client.store.set_pickle(data_list_filename, new_log_entries)
+        table_versions_client.store.set_pickle(table_log_filename, new_table_log)
 
         # update table versions server
         written_version = table_versions_client.add_initial_table_version(
-            userspace, table_name, table_id, None, data_list_filename
+            userspace, table_name, table_id, None, table_log_filename
         )
         # TODO retry on failure, same for `else` clause
         if written_version is None:
@@ -87,16 +87,16 @@ def write(
             # if delete_all is set, then ignore any old entries. This is just an
             # optimization, the presence of the delete_all entry will prevent the reader
             # from trying to read older entries.
-            data_list = new_log_entries
+            table_log = new_table_log
         else:
-            # otherwise prepend the exist data_list to our new entries
-            data_list = (
+            # otherwise prepend the existing table_log to our new entries
+            table_log = (
                 table_versions_client.store.get_pickle(
-                    prev_table_version.data_list_filename
+                    prev_table_version.table_log_filename
                 )
-                + new_log_entries
+                + new_table_log
             )
-        table_versions_client.store.set_pickle(data_list_filename, data_list)
+        table_versions_client.store.set_pickle(table_log_filename, table_log)
 
         # update table versions server
         written_version = table_versions_client.add_table_version(
@@ -105,7 +105,7 @@ def write(
             table_id,
             prev_table_version.version_number,
             prev_table_version.table_schema_filename,
-            data_list_filename,
+            table_log_filename,
         )
         if written_version is None:
             raise ValueError(
@@ -166,7 +166,7 @@ def create_or_update_table_schema(
             table_id,
             prev_table_version.version_number,
             table_schema_filename,
-            prev_table_version.data_list_filename,
+            prev_table_version.table_log_filename,
         )
         if written_version is None:
             raise ValueError(

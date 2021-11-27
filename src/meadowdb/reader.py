@@ -33,7 +33,7 @@ def read(
     table_version = table_version_client.get_current_table_version(
         userspace, table_name, max_version_number
     )
-    data_list_filenames = []
+    table_log_filenames = []
 
     if userspace == meadowdb.connection.prod_userspace_name:
         # simple case, no userspace layering
@@ -43,7 +43,7 @@ def read(
 
         table_schema_filename = table_version.table_schema_filename
 
-        data_list_filenames.append(table_version.data_list_filename)
+        table_log_filenames.append(table_version.table_log_filename)
         table_version_number = table_version.version_number
     else:
         # complicated case, userspace layering with prod
@@ -74,15 +74,15 @@ def read(
         else:
             table_schema_filename = None
 
-        # Populate data_list_filenames. Order is important here, we always want to apply
+        # Populate table_log_filenames. Order is important here, we always want to apply
         # the userspace's writes on top of the prod writes regardless of the original
         # order of writes. Also get the largest version_number at the same time
         table_version_number = -1
         if prod_table_version is not None:
-            data_list_filenames.append(prod_table_version.data_list_filename)
+            table_log_filenames.append(prod_table_version.table_log_filename)
             table_version_number = prod_table_version.version_number
         if table_version is not None:
-            data_list_filenames.append(table_version.data_list_filename)
+            table_log_filenames.append(table_version.table_log_filename)
             table_version_number = max(
                 table_version_number, table_version.version_number
             )
@@ -99,10 +99,10 @@ def read(
         table_schema,
         table_version_client.store,
         [
-            data_file_entry
-            for data_list_filename in data_list_filenames
-            for data_file_entry in table_version_client.store.get_pickle(
-                data_list_filename
+            table_log_entry
+            for table_log_filename in table_log_filenames
+            for table_log_entry in table_version_client.store.get_pickle(
+                table_log_filename
             )
         ],
         [],
@@ -141,15 +141,15 @@ class MdbTable:
         version_number: int,
         table_schema: TableSchema,
         store: KeyValueStore,
-        data_list: List[TableLogEntry],
+        log_entry_list: List[TableLogEntry],
         ops: List[Union[_SelectColumnsOp, _SelectRowsOp]],
     ):
         # a unique identifier for this version of this table
         self._version_number = version_number
         self._table_schema = table_schema
         self._store = store
-        # a list of data files that we will read when we materialize
-        self._data_list = data_list
+        # a list of log entries that we will read when we materialize
+        self._log_entry_list = log_entry_list
         # a list of query operations to apply before we materialize
         self._ops = ops
 
@@ -179,7 +179,7 @@ class MdbTable:
                 self._version_number,
                 self._table_schema,
                 self._store,
-                self._data_list,
+                self._log_entry_list,
                 self._ops + [_SelectColumnsOp(item)],
             )
         elif isinstance(
@@ -191,7 +191,7 @@ class MdbTable:
                 self._version_number,
                 self._table_schema,
                 self._store,
-                self._data_list,
+                self._log_entry_list,
                 self._ops + [_SelectRowsOp(item)],
             )
         elif isinstance(item, MdbColumn):
@@ -208,7 +208,7 @@ class MdbTable:
 
     @property
     def empty(self) -> bool:
-        return not self._data_list
+        return not self._log_entry_list
         # TODO add more logic here--just because we have data files doesn't mean the
         #  table isn't empty; we need to actually query the data. Probably head(1)
         #  should be efficient enough.
@@ -223,7 +223,7 @@ class MdbTable:
 
         The general strategy is to take the query operations that have been specified
         (self._ops) and translate them into a SQL query, and then use duckdb to execute
-        that query on the underlying data files (self._data_list).
+        that query on the underlying data files (self._log_entry_list).
         """
         conn = duckdb.connect(":memory:")
 
@@ -240,14 +240,14 @@ class MdbTable:
 
         # we have to iterate newest partitions first so we know what to filter out of
         # older partitions
-        for i, data_file in enumerate(reversed(self._data_list)):
-            if isinstance(data_file, WriteLogEntry):
+        for i, log_entry in enumerate(reversed(self._log_entry_list)):
+            if isinstance(log_entry, WriteLogEntry):
                 # materialize the write into a pd.DataFrame, applying any filters the
                 # user specified (select_clause, where_clause), as well as any
                 # deduplication_key-based filters and deletes that we've seen so far
                 table_name = f"t{i}"
                 table_relation = self._store.get_parquet_duckdb_relation(
-                    data_file.data_filename, conn
+                    log_entry.data_filename, conn
                 )
                 table_relation.create_view(table_name)
 
@@ -328,7 +328,7 @@ class MdbTable:
                             ),
                         ]
                     )
-            elif isinstance(data_file, DeleteLogEntry):
+            elif isinstance(log_entry, DeleteLogEntry):
                 # Read deletes so we can use them to filter out rows in older partitions
 
                 # pd.read_parquet would be faster, but this way we're always using the
@@ -336,7 +336,7 @@ class MdbTable:
                 d = cast(
                     pd.DataFrame,
                     self._store.get_parquet_duckdb_relation(
-                        data_file.data_filename, conn
+                        log_entry.data_filename, conn
                     ).to_df(),
                 )
                 d[_indicator_column_name] = 1
@@ -348,11 +348,11 @@ class MdbTable:
                         "Deletes on different sets of columns is not supported"
                     )
                 deletes = pd.concat([deletes, d])
-            elif isinstance(data_file, DeleteAllLogEntry):
+            elif isinstance(log_entry, DeleteAllLogEntry):
                 # delete_all means stop iterating
                 break
             else:
-                raise ValueError(f"data_file_type {data_file} is not supported")
+                raise ValueError(f"data_file_type {log_entry} is not supported")
 
         # put the results together
         partition_results.reverse()

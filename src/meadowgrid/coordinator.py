@@ -4,23 +4,30 @@ import collections
 import dataclasses
 import itertools
 import random
+import traceback
 from typing import Dict, List, Union, Iterable, Optional, Sequence
 
 import grpc.aio
 
 from meadowgrid.config import JOB_ID_VALID_CHARACTERS
+from meadowgrid.credentials import CredentialsSource, get_credentials_from_source
+from meadowgrid.docker_controller import get_registry_domain
 from meadowgrid.meadowgrid_pb2 import (
+    AddCredentialsRequest,
+    AddCredentialsResponse,
     AddJobResponse,
     AddTasksToGridJobRequest,
-    GridTaskUpdateAndGetNextRequest,
+    Credentials,
     GridTask,
     GridTaskState,
     GridTaskStates,
     GridTaskStatesRequest,
+    GridTaskUpdateAndGetNextRequest,
     Job,
     JobStateUpdates,
     JobStatesRequest,
     NextJobRequest,
+    NextJobResponse,
     ProcessState,
     ProcessStates,
     Resource,
@@ -151,6 +158,9 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         # TODO at some point we should remove completed and queried grid jobs from these
         #  lists
 
+        # maps service_url = docker registry domain -> credentials source
+        self._docker_credentials: Dict[str, CredentialsSource] = {}
+
     async def add_job(
         self, request: Job, context: grpc.aio.ServicerContext
     ) -> AddJobResponse:
@@ -243,9 +253,30 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return UpdateStateResponse()
 
+    def _get_credentials_for_job(self, job: Job) -> Iterable[Credentials]:
+        """Collects credentials that are relevant to job"""
+        if job.WhichOneof("interpreter_deployment") == "container_at_digest":
+            registry_domain = get_registry_domain(job.container_at_digest.repository)[0]
+            if registry_domain in self._docker_credentials:
+                credentials_source = self._docker_credentials[registry_domain]
+                try:
+                    yield Credentials(
+                        service=AddCredentialsRequest.CredentialsService.DOCKER,
+                        service_url=registry_domain,
+                        credentials=get_credentials_from_source(credentials_source),
+                    )
+                except Exception:
+                    # TODO ideally this would make it back to an error message for job
+                    #  if it eventually fails (and maybe even if it doesn't)
+                    print(
+                        "Error trying to turn credentials source into actual "
+                        "credentials"
+                    )
+                    traceback.print_exc()
+
     async def get_next_job(
         self, request: NextJobRequest, context: grpc.aio.ServicerContext
-    ) -> Job:
+    ) -> NextJobResponse:
         # the resources available on the job worker that's asking for a new job
         resources_available = {a.name: a.value for a in request.resources_available}
 
@@ -307,9 +338,11 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             else:
                 raise ValueError(f"Unexpected type of job {type(job)}")
 
-            return job.job
+            return NextJobResponse(
+                job=job.job, credentials=list(self._get_credentials_for_job(job.job))
+            )
         else:
-            return Job()
+            return NextJobResponse()
 
     async def update_grid_task_state_and_get_next(
         self,
@@ -399,6 +432,20 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                 if task.task_id not in task_ids_to_ignore
             ]
         )
+
+    async def add_credentials(
+        self, request: AddCredentialsRequest, context: grpc.aio.ServicerContext
+    ) -> AddCredentialsResponse:
+        source = getattr(request, request.WhichOneof("source"))
+
+        if request.service == AddCredentialsRequest.CredentialsService.DOCKER:
+            # TODO we might want to support more than one set of credentials per
+            #  registry domain rather than just overwriting any older set of credentials
+            self._docker_credentials[request.service_url] = source
+        else:
+            raise ValueError(f"Unrecognized CredentialsService {request.service}")
+
+        return AddCredentialsResponse()
 
 
 async def start_meadowgrid_coordinator(

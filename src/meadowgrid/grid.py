@@ -126,6 +126,8 @@ def grid_map(
     args = [(i, (arg,), {}) for i, arg in enumerate(args)]
 
     # TODO potentially add sync interfaces for these functions
+    # TODO we need credentials here but don't necessarily have them, we might just have
+    #  them on the coordinator
     if isinstance(code_deployment, VersionedCodeDeployment):
         code_deployment = asyncio.run(code_deployment.get_latest())
     elif code_deployment is None:

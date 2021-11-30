@@ -184,6 +184,12 @@ message NextJobRequest {
 }
 
 
+message NextJobResponse {
+    Job job = 1;
+    repeated Credentials credentials = 2;
+}
+
+
 // Represents the state of a process, can apply to a job or a grid task
 message ProcessState {
     enum ProcessStateEnum {
@@ -315,16 +321,55 @@ message UpdateStateResponse {
 }
 
 
+// This represents a credentials source (see credentials.py)
+message AddCredentialsRequest {
+    enum CredentialsService {
+        DEFAULT = 0;
+        DOCKER = 1;
+        // TODO add support for git credentials
+    }
+
+    CredentialsService service = 1;
+    string service_url = 2;
+    oneof source {
+        ServerAvailableFile server_available_file = 3;
+        // TODO add e.g. AWS secrets, Azure secrets, Hashicorp Vault
+    }
+}
+
+
+// Represents actual credentials
+message Credentials {
+    AddCredentialsRequest.CredentialsService service = 1;
+    string service_url = 2;
+    bytes credentials = 3;
+}
+
+
+// Represents credentials in a file. Must be a file accessible by the coordinator that
+// has username on the first line and password on the second line. Final newline
+// character is optional
+message ServerAvailableFile {
+    string path = 1;
+}
+
+
+message AddCredentialsResponse {
+}
+
+
 service MeadowGridCoordinator {
     rpc add_job(Job) returns (AddJobResponse) {};
     rpc add_tasks_to_grid_job(AddTasksToGridJobRequest) returns (AddJobResponse) {};
 
     rpc update_job_states(JobStateUpdates) returns (UpdateStateResponse) {};
-    rpc get_next_job(NextJobRequest) returns (Job) {};
+    rpc get_next_job(NextJobRequest) returns (NextJobResponse) {};
 
     // this can only get tasks from the same job
     rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
 
     rpc get_simple_job_states(JobStatesRequest) returns (ProcessStates) {};
     rpc get_grid_task_states(GridTaskStatesRequest) returns (GridTaskStates) {};
+
+    rpc add_credentials(AddCredentialsRequest) returns (AddCredentialsResponse) {}
 }

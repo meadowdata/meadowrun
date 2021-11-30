@@ -147,3 +147,29 @@ results = await asyncio.gather(*tasks)
 ```
 
 But more complicated usages are possible using the usual asyncio functionality, e.g. creating continuations that will run as each task finish, or processing results in the order that tasks finish (rather than in the order they were submitted).
+
+### Credentials
+
+Deployments like `ContainerRepo` or `GitRepo` may reference private repositories that require credentials to access. Credentials are added to a coordinator in a separate call, like:
+
+```python
+import meadowgrid
+import meadowgrid.coordinator_client
+
+with meadowgrid.coordinator_client.MeadowGridCoordinatorClientSync() as client:
+    client.add_credentials(
+        "DOCKER",
+        "registry-1.docker.io",
+        meadowgrid.ServerAvailableFile(path=r"/home/user/dockerhub_credentials.txt"),
+    )
+```
+
+Credentials must be set up in a way that meadowgrid can understand--these are not generic credentials, which you can use a regular secrets manager for, like AWS Secrets or Hashicorp Vault. These are secrets that meadowgrid will use to perform actions for you, like pulling the latest version of a private Docker container image from a Docker registry like DockerHub.
+
+When you register a set of credentials, you must specify:
+
+- The service, which tells meadowgrid how to use this secret. Currently supported: "DOCKER"
+- The service url
+  - For Docker, this is the URL of the Docker registry. `registry-1.docker.io` is the "default" Docker registry used when there is no domain specified. E.g. `docker pull ubuntu` is equivalent to `docker pull registry-1.docker.io/ubuntu`.
+- The credentials source. It's usually good to tell the meadowgrid coordinator where to find credentials rather than sending them directly to the coordinator. For example, if you're running in AWS, it makes more sense to point the coordinator to an AWS Secret and give it access via an IAM role, rather than giving every client access to the AWS Secret. Supported credentials sources:
+  - `ServerAvailableFile`: A file that the coordinator can access that has a username on the first line and a password on the second line. 

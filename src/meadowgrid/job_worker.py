@@ -4,6 +4,7 @@ import itertools
 import os
 import os.path
 import pathlib
+import pickle
 import shutil
 import sys
 import time
@@ -43,6 +44,8 @@ from meadowgrid.docker_controller import (
 )
 from meadowgrid.exclusive_file_lock import exclusive_file_lock
 from meadowgrid.meadowgrid_pb2 import (
+    AddCredentialsRequest,
+    Credentials,
     Job,
     JobStateUpdate,
     ProcessState,
@@ -332,6 +335,7 @@ async def _launch_job(
     coordinator_address: str,
     deployment_manager: CodeDeploymentManager,
     free_resources: Callable[[], None],
+    credentials: Sequence[Credentials],
 ) -> Tuple[JobStateUpdate, Optional[asyncio.Task[Optional[JobStateUpdate]]]]:
     """
     Gets the deployment needed and launches a child process to run the specified job.
@@ -420,7 +424,18 @@ async def _launch_job(
         elif is_container:
             if interpreter_deployment == "container_at_digest":
                 container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"
-                await pull_image(container_image_name, None)
+                # assume that if the coordinator sent us any docker credentials, it only
+                # gave us one, and that's what we need for pulling the image
+                docker_credentials = [
+                    c
+                    for c in credentials
+                    if c.service == AddCredentialsRequest.CredentialsService.DOCKER
+                ]
+                if len(docker_credentials) > 0:
+                    docker_credentials = pickle.loads(docker_credentials[0].credentials)
+                else:
+                    docker_credentials = None
+                await pull_image(container_image_name, docker_credentials)
             elif interpreter_deployment == "server_available_container":
                 container_image_name = job.server_available_container.image_name
                 # server_available_container assumes that we do not need to pull, and it
@@ -706,7 +721,6 @@ async def _launch_container_job(
         # json serializer needs a real list, not a protobuf fake list
         job_spec_transformed.command_line,
         job_spec_transformed.environment_variables,
-        None,
         binds,
     )
     return container.id, _container_job_continuation(
@@ -967,7 +981,8 @@ async def job_worker_main_loop(
         # a bit of a hack, but no reason to make requests if we have no more memory or
         # CPU to give out
         if available_resources[MEMORY_GB] > 0 and available_resources[LOGICAL_CPU] > 0:
-            job = await client.get_next_job(available_resources)
+            next_job_response = await client.get_next_job(available_resources)
+            job = next_job_response.job
             if job.job_id:
                 for resource in job.resources_required:
                     # TODO this should never happen, but consider doing something if the
@@ -990,6 +1005,7 @@ async def job_worker_main_loop(
                             coordinator_address,
                             deployment_manager,
                             free_resources,
+                            next_job_response.credentials,
                         )
                     )
                 )

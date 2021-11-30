@@ -68,7 +68,7 @@ def _get_client() -> aiodocker.Docker:
     return _client
 
 
-def _get_registry_domain(repository: str) -> Tuple[str, str]:
+def get_registry_domain(repository: str) -> Tuple[str, str]:
     """
     Takes a repository name and returns the registry domain name for that repository and
     the repository name to use within that registry. This is so that we can use the
@@ -160,7 +160,7 @@ async def get_latest_digest_from_registry(
     # computing the hash ourselves, but this header is not in the responses from AWS
     # ECR.
 
-    registry_domain, repository = _get_registry_domain(repository)
+    registry_domain, repository = get_registry_domain(repository)
 
     manifests_url = f"https://{registry_domain}/v2/{repository}/manifests/{tag}"
     headers = {"Accept": _MANIFEST_ACCEPT_HEADER_FOR_DIGEST}
@@ -292,7 +292,7 @@ async def pull_image(image: str, username_password: Optional[Tuple[str, str]]) -
         if username_password is None:
             auth = None
         else:
-            domain, _ = _get_registry_domain(image)
+            domain, _ = get_registry_domain(image)
             auth = {
                 "username": username_password[0],
                 "password": username_password[1],
@@ -317,7 +317,6 @@ async def run_container(
     image: str,
     cmd: List[str],
     environment_variables: Dict[str, str],
-    docker_registry_username_password: Optional[Tuple[str, str]],
     binds: List[Tuple[str, str]],
 ) -> aiodocker.containers.DockerContainer:
     """

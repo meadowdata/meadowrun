@@ -14,6 +14,7 @@ from meadowgrid.config import (
     LOGICAL_CPU,
     MEMORY_GB,
 )
+from meadowgrid.credentials import CredentialsSource, CredentialsService
 from meadowgrid.deployed_function import (
     CodeDeployment,
     InterpreterDeployment,
@@ -23,6 +24,7 @@ from meadowgrid.deployed_function import (
     MeadowGridFunctionName,
 )
 from meadowgrid.meadowgrid_pb2 import (
+    AddCredentialsRequest,
     AddJobResponse,
     AddTasksToGridJobRequest,
     ContainerAtDigest,
@@ -36,6 +38,7 @@ from meadowgrid.meadowgrid_pb2 import (
     JobStateUpdates,
     JobStatesRequest,
     NextJobRequest,
+    NextJobResponse,
     ProcessState,
     PyCommandJob,
     PyFunctionJob,
@@ -43,6 +46,7 @@ from meadowgrid.meadowgrid_pb2 import (
     QualifiedFunctionName,
     Resource,
     ServerAvailableContainer,
+    ServerAvailableFile,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
     StringPair,
@@ -308,6 +312,20 @@ def _add_job_state_string(state: AddJobResponse) -> AddJobState:
         raise ValueError(f"Unknown AddJobState {state.state}")
 
 
+def _add_credentials_request(
+    service: CredentialsService, service_url: str, source: CredentialsSource
+) -> AddCredentialsRequest:
+    result = AddCredentialsRequest(
+        service=AddCredentialsRequest.CredentialsService.Value(service),
+        service_url=service_url,
+    )
+    if isinstance(source, ServerAvailableFile):
+        result.server_available_file.CopyFrom(source)
+    else:
+        raise ValueError(f"Unknown type of credentials source {type(source)}")
+    return result
+
+
 class MeadowGridCoordinatorClientAsync:
     """
     A client for MeadowGridCoordinator for "users" of the system. Effectively allows
@@ -443,6 +461,13 @@ class MeadowGridCoordinatorClientAsync:
             )
         ).task_states
 
+    async def add_credentials(
+        self, service: CredentialsService, service_url: str, source: CredentialsSource
+    ) -> None:
+        await self._stub.add_credentials(
+            _add_credentials_request(service, service_url, source)
+        )
+
     async def __aenter__(self):
         await self._channel.__aenter__()
         return self
@@ -528,6 +553,13 @@ class MeadowGridCoordinatorClientSync:
             GridTaskStatesRequest(job_id=job_id, task_ids_to_ignore=task_ids_to_ignore)
         ).task_states
 
+    def add_credentials(
+        self, service: CredentialsService, service_url: str, source: CredentialsSource
+    ) -> None:
+        self._stub.add_credentials(
+            _add_credentials_request(service, service_url, source)
+        )
+
     def __enter__(self):
         self._channel.__enter__()
         return self
@@ -554,7 +586,9 @@ class MeadowGridCoordinatorClientForWorkersAsync:
         """
         await self._stub.update_job_states(JobStateUpdates(job_states=job_states))
 
-    async def get_next_job(self, resources_available: Dict[str, float]) -> Job:
+    async def get_next_job(
+        self, resources_available: Dict[str, float]
+    ) -> NextJobResponse:
         """
         Gets a job that the current worker should work on. If there are no jobs to work
         on, bool(Job.job_id) will be false.
@@ -611,7 +645,7 @@ class MeadowGridCoordinatorClientForWorkersSync:
     def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
         self._stub.update_job_states(JobStateUpdates(job_states=job_states))
 
-    def get_next_job(self, resources_available: Dict[str, float]) -> Job:
+    def get_next_job(self, resources_available: Dict[str, float]) -> NextJobResponse:
         return self._stub.get_next_job(
             NextJobRequest(
                 resources_available=_construct_resources(resources_available)

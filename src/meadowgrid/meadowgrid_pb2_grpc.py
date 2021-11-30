@@ -32,7 +32,7 @@ class MeadowGridCoordinatorStub(object):
         self.get_next_job = channel.unary_unary(
             "/meadowgrid.MeadowGridCoordinator/get_next_job",
             request_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobRequest.SerializeToString,
-            response_deserializer=meadowgrid_dot_meadowgrid__pb2.Job.FromString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobResponse.FromString,
         )
         self.update_grid_task_state_and_get_next = channel.unary_unary(
             "/meadowgrid.MeadowGridCoordinator/update_grid_task_state_and_get_next",
@@ -48,6 +48,11 @@ class MeadowGridCoordinatorStub(object):
             "/meadowgrid.MeadowGridCoordinator/get_grid_task_states",
             request_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.SerializeToString,
             response_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStates.FromString,
+        )
+        self.add_credentials = channel.unary_unary(
+            "/meadowgrid.MeadowGridCoordinator/add_credentials",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.AddCredentialsRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.AddCredentialsResponse.FromString,
         )
 
 
@@ -96,6 +101,12 @@ class MeadowGridCoordinatorServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def add_credentials(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -117,7 +128,7 @@ def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
         "get_next_job": grpc.unary_unary_rpc_method_handler(
             servicer.get_next_job,
             request_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobRequest.FromString,
-            response_serializer=meadowgrid_dot_meadowgrid__pb2.Job.SerializeToString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobResponse.SerializeToString,
         ),
         "update_grid_task_state_and_get_next": grpc.unary_unary_rpc_method_handler(
             servicer.update_grid_task_state_and_get_next,
@@ -133,6 +144,11 @@ def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
             servicer.get_grid_task_states,
             request_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.FromString,
             response_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStates.SerializeToString,
+        ),
+        "add_credentials": grpc.unary_unary_rpc_method_handler(
+            servicer.add_credentials,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.AddCredentialsRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.AddCredentialsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -250,7 +266,7 @@ class MeadowGridCoordinator(object):
             target,
             "/meadowgrid.MeadowGridCoordinator/get_next_job",
             meadowgrid_dot_meadowgrid__pb2.NextJobRequest.SerializeToString,
-            meadowgrid_dot_meadowgrid__pb2.Job.FromString,
+            meadowgrid_dot_meadowgrid__pb2.NextJobResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -338,6 +354,35 @@ class MeadowGridCoordinator(object):
             "/meadowgrid.MeadowGridCoordinator/get_grid_task_states",
             meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.SerializeToString,
             meadowgrid_dot_meadowgrid__pb2.GridTaskStates.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
+    def add_credentials(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/meadowgrid.MeadowGridCoordinator/add_credentials",
+            meadowgrid_dot_meadowgrid__pb2.AddCredentialsRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.AddCredentialsResponse.FromString,
             options,
             channel_credentials,
             insecure,

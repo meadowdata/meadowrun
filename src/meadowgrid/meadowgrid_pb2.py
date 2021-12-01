@@ -18,7 +18,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
     syntax="proto3",
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_pb=b'\n\x1bmeadowgrid/meadowgrid.proto\x12\nmeadowgrid"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"+\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t"G\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x03 \x01(\t"6\n\x1aServerAvailableInterpreter\x12\x18\n\x10interpreter_path\x18\x01 \x01(\t"7\n\x11\x43ontainerAtDigest\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0e\n\x06\x64igest\x18\x02 \x01(\t".\n\x18ServerAvailableContainer\x12\x12\n\nimage_name\x18\x01 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa6\x01\n\rPyFunctionJob\x12\x44\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32!.meadowgrid.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"v\n\tPyGridJob\x12+\n\x08\x66unction\x18\x01 \x01(\x0b\x32\x19.meadowgrid.PyFunctionJob\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"h\n\x18\x41\x64\x64TasksToGridJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"\'\n\x08Resource\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x02"\xee\x05\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x10\n\x08priority\x18\x03 \x01(\x02\x12\x44\n\x17server_available_folder\x18\x04 \x01(\x0b\x32!.meadowgrid.ServerAvailableFolderH\x00\x12\x34\n\x0fgit_repo_commit\x18\x05 \x01(\x0b\x32\x19.meadowgrid.GitRepoCommitH\x00\x12N\n\x1cserver_available_interpreter\x18\x06 \x01(\x0b\x32&.meadowgrid.ServerAvailableInterpreterH\x01\x12<\n\x13\x63ontainer_at_digest\x18\x07 \x01(\x0b\x32\x1d.meadowgrid.ContainerAtDigestH\x01\x12J\n\x1aserver_available_container\x18\x08 \x01(\x0b\x32$.meadowgrid.ServerAvailableContainerH\x01\x12\x35\n\x15\x65nvironment_variables\x18\t \x03(\x0b\x32\x16.meadowgrid.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\n \x01(\x05\x12\x30\n\x12resources_required\x18\x0b \x03(\x0b\x32\x14.meadowgrid.Resource\x12.\n\npy_command\x18\x0c \x01(\x0b\x32\x18.meadowgrid.PyCommandJobH\x02\x12\x30\n\x0bpy_function\x18\r \x01(\x0b\x32\x19.meadowgrid.PyFunctionJobH\x02\x12(\n\x07py_grid\x18\x0e \x01(\x0b\x32\x15.meadowgrid.PyGridJobH\x02\x42\x11\n\x0f\x63ode_deploymentB\x18\n\x16interpreter_deploymentB\n\n\x08job_spec"\x80\x01\n\x0e\x41\x64\x64JobResponse\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.meadowgrid.AddJobResponse.AddJobState"7\n\x0b\x41\x64\x64JobState\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x41\x44\x44\x45\x44\x10\x01\x12\x10\n\x0cIS_DUPLICATE\x10\x02"C\n\x0eNextJobRequest\x12\x31\n\x13resources_available\x18\x01 \x03(\x0b\x32\x14.meadowgrid.Resource"]\n\x0fNextJobResponse\x12\x1c\n\x03job\x18\x01 \x01(\x0b\x32\x0f.meadowgrid.Job\x12,\n\x0b\x63redentials\x18\x02 \x03(\x0b\x32\x17.meadowgrid.Credentials"\x8b\x03\n\x0cProcessState\x12\x38\n\x05state\x18\x01 \x01(\x0e\x32).meadowgrid.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x14\n\x0c\x63ontainer_id\x18\x03 \x01(\t\x12\x15\n\rlog_file_name\x18\x04 \x01(\t\x12\x16\n\x0epickled_result\x18\x05 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x06 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0c\n\x08\x41SSIGNED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\t\x12\x0b\n\x07UNKNOWN\x10\n"A\n\rProcessStates\x12\x30\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x18.meadowgrid.ProcessState"#\n\x10JobStatesRequest\x12\x0f\n\x07job_ids\x18\x01 \x03(\t"Q\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"A\n\x0fJobStateUpdates\x12.\n\njob_states\x18\x01 \x03(\x0b\x32\x1a.meadowgrid.JobStateUpdate"C\n\x15GridTaskStatesRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x1a\n\x12task_ids_to_ignore\x18\x02 \x03(\x05"Q\n\rGridTaskState\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"@\n\x0eGridTaskStates\x12.\n\x0btask_states\x18\x01 \x03(\x0b\x32\x19.meadowgrid.GridTaskState"s\n\x1fGridTaskUpdateAndGetNextRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\x05\x12/\n\rprocess_state\x18\x03 \x01(\x0b\x32\x18.meadowgrid.ProcessState"\x15\n\x13UpdateStateResponse"\xee\x01\n\x15\x41\x64\x64\x43redentialsRequest\x12\x45\n\x07service\x18\x01 \x01(\x0e\x32\x34.meadowgrid.AddCredentialsRequest.CredentialsService\x12\x13\n\x0bservice_url\x18\x02 \x01(\t\x12@\n\x15server_available_file\x18\x03 \x01(\x0b\x32\x1f.meadowgrid.ServerAvailableFileH\x00"-\n\x12\x43redentialsService\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\n\n\x06\x44OCKER\x10\x01\x42\x08\n\x06source"~\n\x0b\x43redentials\x12\x45\n\x07service\x18\x01 \x01(\x0e\x32\x34.meadowgrid.AddCredentialsRequest.CredentialsService\x12\x13\n\x0bservice_url\x18\x02 \x01(\t\x12\x13\n\x0b\x63redentials\x18\x03 \x01(\x0c"#\n\x13ServerAvailableFile\x12\x0c\n\x04path\x18\x01 \x01(\t"\x18\n\x16\x41\x64\x64\x43redentialsResponse2\xc3\x05\n\x15MeadowGridCoordinator\x12\x38\n\x07\x61\x64\x64_job\x12\x0f.meadowgrid.Job\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12[\n\x15\x61\x64\x64_tasks_to_grid_job\x12$.meadowgrid.AddTasksToGridJobRequest\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12S\n\x11update_job_states\x12\x1b.meadowgrid.JobStateUpdates\x1a\x1f.meadowgrid.UpdateStateResponse"\x00\x12I\n\x0cget_next_job\x12\x1a.meadowgrid.NextJobRequest\x1a\x1b.meadowgrid.NextJobResponse"\x00\x12j\n#update_grid_task_state_and_get_next\x12+.meadowgrid.GridTaskUpdateAndGetNextRequest\x1a\x14.meadowgrid.GridTask"\x00\x12R\n\x15get_simple_job_states\x12\x1c.meadowgrid.JobStatesRequest\x1a\x19.meadowgrid.ProcessStates"\x00\x12W\n\x14get_grid_task_states\x12!.meadowgrid.GridTaskStatesRequest\x1a\x1a.meadowgrid.GridTaskStates"\x00\x12Z\n\x0f\x61\x64\x64_credentials\x12!.meadowgrid.AddCredentialsRequest\x1a".meadowgrid.AddCredentialsResponse"\x00\x62\x06proto3',
+    serialized_pb=b'\n\x1bmeadowgrid/meadowgrid.proto\x12\nmeadowgrid"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"+\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t"G\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x14\n\x0cpath_in_repo\x18\x03 \x01(\t"6\n\x1aServerAvailableInterpreter\x12\x18\n\x10interpreter_path\x18\x01 \x01(\t"7\n\x11\x43ontainerAtDigest\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0e\n\x06\x64igest\x18\x02 \x01(\t".\n\x18ServerAvailableContainer\x12\x12\n\nimage_name\x18\x01 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa6\x01\n\rPyFunctionJob\x12\x44\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32!.meadowgrid.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"v\n\tPyGridJob\x12+\n\x08\x66unction\x18\x01 \x01(\x0b\x32\x19.meadowgrid.PyFunctionJob\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"h\n\x18\x41\x64\x64TasksToGridJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12#\n\x05tasks\x18\x02 \x03(\x0b\x32\x14.meadowgrid.GridTask\x12\x17\n\x0f\x61ll_tasks_added\x18\x03 \x01(\x08"\'\n\x08Resource\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x02"\xee\x05\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x10\n\x08priority\x18\x03 \x01(\x02\x12\x44\n\x17server_available_folder\x18\x04 \x01(\x0b\x32!.meadowgrid.ServerAvailableFolderH\x00\x12\x34\n\x0fgit_repo_commit\x18\x05 \x01(\x0b\x32\x19.meadowgrid.GitRepoCommitH\x00\x12N\n\x1cserver_available_interpreter\x18\x06 \x01(\x0b\x32&.meadowgrid.ServerAvailableInterpreterH\x01\x12<\n\x13\x63ontainer_at_digest\x18\x07 \x01(\x0b\x32\x1d.meadowgrid.ContainerAtDigestH\x01\x12J\n\x1aserver_available_container\x18\x08 \x01(\x0b\x32$.meadowgrid.ServerAvailableContainerH\x01\x12\x35\n\x15\x65nvironment_variables\x18\t \x03(\x0b\x32\x16.meadowgrid.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\n \x01(\x05\x12\x30\n\x12resources_required\x18\x0b \x03(\x0b\x32\x14.meadowgrid.Resource\x12.\n\npy_command\x18\x0c \x01(\x0b\x32\x18.meadowgrid.PyCommandJobH\x02\x12\x30\n\x0bpy_function\x18\r \x01(\x0b\x32\x19.meadowgrid.PyFunctionJobH\x02\x12(\n\x07py_grid\x18\x0e \x01(\x0b\x32\x15.meadowgrid.PyGridJobH\x02\x42\x11\n\x0f\x63ode_deploymentB\x18\n\x16interpreter_deploymentB\n\n\x08job_spec"\x80\x01\n\x0e\x41\x64\x64JobResponse\x12\x35\n\x05state\x18\x01 \x01(\x0e\x32&.meadowgrid.AddJobResponse.AddJobState"7\n\x0b\x41\x64\x64JobState\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x41\x44\x44\x45\x44\x10\x01\x12\x10\n\x0cIS_DUPLICATE\x10\x02"C\n\x0eNextJobRequest\x12\x31\n\x13resources_available\x18\x01 \x03(\x0b\x32\x14.meadowgrid.Resource"]\n\x0fNextJobResponse\x12\x1c\n\x03job\x18\x01 \x01(\x0b\x32\x0f.meadowgrid.Job\x12,\n\x0b\x63redentials\x18\x02 \x03(\x0b\x32\x17.meadowgrid.Credentials"\x8b\x03\n\x0cProcessState\x12\x38\n\x05state\x18\x01 \x01(\x0e\x32).meadowgrid.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x14\n\x0c\x63ontainer_id\x18\x03 \x01(\t\x12\x15\n\rlog_file_name\x18\x04 \x01(\t\x12\x16\n\x0epickled_result\x18\x05 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x06 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0c\n\x08\x41SSIGNED\x10\x02\x12\x0b\n\x07RUNNING\x10\x03\x12\r\n\tSUCCEEDED\x10\x04\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x05\x12\x14\n\x10PYTHON_EXCEPTION\x10\x06\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x07\x12\r\n\tCANCELLED\x10\x08\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\t\x12\x0b\n\x07UNKNOWN\x10\n"A\n\rProcessStates\x12\x30\n\x0eprocess_states\x18\x01 \x03(\x0b\x32\x18.meadowgrid.ProcessState"#\n\x10JobStatesRequest\x12\x0f\n\x07job_ids\x18\x01 \x03(\t"Q\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"A\n\x0fJobStateUpdates\x12.\n\njob_states\x18\x01 \x03(\x0b\x32\x1a.meadowgrid.JobStateUpdate"C\n\x15GridTaskStatesRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x1a\n\x12task_ids_to_ignore\x18\x02 \x03(\x05"Q\n\rGridTaskState\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12/\n\rprocess_state\x18\x02 \x01(\x0b\x32\x18.meadowgrid.ProcessState"@\n\x0eGridTaskStates\x12.\n\x0btask_states\x18\x01 \x03(\x0b\x32\x19.meadowgrid.GridTaskState"s\n\x1fGridTaskUpdateAndGetNextRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\x05\x12/\n\rprocess_state\x18\x03 \x01(\x0b\x32\x18.meadowgrid.ProcessState"\x15\n\x13UpdateStateResponse"\x9b\x02\n\x15\x41\x64\x64\x43redentialsRequest\x12\x45\n\x07service\x18\x01 \x01(\x0e\x32\x34.meadowgrid.AddCredentialsRequest.CredentialsService\x12\x13\n\x0bservice_url\x18\x02 \x01(\t\x12@\n\x15server_available_file\x18\x03 \x01(\x0b\x32\x1f.meadowgrid.ServerAvailableFileH\x00\x12+\n\naws_secret\x18\x04 \x01(\x0b\x32\x15.meadowgrid.AwsSecretH\x00"-\n\x12\x43redentialsService\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\n\n\x06\x44OCKER\x10\x01\x42\x08\n\x06source"~\n\x0b\x43redentials\x12\x45\n\x07service\x18\x01 \x01(\x0e\x32\x34.meadowgrid.AddCredentialsRequest.CredentialsService\x12\x13\n\x0bservice_url\x18\x02 \x01(\t\x12\x13\n\x0b\x63redentials\x18\x03 \x01(\x0c"#\n\x13ServerAvailableFile\x12\x0c\n\x04path\x18\x01 \x01(\t" \n\tAwsSecret\x12\x13\n\x0bsecret_name\x18\x01 \x01(\t"\x18\n\x16\x41\x64\x64\x43redentialsResponse2\xc3\x05\n\x15MeadowGridCoordinator\x12\x38\n\x07\x61\x64\x64_job\x12\x0f.meadowgrid.Job\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12[\n\x15\x61\x64\x64_tasks_to_grid_job\x12$.meadowgrid.AddTasksToGridJobRequest\x1a\x1a.meadowgrid.AddJobResponse"\x00\x12S\n\x11update_job_states\x12\x1b.meadowgrid.JobStateUpdates\x1a\x1f.meadowgrid.UpdateStateResponse"\x00\x12I\n\x0cget_next_job\x12\x1a.meadowgrid.NextJobRequest\x1a\x1b.meadowgrid.NextJobResponse"\x00\x12j\n#update_grid_task_state_and_get_next\x12+.meadowgrid.GridTaskUpdateAndGetNextRequest\x1a\x14.meadowgrid.GridTask"\x00\x12R\n\x15get_simple_job_states\x12\x1c.meadowgrid.JobStatesRequest\x1a\x19.meadowgrid.ProcessStates"\x00\x12W\n\x14get_grid_task_states\x12!.meadowgrid.GridTaskStatesRequest\x1a\x1a.meadowgrid.GridTaskStates"\x00\x12Z\n\x0f\x61\x64\x64_credentials\x12!.meadowgrid.AddCredentialsRequest\x1a".meadowgrid.AddCredentialsResponse"\x00\x62\x06proto3',
 )
 
 
@@ -190,8 +190,8 @@ _ADDCREDENTIALSREQUEST_CREDENTIALSSERVICE = _descriptor.EnumDescriptor(
     ],
     containing_type=None,
     serialized_options=None,
-    serialized_start=3249,
-    serialized_end=3294,
+    serialized_start=3294,
+    serialized_end=3339,
 )
 _sym_db.RegisterEnumDescriptor(_ADDCREDENTIALSREQUEST_CREDENTIALSSERVICE)
 
@@ -2108,6 +2108,25 @@ _ADDCREDENTIALSREQUEST = _descriptor.Descriptor(
             file=DESCRIPTOR,
             create_key=_descriptor._internal_create_key,
         ),
+        _descriptor.FieldDescriptor(
+            name="aws_secret",
+            full_name="meadowgrid.AddCredentialsRequest.aws_secret",
+            index=3,
+            number=4,
+            type=11,
+            cpp_type=10,
+            label=1,
+            has_default_value=False,
+            default_value=None,
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
     ],
     extensions=[],
     nested_types=[],
@@ -2129,7 +2148,7 @@ _ADDCREDENTIALSREQUEST = _descriptor.Descriptor(
         ),
     ],
     serialized_start=3066,
-    serialized_end=3304,
+    serialized_end=3349,
 )
 
 
@@ -2207,8 +2226,8 @@ _CREDENTIALS = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=3306,
-    serialized_end=3432,
+    serialized_start=3351,
+    serialized_end=3477,
 )
 
 
@@ -2248,8 +2267,49 @@ _SERVERAVAILABLEFILE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=3434,
-    serialized_end=3469,
+    serialized_start=3479,
+    serialized_end=3514,
+)
+
+
+_AWSSECRET = _descriptor.Descriptor(
+    name="AwsSecret",
+    full_name="meadowgrid.AwsSecret",
+    filename=None,
+    file=DESCRIPTOR,
+    containing_type=None,
+    create_key=_descriptor._internal_create_key,
+    fields=[
+        _descriptor.FieldDescriptor(
+            name="secret_name",
+            full_name="meadowgrid.AwsSecret.secret_name",
+            index=0,
+            number=1,
+            type=9,
+            cpp_type=9,
+            label=1,
+            has_default_value=False,
+            default_value=b"".decode("utf-8"),
+            message_type=None,
+            enum_type=None,
+            containing_type=None,
+            is_extension=False,
+            extension_scope=None,
+            serialized_options=None,
+            file=DESCRIPTOR,
+            create_key=_descriptor._internal_create_key,
+        ),
+    ],
+    extensions=[],
+    nested_types=[],
+    enum_types=[],
+    serialized_options=None,
+    is_extendable=False,
+    syntax="proto3",
+    extension_ranges=[],
+    oneofs=[],
+    serialized_start=3516,
+    serialized_end=3548,
 )
 
 
@@ -2269,8 +2329,8 @@ _ADDCREDENTIALSRESPONSE = _descriptor.Descriptor(
     syntax="proto3",
     extension_ranges=[],
     oneofs=[],
-    serialized_start=3471,
-    serialized_end=3495,
+    serialized_start=3550,
+    serialized_end=3574,
 )
 
 _PYFUNCTIONJOB.fields_by_name[
@@ -2362,12 +2422,19 @@ _ADDCREDENTIALSREQUEST.fields_by_name[
 _ADDCREDENTIALSREQUEST.fields_by_name[
     "server_available_file"
 ].message_type = _SERVERAVAILABLEFILE
+_ADDCREDENTIALSREQUEST.fields_by_name["aws_secret"].message_type = _AWSSECRET
 _ADDCREDENTIALSREQUEST_CREDENTIALSSERVICE.containing_type = _ADDCREDENTIALSREQUEST
 _ADDCREDENTIALSREQUEST.oneofs_by_name["source"].fields.append(
     _ADDCREDENTIALSREQUEST.fields_by_name["server_available_file"]
 )
 _ADDCREDENTIALSREQUEST.fields_by_name[
     "server_available_file"
+].containing_oneof = _ADDCREDENTIALSREQUEST.oneofs_by_name["source"]
+_ADDCREDENTIALSREQUEST.oneofs_by_name["source"].fields.append(
+    _ADDCREDENTIALSREQUEST.fields_by_name["aws_secret"]
+)
+_ADDCREDENTIALSREQUEST.fields_by_name[
+    "aws_secret"
 ].containing_oneof = _ADDCREDENTIALSREQUEST.oneofs_by_name["source"]
 _CREDENTIALS.fields_by_name[
     "service"
@@ -2406,6 +2473,7 @@ DESCRIPTOR.message_types_by_name["UpdateStateResponse"] = _UPDATESTATERESPONSE
 DESCRIPTOR.message_types_by_name["AddCredentialsRequest"] = _ADDCREDENTIALSREQUEST
 DESCRIPTOR.message_types_by_name["Credentials"] = _CREDENTIALS
 DESCRIPTOR.message_types_by_name["ServerAvailableFile"] = _SERVERAVAILABLEFILE
+DESCRIPTOR.message_types_by_name["AwsSecret"] = _AWSSECRET
 DESCRIPTOR.message_types_by_name["AddCredentialsResponse"] = _ADDCREDENTIALSRESPONSE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
@@ -2739,6 +2807,17 @@ ServerAvailableFile = _reflection.GeneratedProtocolMessageType(
 )
 _sym_db.RegisterMessage(ServerAvailableFile)
 
+AwsSecret = _reflection.GeneratedProtocolMessageType(
+    "AwsSecret",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _AWSSECRET,
+        "__module__": "meadowgrid.meadowgrid_pb2"
+        # @@protoc_insertion_point(class_scope:meadowgrid.AwsSecret)
+    },
+)
+_sym_db.RegisterMessage(AwsSecret)
+
 AddCredentialsResponse = _reflection.GeneratedProtocolMessageType(
     "AddCredentialsResponse",
     (_message.Message,),
@@ -2758,8 +2837,8 @@ _MEADOWGRIDCOORDINATOR = _descriptor.ServiceDescriptor(
     index=0,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
-    serialized_start=3498,
-    serialized_end=4205,
+    serialized_start=3577,
+    serialized_end=4284,
     methods=[
         _descriptor.MethodDescriptor(
             name="add_job",

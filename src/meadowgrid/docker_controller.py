@@ -33,6 +33,8 @@ import aiohttp
 # When no registry domain is specified, docker assumes this as the registry domain.
 # I.e. `docker pull python:latest` is equivalent to `docker pull
 # registry-1.docker.io/python:latest`. This is also referred to as DockerHub.
+from aiodocker import DockerError
+
 _DEFAULT_REGISTRY_DOMAIN = "registry-1.docker.io"
 # With the default (DockerHub) registry, if there's no "/" in the repository name,
 # docker assumes this as the prefix. I.e. `docker pull python:latest` is equivalent to
@@ -371,3 +373,13 @@ async def get_image_environment_variables(image: str) -> Optional[List[str]]:
     image that we have locally.
     """
     return (await _get_client().images.inspect(image))["ContainerConfig"]["Env"]
+
+
+async def delete_image(image: str) -> None:
+    """Deletes the specified image, used for testing"""
+    try:
+        await _get_client().images.delete(image, force=True)
+    except DockerError as e:
+        # ignore failures saying the image doesn't exist
+        if e.status != 404:
+            raise

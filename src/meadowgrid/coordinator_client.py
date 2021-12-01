@@ -27,6 +27,7 @@ from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsRequest,
     AddJobResponse,
     AddTasksToGridJobRequest,
+    AwsSecret,
     ContainerAtDigest,
     GitRepoCommit,
     GridTask,
@@ -319,7 +320,9 @@ def _add_credentials_request(
         service=AddCredentialsRequest.CredentialsService.Value(service),
         service_url=service_url,
     )
-    if isinstance(source, ServerAvailableFile):
+    if isinstance(source, AwsSecret):
+        result.aws_secret.CopyFrom(source)
+    elif isinstance(source, ServerAvailableFile):
         result.server_available_file.CopyFrom(source)
     else:
         raise ValueError(f"Unknown type of credentials source {type(source)}")

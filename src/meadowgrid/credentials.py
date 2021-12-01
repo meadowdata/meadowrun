@@ -20,23 +20,34 @@ job then gets full access to that AWS secret.
 
 TODO actually encrypt the credentials as we send them over?
 """
-
+import json
 import pickle
 from typing import Union, Literal
 
-from meadowgrid.meadowgrid_pb2 import ServerAvailableFile
+import boto3
 
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFile, AwsSecret
 
 # Represents a way to get credentials. Kind of silly right now, but we should be
 # adding more types soon.
-CredentialsSource = Union[ServerAvailableFile]
+CredentialsSource = Union[AwsSecret, ServerAvailableFile]
 # Represents a service that credentials can be used for. A little silly right now, but
 # we should be adding more soon
 CredentialsService = Literal["DOCKER"]
 
 
 def get_credentials_from_source(source: CredentialsSource) -> bytes:
-    if isinstance(source, ServerAvailableFile):
+    if isinstance(source, AwsSecret):
+        # TODO not sure if it's better to try to reuse a client/session or just create a
+        #  new one each time? This seems related:
+        #  https://github.com/boto/botocore/issues/619
+        secret = json.loads(
+            boto3.client(service_name="secretsmanager").get_secret_value(
+                SecretId=source.secret_name
+            )["SecretString"]
+        )
+        return pickle.dumps((secret["username"], secret["password"]))
+    elif isinstance(source, ServerAvailableFile):
         with open(source.path, "r") as f:
             lines = f.readlines()
         if len(lines) != 2:

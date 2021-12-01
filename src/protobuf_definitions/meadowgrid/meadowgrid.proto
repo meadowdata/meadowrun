@@ -332,8 +332,9 @@ message AddCredentialsRequest {
     CredentialsService service = 1;
     string service_url = 2;
     oneof source {
-        ServerAvailableFile server_available_file = 3;
-        // TODO add e.g. AWS secrets, Azure secrets, Hashicorp Vault
+        AwsSecret aws_secret = 3;
+        ServerAvailableFile server_available_file = 4;
+        // TODO add e.g. Azure secrets, Hashicorp Vault
     }
 }
 
@@ -343,6 +344,14 @@ message Credentials {
     AddCredentialsRequest.CredentialsService service = 1;
     string service_url = 2;
     bytes credentials = 3;
+}
+
+
+// Represents credentials stored in AWS. Must be accessible by the coordinator. Expected
+// keys are "username" and "password", e.g. SecretString should be like
+// '{"username":"my_username","password":"my_password"}'
+message AwsSecret {
+    string secret_name = 1;
 }
 
 

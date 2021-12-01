@@ -171,5 +171,6 @@ When you register a set of credentials, you must specify:
 - The service, which tells meadowgrid how to use this secret. Currently supported: "DOCKER"
 - The service url
   - For Docker, this is the URL of the Docker registry. `registry-1.docker.io` is the "default" Docker registry used when there is no domain specified. E.g. `docker pull ubuntu` is equivalent to `docker pull registry-1.docker.io/ubuntu`.
-- The credentials source. It's usually good to tell the meadowgrid coordinator where to find credentials rather than sending them directly to the coordinator. For example, if you're running in AWS, it makes more sense to point the coordinator to an AWS Secret and give it access via an IAM role, rather than giving every client access to the AWS Secret. Supported credentials sources:
-  - `ServerAvailableFile`: A file that the coordinator can access that has a username on the first line and a password on the second line. 
+- The credentials source. It's usually good to tell the meadowgrid coordinator where to find credentials rather than sending them directly to the coordinator. For example, if you're running in AWS, it makes more sense to point the coordinator to an AWS Secret and give it access via an IAM role, rather than giving every client access to the AWS Secret. Examples of credential sources are:
+  - `AwsSecret("name_of_aws_secret")`: A secret stored in AWS Secrets Manager that the coordinator can access that has a "username" key and a "password" key.
+  - `ServerAvailableFile("/path/to/credentials.txt")`: A file that the coordinator can access that has a username on the first line and a password on the second line. 

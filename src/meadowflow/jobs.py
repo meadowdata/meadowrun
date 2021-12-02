@@ -34,6 +34,8 @@ from meadowgrid.deployed_function import (
     MeadowGridFunction,
     MeadowGridVersionedDeployedRunnable,
     VersionedCodeDeployment,
+    VersionedCodeDeploymentTypes,
+    get_latest_code_version,
 )
 
 JobState = Literal[
@@ -151,7 +153,7 @@ class Job(meadowflow.topic.Topic):
     # that at least one job runner will know how to run, or a
     # "MeadowGridVersionedDeployedRunnable" which is something that can produce
     # different versions of a JobRunnerFunction based on e.g. different versions of the
-    # codebase (GitRepo) or a container (ContainerRepo)
+    # codebase (GitRepoBranch) or a container (ContainerAtTag)
     job_function: JobFunction
 
     # specifies what actions to take when
@@ -306,8 +308,10 @@ async def _apply_overrides_code_deployment(
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.code_deployment is not None:
-        if isinstance(run_overrides.code_deployment, VersionedCodeDeployment):
-            new_deployment = await run_overrides.code_deployment.get_latest()
+        if isinstance(run_overrides.code_deployment, VersionedCodeDeploymentTypes):
+            new_deployment = await get_latest_code_version(
+                run_overrides.code_deployment
+            )
         elif isinstance(run_overrides.code_deployment, CodeDeploymentTypes):
             new_deployment = run_overrides.code_deployment
         else:
@@ -361,7 +365,18 @@ class Run(meadowflow.topic.Action):
 
             # convert a job_function into a job_runner_function
             if isinstance(job.job_function, MeadowGridVersionedDeployedRunnable):
-                job_runner_function = await job.job_function.get_latest()
+                # TODO meadowflow needs to store credentials the same way that the
+                #  meadowgrid coordinator does, or share them, or something. Currently
+                #  we are passing None because we don't have any.
+                # It's a little bit unfortunate that this resolution from e.g.
+                # GitRepoBranch to GitRepoCommit happens both in meadowflow and the
+                # meadowgrid coordinator, but it's a bit unavoidable. Grid jobs that
+                # don't go through meadowflow need to be able to specify GitRepoBranch,
+                # so the coordinator needs to resolve those, but meadowflow also needs
+                # to resolve these so we can record the exact GitRepoCommit we ran with
+                # and also present the user with options to run with different
+                # commits/branches.
+                job_runner_function = await job.job_function.get_latest(None)
             elif isinstance(job.job_function, JobRunnerFunctionTypes):
                 job_runner_function = job.job_function
             else:

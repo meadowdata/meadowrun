@@ -4,14 +4,12 @@ import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
 from meadowgrid import grid_map
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientSync
-from meadowgrid.docker_controller import delete_image
-from meadowgrid.meadowgrid_pb2 import ServerAvailableFile, ContainerAtDigest, AwsSecret
+from meadowgrid.credentials import CredentialsSource
+from meadowgrid.docker_controller import delete_images_from_repository
+from meadowgrid.meadowgrid_pb2 import ServerAvailableFile, ContainerAtTag, AwsSecret
 from test_meadowgrid.test_meadowgrid_basics import TEST_WORKING_FOLDER
 
 _PRIVATE_REPOSITORY = "hrichardlee/test1"
-_PRIVATE_DIGEST = (
-    "sha256:a6848cf6d57039650b4a6062aea53f8259b0de60e55b8d61e3f5de2e7d51c591"
-)
 
 
 def manual_test_docker_credentials_file():
@@ -33,36 +31,17 @@ def manual_test_docker_credentials_file():
        > docker login
        > docker push <username>/test1
 
-    5. Replace the digest in _PRIVATE_DIGEST with the actual digest of this image using
-       > docker images --digests
-
-    6. Delete the local copy of the image and log out of docker
+    5. Delete the local copy of the image and log out of docker
        > docker image rm <username>/test1
        > docker image rm <username>/test1@<digest>
        > docker image rm meadowdata
        > docker logout
 
-    7. Now run the test below
+    6. Now run this test
     """
-    with (
-        meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-        asyncio.run(delete_image(f"{_PRIVATE_REPOSITORY}@{_PRIVATE_DIGEST}"))
-
-        with MeadowGridCoordinatorClientSync() as client:
-            client.add_credentials(
-                "DOCKER",
-                "registry-1.docker.io",
-                ServerAvailableFile(path=r"C:\temp\dockerhub_credentials.txt"),
-            )
-
-        grid_map(
-            lambda x: x * 2,
-            [1, 2, 3],
-            ContainerAtDigest(repository=_PRIVATE_REPOSITORY, digest=_PRIVATE_DIGEST),
-            None,
-        )
+    _manual_test_docker_credentials(
+        ServerAvailableFile(path=r"C:\temp\dockerhub_credentials.txt")
+    )
 
 
 def manual_test_docker_credentials_aws_secret():
@@ -76,20 +55,22 @@ def manual_test_docker_credentials_aws_secret():
        installed the AWS CLI, `aws secretsmanager get-secret-value --secret-id
        dockerhub` should work.
     """
+    _manual_test_docker_credentials(AwsSecret(secret_name="dockerhub"))
+
+
+def _manual_test_docker_credentials(credentials_source: CredentialsSource) -> None:
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        asyncio.run(delete_image(f"{_PRIVATE_REPOSITORY}@{_PRIVATE_DIGEST}"))
+        asyncio.run(delete_images_from_repository(_PRIVATE_REPOSITORY))
 
         with MeadowGridCoordinatorClientSync() as client:
-            client.add_credentials(
-                "DOCKER", "registry-1.docker.io", AwsSecret(secret_name="dockerhub")
-            )
+            client.add_credentials("DOCKER", "registry-1.docker.io", credentials_source)
 
         grid_map(
             lambda x: x * 2,
             [1, 2, 3],
-            ContainerAtDigest(repository=_PRIVATE_REPOSITORY, digest=_PRIVATE_DIGEST),
+            ContainerAtTag(repository=_PRIVATE_REPOSITORY, tag="latest"),
             None,
         )

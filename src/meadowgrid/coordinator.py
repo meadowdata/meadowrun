@@ -10,7 +10,15 @@ from typing import Dict, List, Union, Iterable, Optional, Sequence
 import grpc.aio
 
 from meadowgrid.config import JOB_ID_VALID_CHARACTERS
-from meadowgrid.credentials import CredentialsSource, get_credentials_from_source
+from meadowgrid.credentials import (
+    CredentialsSource,
+    get_pickled_credentials_from_source,
+    get_username_password_from_source,
+)
+from meadowgrid.deployed_function import (
+    get_latest_code_version,
+    get_latest_interpreter_version,
+)
 from meadowgrid.docker_controller import get_registry_domain
 from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsRequest,
@@ -161,6 +169,47 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         # maps service_url = docker registry domain -> credentials source
         self._docker_credentials: Dict[str, CredentialsSource] = {}
 
+    async def _resolve_deployments(self, job: Job) -> Job:
+        """
+        Modifies job in place!!!
+
+        Resolves non-deterministic deployments like GitRepoBranch and ContainerAtTag.
+        It's important that we do this here instead of later in the job worker for grid
+        jobs, otherwise we would run the risk of having different tasks running with
+        different versions. For simple jobs, that's not as important, but I think it's
+        still better to resolve these here. It's consistent with grid jobs, and if
+        performance becomes a concern it allows us to batch and cache resolution
+        requests centrally.
+        """
+
+        code_deployment = job.WhichOneof("code_deployment")
+        if code_deployment == "git_repo_branch":
+            # Because of the way protobuf works with oneof, setting git_repo_commit will
+            # automatically unset git_repo_branch. The types are a bit sketchy here, but
+            # should be okay
+            job.git_repo_commit.CopyFrom(
+                await get_latest_code_version(job.git_repo_branch)
+            )
+
+        interpreter_deployment = job.WhichOneof("interpreter_deployment")
+        if interpreter_deployment == "container_at_tag":
+            registry_domain, _ = get_registry_domain(job.container_at_tag.repository)
+            if registry_domain in self._docker_credentials:
+                # okay to let this throw an exception--it is called from add_job, so
+                # that call will just fail
+                username_password = get_username_password_from_source(
+                    self._docker_credentials[registry_domain]
+                )
+            else:
+                username_password = None
+
+            # see comment above about protobuf oneof behavior
+            job.container_at_digest.CopyFrom(
+                await get_latest_interpreter_version(
+                    job.container_at_tag, username_password
+                )
+            )
+
     async def add_job(
         self, request: Job, context: grpc.aio.ServicerContext
     ) -> AddJobResponse:
@@ -182,6 +231,10 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         if request.priority <= 0:
             raise ValueError("priority must be greater than 0")
+
+        # resolve any non-deterministic CodeDeployment or InterpreterDeployments
+
+        await self._resolve_deployments(request)
 
         # add to self.simple_jobs or self.grid_jobs
 
@@ -263,7 +316,9 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                     yield Credentials(
                         service=AddCredentialsRequest.CredentialsService.DOCKER,
                         service_url=registry_domain,
-                        credentials=get_credentials_from_source(credentials_source),
+                        credentials=get_pickled_credentials_from_source(
+                            credentials_source
+                        ),
                     )
                 except Exception:
                     # TODO ideally this would make it back to an error message for job

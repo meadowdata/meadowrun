@@ -22,7 +22,7 @@ TODO actually encrypt the credentials as we send them over?
 """
 import json
 import pickle
-from typing import Union, Literal
+from typing import Union, Literal, Tuple
 
 import boto3
 
@@ -36,7 +36,7 @@ CredentialsSource = Union[AwsSecret, ServerAvailableFile]
 CredentialsService = Literal["DOCKER"]
 
 
-def get_credentials_from_source(source: CredentialsSource) -> bytes:
+def get_username_password_from_source(source: CredentialsSource) -> Tuple[str, str]:
     if isinstance(source, AwsSecret):
         # TODO not sure if it's better to try to reuse a client/session or just create a
         #  new one each time? This seems related:
@@ -46,7 +46,7 @@ def get_credentials_from_source(source: CredentialsSource) -> bytes:
                 SecretId=source.secret_name
             )["SecretString"]
         )
-        return pickle.dumps((secret["username"], secret["password"]))
+        return secret["username"], secret["password"]
     elif isinstance(source, ServerAvailableFile):
         with open(source.path, "r") as f:
             lines = f.readlines()
@@ -58,6 +58,10 @@ def get_credentials_from_source(source: CredentialsSource) -> bytes:
         # strip just the trailing newlines, other whitespace might be needed
         lines = [l.rstrip("\r\n") for l in lines]
         # TODO ideally we would use the pickle version that the remote job can accept
-        return pickle.dumps((lines[0], lines[1]))
+        return lines[0], lines[1]
     else:
         raise ValueError(f"Unknown type of credentials source {type(source)}")
+
+
+def get_pickled_credentials_from_source(source: CredentialsSource) -> bytes:
+    return pickle.dumps(get_username_password_from_source(source))

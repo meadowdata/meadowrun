@@ -71,7 +71,7 @@ Under construction
        # we will run the above function on these 3 inputs/tasks
        [1, 2, 3],
        # this is a publicly available image with just meadowdata installed in it
-       meadowgrid.ContainerRepo("hrichardlee/meadowdata"),
+       meadowgrid.ContainerAtTag(repository="hrichardlee/meadowdata", tag="latest"),
        # the coordinator host
        coordinator_host="<COORDINATOR_HOST>"
    )
@@ -96,8 +96,8 @@ At its core `grid_map(function, args, ...)` is just a distributed version of the
 Because we are distributing our function to remote machines, we need to tell meadowgrid what interpreter to run with on the remote machines, and we might also want to include additional code that's not part of the interpreter.
 
 Examples of `interpreter_deployment` are:
-- `ContainerRepo("meadowdata")`: a tag in a container repo (tag defaults to `latest`). The container should be configured so that `docker run meadowdata:latest python [additional arguments]` behaves as expected.
-- `ContainerAtDigest("gcr.io/my_org/my_image", "sha256:76eaa9e5bd357d6983a88ddc9c4545ef4ad64c50f84f081ba952c7ed08e3bdd6")`: a specific digest within a container repo
+- `ContainerAtTag(repository="meadowdata", tag="latest")`: a tag in a container repo (tag defaults to `latest`). The container should be configured so that `docker run meadowdata:latest python [additional arguments]` behaves as expected. Note that this is not deterministic (tags can resolve to different digests over time).
+- `ContainerAtDigest(repository="gcr.io/my_org/my_image", digest="sha256:76eaa9e5bd357d6983a88ddc9c4545ef4ad64c50f84f081ba952c7ed08e3bdd6")`: a specific digest within a container repo
 - `PoetryProject()` (not implemented): a pyproject.toml and poetry.lock file in the `code_deployment` that specifies versions of the interpreter and libraries
 - `CondaEnv()` (not implemented): a condaenv.yml file in the `code_deployment` that specifies versions of the interpreter and libraries
 - `PipRequirements()` (not implemented): a requirements.txt file in the `code_deployment` that specifies versions of the interpreter and libraries
@@ -105,7 +105,7 @@ Examples of `interpreter_deployment` are:
 - `ServerAvailableInterpreter(interpreter_path=meadowgrid.config.MEADOWGRID_INTERPRETER)`: the python interpreter that the job worker is running with. Should not be used except for tests.
 
 Examples of `code_deployment` are:
-- `GitRepo("https://github.com/meadowdata/test_repo")`: a branch on a git repo (the branch defaults to `main`)
+- `GitRepoBranch(repo_url="https://github.com/meadowdata/test_repo", branch="main")`: a branch on a git repo (the branch defaults to `main`). Note that this is not deterministic (branches can resolve to different commits over time).
 - `GitRepoCommit(repo_url="https://github.com/meadowdata/test_repo", commit="d44155a28cdcb171e6bad5090a787e9e15640663")`: a specific commit in a git repo
 - `ServerAvailableFolder(code_paths=["/deployments/my_code"])`: typically a shared folder that the job worker has access to via the machine's file system. You are responsible for populating/managing the referenced folders.
 - `None`: no additional code is needed beyond the interpreter.
@@ -150,7 +150,7 @@ But more complicated usages are possible using the usual asyncio functionality, 
 
 ### Credentials
 
-Deployments like `ContainerRepo` or `GitRepo` may reference private repositories that require credentials to access. Credentials are added to a coordinator in a separate call, like:
+Deployments like `ContainerAtTag` or `GitRepoBranch` may reference private repositories that require credentials to access. Credentials are added to a coordinator in a separate call, like:
 
 ```python
 import meadowgrid

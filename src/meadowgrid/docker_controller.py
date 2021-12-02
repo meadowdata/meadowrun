@@ -20,6 +20,7 @@ We'll use terminology consistent with Docker:
 Normal usage is e.g. `docker pull [repository]:[tag]` or `docker pull
 [repository]:[digest]`.
 """
+import asyncio
 import hashlib
 import urllib.request
 import urllib.parse
@@ -383,3 +384,28 @@ async def delete_image(image: str) -> None:
         # ignore failures saying the image doesn't exist
         if e.status != 404:
             raise
+
+
+async def delete_images_from_repository(repository: str) -> None:
+    """
+    Deletes all images repository@<digest> or a tag repository:<tag>. Warning: deletes
+    images even if there are other labels pointing to those images. Used for testing.
+    """
+    client = _get_client()
+    delete_tasks = []
+    for image in await client.images.list():
+        if (
+            image["RepoDigests"]
+            and any(
+                digest.startswith(f"{repository}@") for digest in image["RepoDigests"]
+            )
+        ) or (
+            image["RepoTags"]
+            and any(tag.startswith(f"{repository}:") for tag in image["RepoTags"])
+        ):
+            image_id = image["Id"]
+            print(f"Will delete image id: {image_id}")
+            delete_tasks.append(delete_image(image_id))
+
+    if delete_tasks:
+        await asyncio.wait(delete_tasks)

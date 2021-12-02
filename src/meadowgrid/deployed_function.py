@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import abc
 import dataclasses
 import importlib
 import sys
 import types
-from typing import Any, Dict, Sequence, Callable, Optional, Union
+from typing import Any, Dict, Sequence, Callable, Optional, Union, Tuple
 
 from meadowgrid.docker_controller import get_latest_digest_from_registry
 from meadowgrid.meadowgrid_pb2 import (
-    GitRepoCommit,
     ContainerAtDigest,
+    ContainerAtTag,
+    GitRepoBranch,
+    GitRepoCommit,
     ServerAvailableContainer,
 )
 from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder, ServerAvailableInterpreter
@@ -82,33 +83,52 @@ InterpreterDeploymentTypes = (
 InterpreterDeployment = Union[InterpreterDeploymentTypes]
 
 
-class VersionedCodeDeployment(abc.ABC):
-    """
-    Similar to a CodeDeployment, but instead of a single version of the code (e.g. a
-    specific commit in a git repo), specifies a versioned codebase (e.g. a git repo)
-    where we can e.g. get the latest, select an old version.
-
-    TODO this interface is very incomplete
-    """
-
-    @abc.abstractmethod
-    async def get_latest(self) -> CodeDeployment:
-        pass
+# Similar to a CodeDeployment, but instead of a single version of the code (e.g. a
+# specific commit in a git repo), specifies a versioned codebase (e.g. a git repo) where
+# we can e.g. get the latest, select an old version.
+VersionedCodeDeploymentTypes = (GitRepoBranch,)
+VersionedCodeDeployment = Union[VersionedCodeDeploymentTypes]
 
 
-class VersionedInterpreterDeployment(abc.ABC):
-    """
-    Similar to InterpreterDeployment, but instead of a single version fo the interpreter
-    (e.g. a specific digest in a container repository), specifies a versioned set of
-    interpreters (e.g. an entire container repository) where we can e.g. get the latest
-    or select an old version.
+# Similar to InterpreterDeployment, but instead of a single version of the interpreter
+# (e.g. a specific digest in a container repository), specifies a versioned set of
+# interpreters (e.g. an entire container repository) where we can e.g. get the latest or
+# select an old version.
+VersionedInterpreterDeploymentTypes = (ContainerAtTag,)
+VersionedInterpreterDeployment = Union[VersionedInterpreterDeploymentTypes]
 
-    TODO this interface is very incomplete
-    """
 
-    @abc.abstractmethod
-    async def get_latest(self) -> InterpreterDeployment:
-        pass
+async def get_latest_code_version(code: VersionedCodeDeployment) -> CodeDeployment:
+    if isinstance(code, GitRepoBranch):
+        # TODO this is a stub for now. We should remove logic for translating a branch
+        #  into a commit in _get_git_repo_commit_interpreter_and_code and implement it
+        #  here using git ls-remote
+        # TODO also we will add the ability to specify overrides (e.g. a specific commit
+        #  or an alternate branch)
+        return GitRepoCommit(
+            repo_url=code.repo_url,
+            commit="origin/" + code.branch,
+            path_in_repo=code.path_in_repo,
+        )
+    else:
+        raise ValueError(f"Unknown VersionedCodeDeployment type {type(code)}")
+
+
+async def get_latest_interpreter_version(
+    interpreter: VersionedInterpreterDeployment,
+    username_password: Optional[Tuple[str, str]],
+) -> InterpreterDeployment:
+    if isinstance(interpreter, ContainerAtTag):
+        return ContainerAtDigest(
+            repository=interpreter.repository,
+            digest=await get_latest_digest_from_registry(
+                interpreter.repository, interpreter.tag, username_password
+            ),
+        )
+    else:
+        raise ValueError(
+            f"Unknown VersionedInterpreterDeployment type {type(interpreter)}"
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,11 +164,13 @@ class MeadowGridVersionedDeployedRunnable:
     runnable: Runnable
     environment_variables: Optional[Dict[str, str]] = None
 
-    async def get_latest(self) -> MeadowGridDeployedRunnable:
+    async def get_latest(
+        self, username_password: Optional[Tuple[str, str]]
+    ) -> MeadowGridDeployedRunnable:
         if isinstance(self.code_deployment, CodeDeploymentTypes):
             code_deployment = self.code_deployment
-        elif isinstance(self.code_deployment, VersionedCodeDeployment):
-            code_deployment = await self.code_deployment.get_latest()
+        elif isinstance(self.code_deployment, VersionedCodeDeploymentTypes):
+            code_deployment = await get_latest_code_version(self.code_deployment)
         elif self.code_deployment is None:
             code_deployment = ServerAvailableFolder()
         else:
@@ -158,8 +180,12 @@ class MeadowGridVersionedDeployedRunnable:
 
         if isinstance(self.interpreter_deployment, InterpreterDeploymentTypes):
             interpreter_deployment = self.interpreter_deployment
-        elif isinstance(self.code_deployment, VersionedInterpreterDeployment):
-            interpreter_deployment = await self.interpreter_deployment.get_latest()
+        elif isinstance(
+            self.interpreter_deployment, VersionedInterpreterDeploymentTypes
+        ):
+            interpreter_deployment = await get_latest_interpreter_version(
+                self.interpreter_deployment, username_password
+            )
         else:
             raise ValueError(
                 "Unexpected interpreter_deployment type "
@@ -171,56 +197,6 @@ class MeadowGridVersionedDeployedRunnable:
             interpreter_deployment,
             self.runnable,
             self.environment_variables,
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class GitRepo(VersionedCodeDeployment):
-    """Represents a git repo"""
-
-    # specifies the url, will be provided to git clone, see
-    # https://git-scm.com/docs/git-clone
-    repo_url: str
-
-    default_branch: str = "main"
-
-    # specifies a path within the repo that this deployment should consider as the
-    # "root" directory. None is the same as "" or "."
-    path_in_repo: Optional[str] = None
-
-    async def get_latest(self) -> CodeDeployment:
-        # TODO this seems kind of silly right now, but we should move the logic for
-        #  converting from a branch name to a specific commit hash to this function from
-        #  _get_git_repo_commit_interpreter_and_code so we can show the user what commit
-        #  we actually ran with.
-        # TODO also we will add the ability to specify overrides (e.g. a specific commit
-        #  or an alternate branch)
-        return GitRepoCommit(
-            repo_url=self.repo_url,
-            # TODO this is very sketchy. Need to invest time in all of the possible
-            #  revision specifications
-            commit="origin/" + self.default_branch,
-            path_in_repo=self.path_in_repo,
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class ContainerRepo(VersionedInterpreterDeployment):
-    """Represents a container repository"""
-
-    # repository name, i.e. used in `docker pull [repository]:[tag]`
-    repository: str
-
-    # tag name
-    tag: str = "latest"
-
-    async def get_latest(self) -> InterpreterDeployment:
-        # TODO add ability to provide credentials
-        return ContainerAtDigest(
-            repository=self.repository,
-            digest=await get_latest_digest_from_registry(
-                self.repository, self.tag, None
-            ),
         )
 
 

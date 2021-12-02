@@ -9,12 +9,12 @@ import meadowgrid.job_worker_main
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
     CodeDeployment,
-    GitRepo,
     MeadowGridDeployedRunnable,
     MeadowGridFunction,
     VersionedCodeDeployment,
 )
 from meadowgrid.meadowgrid_pb2 import (
+    GitRepoBranch,
     GitRepoCommit,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
@@ -96,9 +96,13 @@ def test_deployment_override() -> None:
             assert result == "in test_repo older commit"
 
             # branch
-            result = result_with_deployment(GitRepo(TEST_REPO, "test_branch"))
+            result = result_with_deployment(
+                GitRepoBranch(repo_url=TEST_REPO, branch="test_branch")
+            )
             assert result == "in test_repo test_branch"
 
             # a different branch
-            result = result_with_deployment(GitRepo(TEST_REPO, "main"))
+            result = result_with_deployment(
+                GitRepoBranch(repo_url=TEST_REPO, branch="main")
+            )
             assert result == "in test_repo newer commit"

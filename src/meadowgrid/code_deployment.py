@@ -98,8 +98,11 @@ class CodeDeploymentManager:
             return job.server_available_folder.code_paths
         elif case == "git_repo_commit":
             return await self._get_git_repo_commit_code_paths(job.git_repo_commit)
-        elif case is None:
-            raise ValueError("One of code_deployment must be set!")
+        elif case == "git_repo_branch":
+            raise ValueError(
+                "Programming error: git_repo_branch should have been resolved in the "
+                "coordinator"
+            )
         else:
             raise ValueError(f"Unrecognized code_deployment {case}")
 

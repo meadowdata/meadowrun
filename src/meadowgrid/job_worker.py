@@ -457,6 +457,11 @@ async def _launch_job(
             )
             # due to the way protobuf works, this is equivalent to None
             pid = 0
+        elif interpreter_deployment == "container_at_tag":
+            raise ValueError(
+                "Programming error, container_at_tag should have been resolved in the "
+                "coordinator"
+            )
         else:
             raise ValueError(
                 f"Did not recognize interpreter_deployment {interpreter_deployment}"

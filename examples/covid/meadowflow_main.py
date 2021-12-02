@@ -44,10 +44,9 @@ from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
     MeadowGridFunction,
     MeadowGridVersionedDeployedRunnable,
-    GitRepo,
     MeadowGridCommand,
 )
-from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter
+from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter, GitRepoBranch
 
 _GIT_REPO_ROOT = covid_data.ROOT_DIR
 _GIT_BRANCH = "main"
@@ -71,7 +70,11 @@ def initial_setup():
             Job(
                 pname(function),
                 MeadowGridVersionedDeployedRunnable(
-                    GitRepo(git_repo_root, git_branch, path_in_repo),
+                    GitRepoBranch(
+                        repo_url=git_repo_root,
+                        branch=git_branch,
+                        path_in_repo=path_in_repo,
+                    ),
                     _INTERPRETER,
                     MeadowGridFunction.from_name(module, function),
                 ),
@@ -120,7 +123,9 @@ def _function(
     return Job(
         pname(job_name),
         MeadowGridVersionedDeployedRunnable(
-            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PATH_IN_REPO),
+            GitRepoBranch(
+                repo_url=_GIT_REPO_ROOT, branch=_GIT_BRANCH, path_in_repo=_PATH_IN_REPO
+            ),
             _INTERPRETER,
             MeadowGridFunction.from_name(
                 module_name, function_name, function_args, function_kwargs
@@ -177,7 +182,9 @@ def _notebook(
     return Job(
         pname(job_name),
         MeadowGridVersionedDeployedRunnable(
-            GitRepo(_GIT_REPO_ROOT, _GIT_BRANCH, _PATH_IN_REPO),
+            GitRepoBranch(
+                repo_url=_GIT_REPO_ROOT, branch=_GIT_BRANCH, path_in_repo=_PATH_IN_REPO
+            ),
             _INTERPRETER,
             MeadowGridCommand(command_line, context_variables),
         ),

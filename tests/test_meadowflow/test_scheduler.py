@@ -32,11 +32,10 @@ from meadowflow.topic import TriggerAction, NotPredicate
 from meadowflow.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
-    GitRepo,
     MeadowGridFunction,
     MeadowGridVersionedDeployedRunnable,
 )
-from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter
+from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter, GitRepoBranch
 from test_meadowflow.test_time_events import _TIME_INCREMENT
 from test_meadowgrid.test_meadowgrid_basics import TEST_REPO, TEST_WORKING_FOLDER
 
@@ -115,7 +114,7 @@ def test_simple_jobs_meadowgrid_git() -> None:
             _test_simple_jobs(
                 s,
                 lambda args: MeadowGridVersionedDeployedRunnable(
-                    GitRepo(TEST_REPO, "main"),
+                    GitRepoBranch(repo_url=TEST_REPO, branch="main"),
                     ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
                     MeadowGridFunction.from_name(
                         "example_package.example", "join_strings", args

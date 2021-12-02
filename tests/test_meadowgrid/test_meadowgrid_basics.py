@@ -2,7 +2,7 @@ import asyncio
 import pathlib
 import pickle
 import time
-from typing import Sequence
+from typing import Sequence, Union
 
 import pip
 
@@ -17,15 +17,20 @@ from meadowgrid.coordinator_client import (
 )
 from meadowgrid.deployed_function import (
     CodeDeployment,
-    ContainerRepo,
     InterpreterDeployment,
     MeadowGridCommand,
     MeadowGridDeployedRunnable,
     MeadowGridFunction,
+    MeadowGridVersionedDeployedRunnable,
+    VersionedCodeDeployment,
+    VersionedInterpreterDeployment,
+    get_latest_interpreter_version,
 )
 from meadowgrid.grid import grid_map, grid_map_async
 from meadowgrid.meadowgrid_pb2 import (
     ContainerAtDigest,
+    ContainerAtTag,
+    GitRepoBranch,
     GitRepoCommit,
     ProcessState,
     ServerAvailableContainer,
@@ -47,10 +52,21 @@ def test_meadowgrid_server_available_folder():
     )
 
 
-def test_meadowgrid_server_available_folder_container():
+def test_meadowgrid_server_available_folder_container_digest():
     _test_meadowgrid(
         ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
-        asyncio.run(ContainerRepo("python", "3.9.8-slim-buster").get_latest()),
+        asyncio.run(
+            get_latest_interpreter_version(
+                ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), None
+            )
+        ),
+    )
+
+
+def test_meadowgrid_server_available_folder_container_tag():
+    _test_meadowgrid(
+        ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
+        ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
     )
 
 
@@ -80,6 +96,13 @@ def test_meadowgrid_server_git_repo_commit():
     )
 
 
+def test_meadowgrid_server_git_repo_branch():
+    _test_meadowgrid(
+        GitRepoBranch(repo_url=TEST_REPO, branch="main"),
+        ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+    )
+
+
 def test_meadowgrid_server_git_repo_commit_container():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
@@ -92,7 +115,7 @@ def test_meadowgrid_server_git_repo_commit_container():
         GitRepoCommit(
             repo_url=TEST_REPO, commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6"
         ),
-        asyncio.run(ContainerRepo("python", "3.9.8-slim-buster").get_latest()),
+        ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
     )
 
 
@@ -141,7 +164,10 @@ def assert_successful(state: ProcessState) -> None:
 
 
 def _test_meadowgrid(
-    code_deployment: CodeDeployment, interpreter_deployment: InterpreterDeployment
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
 ):
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
@@ -157,7 +183,7 @@ def _test_meadowgrid(
                 add_job_state = await client.add_py_runnable_job(
                     request_id,
                     "example_runner",
-                    MeadowGridDeployedRunnable(
+                    MeadowGridVersionedDeployedRunnable(
                         code_deployment,
                         interpreter_deployment,
                         MeadowGridFunction.from_name(
@@ -171,7 +197,7 @@ def _test_meadowgrid(
                 duplicate_add_job_state = await client.add_py_runnable_job(
                     request_id,
                     "baz",
-                    MeadowGridDeployedRunnable(
+                    MeadowGridVersionedDeployedRunnable(
                         ServerAvailableFolder(code_paths=["foo"]),
                         interpreter_deployment,
                         MeadowGridFunction.from_name("foo.bar", "baz", ["foo"]),

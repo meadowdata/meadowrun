@@ -1,5 +1,5 @@
 import pickle
-from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List
+from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List, Union
 
 import grpc
 import grpc.aio
@@ -22,6 +22,9 @@ from meadowgrid.deployed_function import (
     MeadowGridDeployedRunnable,
     MeadowGridFunction,
     MeadowGridFunctionName,
+    MeadowGridVersionedDeployedRunnable,
+    VersionedCodeDeployment,
+    VersionedInterpreterDeployment,
 )
 from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsRequest,
@@ -29,6 +32,8 @@ from meadowgrid.meadowgrid_pb2 import (
     AddTasksToGridJobRequest,
     AwsSecret,
     ContainerAtDigest,
+    ContainerAtTag,
+    GitRepoBranch,
     GitRepoCommit,
     GridTask,
     GridTaskState,
@@ -99,8 +104,10 @@ def _string_pairs_from_dict(d: Dict[str, str]) -> Iterable[StringPair]:
 
 def _add_deployments_to_job(
     job: Job,
-    code_deployment: CodeDeployment,
-    interpreter_deployment: InterpreterDeployment,
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
 ) -> None:
     """
     Think of this as job.code_deployment = code_deployment; job.interpreter_deployment =
@@ -110,6 +117,8 @@ def _add_deployments_to_job(
         job.server_available_folder.CopyFrom(code_deployment)
     elif isinstance(code_deployment, GitRepoCommit):
         job.git_repo_commit.CopyFrom(code_deployment)
+    elif isinstance(code_deployment, GitRepoBranch):
+        job.git_repo_branch.CopyFrom(code_deployment)
     else:
         raise ValueError(f"Unknown code deployment type {type(code_deployment)}")
 
@@ -119,6 +128,8 @@ def _add_deployments_to_job(
         job.container_at_digest.CopyFrom(interpreter_deployment)
     elif isinstance(interpreter_deployment, ServerAvailableContainer):
         job.server_available_container.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, ContainerAtTag):
+        job.container_at_tag.CopyFrom(interpreter_deployment)
     else:
         raise ValueError(
             f"Unknown interpreter deployment type {type(interpreter_deployment)}"
@@ -199,7 +210,9 @@ def _create_py_function(
 def _create_py_runnable_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_runnable: MeadowGridDeployedRunnable,
+    deployed_runnable: Union[
+        MeadowGridDeployedRunnable, MeadowGridVersionedDeployedRunnable
+    ],
     priority: float,
     resources_required: Optional[Dict[str, float]],
 ) -> Job:
@@ -249,7 +262,9 @@ def _create_py_runnable_job(
 def _create_py_grid_job(
     job_id: str,
     job_friendly_name: str,
-    deployed_function: MeadowGridDeployedRunnable,
+    deployed_function: Union[
+        MeadowGridDeployedRunnable, MeadowGridVersionedDeployedRunnable
+    ],
     tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
     all_tasks_added: bool,
     priority: float,
@@ -345,7 +360,9 @@ class MeadowGridCoordinatorClientAsync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_runnable: MeadowGridDeployedRunnable,
+        deployed_runnable: Union[
+            MeadowGridDeployedRunnable, MeadowGridVersionedDeployedRunnable
+        ],
         priority: float = DEFAULT_PRIORITY,
         resources_required: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
@@ -373,7 +390,9 @@ class MeadowGridCoordinatorClientAsync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowGridDeployedRunnable,
+        deployed_function: Union[
+            MeadowGridDeployedRunnable, MeadowGridVersionedDeployedRunnable
+        ],
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: float = DEFAULT_PRIORITY,
@@ -486,11 +505,13 @@ class MeadowGridCoordinatorClientSync:
         self._channel = grpc.insecure_channel(address)
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    def add_py_simple_job(
+    def add_py_runnable_job(
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowGridDeployedRunnable,
+        deployed_function: Union[
+            MeadowGridDeployedRunnable, MeadowGridVersionedDeployedRunnable
+        ],
         priority: float = DEFAULT_PRIORITY,
         resources_required: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
@@ -510,7 +531,9 @@ class MeadowGridCoordinatorClientSync:
         self,
         job_id: str,
         job_friendly_name: str,
-        deployed_function: MeadowGridDeployedRunnable,
+        deployed_function: Union[
+            MeadowGridDeployedRunnable, MeadowGridVersionedDeployedRunnable
+        ],
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: float = DEFAULT_PRIORITY,

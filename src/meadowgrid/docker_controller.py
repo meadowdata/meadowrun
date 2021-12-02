@@ -1,7 +1,8 @@
 """
 This module provides functions for interacting with Docker. This uses aiodocker to
-interact with the docker API, and also uses aiohttp to make direct calls to the Docker
-Registry API.
+interact with the docker API (https://docs.docker.com/engine/api/), and also uses
+aiohttp to make direct calls to the Docker Registry API
+(https://docs.docker.com/registry/spec/api/).
 
 We'll use terminology consistent with Docker:
 - repository is e.g. "python", "percona/percona-server-mongodb",

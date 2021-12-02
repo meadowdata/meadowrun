@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import itertools
+import pickle
 import random
 import traceback
 from typing import Dict, List, Union, Iterable, Optional, Sequence
@@ -293,7 +294,24 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                 # TODO some updates are redundant and can be ignored/turned off like
                 #  RUNNING, but RUN_REQUEST_FAILED (and possibly others) should be
                 #  handled correctly.
-                print(f"Got an update for a grid job {job_state.process_state.state}")
+                if (
+                    job_state.process_state.state
+                    == ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED
+                ):
+                    error = pickle.loads(job_state.process_state.pickled_result)
+                else:
+                    error = ""
+                print(
+                    f"Got an update for a grid job {job_state.process_state.state}. "
+                    + " ".join(
+                        [
+                            error,
+                            str(job_state.process_state.pid),
+                            job_state.process_state.container_id,
+                            job_state.process_state.log_file_name,
+                        ]
+                    )
+                )
             else:
                 # There's not much we can do at this point--we could maybe keep these
                 # and include them in get_simple_job_states?
@@ -411,8 +429,8 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             # TODO this indicates something really weird going on, we should log it
             #  somewhere more noticeable
             print(
-                "update_grid_task_state_and_get_next was called for a grid job_id that does"
-                f" not exist: {request.job_id} does not exist with task_id "
+                "update_grid_task_state_and_get_next was called for a grid job_id that "
+                f"does not exist: {request.job_id} does not exist with task_id "
                 f"{request.task_id} and state {request.process_state.state}"
             )
             return GridTask(task_id=-1)

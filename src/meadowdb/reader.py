@@ -58,7 +58,8 @@ def read(
         if table_version is None and prod_table_version is None:
             raise ValueError(
                 f"Requested table {userspace}/{table_name} does not exist and "
-                f"{meadowdb.connection.prod_userspace_name}/{table_name} also does not exist"
+                f"{meadowdb.connection.prod_userspace_name}/{table_name} also does not "
+                "exist"
             )
 
         # get the table schema filename, falling back on the prod table's schema if the
@@ -299,16 +300,22 @@ class MdbTable:
                         # case where we have deduplication_keys AND deletes
                         conn.register("pks", deduplication_keys_seen)
                         conn.register("ds", deletes)
-                        sql = select_clause.replace(
-                            _table_name_placeholder, table_name
-                        ) + f" FROM {table_name} LEFT JOIN ds ON " + " AND ".join(
-                            f"{table_name}.{c} = ds.{c}"
-                            for c in deletes.columns
-                            if c != _indicator_column_name
-                        ) + " LEFT JOIN pks ON " + " AND ".join(
-                            f"{table_name}.{c} = pks.{c}" for c in deduplication_keys
-                        ) + f" WHERE ds.{_indicator_column_name} IS NULL AND " f"pks.{_indicator_column_name} IS NULL AND " + where_clause.replace(
-                            _table_name_placeholder, table_name
+                        sql = (
+                            select_clause.replace(_table_name_placeholder, table_name)
+                            + f" FROM {table_name} LEFT JOIN ds ON "
+                            + " AND ".join(
+                                f"{table_name}.{c} = ds.{c}"
+                                for c in deletes.columns
+                                if c != _indicator_column_name
+                            )
+                            + " LEFT JOIN pks ON "
+                            + " AND ".join(
+                                f"{table_name}.{c} = pks.{c}"
+                                for c in deduplication_keys
+                            )
+                            + f" WHERE ds.{_indicator_column_name} IS NULL AND "
+                            + f"pks.{_indicator_column_name} IS NULL AND "
+                            + where_clause.replace(_table_name_placeholder, table_name)
                         )
 
                 # Uncommenting this line is helpful in debugging the sql generation

@@ -106,7 +106,7 @@ def grid_map(
     interpreter_deployment: Union[
         InterpreterDeployment, VersionedInterpreterDeployment
     ],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None],
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
     resources_required_per_task: Optional[Dict[str, float]] = None,
     priority: float = DEFAULT_PRIORITY,
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,

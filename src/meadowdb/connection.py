@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-
 import os
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Dict, Final, Generator, List, Optional, Tuple
 
 import pandas as pd
 
 from meadowdb import reader, writer
-from meadowdb.readerwriter_shared import TableSchema
+from meadowdb.readerwriter_shared import TableSchema, UserspaceSpec
 from meadowdb.table_versions_client_local import TableVersionsClientLocal
 
 try:
@@ -21,52 +20,69 @@ except Exception:
     pass
 
 
-prod_userspace_name = "prod"
-
-
-_MEADOWDB_DEFAULT_USERSPACE = "MEADOWDB_DEFAULT_USERSPACE"
+_MEADOWDB_DEFAULT_USERSPACE: Final = "MEADOWDB_DEFAULT_USERSPACE"
 # Should only be accessed by get_default_userspace and set_default_userspace
-_default_userspace_name: Optional[str] = None
+_default_userspace_spec: Optional[UserspaceSpec] = None
 
 
-def get_default_userspace() -> str:
+def get_default_userspace_spec() -> UserspaceSpec:
     """
-    Gets the default userspace, which can be set via environment variable or by the
-    set_default_userspace function. Whenever userspace is not set, the default userspace
-    will be used.
+    Gets the default userspace spec, which can be set via environment variable
+    MEADOWDB_DEFAULT_USERSPACE or by the set_default_userspace function.
+    Whenever userspace is not set, the default userspace will be used.
 
-    Thematically, this would make sense in meadowflow.context, but preferable not to
-    introduce that dependency.
+    MEADOWDB_DEFAULT_USERSPACE is a comma separated list of userspace names. The
+    last is UserspaceSpec.tip, and the first are added to UserspaceSpec.bases in
+    the order given. This order is the order in which changes from the given
+    userspace are combined on read.
+
+    Thematically, this would make sense in meadowflow.context, but preferable
+    not to introduce that dependency.
     """
-    global _default_userspace_name
-    if _default_userspace_name is None:
+    global _default_userspace_spec
+    if _default_userspace_spec is None:
         if _MEADOWDB_DEFAULT_USERSPACE in os.environ:
-            _default_userspace_name = os.environ[_MEADOWDB_DEFAULT_USERSPACE]
-        else:
-            _default_userspace_name = prod_userspace_name
+            userspace_spec_str = os.environ[_MEADOWDB_DEFAULT_USERSPACE]
+            userspaces = userspace_spec_str.split(",")
+            if not userspaces:
+                raise ValueError(
+                    f"The environment variable {_MEADOWDB_DEFAULT_USERSPACE} is set, but is not a valid userspace spec. "
+                    "Please set it to a comma-separated list of at least one userspace name, for example 'main,test-space'."
+                )
 
-    return _default_userspace_name
+            _default_userspace_spec = UserspaceSpec(
+                tip=userspaces[-1],
+                bases=tuple() if len(userspaces) == 1 else tuple(userspaces[:-1]),
+            )
+        else:
+            _default_userspace_spec = UserspaceSpec.main()
+
+    return _default_userspace_spec
 
 
 @contextlib.contextmanager
-def set_default_userspace(userspace_name: str) -> Generator[None, None, None]:
+def set_default_userspace_spec(
+    userspace_spec: UserspaceSpec,
+) -> Generator[None, None, None]:
     """
     Usage:
-    with set_default_userspace("userspace_name"):
+    with set_default_userspace(userspace_spec):
         # read and write
 
-    In the with block, the default userspace will be "userspace_name".
+    In the with block, the default userspace spec will be "userspace_spec". It
+    can still be overwritten by giving an explicit userspace_spec argument when
+    reading or writing.
 
-    Sets globally across all threads, not threadsafe
+    Sets globally across all threads, not threadsafe.
     """
-    global _default_userspace_name
+    global _default_userspace_spec
 
-    prev_default_userspace = _default_userspace_name
-    _default_userspace_name = userspace_name
+    prev_default_userspace_spec = _default_userspace_spec
+    _default_userspace_spec = userspace_spec
     try:
         yield None
     finally:
-        _default_userspace_name = prev_default_userspace
+        _default_userspace_spec = prev_default_userspace_spec
 
 
 # Keeps track of all connections created.
@@ -125,24 +141,24 @@ class Connection:
         self,
         table_name: str,
         table_schema: TableSchema,
-        userspace: str = None,
+        userspace_spec: Optional[UserspaceSpec] = None,
     ) -> None:
         """Creates or updates the table_schema (TableSchema) for userspace/table_name"""
-        if userspace is None:
-            userspace = get_default_userspace()
+        if userspace_spec is None:
+            userspace_spec = get_default_userspace_spec()
 
         written_version = writer.create_or_update_table_schema(
-            self.table_versions_client, userspace, table_name, table_schema
+            self.table_versions_client, userspace_spec.tip, table_name, table_schema
         )
-        self.effects.tables_written.setdefault((userspace, table_name), set()).add(
-            written_version
-        )
+        self.effects.tables_written.setdefault(
+            (userspace_spec.tip, table_name), set()
+        ).add(written_version)
 
     def write(
         self,
         table_name: str,
         df: Optional[pd.DataFrame],
-        userspace: str = None,
+        userspace_spec: Optional[UserspaceSpec] = None,
         delete_where_equal_df: Optional[pd.DataFrame] = None,
         delete_all: bool = False,
     ) -> None:
@@ -162,8 +178,10 @@ class Connection:
         # TODO in the current implementation, would be pretty easy to support arbitrary
         #  WHERE clauses for delete_where_equal_df, is that the right thing to do?
 
-        if userspace is None:
-            userspace = get_default_userspace()
+        if userspace_spec is None:
+            userspace_spec = get_default_userspace_spec()
+
+        userspace = userspace_spec.tip
 
         written_version = writer.write(
             self.table_versions_client,
@@ -181,7 +199,7 @@ class Connection:
         self,
         table_name: str,
         delete_where_equal_df: pd.DataFrame,
-        userspace: str = None,
+        userspace_spec: UserspaceSpec = None,
     ) -> None:
         """
         delete_where_equal_df should also be a pandas dataframe that has a subset of the
@@ -195,27 +213,28 @@ class Connection:
         This is equivalent to DELETE FROM table_name WHERE (a = 1 AND b = 2) OR (a = 3
         and b = 4)
         """
-        self.write(table_name, None, userspace, delete_where_equal_df)
+        self.write(table_name, None, userspace_spec, delete_where_equal_df)
 
-    def delete_all(self, table_name: str, userspace: str = None) -> None:
+    def delete_all(self, table_name: str, userspace_spec: UserspaceSpec = None) -> None:
         """Deletes all data in the specified table"""
-        self.write(table_name, None, userspace, None, True)
+        self.write(table_name, None, userspace_spec, None, True)
 
     def read(
         self,
         table_name: str,
-        userspace: str = None,
+        userspace_spec: Optional[UserspaceSpec] = None,
         max_version_number: int = None,
     ) -> reader.MdbTable:
         """Returns a MdbTable object that can be used to query userspace/table_name"""
 
-        if userspace is None:
-            userspace = get_default_userspace()
+        if userspace_spec is None:
+            userspace_spec = get_default_userspace_spec()
 
         result = reader.read(
-            self.table_versions_client, userspace, table_name, max_version_number
+            self.table_versions_client, userspace_spec, table_name, max_version_number
         )
-        self.effects.tables_read.setdefault((userspace, table_name), set()).add(
-            result._version_number
-        )
+        # TODO the effect just records the tip here - need a representation of the spec?
+        self.effects.tables_read.setdefault(
+            (userspace_spec.tip, table_name), set()
+        ).add(result._version_number)
         return result

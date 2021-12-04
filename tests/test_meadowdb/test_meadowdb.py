@@ -1,7 +1,13 @@
 from typing import Callable
 import meadowdb
 import pandas as pd
-from meadowdb.connection import prod_userspace_name, set_default_userspace
+import unittest.mock
+from meadowdb.connection import (
+    _MEADOWDB_DEFAULT_USERSPACE,
+    UserspaceSpec,
+    set_default_userspace_spec,
+)
+import pytest
 
 
 def test_meadowdb(
@@ -206,46 +212,108 @@ def test_meadowdb_duplication_keys(random_df, mdb_connection: meadowdb.Connectio
     assert len(t.to_pd()) == 0
 
 
-def test_meadowdb_userspace(random_df, mdb_connection: meadowdb.Connection):
+def test_meadowdb_userspace(
+    random_df: Callable[[], pd.DataFrame], mdb_connection: meadowdb.Connection
+):
     mdb = mdb_connection
-
+    table_name = "temp3"
     prod_data = random_df()
     prod_data.loc[50, "str1"] = "hello"
     us_data1 = random_df()
     us_data1.loc[50, "str1"] = "hello"
     us_data2 = random_df()
 
-    # first, delete_where_equal in U1 without any data in the prod table
-    mdb.delete_where_equal("temp3", pd.DataFrame({"str1": ["hello"]}), "U1")
+    u1_on_main = UserspaceSpec.main_with_tip("U1")
+    u2_on_main = UserspaceSpec.main_with_tip("U2")
 
-    assert len(mdb.read("temp3", "U1").to_pd()) == 0
+    # first, delete_where_equal in U1 without any data in the prod table
+    mdb.delete_where_equal(table_name, pd.DataFrame({"str1": ["hello"]}), u1_on_main)
+    assert len(mdb.read(table_name, u1_on_main).to_pd()) == 0
 
     # next write some data in the prod table, note that the deletes always get applied
     # on top of prod because this userspace is in read_committed mode (the only
     # currently available mode)
-    mdb.write("temp3", prod_data)
+    mdb.write(table_name, prod_data)
+    assert mdb.read(table_name).to_pd().equals(prod_data)
 
-    assert mdb.read("temp3").to_pd().equals(prod_data)
     prod_data_filtered = prod_data[prod_data["str1"] != "hello"].reset_index(drop=True)
-    with set_default_userspace("U2"):
+    with set_default_userspace_spec(u2_on_main):
         # now read from a different (empty) userspace
-        assert mdb.read("temp3").to_pd().equals(prod_data)
+        assert mdb.read(table_name).to_pd().equals(prod_data)
         # override the in-context U2 with explicitly specified U1
-        assert mdb.read("temp3", "U1").to_pd().equals(prod_data_filtered)
+        assert mdb.read(table_name, u1_on_main).to_pd().equals(prod_data_filtered)
 
         # next, write some actual data into U1 (again override U2 by explicitly
         # specifying U1)
-        mdb.write("temp3", us_data1, userspace="U1")
+        mdb.write(table_name, us_data1, u1_on_main)
+        assert mdb.read(table_name, UserspaceSpec.main()).to_pd().equals(prod_data)
+        assert mdb.read(table_name, UserspaceSpec(tip="U1")).to_pd().equals(us_data1)
 
-        assert mdb.read("temp3", prod_userspace_name).to_pd().equals(prod_data)
     expected = pd.concat([prod_data_filtered, us_data1], ignore_index=True)
-    with set_default_userspace("U1"):
-        assert mdb.read("temp3").to_pd().equals(expected)
+    with set_default_userspace_spec(u1_on_main):
+        assert mdb.read(table_name).to_pd().equals(expected)
 
         # next, wipe everything and write new data
-        mdb.write("temp3", us_data2, delete_all=True)
+        mdb.write(table_name, us_data2, delete_all=True)
 
-    assert mdb.read("temp3").to_pd().equals(prod_data)
-    assert mdb.read("temp3", "U1").to_pd().equals(us_data2)
+    assert mdb.read(table_name).to_pd().equals(prod_data)
+    assert mdb.read(table_name, u1_on_main).to_pd().equals(us_data2)
 
     # TODO none of the table schema interactions are tested
+
+
+def test_single_userspace_spec_via_env_var(
+    random_df: Callable[[], pd.DataFrame], mdb_connection: meadowdb.Connection
+):
+    # Setup - write df1 to main, then write to various test userspaces.
+    mdb = mdb_connection
+    main_data, df1, df2 = random_df(), random_df(), random_df()
+    table_name = "table"
+    mdb.write(table_name, main_data)
+
+    # trick to make the tests work: we assume (reasonably) that env variables
+    # are set for the lifetime of the process, so the mdb.write above sets the
+    # default userspace to main, and then any changes to env variables are no longer
+    # picked up. We set it manually to None again to make sure that following env var
+    # settings are registered.
+    meadowdb.connection._default_userspace_spec = None
+
+    with unittest.mock.patch.dict("os.environ", {_MEADOWDB_DEFAULT_USERSPACE: "test1"}):
+        # nothing written to test1, so table does not exist
+        with pytest.raises(ValueError):
+            mdb.read(table_name)
+
+        # write something, should only show up in test1
+        mdb.write(table_name, df1)
+
+        assert mdb.read(table_name).to_pd().equals(df1)
+        assert mdb.read(table_name, UserspaceSpec.main()).to_pd().equals(main_data)
+
+    meadowdb.connection._default_userspace_spec = None
+
+    with unittest.mock.patch.dict(
+        "os.environ", {_MEADOWDB_DEFAULT_USERSPACE: "main,test1"}
+    ):
+        # if we read from main and test1, we should see both writes
+        assert (
+            mdb.read(table_name)
+            .to_pd()
+            .equals(pd.concat([main_data, df1], ignore_index=True))
+        )
+
+    meadowdb.connection._default_userspace_spec = None
+
+    with unittest.mock.patch.dict(
+        "os.environ", {_MEADOWDB_DEFAULT_USERSPACE: "main,test2"}
+    ):
+        # write something, should be written to test2
+        # but we can see the main data too
+        mdb.write(table_name, df2)
+
+        assert (
+            mdb.read(table_name)
+            .to_pd()
+            .equals(pd.concat([main_data, df2], ignore_index=True))
+        )
+        assert mdb.read(table_name, UserspaceSpec(tip="test2")).to_pd().equals(df2)
+        assert mdb.read(table_name, UserspaceSpec.main()).to_pd().equals(main_data)

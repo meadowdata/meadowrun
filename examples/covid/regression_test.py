@@ -28,8 +28,8 @@ def main():
     # create new unique userspace names for the BASE run and the TEST run
     # TODO automatically clean these up
     userspace = str(uuid.uuid4())
-    base_userspace = f"BASE_{userspace}"
-    test_userspace = f"TEST_{userspace}"
+    base_userspace = f"main,BASE_{userspace}"
+    test_userspace = f"main,TEST_{userspace}"
 
     # The cdc_covid_data_smoothed job won't write duplicate data, so the first thing we
     # do is clear the output data in the regression test userspaces.

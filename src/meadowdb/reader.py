@@ -9,12 +9,13 @@ from typing import Iterable, List, Literal, Optional, Tuple, Union, cast, overlo
 import duckdb
 import pandas as pd
 
-import meadowdb.connection
 from meadowdb.readerwriter_shared import (
     DeleteAllLogEntry,
     DeleteLogEntry,
     TableLogEntry,
     TableSchema,
+    TableVersion,
+    UserspaceSpec,
     WriteLogEntry,
 )
 from meadowdb.storage import KeyValueStore
@@ -23,77 +24,40 @@ from meadowdb.table_versions_client_local import TableVersionsClientLocal
 
 def read(
     table_version_client: TableVersionsClientLocal,
-    userspace: str,
+    userspace_spec: UserspaceSpec,
     table_name: str,
     max_version_number: Optional[int],
 ) -> MdbTable:
     """See Connection.read for usage docstring"""
 
-    # get the table version
-    table_version = table_version_client.get_current_table_version(
-        userspace, table_name, max_version_number
+    # TODO currently we only implement userspace specs that replay
+    # changes in the order they're specified in the spec,
+    # but we plan on supporting other strategies as well -
+    # in particular branch like behavior.
+
+    # Populate table_versions.
+    # Order is important here, we always want to apply
+    # base userspaces' writes first, then tip userspace writes,
+    # regardless of the original order of writes, and similarly
+    # for schemas.
+    table_versions = _get_table_versions_base_to_tip(
+        table_version_client, userspace_spec, table_name, max_version_number
     )
+    # We are now guaranteed to have at least one table_version, else ValueError
+    # was raised.
+
     table_log_filenames = []
-
-    if userspace == meadowdb.connection.prod_userspace_name:
-        # simple case, no userspace layering
-
-        if table_version is None:
-            raise ValueError(f"Requested table {userspace}/{table_name} does not exist")
-
-        table_schema_filename = table_version.table_schema_filename
-
+    # Will be max version number
+    table_version_number = -1
+    # If table_schema is missing in all userspaces, we just use a default schema.
+    table_schema = TableSchema()
+    for table_version in table_versions:
+        if table_version.table_schema_filename:
+            table_schema = table_version_client.store.get_pickle(
+                table_version.table_schema_filename
+            )
         table_log_filenames.append(table_version.table_log_filename)
-        table_version_number = table_version.version_number
-    else:
-        # complicated case, userspace layering with prod
-        # TODO currently we only implement read_committed semantics but we plan on
-        #  supporting snapshot_isolation as well
-
-        # get the parent userspace (prod) table version
-        prod_table_version = table_version_client.get_current_table_version(
-            meadowdb.connection.prod_userspace_name, table_name, max_version_number
-        )
-
-        if table_version is None and prod_table_version is None:
-            raise ValueError(
-                f"Requested table {userspace}/{table_name} does not exist and "
-                f"{meadowdb.connection.prod_userspace_name}/{table_name} also does not "
-                "exist"
-            )
-
-        # get the table schema filename, falling back on the prod table's schema if the
-        # userspace table doesn't have a schema specified, and then falling back on None
-        # (i.e. the default TableSchema) if the prod table doesn't exist exist
-        if (
-            table_version is not None
-            and table_version.table_schema_filename is not None
-        ):
-            table_schema_filename = table_version.table_schema_filename
-        elif prod_table_version is not None:
-            table_schema_filename = prod_table_version.table_schema_filename
-        else:
-            table_schema_filename = None
-
-        # Populate table_log_filenames. Order is important here, we always want to apply
-        # the userspace's writes on top of the prod writes regardless of the original
-        # order of writes. Also get the largest version_number at the same time
-        table_version_number = -1
-        if prod_table_version is not None:
-            table_log_filenames.append(prod_table_version.table_log_filename)
-            table_version_number = prod_table_version.version_number
-        if table_version is not None:
-            table_log_filenames.append(table_version.table_log_filename)
-            table_version_number = max(
-                table_version_number, table_version.version_number
-            )
-
-    if table_schema_filename is not None:
-        table_schema = table_version_client.store.get_pickle(table_schema_filename)
-    else:
-        # table_schema_filename is optional, if it's missing, we just use a default
-        # schema
-        table_schema = TableSchema()
+        table_version_number = max(table_version_number, table_version.version_number)
 
     return MdbTable(
         table_version_number,
@@ -108,6 +72,31 @@ def read(
         ],
         [],
     )
+
+
+def _get_table_versions_base_to_tip(
+    table_version_client: TableVersionsClientLocal,
+    userspace_spec: UserspaceSpec,
+    table_name: str,
+    max_version_number: Optional[int],
+) -> Tuple[TableVersion, ...]:
+    table_versions = tuple(
+        table_version
+        for userspace in userspace_spec.userspaces_base_to_tip()
+        for table_version in (
+            table_version_client.get_current_table_version(
+                userspace, table_name, max_version_number
+            ),
+        )
+        if table_version is not None
+    )
+
+    if not table_versions:
+        raise ValueError(
+            f"Requested table {table_name} does not exist in any userspace {', '.join(userspace_spec.userspaces_base_to_tip())}"
+        )
+
+    return table_versions
 
 
 # Some strings used in internal sql construction

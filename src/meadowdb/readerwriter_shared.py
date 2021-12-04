@@ -32,7 +32,8 @@ from __future__ import annotations
 import abc
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Final, List, Optional, Tuple
+
 
 _dummy_uuid = uuid.UUID(int=0)
 
@@ -130,3 +131,45 @@ class DeleteLogEntry(TableLogEntry):
 @dataclass(frozen=True)
 class DeleteAllLogEntry(TableLogEntry):
     pass
+
+
+MAIN_USERSPACE_NAME: Final = "main"
+
+
+@dataclass(frozen=True)
+class UserspaceSpec:
+    """Specify userspace layering.
+
+    The tip userspace is written to, and also read from.
+    Any userspaces in bases are read from.
+    The changes from bases and tip are combined according to the given mode.
+    """
+
+    tip: str = MAIN_USERSPACE_NAME
+    bases: Tuple[str, ...] = tuple()
+    # TODO add fields here to specify different ways of reading and writing.
+    # e.g. could add "branch" mode where tip starts from certain version in base.
+    # e.g. could have a mode where changes from bases and tips are added in version order.
+    # e.g. combine specific version ranges from bases and tip
+    # Note these could have different constraints (for branches, hard to see how to combine more than two)
+    # so subclassing may be a good idea.
+
+    def userspaces_base_to_tip(self) -> Tuple[str, ...]:
+        """Returns userspaces in base to tip order."""
+        return self.bases + (self.tip,)
+
+    @staticmethod
+    def main() -> UserspaceSpec:
+        """Reads and writes to main userspace only.
+
+        Equivalent to UserspaceSpec()."""
+        return UserspaceSpec()
+
+    @staticmethod
+    def main_with_tip(tip_userspace: str) -> UserspaceSpec:
+        """Writes to a given userspace, overlaying it on the prod userspace.
+
+        Args:
+            tip_on_main (str): name of the tip userspace.
+        """
+        return UserspaceSpec(tip=tip_userspace, bases=(MAIN_USERSPACE_NAME,))

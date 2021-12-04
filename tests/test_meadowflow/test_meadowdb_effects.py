@@ -4,7 +4,9 @@ import meadowdb
 import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
 import pandas as pd
-from meadowdb.connection import MeadowdbEffects, prod_userspace_name
+
+from meadowdb import MAIN_USERSPACE_NAME
+from meadowdb.connection import MeadowdbEffects
 from meadowflow.effects import MeadowdbDynamicDependency, UntilMeadowdbWritten
 from meadowflow.jobs import (
     Actions,
@@ -111,8 +113,10 @@ def test_meadowdb_effects():
                 all_effects = events[0].payload.effects.meadowdb_effects
                 assert len(all_effects) == 1
                 effects: MeadowdbEffects = list(all_effects.values())[0]
-                assert list(effects.tables_read.keys()) == [("prod", "A")]
-                assert list(effects.tables_written.keys()) == [("prod", "A")]
+                assert list(effects.tables_read.keys()) == [(MAIN_USERSPACE_NAME, "A")]
+                assert list(effects.tables_written.keys()) == [
+                    (MAIN_USERSPACE_NAME, "A")
+                ]
 
             # do everything again with meadowdb_userspace set
             scheduler.manual_run(
@@ -226,8 +230,8 @@ def test_meadowdb_dependency(mdb_data_dir):
         all_effects = a_events[0].payload.effects.meadowdb_effects
         assert len(all_effects) == 1
         effects: MeadowdbEffects = list(all_effects.values())[0]
-        assert list(effects.tables_read.keys()) == [("prod", "A")]
-        assert list(effects.tables_written.keys()) == [("prod", "A")]
+        assert list(effects.tables_read.keys()) == [(MAIN_USERSPACE_NAME, "A")]
+        assert list(effects.tables_written.keys()) == [(MAIN_USERSPACE_NAME, "A")]
 
         assert_b_events(1, 1, 1, 1)
 
@@ -279,7 +283,7 @@ def test_meadowdb_table_written(mdb_data_dir):
                         TriggerAction(
                             Actions.run,
                             [AnyJobStateEventFilter([pname("A")], "SUCCEEDED")],
-                            UntilMeadowdbWritten.all((prod_userspace_name, "T")),
+                            UntilMeadowdbWritten.all((MAIN_USERSPACE_NAME, "T")),
                         )
                     ],
                 ),

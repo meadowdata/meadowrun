@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pickle
 from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List, Union
 
@@ -491,7 +493,7 @@ class MeadowGridCoordinatorClientAsync:
             _add_credentials_request(service, service_url, source)
         )
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> MeadowGridCoordinatorClientAsync:
         await self._channel.__aenter__()
         return self
 

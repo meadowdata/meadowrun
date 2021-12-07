@@ -20,7 +20,7 @@ import meadowflow.effects
 
 
 def _function_wrapper(
-    func: Callable[[...], Any],
+    func: Callable[..., Any],
     args: Optional[Sequence[Any]],
     kwargs: Optional[Dict[str, Any]],
 ) -> Tuple[Any, meadowflow.effects.Effects]:

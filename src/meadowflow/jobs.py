@@ -18,6 +18,7 @@ from typing import (
     Union,
     Literal,
     Callable,
+    get_args,
 )
 
 import meadowflow.effects
@@ -94,10 +95,10 @@ class LocalFunction:
     function_kwargs: Dict[str, Any] = dataclasses.field(default_factory=lambda: {})
 
 
-JobRunnerFunctionTypes = (LocalFunction, MeadowGridDeployedRunnable)
 # A JobRunnerFunction is a function/executable/script that one or more JobRunners will
 # know how to run along with the arguments for that function/executable/script
-JobRunnerFunction = Union[JobRunnerFunctionTypes]
+JobRunnerFunction = Union[LocalFunction, MeadowGridDeployedRunnable]
+JobRunnerFunctionTypes: Final = get_args(JobRunnerFunction)
 
 
 class JobRunner(abc.ABC):
@@ -193,7 +194,7 @@ class JobRunOverrides:
     # Equivalent to meadowdb.connection.set_default_userspace
     meadowdb_userspace: Optional[str] = None
 
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment] = None
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None
 
     # TODO add: interpreter_deployment: Union[VersionedInterpreterDeployment,
     #  InterpreterDeployment]
@@ -201,7 +202,7 @@ class JobRunOverrides:
 
 
 async def _apply_job_run_overrides(
-    run_overrides: JobRunOverrides,
+    run_overrides: Optional[JobRunOverrides],
     job_runner_function: JobRunnerFunction,
     credentials_dict: CredentialsDict,
 ) -> JobRunnerFunction:
@@ -243,7 +244,7 @@ def _apply_overrides_function_args_kwargs(
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.function_args or run_overrides.function_kwargs:
-        to_replace = {}
+        to_replace: Dict[str, Sequence | Dict[str, Any]] = {}
         if run_overrides.function_args:
             to_replace["function_args"] = run_overrides.function_args
         if run_overrides.function_kwargs:
@@ -335,7 +336,7 @@ async def _apply_overrides_code_deployment(
 
 
 @dataclass(frozen=True)
-class Run(meadowflow.topic.Action):
+class Run(meadowflow.topic.Action[Job]):
     """Runs the job"""
 
     async def execute(
@@ -355,11 +356,12 @@ class Run(meadowflow.topic.Action):
         # first, make sure there are no other run requests on this job, then log that
         # we've requested a run
 
-        ev: Event[JobPayload] = event_log.last_event(job.name, timestamp)
+        ev: Optional[Event[JobPayload]] = event_log.last_event(job.name, timestamp)
         # TODO not clear that this is the right behavior, vs queuing up another run once
         #  the current run is done.
         if ev is not None and ev.payload.state in ["RUN_REQUESTED", "RUNNING"]:
             # TODO maybe indicate somehow that this job request already existed?
+            assert ev.payload.request_id is not None
             return ev.payload.request_id
 
         run_request_id = str(uuid.uuid4())
@@ -371,9 +373,10 @@ class Run(meadowflow.topic.Action):
             # TODO meadowflow needs to store credentials the same way that the
             #  meadowgrid coordinator does, or share them, or something. Currently
             #  we are passing None because we don't have any.
-            credentials_dict = {}
+            credentials_dict: CredentialsDict = {}
 
             # convert a job_function into a job_runner_function
+            job_runner_function: JobRunnerFunction
             if isinstance(job.job_function, MeadowGridVersionedDeployedRunnable):
                 # It's a little bit unfortunate that this resolution from e.g.
                 # GitRepoBranch to GitRepoCommit happens both in meadowflow and the
@@ -429,6 +432,7 @@ class Run(meadowflow.topic.Action):
                     result_value=raised_exception,
                 ),
             )
+            return run_request_id
 
 
 def choose_job_runner(
@@ -518,10 +522,22 @@ class AllJobStatePredicate(meadowflow.topic.StatePredicate):
         return True
 
 
+class CallableCreateJobs(Protocol):
+    def __call__(self, scope: ScopeValues, *args: Any, **kwargs: Any) -> Sequence[Job]:
+        ...
+
+
+class CallableCreateJobsFromTopics(Protocol):
+    def __call__(
+        self, events: FrozenDict[TopicName, Optional[Event]], *args: Any, **kwargs: Any
+    ) -> Sequence[Job]:
+        ...
+
+
 # this really belongs in scopes.py but the circular dependencies make it hard to do that
 def add_scope_jobs_decorator(
-    func: Callable[[ScopeValues, ...], Sequence[Job]]
-) -> Callable[[FrozenDict[TopicName, Optional[Event]], ...], Sequence[Job]]:
+    func: CallableCreateJobs,
+) -> CallableCreateJobsFromTopics:
     """
     A little bit of boilerplate to make it easier to write functions that create jobs in
     a specific scope, which is a common use case.
@@ -560,11 +576,13 @@ def add_scope_jobs_decorator(
     # decorated using this pattern cannot be pickled
     @functools.wraps(func)
     def wrapper(
-        events: FrozenDict[TopicName, Optional[Event]], *args, **kwargs
+        events: FrozenDict[TopicName, Optional[Event]], *args: Any, **kwargs: Any
     ) -> Sequence[Job]:
         # find the instantiate scope event:
         scopes = [
-            e.payload for e in events.values() if isinstance(e.payload, ScopeValues)
+            e.payload
+            for e in events.values()
+            if e and isinstance(e.payload, ScopeValues)
         ]
         if len(scopes) != 1:
             raise ValueError(

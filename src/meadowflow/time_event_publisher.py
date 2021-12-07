@@ -14,6 +14,7 @@ from typing import (
     Callable,
     List,
     Optional,
+    Protocol,
     Union,
     Any,
     Literal,
@@ -22,7 +23,6 @@ import time
 import heapq
 
 import pytz
-import pytz.tzinfo
 
 from meadowflow.event_log import Event, EventLog, Timestamp
 from meadowflow.topic_names import TopicName, pname
@@ -109,12 +109,16 @@ class PointInTime(TimeEventFilterPlaceholder):
     def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
         return time_event_publisher.create_point_in_time(self)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         # important to include the tzinfo explicitly here as it gets lost when comparing
         # datetime.datetime
-        return self.dt == other.dt and self.dt.tzinfo == other.dt.tzinfo
+        return (
+            isinstance(other, PointInTime)
+            and self.dt == other.dt
+            and self.dt.tzinfo == other.dt.tzinfo
+        )
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # see __eq__
         return hash((self.dt, self.dt.tzinfo))
 
@@ -199,7 +203,7 @@ class TimeOfDayPayload:
 class TimeEventPredicatePlaceholder(StatePredicate):
     """Analogous to TimeEventFilterPlaceholder, see docstring for that class"""
 
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         raise ValueError(
             "Cannot use a TimeEventPredicatePlaceholder without calling create."
         )
@@ -260,7 +264,7 @@ class _PointInTimePredicateCreated(StatePredicate):
     topic_name: TopicName
     relation: Literal["before", "after"]
 
-    def topic_names_to_query(self) -> Iterable[str]:
+    def topic_names_to_query(self) -> Iterable[TopicName]:
         yield self.topic_name
 
     def apply(
@@ -421,11 +425,13 @@ class TimeEventPublisher:
             occurrence_dt = pytz.utc.localize(
                 datetime.datetime.utcfromtimestamp(occurrence_ts)
             )
+
+            def append(occurrence_dt: datetime.datetime = occurrence_dt) -> None:
+                self._append_event(topic_name, occurrence_dt)
+
             self._call_at.call_at(
                 occurrence_dt,
-                lambda occurrence_dt=occurrence_dt: self._append_event(
-                    topic_name, occurrence_dt
-                ),
+                append,
             )
 
             occurrence_ts += period_seconds
@@ -510,10 +516,13 @@ class TimeEventPublisher:
         # schedule callbacks to generate events at the right time
         while occurrence < to_dt:
             if occurrence >= from_dt:
-                self._call_at.call_at(
-                    occurrence,
+
+                def append(
                     # capture the value of date and occurrence
-                    lambda date=date, occurrence=occurrence: self._append_event(
+                    date: datetime.date = date,
+                    occurrence: datetime.datetime = occurrence,
+                ) -> None:
+                    self._append_event(
                         topic_name,
                         TimeOfDayPayload(
                             time_of_day.local_time_of_day,
@@ -521,7 +530,11 @@ class TimeEventPublisher:
                             date,
                             occurrence,
                         ),
-                    ),
+                    )
+
+                self._call_at.call_at(
+                    occurrence,
+                    append,
                 )
 
             # we assume that this math on date/occurrence always results in an
@@ -595,19 +608,28 @@ class TimeEventPublisher:
         await self._call_at.main_loop()
 
 
+# Why not just use callback: Callable[[], None] in _CallAtCallback?
+# Because mypy (and also python) has issue with class fields of type Callable.
+# It's confused whether they are methods or fields.
+# See e.g. https://github.com/python/mypy/issues/708
+class _CallAtCallable(Protocol):
+    def __call__(self) -> None:
+        ...
+
+
 @dataclass(frozen=True, order=True)
 class _CallAtCallback:
     """Call callback when time.time() == timestamp"""
 
     timestamp: float
-    callback: Callable[[], None] = field(compare=False)
+    callback: _CallAtCallable = field(compare=False)
 
 
 # ONLY FOR TESTING. Lets tests pretend that it's a different time
 _TEST_TIME_OFFSET: float = 0
 
 
-def _utc_now():
+def _utc_now() -> datetime.datetime:
     """
     Returns a datetime that represents the current moment in time properly
     localized to the UTC timezone.
@@ -620,7 +642,7 @@ def _utc_now():
     )
 
 
-def _time_time():
+def _time_time() -> float:
     """
     Equivalent to time.time() but allows for pretending that it's a different time.
 
@@ -657,10 +679,10 @@ class _CallAt:
 
         # If _main_loop is waiting to callback something in the future, we need a way to
         # notify it when we create a callback that needs to happen first
-        self._queue_modified: Optional[asyncio.Event] = None
+        self._queue_modified: asyncio.Event
 
         # we have to construct _queue_modified on the event loop
-        def construct_queue_modified():
+        def construct_queue_modified() -> None:
             self._queue_modified = asyncio.Event()
 
         self._event_loop.call_soon_threadsafe(construct_queue_modified)
@@ -751,7 +773,7 @@ class _CallAt:
                 await self._queue_modified.wait()
             elif next_step == "wait_for_next_callback":
                 print(f"About to sleep for {next_callback.timestamp - now}")
-                await asyncio.wait(
+                await asyncio.wait(  # type: ignore[type-var]
                     [
                         asyncio.create_task(self._queue_modified.wait()),
                         asyncio.create_task(

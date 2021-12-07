@@ -64,10 +64,10 @@ class EventLog:
         self._subscribers_called_timestamp: Timestamp = 0
 
         # notify our call subscribers loop that events have been posted to the event log
-        self._notify_call_subscribers: Optional[asyncio.Event] = None
+        self._notify_call_subscribers: asyncio.Event
 
         # we have to construct _notify_call_subscribers on the event loop
-        def construct_notify_call_subscribers():
+        def construct_notify_call_subscribers() -> None:
             self._notify_call_subscribers = asyncio.Event()
 
         self._event_loop.call_soon_threadsafe(construct_notify_call_subscribers)

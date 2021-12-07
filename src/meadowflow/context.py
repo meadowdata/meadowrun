@@ -4,14 +4,14 @@ about the meadowflow job they are currently running as
 """
 import os
 import pickle
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Final, Literal, Optional, Tuple, Union
 
-_UNINITIALIZED = "__UNINITIALIZED__"
+_UNINITIALIZED: Final = "__UNINITIALIZED__"
 
 
 _MEADOWGRID_CONTEXT_VARIABLES = "MEADOWGRID_CONTEXT_VARIABLES"
 
-_variables = None
+_variables: Optional[Dict[str, Any]] = None
 
 
 def variables() -> Dict[str, Any]:
@@ -33,7 +33,9 @@ _MEADOWGRID_RESULT_PICKLE_PROTOCOL = "MEADOWGRID_RESULT_PICKLE_PROTOCOL"
 
 # We use a non-None placeholder value because we want to use None to mean that these
 # variables were not set
-_result_request = _UNINITIALIZED
+_result_request: Optional[
+    Union[Literal["__UNINITIALIZED__"], Tuple[str, int]]
+] = _UNINITIALIZED
 
 
 def result_request() -> Optional[Tuple[str, int]]:

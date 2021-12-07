@@ -1,24 +1,26 @@
+from __future__ import annotations
+
 import asyncio
 import pickle
 import time
-from typing import List, Optional
+from types import TracebackType
+from typing import List, Literal, Optional, Type, cast
 
 import grpc
 import grpc.aio
-
 from meadowflow.event_log import Event
+from meadowflow.jobs import Job, JobPayload, JobRunOverrides
 from meadowflow.scopes import ScopeValues
-from meadowflow.topic_names import TopicName
-from meadowflow.jobs import Job, JobRunOverrides, JobPayload
 from meadowflow.server.config import DEFAULT_ADDRESS
 from meadowflow.server.meadowflow_pb2 import (
     AddJobsRequest,
     EventsRequest,
-    RegisterJobRunnerRequest,
-    ManualRunRequest,
     InstantiateScopesRequest,
+    ManualRunRequest,
+    RegisterJobRunnerRequest,
 )
 from meadowflow.server.meadowflow_pb2_grpc import MeadowFlowServerStub
+from meadowflow.topic_names import TopicName
 
 
 def _is_request_id_completed(events: List[Event[JobPayload]], request_id: str) -> bool:
@@ -76,12 +78,15 @@ class MeadowFlowClientAsync:
         TODO error handling
         TODO use real protobuf messages instead of pickles so we can evolve the schema
         """
-        return pickle.loads(
-            (
-                await self._stub.get_events(
-                    EventsRequest(pickled_topic_names=pickle.dumps(topic_names))
-                )
-            ).pickled_events
+        return cast(
+            List[Event],
+            pickle.loads(
+                (
+                    await self._stub.get_events(
+                        EventsRequest(pickled_topic_names=pickle.dumps(topic_names))
+                    )
+                ).pickled_events
+            ),
         )
 
     async def register_job_runner(self, job_runner_type: str, address: str) -> None:
@@ -91,7 +96,7 @@ class MeadowFlowClientAsync:
 
         Currently the only supported types are "meadowgrid".
 
-        # TODO error handling, think about return type
+        TODO error handling, think about return type
         """
         await self._stub.register_job_runner(
             RegisterJobRunnerRequest(job_runner_type=job_runner_type, address=address)
@@ -101,7 +106,7 @@ class MeadowFlowClientAsync:
         self,
         job_name: TopicName,
         job_run_overrides: Optional[JobRunOverrides] = None,
-        wait_for_completion=False,
+        wait_for_completion: bool = False,
     ) -> None:
         """
         Execute the Run Action on the specified job.
@@ -120,12 +125,17 @@ class MeadowFlowClientAsync:
             ):
                 await asyncio.sleep(_POLL_PERIOD)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> MeadowFlowClientAsync:
         await self._channel.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self._channel.__aexit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return await self._channel.__aexit__(exc_type, exc_value, traceback)  # type: ignore[no-any-return]
 
 
 class MeadowFlowClientSync:
@@ -147,10 +157,13 @@ class MeadowFlowClientSync:
         )
 
     def get_events(self, topic_names: Optional[List[TopicName]]) -> List[Event]:
-        return pickle.loads(
-            self._stub.get_events(
-                EventsRequest(pickled_topic_names=pickle.dumps(topic_names))
-            ).pickled_events
+        return cast(
+            List[Event],
+            pickle.loads(
+                self._stub.get_events(
+                    EventsRequest(pickled_topic_names=pickle.dumps(topic_names))
+                ).pickled_events
+            ),
         )
 
     def register_job_runner(self, job_runner_type: str, address: str) -> None:
@@ -162,7 +175,7 @@ class MeadowFlowClientSync:
         self,
         job_name: TopicName,
         job_run_overrides: Optional[JobRunOverrides] = None,
-        wait_for_completion=False,
+        wait_for_completion: bool = False,
     ) -> None:
         response = self._stub.manual_run(
             ManualRunRequest(
@@ -176,9 +189,14 @@ class MeadowFlowClientSync:
             ):
                 time.sleep(_POLL_PERIOD)
 
-    def __enter__(self):
+    def __enter__(self) -> MeadowFlowClientSync:
         self._channel.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return self._channel.__exit__(exc_type, exc_val, exc_tb)
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Literal[False]:
+        return self._channel.__exit__(exc_type, exc_value, traceback)  # type: ignore[no-any-return]

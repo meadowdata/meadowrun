@@ -52,7 +52,7 @@ class ScopeInstantiated(EventFilter):
     scope_vars: frozenset
 
     @classmethod
-    def construct(cls, *args: Any):
+    def construct(cls, *args: Any) -> ScopeInstantiated:
         return ScopeInstantiated(frozenset(args))
 
     def topic_names_to_subscribe(self) -> Iterable[TopicName]:

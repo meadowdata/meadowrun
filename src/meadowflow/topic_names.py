@@ -1,11 +1,22 @@
-import collections
-from typing import TypeVar, Any, Dict
+from __future__ import annotations
 
-_TK = TypeVar("_TK")
-_TV = TypeVar("_TV")
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    Mapping,
+    Optional,
+    Tuple,
+    TypeVar,
+    overload,
+)
+
+TK = TypeVar("TK")
+TV = TypeVar("TV")
 
 
-class FrozenDict(collections.abc.Mapping[_TK, _TV]):
+class FrozenDict(Mapping[TK, TV]):
     """
     Heavily based on
     https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict
@@ -14,20 +25,42 @@ class FrozenDict(collections.abc.Mapping[_TK, _TV]):
     in
     """
 
-    def __init__(self, *args, **kwargs):
-        self._d = dict(*args, **kwargs)
-        self._hash = None
+    # Can't say I understand all of these overloads,
+    # but they're copied from Dict and work great!
+    @overload
+    def __init__(self: FrozenDict[TK, TV]) -> None:
+        ...
 
-    def __iter__(self):
+    @overload
+    def __init__(self: FrozenDict[str, TV], **kwargs: TV) -> None:
+        ...
+
+    @overload
+    def __init__(self, __map: Mapping[TK, TV], **kwargs: TV) -> None:
+        ...
+
+    @overload
+    def __init__(self, __iterable: Iterable[Tuple[TK, TV]], **kwargs: TV) -> None:
+        ...
+
+    @overload
+    def __init__(self: FrozenDict[str, str], __iterable: Iterable[list[str]]) -> None:
+        ...
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self._d: Dict[TK, TV] = dict(*args, **kwargs)
+        self._hash: Optional[int] = None
+
+    def __iter__(self) -> Iterator[TK]:
         return iter(self._d)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._d)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: TK) -> TV:
         return self._d[key]
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # It would have been simpler and maybe more obvious to use
         # hash(tuple(sorted(self._d.iteritems()))) from this discussion so far, but this
         # solution is O(n). I don't know what kind of n we are going to run into, but
@@ -40,10 +73,10 @@ class FrozenDict(collections.abc.Mapping[_TK, _TV]):
             self._hash = hash_
         return self._hash
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "FrozenDict" + self._d.__repr__()
 
-    def as_mutable(self) -> Dict[_TK, _TV]:
+    def as_mutable(self) -> Dict[TK, TV]:
         return self._d.copy()
 
 
@@ -68,7 +101,7 @@ class TopicName(FrozenDict[str, Any]):
 CURRENT_JOB = TopicName(__meadowflow_internal__="CURRENT_JOB")
 
 
-def pname(s: str, /, **kv) -> TopicName:
+def pname(s: str, /, **kv: Any) -> TopicName:
     """
     "pname" is short for "parse_name"--breaking the naming "rules" here as this function
     will be called "annoyingly often", so we want to make it as short as possible,

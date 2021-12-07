@@ -3,7 +3,7 @@ from __future__ import annotations
 import atexit
 import dataclasses
 import pickle
-from typing import Iterable, Dict, Sequence, Tuple, Set, Literal
+from typing import Iterable, Dict, Optional, Sequence, Tuple, Set, Literal
 
 # TODO consider making this work without the meadowdb dependency?
 import meadowdb.connection
@@ -31,7 +31,7 @@ class Effects:
 _effects = Effects()
 
 
-def reset_effects():
+def reset_effects() -> None:
     """
     This is needed when you want to run than one job in the same process, which can be
     advantageous because of sharing "good" global state (e.g. caches that properly
@@ -48,7 +48,7 @@ def reset_effects():
         conn.reset_effects()
 
 
-def get_effects():
+def get_effects() -> Effects:
     """Updates _effects and returns it"""
 
     # get meadowdb effects
@@ -178,7 +178,7 @@ class UntilMeadowdbWritten(meadowflow.topic.StatePredicate):
         return cls(job_name, table_names, "all")
 
 
-def _save_effects(result_file, result_pickle_protocol):
+def _save_effects(result_file: str, result_pickle_protocol: Optional[int]) -> None:
     """
     When meadowgrid runs a command, it's not able to wrap the process to guarantee that
     the effects get written out. If that's the case, we will do our best to make sure

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterable, Sequence, List, Callable, Any
+from typing import (
+    Generic,
+    Iterable,
+    Optional,
+    Sequence,
+    List,
+    Callable,
+    TypeVar,
+    TYPE_CHECKING,
+)
 
 from meadowflow.event_log import EventLog, Event, Timestamp
 from meadowflow.topic_names import TopicName
@@ -29,7 +38,16 @@ class Topic(ABC):
     name: TopicName
 
 
-class Action(ABC):
+TTopic = TypeVar("TTopic", bound=Topic)
+
+if TYPE_CHECKING:
+    # Action.run_overrides and available_job_runners' types
+    # cause circular import issues that are hard to resolve. In any case, as per the
+    # todo below, we want to change the signature of those fields eventually anyways
+    from meadowflow.jobs import JobRunOverrides, JobRunner
+
+
+class Action(ABC, Generic[TTopic]):
     """
     An Action can do something to a topic, and should involve the topic changing state
     after execution, i.e. it should create an event for the topic.
@@ -38,16 +56,12 @@ class Action(ABC):
     @abstractmethod
     async def execute(
         self,
-        topic: Topic,
-        # run_overrides should be meadowflow.jobs.JobRunOverrides, and
-        # available_job_runners should be List[ meadowflow.jobs.JobRunner], but these
-        # cause circular import issues that are hard to resolve. In any case, as per the
-        # todo below, we want to change the signature of this eventually anyways
-        run_overrides: Any,
-        available_job_runners: List[Any],
+        topic: TTopic,
+        run_overrides: Optional[JobRunOverrides],
+        available_job_runners: List[JobRunner],
         event_log: EventLog,
         timestamp: Timestamp,
-    ) -> Any:
+    ) -> str:
         """execute should call log.append_job_event"""
         # TODO the signature of execute doesn't make that much sense for actions other
         #  than run, we should reconsider these APIs when we add additional actions

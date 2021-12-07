@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Sequence
-from typing import Optional, Tuple, Any, Dict, Union
+from typing import Optional, Tuple, Any, Dict, Union, overload
 
 from meadowflow.event_log import EventLog, Event, Timestamp
 import meadowflow.jobs
@@ -27,7 +27,7 @@ class LatestEventsArg:
     topic_names: Sequence[TopicName]
 
     @classmethod
-    def construct(cls, *topic_names) -> LatestEventsArg:
+    def construct(cls, *topic_names: TopicName) -> LatestEventsArg:
         return LatestEventsArg(topic_names)
 
 
@@ -78,6 +78,26 @@ def replace_latest_events(
         raise ValueError(f"Unknown type {type(job_runner_function)}")
 
 
+@overload
+def _replace_latest_events_function(
+    function: meadowflow.jobs.LocalFunction,
+    job: meadowflow.jobs.Job,
+    event_log: EventLog,
+    latest_timestamp: Timestamp,
+) -> Tuple[bool, meadowflow.jobs.LocalFunction]:
+    ...
+
+
+@overload
+def _replace_latest_events_function(
+    function: MeadowGridFunction,
+    job: meadowflow.jobs.Job,
+    event_log: EventLog,
+    latest_timestamp: Timestamp,
+) -> Tuple[bool, MeadowGridFunction]:
+    ...
+
+
 def _replace_latest_events_function(
     function: Union[meadowflow.jobs.LocalFunction, MeadowGridFunction],
     job: meadowflow.jobs.Job,
@@ -88,7 +108,7 @@ def _replace_latest_events_function(
     Helper for replace_latest_events. This function should work on any dataclass that
     has a function_args and function_kwargs property
     """
-    to_replace = {}
+    to_replace: Dict[str, Sequence | Dict[str, Any]] = {}
 
     if function.function_args:
         need_replacement, new_args = _replace_latest_events_list(
@@ -167,7 +187,7 @@ def _replace_latest_events_arg(
     """Helper for replace_latest_events"""
     topic_names = arg.topic_names
     if len(topic_names) == 0:
-        topic_names = job.all_subscribed_topics
+        topic_names = job.all_subscribed_topics or tuple()
 
     return FrozenDict(
         (topic_name, event_log.last_event(topic_name, latest_timestamp))

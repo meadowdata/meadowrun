@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import pickle
-from typing import Iterable
+from types import TracebackType
+from typing import Iterable, Optional, Type
 
 from meadowflow.event_log import Event, EventLog
 from meadowflow.jobs import (
@@ -80,8 +83,9 @@ class MeadowGridJobRunner(JobRunner):
         """
 
         last_events = list(last_events)
+
         process_states = await self._client.get_simple_job_states(
-            [e.payload.request_id for e in last_events]
+            [e.payload.request_id for e in last_events]  # type: ignore[misc]
         )
 
         if len(last_events) != len(process_states):
@@ -175,9 +179,9 @@ class MeadowGridJobRunner(JobRunner):
             # in this function, new events could have been added
             updated_last_event = self._event_log.last_event(topic_name, timestamp)
 
-            if updated_last_event.payload.state != new_payload.state:
+            if updated_last_event.payload.state != new_payload.state:  # type: ignore[union-attr]
                 if (
-                    updated_last_event.payload.state == "RUN_REQUESTED"
+                    updated_last_event.payload.state == "RUN_REQUESTED"  # type: ignore[union-attr]
                     and new_payload.state != "RUNNING"
                 ):
                     self._event_log.append_event(
@@ -192,9 +196,14 @@ class MeadowGridJobRunner(JobRunner):
             (MeadowGridDeployedRunnable, LocalFunction),
         )
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> MeadowGridJobRunner:
         await self._client.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self._client.__aexit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return await self._client.__aexit__(exc_type, exc_value, traceback)  # type: ignore

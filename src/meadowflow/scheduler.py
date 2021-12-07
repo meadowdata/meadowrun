@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import asyncio
 import dataclasses
 import itertools
 import threading
 import traceback
 from asyncio import Task
+from types import TracebackType
 from typing import (
     Dict,
     List,
@@ -12,11 +15,11 @@ from typing import (
     Optional,
     Callable,
     Awaitable,
-    Sequence,
+    Type,
     Union,
     Literal,
-    Any,
     Set,
+    overload,
 )
 
 from meadowflow.event_log import Event, EventLog, Timestamp
@@ -34,12 +37,50 @@ from meadowflow.effects import MeadowdbDynamicDependency
 from meadowdb.connection import ConnectionKey
 
 
+@overload
+def _get_jobs_or_scopes_from_result(result: Job) -> Tuple[Literal["jobs"], List[Job]]:
+    ...
+
+
+@overload
 def _get_jobs_or_scopes_from_result(
-    result: Any,
-) -> Union[
-    Tuple[Literal["jobs"], Sequence[Job]],
-    Tuple[Literal["scopes"], Sequence[ScopeValues]],
-    Tuple[Literal["none"], None],
+    result: ScopeValues,
+) -> Tuple[Literal["scopes"], List[ScopeValues]]:
+    ...
+
+
+@overload
+def _get_jobs_or_scopes_from_result(
+    result: Union[
+        List[Job],
+        Tuple[Job, ...],
+    ],
+) -> Tuple[Literal["jobs"], Union[List[Job], Tuple[Job, ...], None]]:
+    ...
+
+
+@overload
+def _get_jobs_or_scopes_from_result(
+    result: Union[
+        List[ScopeValues],
+        Tuple[ScopeValues, ...],
+    ],
+) -> Tuple[Literal["scopes"], Union[List[ScopeValues], Tuple[ScopeValues, ...], None]]:
+    ...
+
+
+def _get_jobs_or_scopes_from_result(
+    result: Union[
+        Job,
+        ScopeValues,
+        List[Job],
+        List[ScopeValues],
+        Tuple[Job, ...],
+        Tuple[ScopeValues, ...],
+    ],
+) -> Tuple[
+    Literal["jobs", "scopes", "none"],
+    Union[List[Job], Tuple[Job, ...], List[ScopeValues], Tuple[ScopeValues, ...], None],
 ]:
     """
     If a job returns Job definitions or ScopeValues, we need to add those jobs/scopes to
@@ -132,7 +173,7 @@ class Scheduler:
         if event_loop is not None:
             self._event_loop: asyncio.AbstractEventLoop = event_loop
         else:
-            self._event_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+            self._event_loop = asyncio.new_event_loop()
         # we hang onto these tasks to allow for graceful shutdown
         self._main_loop_task: Optional[Task[None]] = None
         self._time_event_publisher_task: Optional[Task[None]] = None
@@ -470,7 +511,7 @@ class Scheduler:
                         )
 
     def manual_run(
-        self, job_name: TopicName, overrides: JobRunOverrides = None
+        self, job_name: TopicName, overrides: Optional[JobRunOverrides] = None
     ) -> None:
         """
         Execute the Run Action on the specified job.
@@ -501,7 +542,7 @@ class Scheduler:
         return await self._run_action(job, Actions.run, overrides)
 
     async def _run_action(
-        self, topic: Topic, action: Action, overrides: JobRunOverrides
+        self, topic: Topic, action: Action, overrides: Optional[JobRunOverrides]
     ) -> str:
         """Returns the request_id (see Run.execute for semantics of request_id)"""
         try:
@@ -512,10 +553,13 @@ class Scheduler:
                 self._event_log,
                 self._event_log.curr_timestamp,
             )
-        except Exception:
+        except Exception as e:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow
             traceback.print_exc()
+            # Since exceptions are already caught in execute and an event is logged in that
+            # case, we shouldn't be getting here
+            return f"Unexpected error: {str(e)}"
 
     def _get_running_and_requested_jobs(self) -> Iterable[Event[JobPayload]]:
         """
@@ -568,12 +612,18 @@ class Scheduler:
     def shutdown(self) -> None:
         if self._main_loop_task is not None:
             self._main_loop_task.cancel()
+        if self._time_event_publisher_task is not None:
             self._time_event_publisher_task.cancel()
 
-    def __enter__(self):
+    def __enter__(self) -> Scheduler:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         self.shutdown()
 
     def all_are_waiting(self) -> bool:

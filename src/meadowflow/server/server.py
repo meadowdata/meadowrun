@@ -30,20 +30,20 @@ class MeadowFlowServerHandler(MeadowFlowServerServicer):
     def __init__(self, scheduler: Scheduler):
         self._scheduler = scheduler
 
-    async def add_jobs(
+    async def add_jobs(  # type: ignore[override]
         self, request: AddJobsRequest, context: grpc.aio.ServicerContext
     ) -> AddJobsResponse:
         self._scheduler.add_jobs(pickle.loads(request.pickled_job_definitions))
         return AddJobsResponse(status="success")
 
-    async def instantiate_scopes(
+    async def instantiate_scopes(  # type: ignore[override]
         self, request: InstantiateScopesRequest, context: grpc.aio.ServicerContext
     ) -> InstantiateScopesResponse:
         for scope in pickle.loads(request.pickled_scopes):
             self._scheduler.instantiate_scope(scope)
         return InstantiateScopesResponse()
 
-    async def get_events(
+    async def get_events(  # type: ignore[override]
         self, request: EventsRequest, context: grpc.aio.ServicerContext
     ) -> Events:
         topic_names = pickle.loads(request.pickled_topic_names)
@@ -59,7 +59,7 @@ class MeadowFlowServerHandler(MeadowFlowServerServicer):
                 )
             )
 
-    async def register_job_runner(
+    async def register_job_runner(  # type: ignore[override]
         self, request: RegisterJobRunnerRequest, context: grpc.aio.ServicerContext
     ) -> RegisterJobRunnerResponse:
         # TODO some resemblance to jobs._JOB_RUNNER_TYPES here
@@ -77,7 +77,7 @@ class MeadowFlowServerHandler(MeadowFlowServerServicer):
 
         return RegisterJobRunnerResponse()
 
-    async def manual_run(
+    async def manual_run(  # type: ignore[override]
         self, request: ManualRunRequest, context: grpc.aio.ServicerContext
     ) -> ManualRunResponse:
         run_request_id = await self._scheduler.manual_run_on_event_loop(
@@ -88,7 +88,7 @@ class MeadowFlowServerHandler(MeadowFlowServerServicer):
 
 
 async def start_meadowflow_server(
-    scheduler: Scheduler, host: str = DEFAULT_HOST, port: str = DEFAULT_PORT
+    scheduler: Scheduler, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
 ) -> None:
     server = grpc.aio.server()
     add_MeadowFlowServerServicer_to_server(MeadowFlowServerHandler(scheduler), server)

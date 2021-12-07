@@ -5,7 +5,7 @@ import logging
 import multiprocessing
 import asyncio
 import contextlib
-from typing import ContextManager
+from typing import Iterator, Optional
 
 import meadowflow.server.server
 from meadowflow.scheduler import Scheduler
@@ -14,7 +14,7 @@ from meadowflow.server.config import DEFAULT_HOST, DEFAULT_PORT
 
 def main(
     host: str = DEFAULT_HOST,
-    port: str = DEFAULT_PORT,
+    port: int = DEFAULT_PORT,
     job_runner_poll_delay_seconds: float = Scheduler._JOB_RUNNER_POLL_DELAY_SECONDS,
 ) -> None:
     """A function for running a meadowflow server"""
@@ -38,9 +38,9 @@ def main(
 @contextlib.contextmanager
 def main_in_child_process(
     host: str = DEFAULT_HOST,
-    port: str = DEFAULT_PORT,
+    port: int = DEFAULT_PORT,
     job_runner_poll_delay_seconds: float = Scheduler._JOB_RUNNER_POLL_DELAY_SECONDS,
-) -> ContextManager[None]:
+) -> Iterator[Optional[int]]:
     """
     Launch server in a child process. Usually for unit tests. For debugging, it's better
     to just run server_main.py manually as a standalone process so you can debug it, see
@@ -58,7 +58,7 @@ def main_in_child_process(
         server_process.kill()
 
 
-def command_line_main():
+def command_line_main() -> None:
     logging.basicConfig(level=logging.INFO)
     main()
 

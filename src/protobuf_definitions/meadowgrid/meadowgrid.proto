@@ -221,7 +221,8 @@ message NextJobRequest {
 
 message NextJobResponse {
     Job job = 1;
-    repeated Credentials credentials = 2;
+    Credentials interpreter_deployment_credentials = 2;
+    Credentials code_deployment_credentials = 3;
 }
 
 
@@ -358,13 +359,7 @@ message UpdateStateResponse {
 
 // This represents a credentials source (see credentials.py)
 message AddCredentialsRequest {
-    enum CredentialsService {
-        DEFAULT = 0;
-        DOCKER = 1;
-        // TODO add support for git credentials
-    }
-
-    CredentialsService service = 1;
+    Credentials.Service service = 1;
     string service_url = 2;
     oneof source {
         AwsSecret aws_secret = 3;
@@ -376,25 +371,41 @@ message AddCredentialsRequest {
 
 // Represents actual credentials
 message Credentials {
-    AddCredentialsRequest.CredentialsService service = 1;
-    string service_url = 2;
-    bytes credentials = 3;
+    enum Service {
+        DEFAULT_SERVICE = 0;
+        DOCKER = 1;
+        GIT = 2;
+    }
+
+    enum Type {
+        DEFAULT_TYPE = 0;
+        USERNAME_PASSWORD = 1;
+        SSH_KEY = 2;
+    }
+
+    bytes credentials = 1;
 }
 
 
-// Represents credentials stored in AWS. Must be accessible by the coordinator. Expected
-// keys are "username" and "password", e.g. SecretString should be like
-// '{"username":"my_username","password":"my_password"}'
+// Represents credentials stored in AWS. Must be accessible by the coordinator.
+// - For credentials_type = USERNAME_PASSWORD: Expected keys are "username" and
+//   "password", e.g. SecretString should be like
+//   '{"username":"my_username","password":"my_password"}'
+// - For credentials_type = SSH_KEY: Expected key is "private_key", which should contain
+//   the contents of the SSH private key file
 message AwsSecret {
-    string secret_name = 1;
+    Credentials.Type credentials_type = 1;
+    string secret_name = 2;
 }
 
 
-// Represents credentials in a file. Must be a file accessible by the coordinator that
-// has username on the first line and password on the second line. Final newline
-// character is optional
+// Represents credentials in a file. Must be a file accessible by the coordinator.
+// - For credentials_type = USERNAME_PASSWORD: The file must have username on the first
+//   line and password on the second line. Final newline character is optional
+// - For credentials_type = SSH_KEY: The file should be an SSH private key file
 message ServerAvailableFile {
-    string path = 1;
+    Credentials.Type credentials_type = 1;
+    string path = 2;
 }
 
 

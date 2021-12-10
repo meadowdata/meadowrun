@@ -6,21 +6,20 @@ import itertools
 import pickle
 import random
 import traceback
-from typing import Dict, List, Union, Iterable, Optional, Sequence
+from typing import Dict, List, Union, Iterable, Optional, Sequence, Tuple
 
 import grpc.aio
 
 from meadowgrid.config import JOB_ID_VALID_CHARACTERS
 from meadowgrid.credentials import (
-    CredentialsSource,
-    get_pickled_credentials_from_source,
-    get_username_password_from_source,
+    CredentialsDict,
+    get_docker_credentials,
+    get_matching_credentials,
 )
 from meadowgrid.deployed_function import (
     get_latest_code_version,
     get_latest_interpreter_version,
 )
-from meadowgrid.docker_controller import get_registry_domain
 from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsRequest,
     AddCredentialsResponse,
@@ -167,8 +166,8 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         # TODO at some point we should remove completed and queried grid jobs from these
         #  lists
 
-        # maps service_url = docker registry domain -> credentials source
-        self._docker_credentials: Dict[str, CredentialsSource] = {}
+        # maps service -> (service_url, credentials)
+        self._credentials_dict: CredentialsDict = {}
 
     async def _resolve_deployments(self, job: Job) -> Job:
         """
@@ -189,25 +188,17 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             # automatically unset git_repo_branch. The types are a bit sketchy here, but
             # should be okay
             job.git_repo_commit.CopyFrom(
-                await get_latest_code_version(job.git_repo_branch)
+                await get_latest_code_version(
+                    job.git_repo_branch, self._credentials_dict
+                )
             )
 
         interpreter_deployment = job.WhichOneof("interpreter_deployment")
         if interpreter_deployment == "container_at_tag":
-            registry_domain, _ = get_registry_domain(job.container_at_tag.repository)
-            if registry_domain in self._docker_credentials:
-                # okay to let this throw an exception--it is called from add_job, so
-                # that call will just fail
-                username_password = get_username_password_from_source(
-                    self._docker_credentials[registry_domain]
-                )
-            else:
-                username_password = None
-
             # see comment above about protobuf oneof behavior
             job.container_at_digest.CopyFrom(
                 await get_latest_interpreter_version(
-                    job.container_at_tag, username_password
+                    job.container_at_tag, self._credentials_dict
                 )
             )
 
@@ -305,7 +296,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                     f"Got an update for a grid job {job_state.process_state.state}. "
                     + " ".join(
                         [
-                            error,
+                            str(error),
                             str(job_state.process_state.pid),
                             job_state.process_state.container_id,
                             job_state.process_state.log_file_name,
@@ -324,28 +315,51 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return UpdateStateResponse()
 
-    def _get_credentials_for_job(self, job: Job) -> Iterable[Credentials]:
-        """Collects credentials that are relevant to job"""
+    def _get_credentials_for_job(
+        self, job: Job
+    ) -> Tuple[Optional[Credentials], Optional[Credentials]]:
+        """
+        Returns code_deployment_credentials, interpreter_deployment_credentials
+
+        Very important--assumes that _resolve_deployments has already been called on
+        job, i.e. assumes that container_at_tag and git_repo_branch are not possible.
+        """
+
+        code_deployment_credentials, interpreter_deployment_credentials = None, None
+
+        if job.WhichOneof("code_deployment") == "git_repo_commit":
+            try:
+                credentials = get_matching_credentials(
+                    Credentials.Service.GIT,
+                    job.git_repo_commit.repo_url,
+                    self._credentials_dict,
+                )
+                if credentials is not None:
+                    code_deployment_credentials = Credentials(
+                        credentials=pickle.dumps(credentials)
+                    )
+            except Exception:
+                # TODO ideally this would make it back to an error message for job if it
+                #  eventually fails (and maybe even if it doesn't)
+                print("Error trying to turn credentials source into actual credentials")
+                traceback.print_exc()
+
         if job.WhichOneof("interpreter_deployment") == "container_at_digest":
-            registry_domain = get_registry_domain(job.container_at_digest.repository)[0]
-            if registry_domain in self._docker_credentials:
-                credentials_source = self._docker_credentials[registry_domain]
-                try:
-                    yield Credentials(
-                        service=AddCredentialsRequest.CredentialsService.DOCKER,
-                        service_url=registry_domain,
-                        credentials=get_pickled_credentials_from_source(
-                            credentials_source
-                        ),
+            try:
+                credentials = get_docker_credentials(
+                    job.container_at_digest.repository, self._credentials_dict
+                )
+                if credentials is not None:
+                    # TODO ideally we would use the pickle version that the remote job
+                    #  can accept
+                    interpreter_deployment_credentials = Credentials(
+                        credentials=pickle.dumps(credentials)
                     )
-                except Exception:
-                    # TODO ideally this would make it back to an error message for job
-                    #  if it eventually fails (and maybe even if it doesn't)
-                    print(
-                        "Error trying to turn credentials source into actual "
-                        "credentials"
-                    )
-                    traceback.print_exc()
+            except Exception:
+                print("Error trying to turn credentials source into actual credentials")
+                traceback.print_exc()
+
+        return code_deployment_credentials, interpreter_deployment_credentials
 
     async def get_next_job(
         self, request: NextJobRequest, context: grpc.aio.ServicerContext
@@ -411,8 +425,15 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             else:
                 raise ValueError(f"Unexpected type of job {type(job)}")
 
+            (
+                code_deployment_credentials,
+                interpreter_deployment_credentials,
+            ) = self._get_credentials_for_job(job.job)
+
             return NextJobResponse(
-                job=job.job, credentials=list(self._get_credentials_for_job(job.job))
+                job=job.job,
+                code_deployment_credentials=code_deployment_credentials,
+                interpreter_deployment_credentials=interpreter_deployment_credentials,
             )
         else:
             return NextJobResponse()
@@ -509,15 +530,9 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     async def add_credentials(
         self, request: AddCredentialsRequest, context: grpc.aio.ServicerContext
     ) -> AddCredentialsResponse:
-        source = getattr(request, request.WhichOneof("source"))
-
-        if request.service == AddCredentialsRequest.CredentialsService.DOCKER:
-            # TODO we might want to support more than one set of credentials per
-            #  registry domain rather than just overwriting any older set of credentials
-            self._docker_credentials[request.service_url] = source
-        else:
-            raise ValueError(f"Unrecognized CredentialsService {request.service}")
-
+        self._credentials_dict.setdefault(request.service, []).append(
+            (request.service_url, getattr(request, request.WhichOneof("source")))
+        )
         return AddCredentialsResponse()
 
 

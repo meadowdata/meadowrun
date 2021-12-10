@@ -3,8 +3,10 @@ import dataclasses
 import os
 import pathlib
 import shutil
+import tempfile
 from typing import Literal, List, Optional, Tuple, Dict, Sequence
 
+from meadowgrid.credentials import RawCredentials, SshKey
 from meadowgrid.meadowgrid_pb2 import Job, GitRepoCommit
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
@@ -29,18 +31,51 @@ class _GitRepoLocalClone:
     ]
 
 
-async def _run_git(args: List[str], cwd: Optional[str] = None) -> Tuple[str, str]:
+async def _run_git(
+    args: List[str], cwd: str, credentials: Optional[RawCredentials]
+) -> Tuple[str, str]:
     """Runs a git command in an external process. Returns stdout, stderr"""
-    p = await asyncio.create_subprocess_exec(
-        # TODO make the location of the git executable configurable
-        "git",
-        *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    if credentials is None:
+        p = await asyncio.create_subprocess_exec(
+            # TODO make the location of the git executable configurable
+            "git",
+            *args,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await p.communicate()
+    elif isinstance(credentials, SshKey):
+        fd, filename = tempfile.mkstemp()
+        try:
+            os.write(fd, credentials.private_key.encode("utf-8"))
+            os.close(fd)
 
-    stdout, stderr = await p.communicate()
+            env = os.environ.copy()
+            # TODO investigate rules for GIT_SSH_COMMAND escaping on Windows and Linux
+            escaped_private_key_file = filename.replace("\\", "\\\\")
+            # TODO perhaps warn if GIT_SSH_COMMAND is somehow already populated?
+            env[
+                "GIT_SSH_COMMAND"
+            ] = f"ssh -i {escaped_private_key_file} -o IdentitiesOnly=yes"
+
+            p = await asyncio.create_subprocess_exec(
+                "git",
+                *args,
+                cwd=cwd,
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await p.communicate()
+        finally:
+            # TODO we should try even harder to delete the temporary file even if the
+            #  process crashes before getting to this finally
+            os.remove(filename)
+
+    else:
+        # TODO we should add support for username/password, e.g. from an OAuth flow
+        raise ValueError(f"Unknown type of RawCredentials {type(credentials)}")
 
     if p.returncode != 0:
         raise ValueError(
@@ -81,7 +116,9 @@ class CodeDeploymentManager:
         # that local clone)
         self._git_local_clones_lock = asyncio.Lock()
 
-    async def get_code_paths(self, job: Job) -> Sequence[str]:
+    async def get_code_paths(
+        self, job: Job, credentials: Optional[RawCredentials]
+    ) -> Sequence[str]:
         """
         Returns code_paths based on Job.code_deployment. code_paths will have paths to
         folders that are available on this machine that contain "the user's code". Code
@@ -97,7 +134,9 @@ class CodeDeploymentManager:
         if case == "server_available_folder":
             return job.server_available_folder.code_paths
         elif case == "git_repo_commit":
-            return await self._get_git_repo_commit_code_paths(job.git_repo_commit)
+            return await self._get_git_repo_commit_code_paths(
+                job.git_repo_commit, credentials
+            )
         elif case == "git_repo_branch":
             raise ValueError(
                 "Programming error: git_repo_branch should have been resolved in the "
@@ -158,7 +197,7 @@ class CodeDeploymentManager:
             return local_clone
 
     async def _get_git_repo_commit_code_paths(
-        self, git_repo_commit: GitRepoCommit
+        self, git_repo_commit: GitRepoCommit, credentials: Optional[RawCredentials]
     ) -> Sequence[str]:
         """Returns code_paths for GitRepoCommit"""
 
@@ -169,20 +208,24 @@ class CodeDeploymentManager:
             local_path = os.path.join(self._git_repos_folder, local_clone.local_name)
             if local_clone.state == "new":
                 # TODO do something with output?
-                _ = await _run_git(["clone", git_repo_commit.repo_url, local_path])
+                _ = await _run_git(
+                    ["clone", git_repo_commit.repo_url, local_path],
+                    self._git_repos_folder,
+                    credentials,
+                )
                 local_clone.state = "initialized"
             else:
                 # TODO do something with output?
-                _ = await _run_git(["fetch"], cwd=local_path)
+                _ = await _run_git(["fetch"], local_path, credentials)
 
             # TODO we should (maybe) prevent very ambiguous specifications like HEAD
             out, err = await _run_git(
-                ["rev-parse", git_repo_commit.commit], cwd=local_path
+                ["rev-parse", git_repo_commit.commit], local_path, credentials
             )
             commit_hash = out.strip()
             # TODO do something with output?
             # get and checkout the specified hash
-            _ = await _run_git(["checkout", commit_hash], cwd=local_path)
+            _ = await _run_git(["checkout", commit_hash], local_path, credentials)
 
             # copy the specified version of this repo from local_path into
             # local_copy_path

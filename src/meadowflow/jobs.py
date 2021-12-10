@@ -20,12 +20,13 @@ from typing import (
     Callable,
 )
 
-from meadowflow.event_log import EventLog, Event, Timestamp
-import meadowflow.topic
 import meadowflow.effects
 import meadowflow.events_arg
+import meadowflow.topic
+from meadowflow.event_log import EventLog, Event, Timestamp
 from meadowflow.scopes import ScopeValues, BASE_SCOPE, ALL_SCOPES
 from meadowflow.topic_names import TopicName, FrozenDict, CURRENT_JOB
+from meadowgrid.credentials import CredentialsDict
 from meadowgrid.deployed_function import (
     CodeDeployment,
     CodeDeploymentTypes,
@@ -200,7 +201,9 @@ class JobRunOverrides:
 
 
 async def _apply_job_run_overrides(
-    run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
+    run_overrides: JobRunOverrides,
+    job_runner_function: JobRunnerFunction,
+    credentials_dict: CredentialsDict,
 ) -> JobRunnerFunction:
     """Applies run_overrides to job_runner_function"""
     if run_overrides is not None:
@@ -214,7 +217,7 @@ async def _apply_job_run_overrides(
             run_overrides, job_runner_function
         )
         job_runner_function = await _apply_overrides_code_deployment(
-            run_overrides, job_runner_function
+            run_overrides, job_runner_function, credentials_dict
         )
 
     return job_runner_function
@@ -304,13 +307,15 @@ def _apply_overrides_meadowdb_userspace(
 
 
 async def _apply_overrides_code_deployment(
-    run_overrides: JobRunOverrides, job_runner_function: JobRunnerFunction
+    run_overrides: JobRunOverrides,
+    job_runner_function: JobRunnerFunction,
+    credentials_dict: CredentialsDict,
 ) -> JobRunnerFunction:
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.code_deployment is not None:
         if isinstance(run_overrides.code_deployment, VersionedCodeDeploymentTypes):
             new_deployment = await get_latest_code_version(
-                run_overrides.code_deployment
+                run_overrides.code_deployment, credentials_dict
             )
         elif isinstance(run_overrides.code_deployment, CodeDeploymentTypes):
             new_deployment = run_overrides.code_deployment
@@ -363,11 +368,13 @@ class Run(meadowflow.topic.Action):
         try:
             # now try to run the job
 
+            # TODO meadowflow needs to store credentials the same way that the
+            #  meadowgrid coordinator does, or share them, or something. Currently
+            #  we are passing None because we don't have any.
+            credentials_dict = {}
+
             # convert a job_function into a job_runner_function
             if isinstance(job.job_function, MeadowGridVersionedDeployedRunnable):
-                # TODO meadowflow needs to store credentials the same way that the
-                #  meadowgrid coordinator does, or share them, or something. Currently
-                #  we are passing None because we don't have any.
                 # It's a little bit unfortunate that this resolution from e.g.
                 # GitRepoBranch to GitRepoCommit happens both in meadowflow and the
                 # meadowgrid coordinator, but it's a bit unavoidable. Grid jobs that
@@ -376,7 +383,9 @@ class Run(meadowflow.topic.Action):
                 # to resolve these so we can record the exact GitRepoCommit we ran with
                 # and also present the user with options to run with different
                 # commits/branches.
-                job_runner_function = await job.job_function.get_latest(None)
+                job_runner_function = await job.job_function.get_latest(
+                    credentials_dict
+                )
             elif isinstance(job.job_function, JobRunnerFunctionTypes):
                 job_runner_function = job.job_function
             else:
@@ -387,7 +396,7 @@ class Run(meadowflow.topic.Action):
 
             # Apply any JobRunOverrides
             job_runner_function = await _apply_job_run_overrides(
-                run_overrides, job_runner_function
+                run_overrides, job_runner_function, credentials_dict
             )
 
             # replace any LatestEventArgs

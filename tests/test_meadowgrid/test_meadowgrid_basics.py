@@ -57,7 +57,7 @@ def test_meadowgrid_server_available_folder_container_digest():
         ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
         asyncio.run(
             get_latest_interpreter_version(
-                ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), None
+                ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), {}
             )
         ),
     )

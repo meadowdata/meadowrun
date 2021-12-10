@@ -4,8 +4,9 @@ import dataclasses
 import importlib
 import sys
 import types
-from typing import Any, Dict, Sequence, Callable, Optional, Union, Tuple
+from typing import Any, Dict, Sequence, Callable, Optional, Union
 
+from meadowgrid.credentials import get_docker_credentials, CredentialsDict
 from meadowgrid.docker_controller import get_latest_digest_from_registry
 from meadowgrid.meadowgrid_pb2 import (
     ContainerAtDigest,
@@ -98,8 +99,13 @@ VersionedInterpreterDeploymentTypes = (ContainerAtTag,)
 VersionedInterpreterDeployment = Union[VersionedInterpreterDeploymentTypes]
 
 
-async def get_latest_code_version(code: VersionedCodeDeployment) -> CodeDeployment:
-    if isinstance(code, GitRepoBranch):
+async def get_latest_code_version(
+    code: Union[CodeDeployment, VersionedCodeDeployment],
+    credentials_dict: CredentialsDict,
+) -> CodeDeployment:
+    if isinstance(code, CodeDeploymentTypes):
+        return code
+    elif isinstance(code, GitRepoBranch):
         # TODO this is a stub for now. We should remove logic for translating a branch
         #  into a commit in _get_git_repo_commit_interpreter_and_code and implement it
         #  here using git ls-remote
@@ -111,23 +117,30 @@ async def get_latest_code_version(code: VersionedCodeDeployment) -> CodeDeployme
             path_in_repo=code.path_in_repo,
         )
     else:
-        raise ValueError(f"Unknown VersionedCodeDeployment type {type(code)}")
+        raise ValueError(
+            f"Unknown CodeDeployment/VersionedCodeDeployment type {type(code)}"
+        )
 
 
 async def get_latest_interpreter_version(
-    interpreter: VersionedInterpreterDeployment,
-    username_password: Optional[Tuple[str, str]],
+    interpreter: Union[InterpreterDeployment, VersionedInterpreterDeployment],
+    credentials_dict: CredentialsDict,
 ) -> InterpreterDeployment:
-    if isinstance(interpreter, ContainerAtTag):
+    if isinstance(interpreter, InterpreterDeploymentTypes):
+        return interpreter
+    elif isinstance(interpreter, ContainerAtTag):
         return ContainerAtDigest(
             repository=interpreter.repository,
             digest=await get_latest_digest_from_registry(
-                interpreter.repository, interpreter.tag, username_password
+                interpreter.repository,
+                interpreter.tag,
+                get_docker_credentials(interpreter.repository, credentials_dict),
             ),
         )
     else:
         raise ValueError(
-            f"Unknown VersionedInterpreterDeployment type {type(interpreter)}"
+            "Unknown InterpreterDeployment/VersionedInterpreterDeployment type "
+            f"{type(interpreter)}"
         )
 
 
@@ -165,32 +178,18 @@ class MeadowGridVersionedDeployedRunnable:
     environment_variables: Optional[Dict[str, str]] = None
 
     async def get_latest(
-        self, username_password: Optional[Tuple[str, str]]
+        self, credentials_dict: CredentialsDict
     ) -> MeadowGridDeployedRunnable:
-        if isinstance(self.code_deployment, CodeDeploymentTypes):
-            code_deployment = self.code_deployment
-        elif isinstance(self.code_deployment, VersionedCodeDeploymentTypes):
-            code_deployment = await get_latest_code_version(self.code_deployment)
-        elif self.code_deployment is None:
+        if self.code_deployment is None:
             code_deployment = ServerAvailableFolder()
         else:
-            raise ValueError(
-                f"Unexpected code_deployment type {type(self.code_deployment)}"
+            code_deployment = await get_latest_code_version(
+                self.code_deployment, credentials_dict
             )
 
-        if isinstance(self.interpreter_deployment, InterpreterDeploymentTypes):
-            interpreter_deployment = self.interpreter_deployment
-        elif isinstance(
-            self.interpreter_deployment, VersionedInterpreterDeploymentTypes
-        ):
-            interpreter_deployment = await get_latest_interpreter_version(
-                self.interpreter_deployment, username_password
-            )
-        else:
-            raise ValueError(
-                "Unexpected interpreter_deployment type "
-                f"{type(self.interpreter_deployment)}"
-            )
+        interpreter_deployment = await get_latest_interpreter_version(
+            self.interpreter_deployment, credentials_dict
+        )
 
         return MeadowGridDeployedRunnable(
             code_deployment,

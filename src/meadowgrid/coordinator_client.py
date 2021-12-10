@@ -33,6 +33,7 @@ from meadowgrid.meadowgrid_pb2 import (
     AwsSecret,
     ContainerAtDigest,
     ContainerAtTag,
+    Credentials,
     GitRepoBranch,
     GitRepoCommit,
     GridTask,
@@ -332,7 +333,7 @@ def _add_credentials_request(
     service: CredentialsService, service_url: str, source: CredentialsSource
 ) -> AddCredentialsRequest:
     result = AddCredentialsRequest(
-        service=AddCredentialsRequest.CredentialsService.Value(service),
+        service=Credentials.Service.Value(service),
         service_url=service_url,
     )
     if isinstance(source, AwsSecret):

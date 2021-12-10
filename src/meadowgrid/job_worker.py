@@ -37,6 +37,7 @@ from meadowgrid.config import (
     MEMORY_GB,
 )
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersAsync
+from meadowgrid.credentials import RawCredentials
 from meadowgrid.docker_controller import (
     run_container,
     get_image_environment_variables,
@@ -44,8 +45,6 @@ from meadowgrid.docker_controller import (
 )
 from meadowgrid.exclusive_file_lock import exclusive_file_lock
 from meadowgrid.meadowgrid_pb2 import (
-    AddCredentialsRequest,
-    Credentials,
     Job,
     JobStateUpdate,
     ProcessState,
@@ -335,7 +334,8 @@ async def _launch_job(
     coordinator_address: str,
     deployment_manager: CodeDeploymentManager,
     free_resources: Callable[[], None],
-    credentials: Sequence[Credentials],
+    code_deployment_credentials: Optional[RawCredentials],
+    interpreter_deployment_credentials: Optional[RawCredentials],
 ) -> Tuple[JobStateUpdate, Optional[asyncio.Task[Optional[JobStateUpdate]]]]:
     """
     Gets the deployment needed and launches a child process to run the specified job.
@@ -401,7 +401,9 @@ async def _launch_job(
         job_spec_transformed.environment_variables.update(
             **_string_pairs_to_dict(job.environment_variables)
         )
-        code_paths = await deployment_manager.get_code_paths(job)
+        code_paths = await deployment_manager.get_code_paths(
+            job, code_deployment_credentials
+        )
         log_file_name = os.path.join(
             job_logs_folder, f"{job.job_friendly_name}.{job.job_id}.log"
         )
@@ -424,18 +426,9 @@ async def _launch_job(
         elif is_container:
             if interpreter_deployment == "container_at_digest":
                 container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"
-                # assume that if the coordinator sent us any docker credentials, it only
-                # gave us one, and that's what we need for pulling the image
-                docker_credentials = [
-                    c
-                    for c in credentials
-                    if c.service == AddCredentialsRequest.CredentialsService.DOCKER
-                ]
-                if len(docker_credentials) > 0:
-                    docker_credentials = pickle.loads(docker_credentials[0].credentials)
-                else:
-                    docker_credentials = None
-                await pull_image(container_image_name, docker_credentials)
+                await pull_image(
+                    container_image_name, interpreter_deployment_credentials
+                )
             elif interpreter_deployment == "server_available_container":
                 container_image_name = job.server_available_container.image_name
                 # server_available_container assumes that we do not need to pull, and it
@@ -1001,6 +994,21 @@ async def job_worker_main_loop(
                         if resource.name in available_resources:
                             available_resources[resource.name] += resource.value
 
+                # unpickle credentials if necessary
+                if next_job_response.code_deployment_credentials.credentials:
+                    code_deployment_credentials = pickle.loads(
+                        next_job_response.code_deployment_credentials.credentials
+                    )
+                else:
+                    code_deployment_credentials = None
+
+                if next_job_response.interpreter_deployment_credentials.credentials:
+                    interpreter_deployment_credentials = pickle.loads(
+                        next_job_response.interpreter_deployment_credentials.credentials
+                    )
+                else:
+                    interpreter_deployment_credentials = None
+
                 launching_jobs.add(
                     asyncio.create_task(
                         _launch_job(
@@ -1010,7 +1018,8 @@ async def job_worker_main_loop(
                             coordinator_address,
                             deployment_manager,
                             free_resources,
-                            next_job_response.credentials,
+                            code_deployment_credentials,
+                            interpreter_deployment_credentials,
                         )
                     )
                 )

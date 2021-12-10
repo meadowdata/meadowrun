@@ -21,22 +21,24 @@ We'll use terminology consistent with Docker:
 Normal usage is e.g. `docker pull [repository]:[tag]` or `docker pull
 [repository]:[digest]`.
 """
+from __future__ import annotations
+
 import asyncio
 import hashlib
-import urllib.request
 import urllib.parse
-from typing import Tuple, Optional, List, Dict, Sequence
+import urllib.request
+from typing import Tuple, Optional, List, Dict
 
 import aiodocker
 import aiodocker.containers
 import aiohttp
+from aiodocker import DockerError
 
+import meadowgrid.credentials
 
 # When no registry domain is specified, docker assumes this as the registry domain.
 # I.e. `docker pull python:latest` is equivalent to `docker pull
 # registry-1.docker.io/python:latest`. This is also referred to as DockerHub.
-from aiodocker import DockerError
-
 _DEFAULT_REGISTRY_DOMAIN = "registry-1.docker.io"
 # With the default (DockerHub) registry, if there's no "/" in the repository name,
 # docker assumes this as the prefix. I.e. `docker pull python:latest` is equivalent to
@@ -123,7 +125,9 @@ def get_registry_domain(repository: str) -> Tuple[str, str]:
 
 
 async def get_latest_digest_from_registry(
-    repository: str, tag: str, username_password: Optional[Tuple[str, str]]
+    repository: str,
+    tag: str,
+    credentials: Optional[meadowgrid.credentials.RawCredentials],
 ) -> str:
     """
     Queries the Docker Registry HTTP API to get the current digest of the specified
@@ -169,10 +173,12 @@ async def get_latest_digest_from_registry(
     manifests_url = f"https://{registry_domain}/v2/{repository}/manifests/{tag}"
     headers = {"Accept": _MANIFEST_ACCEPT_HEADER_FOR_DIGEST}
 
-    if username_password is not None:
-        basic_auth = aiohttp.BasicAuth(username_password[0], username_password[1])
-    else:
+    if credentials is None:
         basic_auth = None
+    elif isinstance(credentials, meadowgrid.credentials.UsernamePassword):
+        basic_auth = aiohttp.BasicAuth(credentials.username, credentials.password)
+    else:
+        raise ValueError(f"Unexpected type of credentials {type(credentials)}")
 
     manifests_text: Optional[bytes] = None
 
@@ -280,7 +286,9 @@ async def _does_digest_exist_locally(image: str) -> bool:
         raise
 
 
-async def pull_image(image: str, username_password: Optional[Tuple[str, str]]) -> None:
+async def pull_image(
+    image: str, credentials: Optional[meadowgrid.credentials.RawCredentials]
+) -> None:
     """
     Pulls the requested image. Relatively thin wrapper around
     aiodocker.Docker.images.pull
@@ -293,15 +301,17 @@ async def pull_image(image: str, username_password: Optional[Tuple[str, str]]) -
     if not await _does_digest_exist_locally(image):
 
         # construct the auth parameter as aiodocker expects it
-        if username_password is None:
+        if credentials is None:
             auth = None
-        else:
+        elif isinstance(credentials, meadowgrid.credentials.UsernamePassword):
             domain, _ = get_registry_domain(image)
             auth = {
-                "username": username_password[0],
-                "password": username_password[1],
+                "username": credentials.username,
+                "password": credentials.password,
                 "serveraddress": domain,
             }
+        else:
+            raise ValueError(f"Unexpected type of credentials {type(credentials)}")
 
         # pull the image
         print(f"Pulling docker image {image}")

@@ -199,7 +199,7 @@ class Connection:
         self,
         table_name: str,
         delete_where_equal_df: pd.DataFrame,
-        userspace_spec: UserspaceSpec = None,
+        userspace_spec: Optional[UserspaceSpec] = None,
     ) -> None:
         """
         delete_where_equal_df should also be a pandas dataframe that has a subset of the
@@ -215,7 +215,9 @@ class Connection:
         """
         self.write(table_name, None, userspace_spec, delete_where_equal_df)
 
-    def delete_all(self, table_name: str, userspace_spec: UserspaceSpec = None) -> None:
+    def delete_all(
+        self, table_name: str, userspace_spec: Optional[UserspaceSpec] = None
+    ) -> None:
         """Deletes all data in the specified table"""
         self.write(table_name, None, userspace_spec, None, True)
 
@@ -223,7 +225,7 @@ class Connection:
         self,
         table_name: str,
         userspace_spec: Optional[UserspaceSpec] = None,
-        max_version_number: int = None,
+        max_version_number: Optional[int] = None,
     ) -> reader.MdbTable:
         """Returns a MdbTable object that can be used to query userspace/table_name"""
 

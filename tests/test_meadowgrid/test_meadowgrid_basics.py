@@ -38,7 +38,6 @@ from meadowgrid.meadowgrid_pb2 import (
     ServerAvailableInterpreter,
 )
 
-
 EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()
 )
@@ -125,7 +124,7 @@ async def _wait_for_process(
     """wait (no more than ~10s) for the remote process to finish"""
     t0 = time.time()
     i = 0
-    results = None
+    results: Sequence[ProcessState]
     while (
         i == 0
         or results[0].state

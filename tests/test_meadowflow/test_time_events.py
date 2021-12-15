@@ -1,6 +1,6 @@
 import datetime
 from pprint import pprint
-from typing import Tuple, List
+from typing import Optional, Tuple, List
 
 import pytz
 import threading
@@ -98,11 +98,11 @@ def test_call_at_callbacks_before_running():
         task.cancel()
 
 
-def _dt_to_str(dt):
+def _dt_to_str(dt: datetime.datetime) -> str:
     return dt.strftime("%Y-%m-%d-%H-%M-%S-%f-%z-%Z")
 
 
-def _date_to_str(dt):
+def _date_to_str(dt: datetime.date) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
@@ -311,9 +311,11 @@ def _test_time_event_publisher_time_of_day():
             datetime.datetime.combine(today_nz + day_delta, datetime.time())
         )
 
-        expected_payloads: List[Tuple[str, str, str, str]] = []
+        expected_payloads: List[Tuple[str, Optional[str], str, str]] = []
 
-        def payload_to_strs(payload: TimeOfDayPayload) -> Tuple[str, str, str, str]:
+        def payload_to_strs(
+            payload: TimeOfDayPayload,
+        ) -> Tuple[str, Optional[str], str, str]:
             return (
                 _timedelta_to_str(payload.local_time_of_day),
                 payload.time_zone.zone,

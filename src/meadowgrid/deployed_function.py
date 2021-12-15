@@ -4,7 +4,7 @@ import dataclasses
 import importlib
 import sys
 import types
-from typing import Any, Dict, Sequence, Callable, Optional, Union
+from typing import Any, Dict, Final, Sequence, Callable, Optional, Union, get_args
 
 from meadowgrid.credentials import get_docker_credentials, CredentialsDict
 from meadowgrid.docker_controller import get_latest_digest_from_registry
@@ -73,30 +73,29 @@ class MeadowGridFunction:
 
 Runnable = Union[MeadowGridCommand, MeadowGridFunction]
 
-CodeDeploymentTypes = (ServerAvailableFolder, GitRepoCommit)
-CodeDeployment = Union[CodeDeploymentTypes]
+CodeDeployment = Union[ServerAvailableFolder, GitRepoCommit]
+CodeDeploymentTypes: Final = get_args(CodeDeployment)
 
-InterpreterDeploymentTypes = (
-    ServerAvailableInterpreter,
-    ContainerAtDigest,
-    ServerAvailableContainer,
-)
-InterpreterDeployment = Union[InterpreterDeploymentTypes]
+
+InterpreterDeployment = Union[
+    ServerAvailableInterpreter, ContainerAtDigest, ServerAvailableContainer
+]
+InterpreterDeploymentTypes: Final = get_args(InterpreterDeployment)
 
 
 # Similar to a CodeDeployment, but instead of a single version of the code (e.g. a
 # specific commit in a git repo), specifies a versioned codebase (e.g. a git repo) where
 # we can e.g. get the latest, select an old version.
-VersionedCodeDeploymentTypes = (GitRepoBranch,)
-VersionedCodeDeployment = Union[VersionedCodeDeploymentTypes]
+VersionedCodeDeployment = GitRepoBranch
+VersionedCodeDeploymentTypes: Final = (VersionedCodeDeployment,)
 
 
 # Similar to InterpreterDeployment, but instead of a single version of the interpreter
 # (e.g. a specific digest in a container repository), specifies a versioned set of
 # interpreters (e.g. an entire container repository) where we can e.g. get the latest or
 # select an old version.
-VersionedInterpreterDeploymentTypes = (ContainerAtTag,)
-VersionedInterpreterDeployment = Union[VersionedInterpreterDeploymentTypes]
+VersionedInterpreterDeployment = ContainerAtTag
+VersionedInterpreterDeploymentTypes: Final = (VersionedCodeDeployment,)
 
 
 async def get_latest_code_version(

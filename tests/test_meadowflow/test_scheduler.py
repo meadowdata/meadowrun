@@ -50,7 +50,8 @@ def _run_latest_events(events: FrozenDict[TopicName, Optional[Event]]) -> Any:
 
     # get the latest event
     latest_topic_name, latest_event = max(
-        events.items(), key=lambda kv: kv[1].timestamp
+        ((topic, event) for (topic, event) in events.items() if event is not None),
+        key=lambda kv: kv[1].timestamp,
     )
 
     # if the latest event was a JobPayload, return the topic name and result value,

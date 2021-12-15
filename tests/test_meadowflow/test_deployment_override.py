@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, cast
 
 from meadowflow.jobs import Job, JobRunOverrides
 from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
@@ -78,7 +78,7 @@ def test_deployment_override() -> None:
                 expected_num_events += 3
                 assert len(events) == expected_num_events
                 assert events[0].payload.state == "SUCCEEDED"
-                return events[0].payload.result_value
+                return cast(str, events[0].payload.result_value)
 
             # same as original
             result = result_with_deployment(

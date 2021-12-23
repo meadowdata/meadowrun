@@ -179,9 +179,9 @@ class MeadowGridJobRunner(JobRunner):
             # in this function, new events could have been added
             updated_last_event = self._event_log.last_event(topic_name, timestamp)
 
-            if updated_last_event.payload.state != new_payload.state:  # type: ignore[union-attr]
+            if updated_last_event.payload.state != new_payload.state:  # type: ignore[union-attr] # noqa E501
                 if (
-                    updated_last_event.payload.state == "RUN_REQUESTED"  # type: ignore[union-attr]
+                    updated_last_event.payload.state == "RUN_REQUESTED"  # type: ignore[union-attr] # noqa E501
                     and new_payload.state != "RUNNING"
                 ):
                     self._event_log.append_event(
@@ -206,4 +206,4 @@ class MeadowGridJobRunner(JobRunner):
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> Optional[bool]:
-        return await self._client.__aexit__(exc_type, exc_value, traceback)  # type: ignore
+        return await self._client.__aexit__(exc_type, exc_value, traceback)  # type: ignore # noqa E501

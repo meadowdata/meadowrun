@@ -310,7 +310,7 @@ class Scheduler:
                             # the EventFilter
                             if any(
                                 event_filter.apply(event)
-                                for topic_name in event_filter.topic_names_to_subscribe()
+                                for topic_name in event_filter.topic_names_to_subscribe()  # noqa E501
                                 for event in self._event_log.events(
                                     topic_name, low_timestamp, high_timestamp
                                 )
@@ -557,8 +557,8 @@ class Scheduler:
             # TODO this function isn't awaited, so exceptions need to make it back into
             #  the scheduler somehow
             traceback.print_exc()
-            # Since exceptions are already caught in execute and an event is logged in that
-            # case, we shouldn't be getting here
+            # Since exceptions are already caught in execute and an event is logged in
+            # that case, we shouldn't be getting here
             return f"Unexpected error: {str(e)}"
 
     def _get_running_and_requested_jobs(self) -> Iterable[Event[JobPayload]]:

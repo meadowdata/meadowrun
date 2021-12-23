@@ -522,12 +522,16 @@ class AllJobStatePredicate(meadowflow.topic.StatePredicate):
         return True
 
 
-# Note 1: this really belongs in scopes.py but the circular dependencies make it hard to do that.
-# Note 2: This Callable typing is the best Mypy can do at the moment - ideally we'd like to
-#         express that the first argument of Func is ScopesValues, and the first argument of the
-#         result is FrozenDict, but until https://github.com/python/mypy/issues/7311 and other
-#         related issues are resolved that does not seem practically possible without variadic
-#         callback support.
+# Note 1
+# This really belongs in scopes.py but the circular dependencies make it hard to
+# do that.
+#
+# Note 2
+# This Callable typing is the best Mypy can do at the moment - ideally
+# we'd like to express that the first argument of Func is ScopesValues, and the first
+# argument of the result is FrozenDict, but until
+# https://github.com/python/mypy/issues/7311 and other related issues are resolved that
+# does not seem practically possible without variadic callback support.
 def add_scope_jobs_decorator(
     func: Callable[..., Sequence[Job]],
 ) -> Callable[..., Sequence[Job]]:

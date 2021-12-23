@@ -88,7 +88,7 @@ def get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
                     "one for username, and one for password"
                 )
             # strip just the trailing newlines, other whitespace might be needed
-            lines = [l.rstrip("\r\n") for l in lines]
+            lines = [line.rstrip("\r\n") for line in lines]
 
             return UsernamePassword(lines[0], lines[1])
         elif source.credentials_type == Credentials.Type.SSH_KEY:

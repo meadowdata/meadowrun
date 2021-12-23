@@ -28,7 +28,7 @@ jobs:
         poetry run black --check .
     - name: Run flake8
       run: |
-        poetry run flake8 ./src/meadowdb ./src/meadowflow/
+        poetry run flake8 ./src/
     - name: Run Mypy
       run: |
         poetry run mypy

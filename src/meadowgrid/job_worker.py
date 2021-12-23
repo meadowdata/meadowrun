@@ -425,7 +425,7 @@ async def _launch_job(
             container_id = ""
         elif is_container:
             if interpreter_deployment == "container_at_digest":
-                container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"
+                container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"  # noqa E501
                 await pull_image(
                     container_image_name, interpreter_deployment_credentials
                 )

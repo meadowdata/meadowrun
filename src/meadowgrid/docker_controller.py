@@ -218,7 +218,7 @@ async def get_latest_digest_from_registry(
                 # www-authenticate header should tell us everything we need to know to
                 # construct the request for the token. Example of a www-authenticate
                 # header is
-                # `Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/python:pull"`
+                # `Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/python:pull"` # noqa E501
                 auth_params = urllib.request.parse_keqv_list(
                     urllib.request.parse_http_list(auth_params)
                 )

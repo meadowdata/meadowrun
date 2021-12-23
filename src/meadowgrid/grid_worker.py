@@ -63,7 +63,7 @@ def _main_loop(
                         function = pickle.load(f)
 
                 if pickled_arguments_path:
-                    print(f"Unpickling partial function arguments")
+                    print("Unpickling partial function arguments")
                     with open(pickled_arguments_path, "rb") as f:
                         args, kwargs = pickle.load(f)
 

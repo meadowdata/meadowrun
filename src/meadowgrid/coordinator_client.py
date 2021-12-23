@@ -5,7 +5,6 @@ from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List
 
 import grpc
 import grpc.aio
-import grpc.aio
 
 from meadowgrid.config import (
     DEFAULT_COORDINATOR_ADDRESS,

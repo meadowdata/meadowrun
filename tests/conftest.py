@@ -1,12 +1,12 @@
 import pathlib
 import tempfile
+from typing import Generator
 
-import meadowdb
 import pytest
 
 
 @pytest.fixture()
-def mdb_data_dir() -> str:
+def mdb_data_dir() -> Generator[str, None, None]:
     with tempfile.TemporaryDirectory() as tmp_path:
         tmp_meadowdb = pathlib.Path(tmp_path) / "meadowdb"
         tmp_meadowdb.mkdir()

@@ -91,9 +91,9 @@ def test_resources():
                     {"foo": 1, LOGICAL_CPU: 0, MEMORY_GB: 0} for _ in range(5)
                 )
                 # So we should see 2 jobs running at a time:
-                # TODO we should also be able to assert that e.g. task[2] starts as soon as
-                #  task[1] finishes, i.e. task_times[2] - task_times[1] < 1.25 (or some
-                #  tolerance), but right now our overhead appears to be 1s or more
+                # TODO we should also be able to assert that e.g. task[2] starts as soon
+                # as task[1] finishes, i.e. task_times[2] - task_times[1] < 1.25 (or
+                # some tolerance), but right now our overhead appears to be 1s or more
                 assert task_times[1] - task_times[0] < 0.25
                 assert task_times[2] - task_times[1] > 1
                 assert task_times[3] - task_times[2] < 0.25

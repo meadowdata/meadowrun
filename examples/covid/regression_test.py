@@ -5,7 +5,6 @@ cdc_covid_data_smoothed job as an example.
 
 import datetime
 import os.path
-import sys
 import uuid
 
 from meadowgrid.meadowgrid_pb2 import ServerAvailableFolder

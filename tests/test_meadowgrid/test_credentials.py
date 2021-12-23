@@ -22,7 +22,7 @@ _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
 
 
 def manual_test_docker_credentials_file():
-    """
+    r"""
     This is a manual test because it requires out-of-band steps to set up.
 
     1. Create an account on DockerHub if you don't have one already. Replace
@@ -96,7 +96,7 @@ _PRIVATE_GIT_REPOSITORY = "git@github.com:hrichardlee/test_repo.git"
 
 
 def manual_test_git_ssh_key_file():
-    """
+    r"""
     This is a manual test because it requires out-of-band steps to set up.
 
     1. Create an account on Github if you don't have one already. Replace "hrichardlee"
@@ -134,7 +134,7 @@ def manual_test_git_ssh_key_file():
 
 
 def manual_test_git_ssh_key_aws_secret():
-    """
+    r"""
     Follow the same steps as in manual_test_git_ssh_key_file but just an additional
     step before 6:
 

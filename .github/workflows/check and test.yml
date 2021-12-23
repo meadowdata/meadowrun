@@ -28,7 +28,7 @@ jobs:
         poetry run black --check .
     - name: Run flake8
       run: |
-        poetry run flake8 ./src/
+        poetry run flake8
     - name: Run Mypy
       run: |
         poetry run mypy

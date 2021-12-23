@@ -127,7 +127,7 @@ async def _wait_for_process(
     results: Sequence[ProcessState]
     while (
         i == 0
-        or results[0].state
+        or results[0].state  # noqa F821
         in (
             ProcessStateEnum.RUN_REQUESTED,
             ProcessStateEnum.ASSIGNED,

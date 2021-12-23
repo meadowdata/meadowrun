@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, cast
+from typing import Any
 import duckdb
 import pandas as pd
 import os
@@ -34,12 +34,11 @@ class KeyValueStore(ABC):
 
 
 class FileSystemStore(KeyValueStore):
-    """Values are persisted as files on a file system,
-    under a given root directory.
+    """
+    Values are persisted as files on a file system, under a given root directory.
 
-    Note this means that any path separators in the keys
-    are interpreted as such, which means it's trivial
-    to "break out" of the root dir.
+    Note this means that any path separators in the keys are interpreted as such, which
+    means it's trivial to "break out" of the root dir.
     """
 
     def __init__(self, root_dir: str) -> None:

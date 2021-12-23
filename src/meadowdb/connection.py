@@ -15,7 +15,7 @@ try:
     # we try to import meadowflow.effects because we want to make sure that
     # _save_effects gets registered in the case where the user code only references
     # meadowdb and not meadowflow.effects
-    import meadowflow.effects
+    import meadowflow.effects  # noqa F401
 except Exception:
     pass
 
@@ -28,16 +28,16 @@ _default_userspace_spec: Optional[UserspaceSpec] = None
 def get_default_userspace_spec() -> UserspaceSpec:
     """
     Gets the default userspace spec, which can be set via environment variable
-    MEADOWDB_DEFAULT_USERSPACE or by the set_default_userspace function.
-    Whenever userspace is not set, the default userspace will be used.
+    MEADOWDB_DEFAULT_USERSPACE or by the set_default_userspace function. Whenever
+    userspace is not set, the default userspace will be used.
 
-    MEADOWDB_DEFAULT_USERSPACE is a comma separated list of userspace names. The
-    last is UserspaceSpec.tip, and the first are added to UserspaceSpec.bases in
-    the order given. This order is the order in which changes from the given
-    userspace are combined on read.
+    MEADOWDB_DEFAULT_USERSPACE is a comma separated list of userspace names. The last is
+    UserspaceSpec.tip, and the first are added to UserspaceSpec.bases in the order
+    given. This order is the order in which changes from the given userspace are
+    combined on read.
 
-    Thematically, this would make sense in meadowflow.context, but preferable
-    not to introduce that dependency.
+    Thematically, this would make sense in meadowflow.context, but preferable not to
+    introduce that dependency.
     """
     global _default_userspace_spec
     if _default_userspace_spec is None:
@@ -46,8 +46,10 @@ def get_default_userspace_spec() -> UserspaceSpec:
             userspaces = userspace_spec_str.split(",")
             if not userspaces:
                 raise ValueError(
-                    f"The environment variable {_MEADOWDB_DEFAULT_USERSPACE} is set, but is not a valid userspace spec. "
-                    "Please set it to a comma-separated list of at least one userspace name, for example 'main,test-space'."
+                    f"The environment variable {_MEADOWDB_DEFAULT_USERSPACE} is set, "
+                    "but is not a valid userspace spec. Please set it to a "
+                    "comma-separated list of at least one userspace name, for "
+                    "example 'main,test-space'."
                 )
 
             _default_userspace_spec = UserspaceSpec(
@@ -66,8 +68,8 @@ def set_default_userspace_spec(
 ) -> Generator[None, None, None]:
     """
     Usage:
-    with set_default_userspace(userspace_spec):
-        # read and write
+    >>> with set_default_userspace_spec(userspace_spec):
+    >>>     # read and write
 
     In the with block, the default userspace spec will be "userspace_spec". It
     can still be overwritten by giving an explicit userspace_spec argument when

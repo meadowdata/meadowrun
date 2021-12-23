@@ -93,7 +93,8 @@ def _get_table_versions_base_to_tip(
 
     if not table_versions:
         raise ValueError(
-            f"Requested table {table_name} does not exist in any userspace {', '.join(userspace_spec.userspaces_base_to_tip())}"
+            f"Requested table {table_name} does not exist in any userspace: "
+            f"{', '.join(userspace_spec.userspaces_base_to_tip())}"
         )
 
     return table_versions
@@ -122,8 +123,8 @@ class MdbTable:
     optionally limit to a subset of rows/columns before materializing. Some illustrative
     examples:
 
-    > t[['column1', 'column2']]  # limit to a subset of columns
-    > t[t['column1'].between(100, 200)]  # limit to a subset of rows
+    >>> t[['column1', 'column2']] # limit to a subset of columns
+    >>> t[t['column1'].between(100, 200)] # limit to a subset of rows
     """
 
     def __init__(
@@ -417,27 +418,28 @@ COMPARISON_LITERAL_TYPE = Union[str, datetime.datetime, int, float]
 class MdbColumn:
     """
     Represents a column from a MdbTable. Supports:
-    > col == X, col != X, col < X, col <= X, col > X, col >= X, col.between(X, Y),
-    > col.isin([X, Y, Z])
+    >>> col == X, col != X, col < X, col <= X, col > X, col >= X
+    >>> col.between(X, Y)
+    >>> col.isin([X, Y, Z])
     where X, Y, Z are literals to compare against.
 
     This can also be directly materialized into a pd.Series with to_pd.
 
     This technically also implements MdbBoolColumn, as it's possible that this is a bool
     column coming directly from the data, but because it requires calling
-    _interpret_as_bool first, it's easier to not have it implement MdbBoolColumn
+    _interpret_as_bool first, it's easier to not have it implement MdbBoolColumn.
     """
 
     def __init__(self, mdb_table: MdbTable, column_name: str):
         self._mdb_table = mdb_table
         self._column_name = column_name
 
-    def __eq__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:  # type: ignore[override]
+    def __eq__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:  # type: ignore[override] # noqa E501
         return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "=", other
         )
 
-    def __ne__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:  # type: ignore[override]
+    def __ne__(self, other: COMPARISON_LITERAL_TYPE) -> MdbBoolColumn:  # type: ignore[override] # noqa E501
         return MdbComputedBoolColumnOpSingleArg(
             self._mdb_table, self._column_name, "!=", other
         )
@@ -524,8 +526,8 @@ class MdbBoolColumn(abc.ABC):
 
 class MdbComputedBoolColumnOpArg(MdbBoolColumn, abc.ABC):
     """
-    Represents a bool computed column of the form column `op` arg, e.g.
-    t['column1'] == 3
+    Represents a bool computed column of the form column `op` arg, e.g. t['column1'] ==
+    3
     """
 
     def __init__(
@@ -555,15 +557,15 @@ class MdbComputedBoolColumnOpArg(MdbBoolColumn, abc.ABC):
     def _assert_table_version_is_same(self, mdb_table: MdbTable) -> None:
         if self._mdb_table._version_number != mdb_table._version_number:
             raise ValueError(
-                f"Using a series from a different table in a row selector is not "
-                f"supported"
+                "Using a series from a different table in a row selector is not "
+                "supported"
             )
 
 
 class MdbComputedBoolColumnOpSingleArg(MdbComputedBoolColumnOpArg):
     """
-    Represents a bool computed column of the form column `op` arg, with
-    a single argument e.g. t['column1'] == 3
+    Represents a bool computed column of the form column `op` arg, with a single
+    argument e.g. t['column1'] == 3
     """
 
     def __init__(
@@ -607,8 +609,8 @@ class MdbComputedBoolColumnOpSingleArg(MdbComputedBoolColumnOpArg):
 
 class MdbComputedBoolColumnOpTwoArgs(MdbComputedBoolColumnOpArg):
     """
-    Represents a bool computed column of the form column `op` arg with
-    two arguments, e.g. t['column1'],between(0, 3)
+    Represents a bool computed column of the form column `op` arg with two arguments,
+    e.g. t['column1'],between(0, 3)
     """
 
     def __init__(
@@ -645,8 +647,8 @@ class MdbComputedBoolColumnOpTwoArgs(MdbComputedBoolColumnOpArg):
 
 class MdbComputedBoolColumnOpManyArgs(MdbComputedBoolColumnOpArg):
     """
-    Represents a bool computed column of the form column `op` arg,
-    with many arguments e.g. t['column1'].isin(1,2,3)
+    Represents a bool computed column of the form column `op` arg, with many arguments
+    e.g. t['column1'].isin(1,2,3)
     """
 
     def __init__(
@@ -683,7 +685,7 @@ class MdbComputedBoolColumnOpManyArgs(MdbComputedBoolColumnOpArg):
 class MdbComputedBoolColumnOpColumn(MdbBoolColumn):
     """
     Represents a bool computed column of the form column `op` column, e.g.
-    (t['column1'] == 3) & (t['column2'] < 10)
+    >>> (t['column1'] == 3) & (t['column2'] < 10)
     """
 
     def __init__(

@@ -14,8 +14,8 @@ class TableVersionsClientLocal:
     In general, behavior is undefined if more than one client is pointed to a single
     data_dir.
 
-    TODO can provide a better guarantee on a file system
-    TODO add support for S3-compatible API
+    TODO can provide a better guarantee on a file system TODO add support for
+    S3-compatible API
     """
 
     TABLE_VERSIONS: Final = "table_versions.pkl"
@@ -84,8 +84,8 @@ class TableVersionsClientLocal:
     ) -> Optional[int]:
         """
         Add a table version, ensure that there is no existing data for that
-        userspace/table_name or table_id. Returns None if these checks fail, returns
-        the version number written if successful.
+        userspace/table_name or table_id. Returns None if these checks fail, returns the
+        version number written if successful.
         """
         with self._lock:
             if (userspace, table_name) in self._table_names_current:

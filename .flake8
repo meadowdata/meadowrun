@@ -1,0 +1,5 @@
+[flake8]
+# Match black line length
+max-line-length = 88
+# Don't complain about unused imports in init.py
+per-file-ignores = __init__.py:F401

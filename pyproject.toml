@@ -33,7 +33,6 @@ boto3 = "^1.20.17"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.4"
-pylint = "^2.8.2"
 mypy = "0.*"
 black = {version = "^21.6b0", allow-prereleases = true}
 grpcio-tools = "^1.39.0"
@@ -41,6 +40,8 @@ pandas-stubs = "^1.2.0"
 types-protobuf = "^3.18.2"
 types-pytz = "^2021.3.1"
 mypy-protobuf = "^3.0.0"
+flake8 = "^4.0.1"
+style-doc = "^0.2.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -1,6 +1,9 @@
 name: check and test
 
-on: [push]
+on:
+  push:
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
@@ -23,6 +26,9 @@ jobs:
     - name: Run Black
       run: |
         poetry run black --check .
+    - name: Run flake8
+      run: |
+        poetry run flake8 ./src/meadowdb
     - name: Run Mypy
       run: |
         poetry run mypy

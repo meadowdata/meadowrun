@@ -3,27 +3,26 @@ Types/functions used by both the reader and writer.
 
 Overview of overall data structure layout:
 
-    TableVersionsClientLocal:
-    # filename: 'table_versions'
-        table_names_history: List[TableName] 
-            versioned lookup of userspace and tablename to a stable id
-            userspace, table_name, version -> table_id
-        table_version_history: List[TableVersion]
-            versioned lookup of table id to schema and log
-            log determines contents of the table, containing writes and deletes
-            table_id, version -> table_schema_filename, table_log_filename
-
-    # table_schema_filename: 'table_schema.{table_id}.{uuid}'
-        table_schema: TableSchema
-            columns_names_and_types: NOT IMPLEMENTED,
-            deduplication_keys: list of column names to use as the key for deduplicating rows
-
-    # table_log_filename: 'data_list.{table_id}.{uuid}'
-        table_log_entries: List[TableLogEntry]
-        TableLogEntry: Write data_filename | Delete data_filename | DeleteAll
-
-    # data_filename: '{write|delete}.{table_id}.{uuid}]'
-        data: DataFrame
+TableVersionsClientLocal:
+# filename: 'table_versions'
+    table_names_history: List[TableName]
+        versioned lookup of userspace and tablename to a stable id
+        userspace, table_name, version -> table_id
+    table_version_history: List[TableVersion]
+        versioned lookup of table id to schema and log
+        log determines contents of the table,
+        containing writes and deletes
+        table_id, version -> table_schema_filename, table_log_filename
+# table_schema_filename: 'table_schema.{table_id}.{uuid}'
+    table_schema: TableSchema
+        columns_names_and_types: NOT IMPLEMENTED,
+        deduplication_keys: list of column names to use as the key for
+        deduplicating rows
+# table_log_filename: 'data_list.{table_id}.{uuid}'
+    table_log_entries: List[TableLogEntry]
+    TableLogEntry: Write data_filename | Delete data_filename | DeleteAll
+# data_filename: '{write|delete}.{table_id}.{uuid}]'
+    data: DataFrame
 
 """
 
@@ -138,21 +137,23 @@ MAIN_USERSPACE_NAME: Final = "main"
 
 @dataclass(frozen=True)
 class UserspaceSpec:
-    """Specify userspace layering.
+    """
+    Specify userspace layering.
 
-    The tip userspace is written to, and also read from.
-    Any userspaces in bases are read from.
-    The changes from bases and tip are combined according to the given mode.
+    The tip userspace is written to, and also read from. Any userspaces in bases are
+    read from. The changes from bases and tip are combined according to the given mode.
     """
 
     tip: str = MAIN_USERSPACE_NAME
     bases: Tuple[str, ...] = tuple()
     # TODO add fields here to specify different ways of reading and writing.
-    # e.g. could add "branch" mode where tip starts from certain version in base.
-    # e.g. could have a mode where changes from bases and tips are added in version order.
+    # e.g. could add "branch" mode where tip starts from certain version in
+    # base.
+    # e.g. could have a mode where changes from bases and tips are added
+    # in version order.
     # e.g. combine specific version ranges from bases and tip
-    # Note these could have different constraints (for branches, hard to see how to combine more than two)
-    # so subclassing may be a good idea.
+    # Note these could have different constraints (for branches, hard to see
+    # how to combine more than two) so subclassing may be a good idea.
 
     def userspaces_base_to_tip(self) -> Tuple[str, ...]:
         """Returns userspaces in base to tip order."""
@@ -160,14 +161,17 @@ class UserspaceSpec:
 
     @staticmethod
     def main() -> UserspaceSpec:
-        """Reads and writes to main userspace only.
+        """
+        Reads and writes to main userspace only.
 
-        Equivalent to UserspaceSpec()."""
+        Equivalent to UserspaceSpec().
+        """
         return UserspaceSpec()
 
     @staticmethod
     def main_with_tip(tip_userspace: str) -> UserspaceSpec:
-        """Writes to a given userspace, overlaying it on the prod userspace.
+        """
+        Writes to a given userspace, overlaying it on the prod userspace.
 
         Args:
             tip_on_main (str): name of the tip userspace.

@@ -34,4 +34,4 @@ jobs:
         poetry run mypy
     - name: Run Pytest
       run: |
-        poetry run pytest tests/test_meadowdb
+        poetry run pytest tests/test_meadowdb tests/test_meadowflow/test_event_log.py tests/test_meadowflow/test_time_events.py

@@ -5,28 +5,28 @@ import asyncio
 import asyncio.events
 import datetime
 import functools
+import heapq
 import threading
+import time
 import traceback
 from dataclasses import dataclass, field
 from typing import (
-    Iterable,
-    Dict,
+    Any,
     Callable,
+    Dict,
+    Iterable,
     List,
+    Literal,
     Optional,
     Protocol,
     Union,
-    Any,
-    Literal,
 )
-import time
-import heapq
 
 import pytz
 
 from meadowflow.event_log import Event, EventLog, Timestamp
+from meadowflow.topic import AllPredicate, EventFilter, StatePredicate, TopicEventFilter
 from meadowflow.topic_names import TopicName, pname
-from meadowflow.topic import EventFilter, TopicEventFilter, StatePredicate, AllPredicate
 
 # We would ideally use pytz.BaseTzInfo but that doesn't have the .normalize method on it
 PytzTzInfo = Union[pytz.tzinfo.StaticTzInfo, pytz.tzinfo.DstTzInfo]
@@ -746,45 +746,46 @@ class _CallAt:
             return
         self._is_running = True
 
-        while not self._is_shutting_down:
-            # with the lock, figure out what we need to do next
-            with self._lock:
-                self._queue_modified.clear()
+        try:
+            while not self._is_shutting_down:
+                # with the lock, figure out what we need to do next
+                with self._lock:
+                    self._queue_modified.clear()
 
-                if len(self._callback_queue) == 0:
-                    # if we have no callbacks, scheduled just wait for one to get
-                    # scheduled
-                    next_step = "wait_for_heap_modified"
-                else:
-                    next_callback = self._callback_queue[0]
-                    now = _time_time()
-                    if next_callback.timestamp > now:
-                        # if the next callback is in the future, sleep until it's time
-                        # for that callback (and also watch out for new callbacks that
-                        # get scheduled)
-                        next_step = "wait_for_next_callback"
+                    if len(self._callback_queue) == 0:
+                        # if we have no callbacks scheduled, wait for one to get
+                        # scheduled
+                        next_step = "wait_for_heap_modified"
                     else:
-                        # if the next callback is in the past/present, execute it
-                        next_step = "call_next_callback"
-                        heapq.heappop(self._callback_queue)
+                        next_callback = self._callback_queue[0]
+                        now = _time_time()
+                        if next_callback.timestamp > now:
+                            # if the next callback is in the future, sleep until it's
+                            # time for that callback (and also watch out for new
+                            # callbacks that get scheduled)
+                            next_step = "wait_for_next_callback"
+                        else:
+                            # if the next callback is in the past/present, execute it
+                            next_step = "call_next_callback"
+                            heapq.heappop(self._callback_queue)
 
-            # without the lock, do the next step
-            if next_step == "wait_for_heap_modified":
-                await self._queue_modified.wait()
-            elif next_step == "wait_for_next_callback":
-                print(f"About to sleep for {next_callback.timestamp - now}")
-                await asyncio.wait(  # type: ignore[type-var]
-                    [
-                        asyncio.create_task(self._queue_modified.wait()),
-                        asyncio.create_task(
-                            asyncio.sleep(next_callback.timestamp - now)
-                        ),
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-            else:
-                try:
-                    next_callback.callback()
-                except Exception:
-                    # TODO do something smarter here...
-                    traceback.print_exc()
+                # without the lock, do the next step
+                if next_step == "wait_for_heap_modified":
+                    await self._queue_modified.wait()
+                elif next_step == "wait_for_next_callback":
+                    print(f"About to sleep for {next_callback.timestamp - now}")
+                    try:
+                        await asyncio.wait_for(
+                            self._queue_modified.wait(),
+                            timeout=next_callback.timestamp - now,
+                        )
+                    except asyncio.exceptions.TimeoutError:
+                        pass
+                else:
+                    try:
+                        next_callback.callback()
+                    except Exception:
+                        # TODO do something smarter here...
+                        traceback.print_exc()
+        except asyncio.exceptions.CancelledError:
+            pass

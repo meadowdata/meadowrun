@@ -15,7 +15,6 @@ from meadowflow.time_event_publisher import (
     TimeEventPublisher,
     TimeOfDayPayload,
     _timedelta_to_str,
-    PytzTzInfo,
     Periodic,
     TimeOfDay,
     PointInTime,
@@ -331,7 +330,7 @@ def _test_time_event_publisher_time_of_day():
             # any jitter you want to add
             time_increment: datetime.timedelta,
             # the local timezone
-            time_zone: PytzTzInfo,
+            time_zone: pytz.BaseTzInfo,
         ):
             time_of_day = now_local - date_dt_local + time_increment
             p.create_time_of_day(TimeOfDay(time_of_day, time_zone))

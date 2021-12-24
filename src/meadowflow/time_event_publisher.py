@@ -10,26 +10,13 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Literal,
-    Optional,
-    Protocol,
-    Union,
-)
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Protocol
 
 import pytz
 
 from meadowflow.event_log import Event, EventLog, Timestamp
 from meadowflow.topic import AllPredicate, EventFilter, StatePredicate, TopicEventFilter
 from meadowflow.topic_names import TopicName, pname
-
-# We would ideally use pytz.BaseTzInfo but that doesn't have the .normalize method on it
-PytzTzInfo = Union[pytz.tzinfo.StaticTzInfo, pytz.tzinfo.DstTzInfo]
 
 
 def _datetime_has_timezone(dt: datetime.datetime) -> bool:
@@ -180,7 +167,7 @@ class TimeOfDay(TimeEventFilterPlaceholder):
     """
 
     local_time_of_day: datetime.timedelta
-    time_zone: PytzTzInfo
+    time_zone: pytz.BaseTzInfo
 
     def create(self, time_event_publisher: TimeEventPublisher) -> EventFilter:
         return time_event_publisher.create_time_of_day(self)
@@ -191,7 +178,7 @@ class TimeOfDayPayload:
     # The original local_time_of_day parameter used to create the trigger
     local_time_of_day: datetime.timedelta
     # The original time zone used to create the trigger
-    time_zone: PytzTzInfo
+    time_zone: pytz.BaseTzInfo
     # The date we're triggering for. Note that this does not have to be the current day
     # (e.g. if local_time_of_day is <0 or >24hours)
     date: datetime.date

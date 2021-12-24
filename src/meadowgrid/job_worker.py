@@ -526,7 +526,7 @@ async def _launch_non_container_job(
     # we intentionally overwrite any existing PYTHONPATH--if for some reason we need the
     # current server process' code for the child process, the user needs to include it
     # directly
-    env_vars["PYTHONPATH"] = ";".join(code_paths)
+    env_vars["PYTHONPATH"] = os.pathsep.join(code_paths)
 
     # We believe that interpreter_path can be one of two formats,
     # python_or_venv_dir/python or python_or_venv_dir/Scripts/python. We need to add the
@@ -537,7 +537,7 @@ async def _launch_non_container_job(
         scripts_dir = str(interpreter_path.parent.resolve())
     else:
         scripts_dir = str((interpreter_path.parent / "Scripts").resolve())
-    env_vars["PATH"] = scripts_dir + ";" + env_vars["PATH"]
+    env_vars["PATH"] = scripts_dir + os.pathsep + env_vars["PATH"]
 
     # Next, merge in env_vars_to_add, computed in the caller. These should take
     # precedence.

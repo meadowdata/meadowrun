@@ -45,10 +45,10 @@ class EventLog:
     it like a pub-sub system
 
     TODO there are a lot of weird assumptions about what's called "on the event loop" vs
-     from outside of it/on a different thread and what's threadsafe
+    from outside of it/on a different thread and what's threadsafe
 
     TODO EventLog should be persisting data (potentially create a LocalEventLog and a
-     PersistedEventLog)
+    PersistedEventLog)
     """
 
     def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
@@ -208,35 +208,38 @@ class EventLog:
                 "EventLog.call_subscribers_loop was called from a different _event_loop"
                 " than expected"
             )
+        try:
+            while True:
+                await self._notify_call_subscribers.wait()
+                self._notify_call_subscribers.clear()
 
-        while True:
-            await self._notify_call_subscribers.wait()
-            self._notify_call_subscribers.clear()
+                try:
+                    # get the list of subscribers that need to be called
+                    subscribers: Set[Subscriber] = self._universal_subscribers.copy()
+                    low_timestamp = self._subscribers_called_timestamp
+                    high_timestamp = self._next_timestamp
+                    for event in self.events(None, low_timestamp, high_timestamp):
+                        subscribers.update(
+                            self._topic_subscribers.get(event.topic_name, set())
+                        )
 
-            try:
-                # get the list of subscribers that need to be called
-                subscribers: Set[Subscriber] = self._universal_subscribers.copy()
-                low_timestamp = self._subscribers_called_timestamp
-                high_timestamp = self._next_timestamp
-                for event in self.events(None, low_timestamp, high_timestamp):
-                    subscribers.update(
-                        self._topic_subscribers.get(event.topic_name, set())
+                    # call the subscribers
+                    # TODO I think ideal behavior here would be to
+                    # retry failures 3 times or something before giving up on a
+                    # subscriber. Current behavior is very bad--failure in one
+                    # subscriber means we will never progress. I think the outer
+                    # try/except is probably not necessary.
+                    await asyncio.gather(
+                        *(
+                            subscriber(low_timestamp, high_timestamp)
+                            for subscriber in subscribers
+                        )
                     )
 
-                # call the subscribers
-                # TODO I think ideal behavior here would be to retry failures 3 times or
-                #  something before giving up on a subscriber. Current behavior is very
-                #  bad--failure in one subscriber means we will never progress. I think
-                #  the outer try/except is probably not necessary.
-                await asyncio.gather(
-                    *(
-                        subscriber(low_timestamp, high_timestamp)
-                        for subscriber in subscribers
-                    )
-                )
-
-                self._subscribers_called_timestamp = high_timestamp
-            except Exception:
-                # TODO this function isn't awaited, so exceptions need to make it back
-                #  into the scheduler somehow
-                traceback.print_exc()
+                    self._subscribers_called_timestamp = high_timestamp
+                except Exception:
+                    # TODO this function isn't awaited, so exceptions need to make it
+                    # back into the scheduler somehow
+                    traceback.print_exc()
+        except asyncio.CancelledError:
+            pass  # we're being cancelled, that's OK

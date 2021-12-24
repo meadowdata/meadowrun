@@ -1,13 +1,11 @@
-import asyncio
 import threading
-import time
 
 from meadowflow.event_log import Event, EventLog, Timestamp
 from meadowflow.topic_names import pname
 
 
-def test_append_event() -> None:
-    log = EventLog(asyncio.new_event_loop())
+def test_append_event(event_loop) -> None:
+    log = EventLog(event_loop)
     log.append_event(pname("A"), "waiting")
     actual = list(log.events(None, 0, 1))
     expected = [Event(0, pname("A"), "waiting")]
@@ -22,8 +20,8 @@ def test_append_event() -> None:
     assert expected == actual
 
 
-def test_events_and_state() -> None:
-    log = EventLog(asyncio.new_event_loop())
+def test_events_and_state(event_loop) -> None:
+    log = EventLog(event_loop)
     events = [
         Event(0, pname("A"), "waiting"),
         Event(1, pname("B"), "waiting"),
@@ -43,32 +41,33 @@ def test_events_and_state() -> None:
     assert events[0:1] == actual
 
 
-def test_subscribers() -> None:
-    loop = asyncio.new_event_loop()
-
+def test_subscribers(event_loop) -> None:
     try:
-        log = EventLog(loop)
-        threading.Thread(
-            target=lambda: loop.run_until_complete(log.call_subscribers_loop()),
+        log = EventLog(event_loop)
+        task = event_loop.create_task(log.call_subscribers_loop())
+        thread = threading.Thread(
+            target=lambda: event_loop.run_until_complete(task),
             daemon=True,
-        ).start()
+        )
+        thread.start()
 
-        called = False
+        called = threading.Event()
 
         async def call(low: Timestamp, high: Timestamp) -> None:
             nonlocal called
-            called = True
+            called.set()
             assert low == 1
             assert high == 2
 
         log.subscribe([pname("A")], call)
 
         log.append_event(pname("B"), "waiting")
-        time.sleep(0.05)  # wait for subscribers to get called
-        assert called is False
+        called.wait(timeout=0.1)  # wait for subscribers to get called
+        assert called.is_set() is False
 
         log.append_event(pname("A"), "waiting")
-        time.sleep(0.05)  # wait for subscribers to get called
-        assert called is True
+        called.wait(timeout=1)  # wait for subscribers to get called
+        assert called.is_set() is True
     finally:
-        loop.stop()
+        event_loop.call_soon_threadsafe(task.cancel)
+        thread.join()

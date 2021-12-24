@@ -7,12 +7,19 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.9"]
+      fail-fast: false # do not cancel all runs in the matrix if one fails.
+    defaults:
+      run:
+        working-directory: ./meadowdata # this sets the default dir for run steps only.
     steps:
     - uses: actions/checkout@v2
+      with:
+        path: meadowdata
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
       with:
@@ -23,6 +30,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install poetry
         poetry install
+    - name: Run code generation
+      run: |
+        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src --grpc_python_out=src --mypy_grpc_out=src meadowgrid/meadowgrid.proto
+        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src --grpc_python_out=src --mypy_grpc_out=src meadowflow/server/meadowflow.proto
+        poetry run black src/meadowgrid/*pb2*
+        poetry run black src/meadowflow/server/*pb2*
     - name: Run Black
       run: |
         poetry run black --check .
@@ -32,6 +45,18 @@ jobs:
     - name: Run Mypy
       run: |
         poetry run mypy
-    - name: Run Pytest
+    - name: Checkout test repo
+      uses: actions/checkout@v2
+      with:
+        repository: meadowdata/test_repo
+        path: test_repo
+        fetch-depth: 0
+    - name: Checkout test repo/test_branch
       run: |
-        poetry run pytest tests/test_meadowdb tests/test_meadowflow/test_event_log.py tests/test_meadowflow/test_time_events.py
+        git -C ../test_repo checkout test_branch
+    - name: Run Pytest
+      env:
+        PYTHONDEVMODE: 1 # see https://docs.python.org/3/library/devmode.html#devmode
+      run: |
+        poetry run pytest -vv tests/test_meadowdb tests/test_meadowflow/test_event_log.py tests/test_meadowflow/test_time_events.py
+    

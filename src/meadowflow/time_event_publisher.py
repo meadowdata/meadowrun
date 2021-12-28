@@ -6,11 +6,22 @@ import asyncio.events
 import datetime
 import functools
 import heapq
-import threading
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Protocol
+from types import TracebackType
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Type,
+)
 
 import pytz
 
@@ -290,7 +301,6 @@ class TimeEventPublisher:
 
     def __init__(
         self,
-        event_loop: asyncio.AbstractEventLoop,
         append_event: Callable[[TopicName, Any], None],
         schedule_recurring_limit: datetime.timedelta = _SCHEDULE_RECURRING_LIMIT,
         schedule_recurring_freq: datetime.timedelta = _SCHEDULE_RECURRING_FREQ,
@@ -301,8 +311,6 @@ class TimeEventPublisher:
         """
 
         self._append_event: Callable[[TopicName, Any], None] = append_event
-
-        self._call_at: _CallAt = _CallAt(event_loop)
 
         # Keep a cache so that we don't create duplicate topics/events/triggers.
         self._all_point_in_time: Dict[PointInTime, TopicEventFilter] = {}
@@ -319,10 +327,28 @@ class TimeEventPublisher:
         self._schedule_recurring_limit: datetime.timedelta = schedule_recurring_limit
         self._schedule_recurring_freq: datetime.timedelta = schedule_recurring_freq
 
-        # The functions on this class can not be called concurrently in general, but we
-        # have to deal with the fact that users could be adding new triggers while we
-        # are trying to schedule new callbacks for recurring triggers
-        self._schedule_recurring_lock: threading.RLock = threading.RLock()
+        # Async init
+        self._call_at: _CallAt
+        self._awaited = False
+
+        # TODO on startup, we should look at the event log, figure out what we
+        # "missed" and backfill those events
+
+        # TODO we should probably generate events when we call run (and not before)
+        # so that we don't end up with a bunch of events being generated if we take
+        # a long time between creating triggers and calling run
+
+    async def _async_init(self) -> TimeEventPublisher:
+        if self._awaited:
+            return self
+        self._call_at = await _CallAt()
+        # self._main_loop = asyncio.create_task(self._call_main_loop())
+        self._schedule_recurring()
+        self._awaited = True
+        return self
+
+    def __await__(self) -> Generator[Any, None, TimeEventPublisher]:
+        return self._async_init().__await__()
 
     def create_point_in_time(self, point_in_time: PointInTime) -> TopicEventFilter:
         """See PointInTime docstring."""
@@ -370,22 +396,21 @@ class TimeEventPublisher:
         if periodic.period < datetime.timedelta(seconds=1):
             raise ValueError("Period must be longer than 1s")
 
-        with self._schedule_recurring_lock:
-            if periodic in self._all_periodic:
-                event_filter = self._all_periodic[periodic]
-            else:
-                event_filter = TopicEventFilter(
-                    pname("time/periodic", period=periodic.period)
+        if periodic in self._all_periodic:
+            event_filter = self._all_periodic[periodic]
+        else:
+            event_filter = TopicEventFilter(
+                pname("time/periodic", period=periodic.period)
+            )
+            self._all_periodic[periodic] = event_filter
+            if self._schedule_recurring_up_to is not None:
+                now = _utc_now()
+                self._schedule_periodic(
+                    event_filter.topic_name,
+                    periodic,
+                    now,
+                    self._schedule_recurring_up_to,
                 )
-                self._all_periodic[periodic] = event_filter
-                if self._schedule_recurring_up_to is not None:
-                    now = _utc_now()
-                    self._schedule_periodic(
-                        event_filter.topic_name,
-                        periodic,
-                        now,
-                        self._schedule_recurring_up_to,
-                    )
         return event_filter
 
     def _schedule_periodic(
@@ -448,26 +473,25 @@ class TimeEventPublisher:
         # resolving aliases, so e.g. US/Eastern and America/New_York will be treated as
         # two different timezones when they are actually exactly the same.
 
-        with self._schedule_recurring_lock:
-            if time_of_day in self._all_time_of_day:
-                event_filter = self._all_time_of_day[time_of_day]
-            else:
-                event_filter = TopicEventFilter(
-                    pname(
-                        "time/of_day",
-                        local_time_of_day=time_of_day.local_time_of_day,
-                        time_zone=time_of_day.time_zone,
-                    )
+        if time_of_day in self._all_time_of_day:
+            event_filter = self._all_time_of_day[time_of_day]
+        else:
+            event_filter = TopicEventFilter(
+                pname(
+                    "time/of_day",
+                    local_time_of_day=time_of_day.local_time_of_day,
+                    time_zone=time_of_day.time_zone,
                 )
-                self._all_time_of_day[time_of_day] = event_filter
-                if self._schedule_recurring_up_to is not None:
-                    now = _utc_now()
-                    self._schedule_time_of_day(
-                        event_filter.topic_name,
-                        time_of_day,
-                        now,
-                        self._schedule_recurring_up_to,
-                    )
+            )
+            self._all_time_of_day[time_of_day] = event_filter
+            if self._schedule_recurring_up_to is not None:
+                now = _utc_now()
+                self._schedule_time_of_day(
+                    event_filter.topic_name,
+                    time_of_day,
+                    now,
+                    self._schedule_recurring_up_to,
+                )
 
         return event_filter
 
@@ -550,49 +574,51 @@ class TimeEventPublisher:
            schedule another run of _schedule_recurring
         """
 
-        with self._schedule_recurring_lock:
-            # If this is the first time we're being called, start from now
-            now = _utc_now()
-            prev_schedule_recurring_up_to = self._schedule_recurring_up_to
-            if prev_schedule_recurring_up_to is None:
-                prev_schedule_recurring_up_to = now
+        # If this is the first time we're being called, start from now
+        now = _utc_now()
+        prev_schedule_recurring_up_to = self._schedule_recurring_up_to
+        if prev_schedule_recurring_up_to is None:
+            prev_schedule_recurring_up_to = now
 
-            # The most we ever schedule is e.g. 5 days in the future
-            next_schedule_recurring_up_to = now + self._schedule_recurring_limit
+        # The most we ever schedule is e.g. 5 days in the future
+        next_schedule_recurring_up_to = now + self._schedule_recurring_limit
 
-            for periodic, event_filter in self._all_periodic.items():
-                self._schedule_periodic(
-                    event_filter.topic_name,
-                    periodic,
-                    prev_schedule_recurring_up_to,
-                    next_schedule_recurring_up_to,
-                )
+        for periodic, event_filter in self._all_periodic.items():
+            self._schedule_periodic(
+                event_filter.topic_name,
+                periodic,
+                prev_schedule_recurring_up_to,
+                next_schedule_recurring_up_to,
+            )
 
-            for time_of_day, event_filter in self._all_time_of_day.items():
-                self._schedule_time_of_day(
-                    event_filter.topic_name,
-                    time_of_day,
-                    prev_schedule_recurring_up_to,
-                    next_schedule_recurring_up_to,
-                )
+        for time_of_day, event_filter in self._all_time_of_day.items():
+            self._schedule_time_of_day(
+                event_filter.topic_name,
+                time_of_day,
+                prev_schedule_recurring_up_to,
+                next_schedule_recurring_up_to,
+            )
 
-            self._schedule_recurring_up_to = next_schedule_recurring_up_to
+        self._schedule_recurring_up_to = next_schedule_recurring_up_to
 
         # schedule to get called back in e.g. a day so that we stay up to date
         self._call_at.call_at(
             now + self._schedule_recurring_freq, self._schedule_recurring
         )
 
-    async def main_loop(self) -> None:
-        # TODO on startup, we should look at the event log, figure out what we
-        #  "missed" and backfill those events
+    async def close(self) -> None:
+        await self._call_at.close()
 
-        # TODO we should probably generate events when we call run (and not before)
-        #  so that we don't end up with a bunch of events being generated if we take
-        #  a long time between creating triggers and calling run
+    def __aenter__(self) -> TimeEventPublisher:
+        return self
 
-        self._schedule_recurring()
-        await self._call_at.main_loop()
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        await self.close()
 
 
 # Why not just use callback: Callable[[], None] in _CallAtCallback?
@@ -654,25 +680,31 @@ class _CallAt:
       events to get scheduled out of order, but it is definitely possible.
     """
 
-    def __init__(self, event_loop: asyncio.AbstractEventLoop):
-        self._event_loop: asyncio.AbstractEventLoop = event_loop
-        self._lock: threading.RLock = threading.RLock()
-
+    def __init__(self) -> None:
         # all of the outstanding callbacks
         self._callback_queue: List[_CallAtCallback] = []
 
-        self._is_running: bool = False
-        self._is_shutting_down: bool = False
-
+        # Init for these needs to be on an event loop - see _init_async and __await__.
         # If _main_loop is waiting to callback something in the future, we need a way to
         # notify it when we create a callback that needs to happen first
         self._queue_modified: asyncio.Event
 
-        # we have to construct _queue_modified on the event loop
-        def construct_queue_modified() -> None:
-            self._queue_modified = asyncio.Event()
+        # keep the task for the main loop so we can cancel it in close().
+        self._main_loop: asyncio.Task
 
-        self._event_loop.call_soon_threadsafe(construct_queue_modified)
+        # make sure awaiting more than once doesn't mess with us.
+        self._awaited = False
+
+    async def _init_async(self) -> _CallAt:
+        if self._awaited:
+            return self
+        self._queue_modified = asyncio.Event()
+        self._main_loop = asyncio.create_task(self._call_main_loop())
+        self._awaited = True
+        return self
+
+    def __await__(self) -> Generator[Any, None, _CallAt]:
+        return self._init_async().__await__()
 
     def call_at(self, dt: datetime.datetime, callback: Callable[[], None]) -> None:
         """Schedule callback to be called at dt"""
@@ -684,82 +716,45 @@ class _CallAt:
         # timezone of dt
         time_and_callback = _CallAtCallback(dt.timestamp(), callback)
 
-        with self._lock:
-            if len(self._callback_queue) == 0:
-                prev_next_callback = None
-            else:
-                prev_next_callback = self._callback_queue[0]
+        if len(self._callback_queue) == 0:
+            prev_next_callback = None
+        else:
+            prev_next_callback = self._callback_queue[0]
 
-            # add the callback
-            heapq.heappush(self._callback_queue, time_and_callback)
+        # add the callback
+        heapq.heappush(self._callback_queue, time_and_callback)
 
-            # If we've changed when the next callback is, we need to notify the main
-            # loop. new_next_callback == prev_next_callback doesn't require a
-            # notification--the run function will just pick up whichever one happens to
-            # be in front and execute that one
-            if prev_next_callback is None or time_and_callback < prev_next_callback:
-                # we have to call Event.set on its event loop for it to have the desired
-                # effect. We currently don't assume that we are on self._event_loop in
-                # this function so we use call_soon_threadsafe
-                self._event_loop.call_soon_threadsafe(
-                    lambda: self._queue_modified.set()
-                )
+        # If we've changed when the next callback is, we need to notify the main
+        # loop. new_next_callback == prev_next_callback doesn't require a
+        # notification--the run function will just pick up whichever one happens to
+        # be in front and execute that one
+        if prev_next_callback is None or time_and_callback < prev_next_callback:
+            asyncio.get_running_loop().call_soon(self._queue_modified.set)
 
-    async def main_loop(self) -> None:
+    async def _call_main_loop(self) -> None:
         """
         Runs forever.
 
-        If main_loop is called more than once, subsequent calls will have no effect.
-
-        TODO the concurrency model needs to be clarified for this class as well as
-         Scheduler and EventLog. Currently, the model is roughly that there are two
-         threads, the main thread where a user "pokes at the system" (e.g. adds
-         callbacks), and a background thread running "the" event loop which updates the
-         system in the background. This is not at all rigorous though and probably
-         should be changed
-
         Callbacks run on "the" event loop, so they cannot be blocking.
+
+        This coroutine is started as part of initialization when this class is
+        awaited, it should not be called manually.
         """
+        while True:
+            # with the lock, figure out what we need to do next
+            self._queue_modified.clear()
 
-        if asyncio.get_running_loop() != self._event_loop:
-            raise ValueError(
-                "_CallAt.main_loop was called from a different _event_loop than "
-                "expected"
-            )
-
-        # Avoid running more than once. No lock is necessary as long as this always gets
-        # run on self._event_loop...
-        if self._is_running:
-            return
-        self._is_running = True
-
-        try:
-            while not self._is_shutting_down:
-                # with the lock, figure out what we need to do next
-                with self._lock:
-                    self._queue_modified.clear()
-
-                    if len(self._callback_queue) == 0:
-                        # if we have no callbacks scheduled, wait for one to get
-                        # scheduled
-                        next_step = "wait_for_heap_modified"
-                    else:
-                        next_callback = self._callback_queue[0]
-                        now = _time_time()
-                        if next_callback.timestamp > now:
-                            # if the next callback is in the future, sleep until it's
-                            # time for that callback (and also watch out for new
-                            # callbacks that get scheduled)
-                            next_step = "wait_for_next_callback"
-                        else:
-                            # if the next callback is in the past/present, execute it
-                            next_step = "call_next_callback"
-                            heapq.heappop(self._callback_queue)
-
-                # without the lock, do the next step
-                if next_step == "wait_for_heap_modified":
-                    await self._queue_modified.wait()
-                elif next_step == "wait_for_next_callback":
+            if len(self._callback_queue) == 0:
+                # if we have no callbacks scheduled, wait for one to get
+                # scheduled
+                await self._queue_modified.wait()
+            else:
+                next_callback = self._callback_queue[0]
+                now = _time_time()
+                if next_callback.timestamp > now:
+                    # if the next callback is in the future, sleep until it's
+                    # time for that callback (and also watch out for new
+                    # callbacks that get scheduled)
                     print(f"About to sleep for {next_callback.timestamp - now}")
                     try:
                         await asyncio.wait_for(
@@ -769,10 +764,30 @@ class _CallAt:
                     except asyncio.exceptions.TimeoutError:
                         pass
                 else:
+                    # if the next callback is in the past/present, execute it
                     try:
                         next_callback.callback()
                     except Exception:
                         # TODO do something smarter here...
                         traceback.print_exc()
+                    heapq.heappop(self._callback_queue)
+
+    async def close(self) -> None:
+        # cancel and wait until the loop exits.
+        # If we don't wait we get "Task was destroyed but it is pending" warnings.
+        self._main_loop.cancel()
+        try:
+            await self._main_loop
         except asyncio.exceptions.CancelledError:
             pass
+
+    def __aenter__(self) -> _CallAt:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        await self.close()

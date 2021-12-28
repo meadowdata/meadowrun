@@ -1,11 +1,15 @@
+import asyncio
 import datetime
+import pytest
 import time
 from typing import Any, Sequence, Callable, List, Optional
 
 import pytz
 
+import meadowflow.server.client
 import meadowflow.server.config
 import meadowflow.server.server_main
+import meadowflow.time_event_publisher
 import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
 from meadowflow.event_log import Event
@@ -64,17 +68,19 @@ def _run_latest_events(events: FrozenDict[TopicName, Optional[Event]]) -> Any:
         return latest_topic_name
 
 
-def test_simple_jobs_local() -> None:
+@pytest.mark.asyncio
+async def test_simple_jobs_local() -> None:
     """Tests a simple use case using the local jobrunner"""
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
-        _test_simple_jobs(
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        await _test_simple_jobs(
             s,
             lambda args: LocalFunction(_run_func, args),
             JobRunnerTypePredicate("local"),
         )
 
 
-def test_simple_jobs_meadowgrid_server_available() -> None:
+@pytest.mark.asyncio
+async def test_simple_jobs_meadowgrid_server_available() -> None:
     """
     Tests a simple use case using the meadowgrid jobrunner with a ServerAvailableFolder
     deployment
@@ -83,11 +89,11 @@ def test_simple_jobs_meadowgrid_server_available() -> None:
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(MeadowGridJobRunner)
-            _test_simple_jobs(
+            await _test_simple_jobs(
                 s,
                 # TODO MeadowGridJobRunner automatically converts LocalFunctions into
                 #  ServerAvailableFolder, not sure if that really makes sense.
@@ -96,7 +102,8 @@ def test_simple_jobs_meadowgrid_server_available() -> None:
             )
 
 
-def test_simple_jobs_meadowgrid_git() -> None:
+@pytest.mark.asyncio
+async def test_simple_jobs_meadowgrid_git() -> None:
     """
     Tests a simple use case using the meadowgrid jobrunner with a git repo deployment
 
@@ -108,11 +115,11 @@ def test_simple_jobs_meadowgrid_git() -> None:
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(MeadowGridJobRunner)
-            _test_simple_jobs(
+            await _test_simple_jobs(
                 s,
                 lambda args: MeadowGridVersionedDeployedRunnable(
                     GitRepoBranch(repo_url=TEST_REPO, branch="main"),
@@ -125,16 +132,16 @@ def test_simple_jobs_meadowgrid_git() -> None:
             )
 
 
-def _wait_for_scheduler(scheduler: Scheduler) -> None:
+async def _wait_for_scheduler(scheduler: Scheduler) -> None:
     # the initial 50ms wait is in case we did any actions like manual_run that execute
     # on the event loop, we want to wait for those to execute before we query
     # all_are_waiting
-    time.sleep(0.05)
+    await asyncio.sleep(0.05)
     while not scheduler.all_are_waiting():
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
 
-def _test_simple_jobs(
+async def _test_simple_jobs(
     scheduler: Scheduler,
     job_function_constructor: Callable[[Sequence[Any]], JobFunction],
     job_runner_predicate: JobRunnerPredicate,
@@ -162,14 +169,12 @@ def _test_simple_jobs(
         ]
     )
 
-    scheduler.main_loop()
-
-    _wait_for_scheduler(scheduler)
+    await _wait_for_scheduler(scheduler)
     assert 1 == len(scheduler.events_of(pname("A")))
     assert 1 == len(scheduler.events_of(pname("B")))
 
     scheduler.manual_run(pname("A"))
-    _wait_for_scheduler(scheduler)
+    await _wait_for_scheduler(scheduler)
     assert 4 == len(scheduler.events_of(pname("A")))
     assert ["SUCCEEDED", "RUNNING", "RUN_REQUESTED", "WAITING"] == [
         e.payload.state for e in scheduler.events_of(pname("A"))
@@ -315,10 +320,11 @@ def test_simple_jobs_meadowflow_server() -> None:
             ]
 
 
-def test_triggers() -> None:
+@pytest.mark.asyncio
+async def test_triggers() -> None:
     """Test different interesting trigger combinations"""
 
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(pname("A"), LocalFunction(_run_func, ["A"]), ()),
@@ -369,8 +375,6 @@ def test_triggers() -> None:
             ]
         )
 
-        scheduler.main_loop()
-
         # Note that we use the event count to tell whether the job has run or not--each
         # run will generate 3 events: RUN_REQUESTED, RUNNING, SUCCEEDED.
         def assert_num_events(expected: List[int]) -> None:
@@ -378,7 +382,7 @@ def test_triggers() -> None:
                 len(scheduler.events_of(pname(n))) for n in ("A", "B", "C1", "C2", "C3")
             ] == expected
 
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_num_events([1, 1, 1, 1, 1])
 
         # first we run A:
@@ -388,7 +392,7 @@ def test_triggers() -> None:
         # - C3 doesn't run because its condition is not met--B is not SUCCEEDED
 
         scheduler.manual_run(pname("A"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_num_events([4, 1, 1, 4, 1])
 
         # next, we run B:
@@ -399,7 +403,7 @@ def test_triggers() -> None:
         #   condition, but doesn't wake it up
 
         scheduler.manual_run(pname("B"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_num_events([4, 4, 4, 7, 1])
 
         # finally, we run A again
@@ -409,7 +413,7 @@ def test_triggers() -> None:
         #   state
 
         scheduler.manual_run(pname("A"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_num_events([7, 4, 7, 10, 4])
 
 
@@ -427,9 +431,10 @@ def _succeed_on_third_try():
         raise ValueError(f"Failing as it's run number {orig_runs}")
 
 
-def test_current_job_state():
+@pytest.mark.asyncio
+async def test_current_job_state():
     """Tests using CURRENT_JOB with AllJobStatePredicate"""
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(pname("A"), LocalFunction(_run_func), []),
@@ -439,7 +444,7 @@ def test_current_job_state():
                     [
                         TriggerAction(
                             Actions.run,
-                            [AnyJobStateEventFilter([pname("A")], "SUCCEEDED")],
+                            [AnyJobStateEventFilter([pname("A")], ["SUCCEEDED"])],
                             NotPredicate(
                                 AllJobStatePredicate([CURRENT_JOB], ["SUCCEEDED"])
                             ),
@@ -448,7 +453,6 @@ def test_current_job_state():
                 ),
             ]
         )
-        scheduler.main_loop()
 
         # Sequence of events should be:
         # 1. A runs, causes B to run, but B fails
@@ -457,13 +461,14 @@ def test_current_job_state():
         # 4. A runs, B does not run because it has already succeeded
         for _ in range(4):
             scheduler.manual_run(pname("A"))
-            _wait_for_scheduler(scheduler)
+            await _wait_for_scheduler(scheduler)
 
         assert len(scheduler.events_of(pname("B"))) == 10
 
 
-def test_time_topics_1():
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+@pytest.mark.asyncio
+async def test_time_topics_1():
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         past_dt = now - 3 * _TIME_INCREMENT
@@ -499,14 +504,14 @@ def test_time_topics_1():
             ]
         )
 
-        scheduler.main_loop()
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert 4 == len(scheduler.events_of(pname("A")))
         assert 1 == len(scheduler.events_of(pname("B")))
 
 
-def test_time_topics_2():
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+@pytest.mark.asyncio
+async def test_time_topics_2():
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         now = pytz.utc.localize(datetime.datetime.utcnow())
 
         scheduler.add_jobs(
@@ -528,8 +533,7 @@ def test_time_topics_2():
             ]
         )
 
-        scheduler.main_loop()
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         # TODO it's not clear that Job A getting run once is the right semantics. What's
         #  happening is that as long as EventLog.call_subscribers for the second point
         #  in time gets called while Job A is still running from the first point in
@@ -540,15 +544,16 @@ def test_time_topics_2():
         # happen
         time.sleep(2 * _TIME_INCREMENT.total_seconds())
 
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert 7 == len(scheduler.events_of(pname("A")))
 
 
-def test_latest_events_arg():
+@pytest.mark.asyncio
+async def test_latest_events_arg():
     """Test behavior of LatestEventsArg"""
     now = pytz.utc.localize(datetime.datetime.utcnow())
 
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(pname("A"), LocalFunction(_run_func, ["hello", "there"]), ()),
@@ -570,11 +575,9 @@ def test_latest_events_arg():
             ]
         )
 
-        scheduler.main_loop()
-
         # give the PointInTime a little bit of time to kick in, then wait for B to get
         # triggered off of that
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert 1 == len(scheduler.events_of(pname("A")))
         b_events = scheduler.events_of(pname("B"))
         assert 4 == len(b_events)
@@ -585,7 +588,7 @@ def test_latest_events_arg():
 
         # kick off A, wait for B to get triggered off of that
         scheduler.manual_run(pname("A"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         b_events = scheduler.events_of(pname("B"))
         assert 7 == len(scheduler.events_of(pname("B")))
         assert (pname("A"), "hello, there") == b_events[0].payload.result_value
@@ -606,8 +609,9 @@ def _run_add_scope_jobs(scope: ScopeValues) -> Sequence[Job]:
     ]
 
 
-def test_scopes():
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+@pytest.mark.asyncio
+async def test_scopes():
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(
@@ -623,25 +627,23 @@ def test_scopes():
             ]
         )
 
-        scheduler.main_loop()
-
         # kick off instantiate_date_scopes, this should cause add_date_scope_jobs to
         # run, which will create date_job for _TEST_DATE
         scheduler.manual_run(pname("instantiate_date_scopes"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
 
         # so now we should be able to run date_job for _TEST_DATE_1:
         scheduler.manual_run(pname("date_job", date=_TEST_DATE_1))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         events = scheduler.events_of(pname("date_job", date=_TEST_DATE_1))
         assert 4 == len(events)
         assert f"hello, {_TEST_DATE_1}" == events[0].payload.result_value
 
         # create another scope manually and run date_job in that scope manually
         scheduler.instantiate_scope(ScopeValues(date=_TEST_DATE_2))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         scheduler.manual_run(pname("date_job", date=_TEST_DATE_2))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         events = scheduler.events_of(pname("date_job", date=_TEST_DATE_2))
         assert 4 == len(events)
         assert f"hello, {_TEST_DATE_2}" == events[0].payload.result_value

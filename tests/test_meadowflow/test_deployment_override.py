@@ -6,6 +6,7 @@ from meadowflow.scheduler import Scheduler
 from meadowflow.topic_names import pname
 import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
+import pytest
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
     CodeDeployment,
@@ -28,13 +29,14 @@ from test_meadowgrid.test_meadowgrid_basics import (
 )
 
 
-def test_deployment_override() -> None:
+@pytest.mark.asyncio
+async def test_deployment_override() -> None:
     """Tests using JobRunOverride.deployment"""
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(MeadowGridJobRunner)
@@ -59,11 +61,9 @@ def test_deployment_override() -> None:
                 ]
             )
 
-            s.main_loop()
-
             expected_num_events = 1
 
-            def result_with_deployment(
+            async def result_with_deployment(
                 deployment: Union[CodeDeployment, VersionedCodeDeployment]
             ) -> str:
                 """
@@ -73,7 +73,7 @@ def test_deployment_override() -> None:
                 nonlocal expected_num_events
 
                 s.manual_run(pname("A"), JobRunOverrides(code_deployment=deployment))
-                _wait_for_scheduler(s)
+                await _wait_for_scheduler(s)
                 events = s.events_of(pname("A"))
                 expected_num_events += 3
                 assert len(events) == expected_num_events
@@ -81,13 +81,13 @@ def test_deployment_override() -> None:
                 return cast(str, events[0].payload.result_value)
 
             # same as original
-            result = result_with_deployment(
+            result = await result_with_deployment(
                 ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWDATA_CODE])
             )
             assert result == "embedded in main repo"
 
             # specific commit
-            result = result_with_deployment(
+            result = await result_with_deployment(
                 GitRepoCommit(
                     repo_url=TEST_REPO,
                     commit="2fcaca67ea40c35a96de39716e32e4c74cb7f221",
@@ -96,13 +96,13 @@ def test_deployment_override() -> None:
             assert result == "in test_repo older commit"
 
             # branch
-            result = result_with_deployment(
+            result = await result_with_deployment(
                 GitRepoBranch(repo_url=TEST_REPO, branch="test_branch")
             )
             assert result == "in test_repo test_branch"
 
             # a different branch
-            result = result_with_deployment(
+            result = await result_with_deployment(
                 GitRepoBranch(repo_url=TEST_REPO, branch="main")
             )
             assert result == "in test_repo newer commit"

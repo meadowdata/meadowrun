@@ -4,7 +4,7 @@ import meadowdb
 import meadowgrid.coordinator_main
 import meadowgrid.job_worker_main
 import pandas as pd
-
+import pytest
 from meadowdb import MAIN_USERSPACE_NAME
 from meadowdb.connection import MeadowdbEffects
 from meadowflow.effects import MeadowdbDynamicDependency, UntilMeadowdbWritten
@@ -55,7 +55,8 @@ def _read_from_table(mdb_data_dir):
     return _read_from_table
 
 
-def test_meadowdb_effects():
+@pytest.mark.asyncio
+async def test_meadowdb_effects():
     """
     Tests that meadowdb effects come through meadowgrid commands and functions
     """
@@ -63,7 +64,7 @@ def test_meadowdb_effects():
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+        async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
             scheduler.register_job_runner(MeadowGridJobRunner)
 
             scheduler.add_jobs(
@@ -99,11 +100,9 @@ def test_meadowdb_effects():
                 ]
             )
 
-            scheduler.main_loop()
-
             scheduler.manual_run(pname("Command"))
             scheduler.manual_run(pname("Func"))
-            _wait_for_scheduler(scheduler)
+            await _wait_for_scheduler(scheduler)
 
             command_events = scheduler.events_of(pname("Command"))
             func_events = scheduler.events_of(pname("Func"))
@@ -125,7 +124,7 @@ def test_meadowdb_effects():
             scheduler.manual_run(
                 pname("Func"), JobRunOverrides(meadowdb_userspace="U1")
             )
-            _wait_for_scheduler(scheduler)
+            await _wait_for_scheduler(scheduler)
 
             command_events = scheduler.events_of(pname("Command"))
             func_events = scheduler.events_of(pname("Func"))
@@ -139,10 +138,11 @@ def test_meadowdb_effects():
                 assert list(effects.tables_written.keys()) == [("U1", "A")]
 
 
-def test_meadowdb_dependency(mdb_data_dir):
+@pytest.mark.asyncio
+async def test_meadowdb_dependency(mdb_data_dir):
     """Tests MeadowdbDynamicDependency"""
     date = datetime.date(2021, 9, 1)
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(
@@ -209,7 +209,6 @@ def test_meadowdb_dependency(mdb_data_dir):
                 ),
             ]
         )
-        scheduler.main_loop()
 
         # we'll check on whether the various B jobs ran by checking the number of events
         def assert_b_events(
@@ -223,7 +222,7 @@ def test_meadowdb_dependency(mdb_data_dir):
         # run A, make sure the effects are as we expect, and make sure B didn't get
         # triggered
         scheduler.manual_run(pname("A"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
 
         a_events = scheduler.events_of(pname("A"))
         assert 4 == len(a_events)
@@ -240,17 +239,17 @@ def test_meadowdb_dependency(mdb_data_dir):
         scheduler.manual_run(pname("B_BASE"))
         scheduler.manual_run(pname("B_DATE"))
         scheduler.manual_run(pname("B_WRONG_DATE"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_b_events(4, 4, 4, 4)
 
         # now run A again, which should cause B_ALL and B_BASE to re-trigger
         scheduler.manual_run(pname("A"))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_b_events(7, 7, 4, 4)
 
         # now run A in the date scope which should cause B_ALL and B_DATE to trigger
         scheduler.manual_run(pname("A", date=date))
-        _wait_for_scheduler(scheduler)
+        await _wait_for_scheduler(scheduler)
         assert_b_events(10, 7, 7, 4)
 
 
@@ -270,9 +269,10 @@ def _write_on_third_try(mdb_data_dir):
     _write_on_third_try_runs += 1
 
 
-def test_meadowdb_table_written(mdb_data_dir):
+@pytest.mark.asyncio
+async def test_meadowdb_table_written(mdb_data_dir):
     """Tests UntilMeadowdbWritten"""
-    with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+    async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
         scheduler.add_jobs(
             [
                 Job(pname("A"), LocalFunction(_run_func), []),
@@ -282,14 +282,13 @@ def test_meadowdb_table_written(mdb_data_dir):
                     [
                         TriggerAction(
                             Actions.run,
-                            [AnyJobStateEventFilter([pname("A")], "SUCCEEDED")],
+                            [AnyJobStateEventFilter([pname("A")], ["SUCCEEDED"])],
                             UntilMeadowdbWritten.all((MAIN_USERSPACE_NAME, "T")),
                         )
                     ],
                 ),
             ]
         )
-        scheduler.main_loop()
 
         # Sequence of events should be:
         # 1. A runs, causes B to run, but B doesn't write any data
@@ -298,6 +297,6 @@ def test_meadowdb_table_written(mdb_data_dir):
         # 4. A runs, B does not run because data has been written
         for _ in range(4):
             scheduler.manual_run(pname("A"))
-            _wait_for_scheduler(scheduler)
+            await _wait_for_scheduler(scheduler)
 
         assert len(scheduler.events_of(pname("B"))) == 10

@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import itertools
-import threading
 import traceback
-from asyncio import Task
 from types import TracebackType
 from typing import (
+    Any,
     Dict,
+    Generator,
     List,
     Tuple,
     Iterable,
@@ -153,42 +153,17 @@ class Scheduler:
     """
     A scheduler gets set up with jobs, and then executes actions on jobs as per the
     triggers defined on those jobs.
-
-    TODO there are a lot of weird assumptions about what's called "on the event loop" vs
-     from outside of it/on a different thread and what's threadsafe
     """
 
     _JOB_RUNNER_POLL_DELAY_SECONDS: float = 1
 
     def __init__(
         self,
-        event_loop: Optional[asyncio.AbstractEventLoop] = None,
         job_runner_poll_delay_seconds: float = _JOB_RUNNER_POLL_DELAY_SECONDS,
     ) -> None:
         """
         job_runner_poll_delay_seconds is primarily to make unit tests run faster.
         """
-
-        # the asyncio event_loop that we will use
-        if event_loop is not None:
-            self._event_loop: asyncio.AbstractEventLoop = event_loop
-        else:
-            self._event_loop = asyncio.new_event_loop()
-        # we hang onto these tasks to allow for graceful shutdown
-        self._main_loop_task: Optional[Task[None]] = None
-        self._time_event_publisher_task: Optional[Task[None]] = None
-
-        # the event log stores events and lets us subscribe to events
-        self._event_log: EventLog = EventLog(self._event_loop)
-        # the TimeEventPublisher enables users to create time-based triggers, and
-        # creates the right events at the right time.
-        self.time: TimeEventPublisher = TimeEventPublisher(
-            self._event_loop, self._event_log.append_event
-        )
-
-        # create the effects subscriber
-        self._event_log.subscribe(None, self._process_effects)
-
         # all jobs that have been added to this scheduler
         self._jobs: Dict[TopicName, Job] = {}
         # the list of jobs that we've added but haven't created subscriptions for yet,
@@ -205,13 +180,39 @@ class Scheduler:
         ] = {}
         self._meadowdb_dependencies_name: Dict[TopicName, MeadowdbDependencyAction] = {}
 
+        # how frequently to poll the job runners
+        self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
+
+        self._awaited = False
+
+    async def _async_init(self) -> Scheduler:
+        if self._awaited:
+            return self
+        # the event log stores events and lets us subscribe to events
+        self._event_log: EventLog = await EventLog()
+        # the TimeEventPublisher enables users to create time-based triggers, and
+        # creates the right events at the right time.
+        self.time: TimeEventPublisher = await TimeEventPublisher(
+            self._event_log.append_event
+        )
+        # create the effects subscriber
+        self._event_log.subscribe(None, self._process_effects)
+
         # The local job runner is a special job runner that runs on the same machine as
         # meadowflow via multiprocessing.
         self._local_job_runner: LocalJobRunner = LocalJobRunner(self._event_log)
         # all job runners that have been added to this scheduler
         self._job_runners: List[JobRunner] = [self._local_job_runner]
-        # how frequently to poll the job runners
-        self._job_runner_poll_delay_seconds: float = job_runner_poll_delay_seconds
+
+        self._poll_job_runners_loop = asyncio.create_task(
+            self._call_poll_job_runners_loop()
+        )
+
+        self._awaited = True
+        return self
+
+    def __await__(self) -> Generator[Any, None, Scheduler]:
+        return self._async_init().__await__()
 
     def register_job_runner(
         self, job_runner_constructor: Callable[[EventLog], JobRunner]
@@ -221,7 +222,7 @@ class Scheduler:
         is schedule a callback on the event_loop, so it's possible no state has changed
         when this function returns.
         """
-        self._event_loop.call_soon_threadsafe(
+        asyncio.get_running_loop().call_soon(
             self.register_job_runner_on_event_loop, job_runner_constructor
         )
 
@@ -229,16 +230,10 @@ class Scheduler:
         self, job_runner_constructor: Callable[[EventLog], JobRunner]
     ) -> None:
         """
-        Registers the job runner with the scheduler. Must be run on self._event_loop.
+        Registers the job runner with the scheduler.
 
         TODO add graceful shutdown, deal with job runners going offline, etc.
         """
-        if asyncio.get_running_loop() != self._event_loop:
-            raise ValueError(
-                "Scheduler.register_job_runner_async was called from a different "
-                "_event_loop than expected"
-            )
-
         self._job_runners.append(job_runner_constructor(self._event_log))
 
     def add_job(self, job: Job) -> None:
@@ -522,10 +517,8 @@ class Scheduler:
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
-        self._event_loop.call_soon_threadsafe(
-            lambda: self._event_loop.create_task(
-                self._run_action(job, Actions.run, overrides)
-            )
+        asyncio.get_running_loop().call_soon(
+            lambda: asyncio.create_task(self._run_action(job, Actions.run, overrides))
         )
 
     async def manual_run_on_event_loop(
@@ -571,7 +564,7 @@ class Scheduler:
             if ev and ev.payload.state in ("RUN_REQUESTED", "RUNNING"):
                 yield ev
 
-    async def _poll_job_runners_loop(self) -> None:
+    async def _call_poll_job_runners_loop(self) -> None:
         """Periodically polls the job runners we know about"""
         while True:
             try:
@@ -586,45 +579,34 @@ class Scheduler:
                 traceback.print_exc()
             await asyncio.sleep(self._job_runner_poll_delay_seconds)
 
-    def get_main_loop_tasks(self) -> Iterable[Awaitable]:
-        yield self._event_loop.create_task(self._poll_job_runners_loop())
-        yield self._event_loop.create_task(self.time.main_loop())
-        yield self._event_loop.create_task(self._event_log.call_subscribers_loop())
-
-    def main_loop(self) -> threading.Thread:
-        """
-        This starts a daemon (background) thread that runs forever. This code just polls
-        the job runners, but other code will add callbacks to run on this event loop
-        (e.g. EventLog.call_subscribers).
-
-        TODO not clear that this is really necessary anymore
-        """
-
-        t = threading.Thread(
-            target=lambda: self._event_loop.run_until_complete(
-                asyncio.wait(list(self.get_main_loop_tasks()))
-            ),
-            daemon=True,
+    async def shutdown(self) -> None:
+        self._poll_job_runners_loop.cancel()
+        # any exceptions are ignored here
+        ev_ex, time_ex, poll_ex = await asyncio.gather(
+            self._event_log.close(),
+            self.time.close(),
+            self._poll_job_runners_loop,
+            return_exceptions=True,
         )
-        t.start()
-        return t
+        # we can still lose exceptions here.
+        # asyncio does not have the equivalent of AggregateException.
+        if poll_ex is not None and not isinstance(poll_ex, asyncio.CancelledError):
+            raise poll_ex
+        if ev_ex is not None:
+            raise ev_ex
+        if time_ex is not None:
+            raise time_ex
 
-    def shutdown(self) -> None:
-        if self._main_loop_task is not None:
-            self._main_loop_task.cancel()
-        if self._time_event_publisher_task is not None:
-            self._time_event_publisher_task.cancel()
-
-    def __enter__(self) -> Scheduler:
+    def __aenter__(self) -> Scheduler:
         return self
 
-    def __exit__(
+    async def __aexit__(
         self,
         exc_type: Optional[Type[BaseException]],
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> None:
-        self.shutdown()
+        await self.shutdown()
 
     def all_are_waiting(self) -> bool:
         """

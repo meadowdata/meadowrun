@@ -48,6 +48,7 @@ def main_in_child_process(
 
     try:
         yield server_process.pid
+        server_process.terminate()
     finally:
         server_process.kill()
 

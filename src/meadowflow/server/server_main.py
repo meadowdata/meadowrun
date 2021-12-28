@@ -1,15 +1,19 @@
 """A runnable script for running a meadowflow server"""
 
-import itertools
-import logging
-import multiprocessing
 import asyncio
 import contextlib
+import logging
+import multiprocessing
 from typing import Iterator, Optional
 
 import meadowflow.server.server
 from meadowflow.scheduler import Scheduler
 from meadowflow.server.config import DEFAULT_HOST, DEFAULT_PORT
+
+
+async def start(host: str, port: int, job_runner_poll_delay_seconds: float) -> None:
+    async with Scheduler(job_runner_poll_delay_seconds) as scheduler:
+        await meadowflow.server.server.start_meadowflow_server(scheduler, host, port)
 
 
 def main(
@@ -19,20 +23,7 @@ def main(
 ) -> None:
     """A function for running a meadowflow server"""
 
-    event_loop = asyncio.new_event_loop()
-    scheduler = Scheduler(event_loop, job_runner_poll_delay_seconds)
-    event_loop.run_until_complete(
-        asyncio.wait(
-            itertools.chain(
-                scheduler.get_main_loop_tasks(),
-                [
-                    meadowflow.server.server.start_meadowflow_server(
-                        scheduler, host, port
-                    )
-                ],
-            )
-        )
-    )
+    asyncio.run(start(host, port, job_runner_poll_delay_seconds))
 
 
 @contextlib.contextmanager
@@ -54,6 +45,7 @@ def main_in_child_process(
 
     try:
         yield server_process.pid
+        server_process.terminate()
     finally:
         server_process.kill()
 

@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 import asyncio
 import traceback
 from dataclasses import dataclass
+from types import TracebackType
 from typing import (
+    Any,
     Callable,
     Dict,
+    Generator,
     Iterable,
     List,
     Optional,
     Set,
+    Type,
     TypeVar,
     Generic,
     Awaitable,
@@ -51,10 +57,7 @@ class EventLog:
     PersistedEventLog)
     """
 
-    def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
-        # TODO consider preventing anything from running off of this event loop?
-        self._event_loop = event_loop
-
+    def __init__(self) -> None:
         # the timestamp that is assigned to the next appended event
         self._next_timestamp: Timestamp = 0
 
@@ -62,15 +65,6 @@ class EventLog:
         # have already been called for all events with timestamp <
         # _subscribers_called_timestamp
         self._subscribers_called_timestamp: Timestamp = 0
-
-        # notify our call subscribers loop that events have been posted to the event log
-        self._notify_call_subscribers: asyncio.Event
-
-        # we have to construct _notify_call_subscribers on the event loop
-        def construct_notify_call_subscribers() -> None:
-            self._notify_call_subscribers = asyncio.Event()
-
-        self._event_loop.call_soon_threadsafe(construct_notify_call_subscribers)
 
         # the log of events, in increasing timestamp order
         self._event_log: List[Event] = []
@@ -83,6 +77,27 @@ class EventLog:
         # subscribers to all events
         self._universal_subscribers: Set[Subscriber] = set()
 
+        # Init for these needs to be on an event loop - see _init_async and __await__.
+        # notify our call subscribers loop that events have been posted to the event log
+        self._notify_call_subscribers: asyncio.Event
+
+        # keep the task for the subscribers loop so we can cancel it in close().
+        self._subscibers_loop: asyncio.Task
+
+        # make sure awaiting more than once doesn't mess with us.
+        self._awaited = False
+
+    async def _init_async(self) -> EventLog:
+        if self._awaited:
+            return self
+        self._notify_call_subscribers = asyncio.Event()
+        self._subscibers_loop = asyncio.create_task(self._call_subscribers_loop())
+        self._awaited = True
+        return self
+
+    def __await__(self) -> Generator[Any, None, EventLog]:
+        return self._init_async().__await__()
+
     @property
     def curr_timestamp(self) -> Timestamp:
         """
@@ -91,7 +106,7 @@ class EventLog:
         """
         return self._next_timestamp
 
-    def append_event(self, topic_name: TopicName, payload: T) -> None:
+    def append_event(self, topic_name: TopicName, payload: Any) -> None:
         """Append a new state change to the event log, at a new and latest time"""
 
         print(f"append_event {self._next_timestamp} {topic_name} {payload}")
@@ -105,9 +120,7 @@ class EventLog:
         # that the call_subscribers_loop will happen once per event--the loop might get
         # "backed up" until multiple events have been posted first, and then multiple
         # events will get processed in the same iteration of the loop.
-        self._event_loop.call_soon_threadsafe(
-            lambda: self._notify_call_subscribers.set()
-        )
+        asyncio.get_running_loop().call_soon(self._notify_call_subscribers.set)
 
     def events(
         self,
@@ -197,49 +210,58 @@ class EventLog:
     def all_subscribers_called(self) -> bool:
         return self._subscribers_called_timestamp >= self._next_timestamp
 
-    async def call_subscribers_loop(self) -> None:
+    async def _call_subscribers_loop(self) -> None:
         """
         Call all subscribers for any outstanding events. See subscribe for details on
         semantics.
         """
+        while True:
+            await self._notify_call_subscribers.wait()
+            self._notify_call_subscribers.clear()
 
-        if asyncio.get_running_loop() != self._event_loop:
-            raise ValueError(
-                "EventLog.call_subscribers_loop was called from a different _event_loop"
-                " than expected"
-            )
-        try:
-            while True:
-                await self._notify_call_subscribers.wait()
-                self._notify_call_subscribers.clear()
-
-                try:
-                    # get the list of subscribers that need to be called
-                    subscribers: Set[Subscriber] = self._universal_subscribers.copy()
-                    low_timestamp = self._subscribers_called_timestamp
-                    high_timestamp = self._next_timestamp
-                    for event in self.events(None, low_timestamp, high_timestamp):
-                        subscribers.update(
-                            self._topic_subscribers.get(event.topic_name, set())
-                        )
-
-                    # call the subscribers
-                    # TODO I think ideal behavior here would be to
-                    # retry failures 3 times or something before giving up on a
-                    # subscriber. Current behavior is very bad--failure in one
-                    # subscriber means we will never progress. I think the outer
-                    # try/except is probably not necessary.
-                    await asyncio.gather(
-                        *(
-                            subscriber(low_timestamp, high_timestamp)
-                            for subscriber in subscribers
-                        )
+            try:
+                # get the list of subscribers that need to be called
+                subscribers: Set[Subscriber] = self._universal_subscribers.copy()
+                low_timestamp = self._subscribers_called_timestamp
+                high_timestamp = self._next_timestamp
+                for event in self.events(None, low_timestamp, high_timestamp):
+                    subscribers.update(
+                        self._topic_subscribers.get(event.topic_name, set())
                     )
 
-                    self._subscribers_called_timestamp = high_timestamp
-                except Exception:
-                    # TODO this function isn't awaited, so exceptions need to make it
-                    # back into the scheduler somehow
-                    traceback.print_exc()
+                # call the subscribers
+                # TODO I think ideal behavior here would be to
+                # retry failures 3 times or something before giving up on a
+                # subscriber. Current behavior is very bad--failure in one
+                # subscriber means we will never progress. I think the outer
+                # try/except is probably not necessary.
+                await asyncio.gather(
+                    *(
+                        subscriber(low_timestamp, high_timestamp)
+                        for subscriber in subscribers
+                    )
+                )
+
+                self._subscribers_called_timestamp = high_timestamp
+            except Exception:
+                # TODO this function isn't awaited, so exceptions need to make it
+                # back into the scheduler somehow
+                traceback.print_exc()
+
+    async def close(self) -> None:
+        self._subscibers_loop.cancel()
+        try:
+            await self._subscibers_loop
         except asyncio.CancelledError:
-            pass  # we're being cancelled, that's OK
+            pass  # that's fine, we just cancelled
+
+    def __aenter__(self) -> EventLog:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        await self.close()

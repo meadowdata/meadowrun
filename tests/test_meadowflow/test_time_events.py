@@ -1,99 +1,85 @@
+import asyncio
 import datetime
-from pprint import pprint
-from typing import Optional, Tuple, List
 
-import pytz
-import threading
 import time
+from pprint import pprint
+from typing import List, Optional, Tuple
 
-# not sure what's going on here, but importing this prevents the next import from
-# causing a circular import error (but this only happens when we run pytest on a single
-# test in this module).
+import meadowflow.event_log
 import meadowflow.jobs
+import meadowflow.time_event_publisher
+import pytest
+import pytz
 from meadowflow.time_event_publisher import (
+    Periodic,
+    PointInTime,
     TimeEventPublisher,
+    TimeOfDay,
     TimeOfDayPayload,
     _timedelta_to_str,
-    Periodic,
-    TimeOfDay,
-    PointInTime,
 )
-import meadowflow.event_log
-
 
 # these need to be tuned to make the tests run fast, but avoid false negatives
 _TIME_DELAY = 0.1
 _TIME_INCREMENT = datetime.timedelta(seconds=1)
 
 
-def test_call_at(event_loop):
+@pytest.mark.asyncio
+async def test_call_at():
     # this uses the higher level interface (TimeEventPublisher) but mostly tests the low
     # level functionality of _CallAt and whether it's robust to different
     # sequences of events
 
     # test basic callback functionality
 
-    event_log = meadowflow.event_log.EventLog(event_loop)
-    p = TimeEventPublisher(event_loop, event_log.append_event)
-    now = pytz.utc.localize(datetime.datetime.utcnow())
+    async with meadowflow.event_log.EventLog() as event_log, TimeEventPublisher(
+        event_log.append_event
+    ) as p:
+        now = pytz.utc.localize(datetime.datetime.utcnow())
 
-    task = event_loop.create_task(p.main_loop())
-    thread = threading.Thread(
-        target=lambda: event_loop.run_until_complete(task), daemon=True
-    )
-    thread.start()
-
-    try:
         p.create_point_in_time(PointInTime(now))  # called
         p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
         p.create_point_in_time(PointInTime(now + 3 * _TIME_INCREMENT))  # not called
 
-        time.sleep(_TIME_DELAY)
+        await asyncio.sleep(_TIME_DELAY)
+
         assert len(event_log._event_log) == 2
 
         now = pytz.utc.localize(datetime.datetime.utcnow())
         p.create_point_in_time(PointInTime(now))  # called
 
-        time.sleep(_TIME_DELAY)
+        await asyncio.sleep(_TIME_DELAY)
         assert len(event_log._event_log) == 3
 
         p.create_point_in_time(PointInTime(now + 3 * _TIME_INCREMENT))  # not called
         p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
 
-        time.sleep(_TIME_DELAY)
+        await asyncio.sleep(_TIME_DELAY)
 
         assert len(event_log._event_log) == 4
-    finally:
-        event_loop.call_soon_threadsafe(task.cancel)
-        thread.join()
 
 
-def test_call_at_callbacks_before_running(event_loop):
+@pytest.mark.asyncio
+async def test_call_at_callbacks_before_running():
     # test adding callbacks before running
+    # TODO this test seems moot now...the publisher is running
+    # from the start, but it doesn't get a chance to schedule callbacks
+    # because nothing is awaited until the sleep.
 
-    event_log = meadowflow.event_log.EventLog(event_loop)
-    p = TimeEventPublisher(event_loop, event_log.append_event)
-    now = pytz.utc.localize(datetime.datetime.utcnow())
+    async with meadowflow.event_log.EventLog() as event_log, TimeEventPublisher(
+        event_log.append_event
+    ) as p:
+        now = pytz.utc.localize(datetime.datetime.utcnow())
 
-    p.create_point_in_time(PointInTime(now))  # called
-    p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
-    p.create_point_in_time(PointInTime(now + _TIME_INCREMENT))  # not called
+        p.create_point_in_time(PointInTime(now))  # called
+        p.create_point_in_time(PointInTime(now - _TIME_INCREMENT))  # called
+        p.create_point_in_time(PointInTime(now + _TIME_INCREMENT))  # not called
 
-    assert len(event_log._event_log) == 0
+        assert len(event_log._event_log) == 0
 
-    task = event_loop.create_task(p.main_loop())
-    thread = threading.Thread(
-        target=lambda: event_loop.run_until_complete(task), daemon=True
-    )
-    thread.start()
-
-    try:
-        time.sleep(_TIME_DELAY)
+        await asyncio.sleep(_TIME_DELAY)
 
         assert len(event_log._event_log) == 2
-    finally:
-        event_loop.call_soon_threadsafe(task.cancel)
-        thread.join()
 
 
 def _dt_to_str(dt: datetime.datetime) -> str:
@@ -104,20 +90,15 @@ def _date_to_str(dt: datetime.date) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def test_time_event_publisher_point_in_time(event_loop):
+@pytest.mark.asyncio
+async def test_time_event_publisher_point_in_time():
     """Test TimeEventPublisher.point_in_time_trigger"""
 
-    event_log = meadowflow.event_log.EventLog(event_loop)
-    p = TimeEventPublisher(event_loop, event_log.append_event)
-    now = pytz.utc.localize(datetime.datetime.utcnow())
+    async with meadowflow.event_log.EventLog() as event_log, TimeEventPublisher(
+        event_log.append_event
+    ) as p:
+        now = pytz.utc.localize(datetime.datetime.utcnow())
 
-    task = event_loop.create_task(p.main_loop())
-    thread = threading.Thread(
-        target=lambda: event_loop.run_until_complete(task), daemon=True
-    )
-    thread.start()
-
-    try:
         tz_ldn = pytz.timezone("Europe/London")
         tz_ny = pytz.timezone("America/New_York")
         tz_la = pytz.timezone("America/Los_Angeles")
@@ -139,12 +120,12 @@ def test_time_event_publisher_point_in_time(event_loop):
 
         t0 = time.time()
 
-        time.sleep(_TIME_DELAY)
+        await asyncio.sleep(_TIME_DELAY)
 
         assert 1 == len(event_log._event_log)
         assert dt_strings[0] == _dt_to_str(event_log._event_log[0].payload)
 
-        time.sleep(1.5 * _TIME_INCREMENT.total_seconds() + t0 - time.time())
+        await asyncio.sleep(1.5 * _TIME_INCREMENT.total_seconds() + t0 - time.time())
 
         assert 3 == len(event_log._event_log)
         # make sure that 2 times with the same point in time but different timezones
@@ -154,7 +135,7 @@ def test_time_event_publisher_point_in_time(event_loop):
             _dt_to_str(e.payload) for e in event_log._event_log
         )
 
-        time.sleep(3 * _TIME_INCREMENT.total_seconds() + t0 - time.time())
+        await asyncio.sleep(3 * _TIME_INCREMENT.total_seconds() + t0 - time.time())
 
         assert 4 == len(event_log._event_log)
         assert set(dt_strings) == set(
@@ -162,38 +143,27 @@ def test_time_event_publisher_point_in_time(event_loop):
         )
 
         pprint(dt_strings)
-    finally:
-        event_loop.call_soon_threadsafe(task.cancel)
-        thread.join()
 
 
-def test_time_event_publisher_periodic(event_loop):
+@pytest.mark.asyncio
+async def test_time_event_publisher_periodic():
     """
     Test TimeEventPublisher.periodic_trigger. This can take up to 12 seconds in the
     worst case: 6 seconds to get to the top of a 6 second cycle, and then 6 seconds
     worth of events.
     """
-    event_log = meadowflow.event_log.EventLog(event_loop)
-    p = TimeEventPublisher(
-        event_loop,
+    async with meadowflow.event_log.EventLog() as event_log, TimeEventPublisher(
         event_log.append_event,
         # we're testing 6 seconds worth of time, so we set the schedule_recurring_limit
         # even shorter than that to test that "rolling over" to the next period works
         # correctly
         datetime.timedelta(seconds=4),
         datetime.timedelta(seconds=2),
-    )
+    ) as p:
 
-    task = event_loop.create_task(p.main_loop())
-    thread = threading.Thread(
-        target=lambda: event_loop.run_until_complete(task), daemon=True
-    )
-    thread.start()
-
-    try:
         # get us to just after the "top of a 6 second cycle", as that means both the 2s
         # and 3s periodic triggers will be "at the top of their cycles"
-        time.sleep(6 - time.time() % 6 + _TIME_DELAY)
+        await asyncio.sleep(6 - time.time() % 6 + _TIME_DELAY)
         t0 = time.time()
 
         p.create_periodic(Periodic(datetime.timedelta(seconds=1)))
@@ -203,30 +173,29 @@ def test_time_event_publisher_periodic(event_loop):
         assert 0 == len(event_log._event_log)
         # these are effectively sleep(1), but this reduces the likelihood that we go out
         # of sync
-        time.sleep(max(t0 + 1 - time.time(), 0))
+        await asyncio.sleep(max(t0 + 1 - time.time(), 0))
         assert 1 == len(event_log._event_log)
-        time.sleep(max(t0 + 2 - time.time(), 0))
+        await asyncio.sleep(max(t0 + 2 - time.time(), 0))
         assert 1 + 2 == len(event_log._event_log)
-        time.sleep(max(t0 + 3 - time.time(), 0))
+        await asyncio.sleep(max(t0 + 3 - time.time(), 0))
         assert 1 + 2 + 2 == len(event_log._event_log)
-        time.sleep(max(t0 + 4 - time.time(), 0))
+        await asyncio.sleep(max(t0 + 4 - time.time(), 0))
         assert 1 + 2 + 2 + 2 == len(event_log._event_log)
-        time.sleep(max(t0 + 5 - time.time(), 0))
+        await asyncio.sleep(max(t0 + 5 - time.time(), 0))
         assert 1 + 2 + 2 + 2 + 1 == len(event_log._event_log)
-        time.sleep(max(t0 + 6 - time.time(), 0))
+        await asyncio.sleep(max(t0 + 6 - time.time(), 0))
         assert 1 + 2 + 2 + 2 + 1 + 3 == len(event_log._event_log)
-        time.sleep(max(t0 + 7 - time.time(), 0))
-    finally:
-        event_loop.call_soon_threadsafe(task.cancel)
-        thread.join()
+        await asyncio.sleep(max(t0 + 7 - time.time(), 0))
 
 
-def test_time_event_publisher_time_of_day(event_loop):
+@pytest.mark.asyncio
+async def test_time_event_publisher_time_of_day():
     """Test TimeEventPublisher.time_of_day_trigger"""
-    _test_time_event_publisher_time_of_day(event_loop)
+    await _test_time_event_publisher_time_of_day()
 
 
-def test_time_event_publisher_time_of_day_daylight_savings(event_loop):
+@pytest.mark.asyncio
+async def test_time_event_publisher_time_of_day_daylight_savings():
     """
     Test TimeEventPublisher.time_of_day_trigger in a case where we're crossing a
     daylight savings boundary.
@@ -241,23 +210,17 @@ def test_time_event_publisher_time_of_day_daylight_savings(event_loop):
         test_dt.timestamp() - time.time()
     )
     try:
-        _test_time_event_publisher_time_of_day(event_loop)
+        await _test_time_event_publisher_time_of_day()
     finally:
         meadowflow.time_event_publisher._TEST_TIME_OFFSET = 0
 
 
-def _test_time_event_publisher_time_of_day(event_loop):
+async def _test_time_event_publisher_time_of_day():
 
-    event_log = meadowflow.event_log.EventLog(event_loop)
-    p = TimeEventPublisher(event_loop, event_log.append_event)
+    async with meadowflow.event_log.EventLog() as event_log, TimeEventPublisher(
+        event_log.append_event
+    ) as p:
 
-    task = event_loop.create_task(p.main_loop())
-    thread = threading.Thread(
-        target=lambda: event_loop.run_until_complete(task), daemon=True
-    )
-    thread.start()
-
-    try:
         tz_hi = pytz.timezone("Pacific/Honolulu")
         tz_nz = pytz.timezone("Pacific/Auckland")
 
@@ -277,7 +240,7 @@ def _test_time_event_publisher_time_of_day(event_loop):
 
         # this should make sure we're very close to now_rounded and possibly a little
         # bit after it
-        time.sleep(
+        await asyncio.sleep(
             max(
                 now_rounded.timestamp() - meadowflow.time_event_publisher._time_time(),
                 0,
@@ -363,20 +326,17 @@ def _test_time_event_publisher_time_of_day(event_loop):
 
         assert 0 == len(event_log._event_log)
 
-        time.sleep(_TIME_INCREMENT.total_seconds() + _TIME_DELAY)
+        await asyncio.sleep(_TIME_INCREMENT.total_seconds() + _TIME_DELAY)
 
         assert 3 == len(event_log._event_log)
         assert set(expected_payloads[:3]) == set(
             payload_to_strs(e.payload) for e in event_log._event_log
         )
 
-        time.sleep(_TIME_INCREMENT.total_seconds())
+        await asyncio.sleep(_TIME_INCREMENT.total_seconds())
         assert 6 == len(event_log._event_log)
         assert set(expected_payloads) == set(
             payload_to_strs(e.payload) for e in event_log._event_log
         )
 
         pprint(expected_payloads)
-    finally:
-        event_loop.call_soon_threadsafe(task.cancel)
-        thread.join()

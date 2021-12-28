@@ -96,8 +96,8 @@ async def start_meadowflow_server(
     await server.start()
     try:
         await server.wait_for_termination()
-    except KeyboardInterrupt:
-        # Shuts down the server with 0 seconds of grace period. During the grace period,
+    finally:
+        # Shuts down the server with 5 seconds of grace period. During the grace period,
         # the server won't accept new connections and allow existing RPCs to continue
         # within the grace period.
-        await server.stop(0)
+        await server.stop(5)

@@ -41,7 +41,6 @@ types-protobuf = "^3.18.2"
 types-pytz = "^2021.3.1"
 mypy-protobuf = "^3.0.0"
 flake8 = "^4.0.1"
-style-doc = "^0.2.0"
 pytest-asyncio = "^0.16.0"
 
 [build-system]

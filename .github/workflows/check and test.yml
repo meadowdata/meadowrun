@@ -57,6 +57,7 @@ jobs:
     - name: Run Pytest
       env:
         PYTHONDEVMODE: 1 # see https://docs.python.org/3/library/devmode.html#devmode
+        GRPC_VERBOSITY: debug
       run: |
-        poetry run pytest -vv tests/test_meadowdb tests/test_meadowflow/test_event_log.py tests/test_meadowflow/test_time_events.py
+        poetry run pytest tests/test_meadowdb tests/test_meadowflow/test_event_log.py tests/test_meadowflow/test_time_events.py
     

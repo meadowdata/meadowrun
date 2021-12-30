@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import pickle
 import time
 from types import TracebackType
-from typing import List, Literal, Optional, Type, cast
+from typing import List, Literal, Optional, Tuple, Type, cast
 
 import grpc
 import grpc.aio
@@ -38,6 +39,36 @@ def _is_request_id_completed(events: List[Event[JobPayload]], request_id: str) -
 _POLL_PERIOD = 0.5  # poll every 500ms
 
 
+def _grpc_retry_option(
+    package: str, service: str
+) -> Tuple[Literal["grpc.service_config"], str]:
+    """Create a retry config.
+
+    Args:
+        package (str): package name (from proto file)
+        service (str): service name (from proto file)
+    """
+    # https://stackoverflow.com/questions/64227270/use-retrypolicy-with-python-grpc-client
+    json_config = json.dumps(
+        {
+            "methodConfig": [
+                {
+                    "name": [{"service": f"{package}.{service}"}],
+                    "retryPolicy": {
+                        "maxAttempts": 5,
+                        "initialBackoff": "1s",
+                        "maxBackoff": "10s",
+                        "backoffMultiplier": 2,
+                        "retryableStatusCodes": ["UNAVAILABLE"],
+                    },
+                }
+            ]
+        }
+    )
+
+    return ("grpc.service_config", json_config)
+
+
 class MeadowFlowClientAsync:
     """
     The main API for meadowflow, allows users to interact with a meadowflow server. Very
@@ -45,7 +76,9 @@ class MeadowFlowClientAsync:
     """
 
     def __init__(self, address: str = DEFAULT_ADDRESS):
-        self._channel = grpc.aio.insecure_channel(address)
+        self._channel = grpc.aio.insecure_channel(
+            address, options=[_grpc_retry_option("meadowflow", "MeadowFlowServer")]
+        )
         self._stub = MeadowFlowServerStub(self._channel)
 
     async def add_jobs(self, jobs: List[Job]) -> None:
@@ -145,7 +178,9 @@ class MeadowFlowClientSync:
     """
 
     def __init__(self, address: str = DEFAULT_ADDRESS):
-        self._channel = grpc.insecure_channel(address)
+        self._channel = grpc.insecure_channel(
+            address, options=[_grpc_retry_option("meadowflow", "MeadowFlowServer")]
+        )
         self._stub = MeadowFlowServerStub(self._channel)
 
     def add_jobs(self, jobs: List[Job]) -> None:

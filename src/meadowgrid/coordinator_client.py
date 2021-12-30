@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pickle
 from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List, Union
 
@@ -346,6 +347,36 @@ def _add_credentials_request(
     return result
 
 
+def _grpc_retry_option(
+    package: str, service: str
+) -> Tuple[Literal["grpc.service_config"], str]:
+    """Create a retry config.
+
+    Args:
+        package (str): package name (from proto file)
+        service (str): service name (from proto file)
+    """
+    # https://stackoverflow.com/questions/64227270/use-retrypolicy-with-python-grpc-client
+    json_config = json.dumps(
+        {
+            "methodConfig": [
+                {
+                    "name": [{"service": f"{package}.{service}"}],
+                    "retryPolicy": {
+                        "maxAttempts": 5,
+                        "initialBackoff": "1s",
+                        "maxBackoff": "10s",
+                        "backoffMultiplier": 2,
+                        "retryableStatusCodes": ["UNAVAILABLE"],
+                    },
+                }
+            ]
+        }
+    )
+
+    return ("grpc.service_config", json_config)
+
+
 class MeadowGridCoordinatorClientAsync:
     """
     A client for MeadowGridCoordinator for "users" of the system. Effectively allows
@@ -355,7 +386,9 @@ class MeadowGridCoordinatorClientAsync:
     """
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
-        self._channel = grpc.aio.insecure_channel(address)
+        self._channel = grpc.aio.insecure_channel(
+            address, options=[_grpc_retry_option("meadowgrid", "MeadowGridCoordinator")]
+        )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
     async def add_py_runnable_job(
@@ -504,7 +537,9 @@ class MeadowGridCoordinatorClientSync:
     """The non-async version of MeadowGridCoordinatorClientAsync"""
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
-        self._channel = grpc.insecure_channel(address)
+        self._channel = grpc.insecure_channel(
+            address, options=[_grpc_retry_option("meadowgrid", "MeadowGridCoordinator")]
+        )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
     def add_py_runnable_job(
@@ -604,7 +639,9 @@ class MeadowGridCoordinatorClientForWorkersAsync:
     """
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
-        self._channel = grpc.aio.insecure_channel(address)
+        self._channel = grpc.aio.insecure_channel(
+            address, options=[_grpc_retry_option("meadowgrid", "MeadowGridCoordinator")]
+        )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
     async def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
@@ -667,7 +704,9 @@ class MeadowGridCoordinatorClientForWorkersSync:
     """The non-async version of MeadowGridCoordinatorClientForWorkersAsync"""
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
-        self._channel = grpc.insecure_channel(address)
+        self._channel = grpc.insecure_channel(
+            address, options=[_grpc_retry_option("meadowgrid", "MeadowGridCoordinator")]
+        )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
     def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:

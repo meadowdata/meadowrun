@@ -44,10 +44,16 @@ def main_in_child_process(
     server_process.start()
 
     try:
+        logging.info(f"Process started. Pid: {server_process.pid}")
         yield server_process.pid
-        server_process.terminate()
     finally:
-        server_process.kill()
+        server_process.terminate()
+        logging.info("Process terminated. Waiting up to 5 seconds for exit...")
+        server_process.join(5)
+        logging.info(f"Process exited with code {server_process.exitcode}")
+        if server_process.is_alive():
+            logging.info("Process alive after termination, killing.")
+            server_process.kill()
 
 
 def command_line_main() -> None:

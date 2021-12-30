@@ -4,7 +4,7 @@ import logging
 import multiprocessing
 import asyncio
 import contextlib
-from typing import ContextManager, Optional
+from typing import Iterator, Optional
 
 import meadowgrid.coordinator
 from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
@@ -34,7 +34,7 @@ def main_in_child_process(
     host: Optional[str] = None,
     port: Optional[int] = None,
     meadowflow_address: Optional[str] = None,
-) -> ContextManager[None]:
+) -> Iterator[Optional[int]]:
     """
     Launch server in a child process. Usually for unit tests. For debugging, it's better
     to just run coordinator_main.py manually as a standalone process so you can debug
@@ -47,10 +47,16 @@ def main_in_child_process(
     server_process.start()
 
     try:
+        logging.info(f"Process started. Pid: {server_process.pid}")
         yield server_process.pid
-        server_process.terminate()
     finally:
-        server_process.kill()
+        server_process.terminate()
+        logging.info("Process terminated. Waiting up to 5 seconds for exit...")
+        server_process.join(5)
+        logging.info(f"Process exited with code {server_process.exitcode}")
+        if server_process.is_alive():
+            logging.info("Process alive after termination, killing.")
+            server_process.kill()
 
 
 def command_line_main():

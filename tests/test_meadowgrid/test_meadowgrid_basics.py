@@ -2,9 +2,7 @@ import asyncio
 import pathlib
 import pickle
 import time
-from typing import Sequence, Union
-
-import pip
+from typing import List, Sequence, Union
 
 import meadowgrid.coordinator
 import meadowgrid.coordinator_main
@@ -238,7 +236,7 @@ def _test_meadowgrid(
                 add_job_state = await client.add_py_runnable_job(
                     request_id,
                     "pip",
-                    MeadowGridDeployedRunnable(
+                    MeadowGridVersionedDeployedRunnable(
                         code_deployment,
                         interpreter_deployment,
                         MeadowGridCommand(["pip", "--version"]),
@@ -251,7 +249,10 @@ def _test_meadowgrid(
                 assert bool(results[0].pid > 0) ^ bool(results[0].container_id)
                 with open(results[0].log_file_name, "r") as log_file:
                     text = log_file.read()
-                assert f"pip {pip.__version__}" in text
+                # this used to check that pip.__version__ is in text, but the version we
+                # have is not necessarily the same as the version in the container - the
+                # latter depends on the base Docker image we're building from.
+                assert "pip" in text
 
         asyncio.run(run())
 
@@ -402,7 +403,7 @@ def test_meadowgrid_grid_job():
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        interpreters = [
+        interpreters: List[InterpreterDeployment] = [
             ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
             # We need an image that has meadowdata in it. This can be produced by
             # running build_docker_image.bat

@@ -677,28 +677,31 @@ global___Job = Job
 
 class AddJobResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
-    class AddJobState(_AddJobState, metaclass=_AddJobStateEnumTypeWrapper):
-        pass
     class _AddJobState:
-        V = typing.NewType("V", builtins.int)
+        ValueType = typing.NewType("ValueType", builtins.int)
+        V: typing_extensions.TypeAlias = ValueType
     class _AddJobStateEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_AddJobState.V],
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            _AddJobState.ValueType
+        ],
         builtins.type,
     ):
         DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT = AddJobResponse.AddJobState.V(0)
-        ADDED = AddJobResponse.AddJobState.V(1)
-        IS_DUPLICATE = AddJobResponse.AddJobState.V(2)
-    DEFAULT = AddJobResponse.AddJobState.V(0)
-    ADDED = AddJobResponse.AddJobState.V(1)
-    IS_DUPLICATE = AddJobResponse.AddJobState.V(2)
+        DEFAULT: AddJobResponse.AddJobState.ValueType = ...  # 0
+        ADDED: AddJobResponse.AddJobState.ValueType = ...  # 1
+        IS_DUPLICATE: AddJobResponse.AddJobState.ValueType = ...  # 2
+    class AddJobState(_AddJobState, metaclass=_AddJobStateEnumTypeWrapper):
+        pass
+    DEFAULT: AddJobResponse.AddJobState.ValueType = ...  # 0
+    ADDED: AddJobResponse.AddJobState.ValueType = ...  # 1
+    IS_DUPLICATE: AddJobResponse.AddJobState.ValueType = ...  # 2
 
     STATE_FIELD_NUMBER: builtins.int
-    state: global___AddJobResponse.AddJobState.V = ...
+    state: global___AddJobResponse.AddJobState.ValueType = ...
     def __init__(
         self,
         *,
-        state: global___AddJobResponse.AddJobState.V = ...,
+        state: global___AddJobResponse.AddJobState.ValueType = ...,
     ) -> None: ...
     def ClearField(
         self, field_name: typing_extensions.Literal["state", b"state"]
@@ -776,53 +779,50 @@ class ProcessState(google.protobuf.message.Message):
     """Represents the state of a process, can apply to a job or a grid task"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
-    class ProcessStateEnum(
-        _ProcessStateEnum, metaclass=_ProcessStateEnumEnumTypeWrapper
-    ):
-        pass
     class _ProcessStateEnum:
-        V = typing.NewType("V", builtins.int)
+        ValueType = typing.NewType("ValueType", builtins.int)
+        V: typing_extensions.TypeAlias = ValueType
     class _ProcessStateEnumEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            _ProcessStateEnum.V
+            _ProcessStateEnum.ValueType
         ],
         builtins.type,
     ):
         DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT = ProcessState.ProcessStateEnum.V(0)
+        DEFAULT: ProcessState.ProcessStateEnum.ValueType = ...  # 0
         """Reserved, not used"""
 
-        RUN_REQUESTED = ProcessState.ProcessStateEnum.V(1)
+        RUN_REQUESTED: ProcessState.ProcessStateEnum.ValueType = ...  # 1
         """These states represent a job that is "in progress"
 
         The meadowgrid coordinator has received the Job
         """
 
-        ASSIGNED = ProcessState.ProcessStateEnum.V(2)
+        ASSIGNED: ProcessState.ProcessStateEnum.ValueType = ...  # 2
         """The meadowgrid coordinator has assigned the Job to a worker
         TODO add worker_id
         """
 
-        RUNNING = ProcessState.ProcessStateEnum.V(3)
+        RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 3
         """The assigned worker has launched the job. pid and log_file_name will be
         populated.
         """
 
-        SUCCEEDED = ProcessState.ProcessStateEnum.V(4)
+        SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
         """These states represent a job that is "done". log_file_name, return_code, and
         one of pid/container_id will be populated unless otherwise noted.
 
         The job has completed normally. pickled_result may be populated.
         """
 
-        RUN_REQUEST_FAILED = ProcessState.ProcessStateEnum.V(5)
+        RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 5
         """There was an exception before launching the job process. pid/container_id,
         log_file_name, and return_code will not be populated. pickled_result will be
         populated with a tuple representing the python exception from the job_worker
         process (see PYTHON_EXCEPTION for the format).
         """
 
-        PYTHON_EXCEPTION = ProcessState.ProcessStateEnum.V(6)
+        PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 6
         """A python exception was thrown from the job process. pickled_result will be a
         pickled tuple (exception_type, exception_message, exception_traceback). We
         don't pickle the exception itself because it may not be unpicklable on this
@@ -831,64 +831,68 @@ class ProcessState(google.protobuf.message.Message):
         they can be unpickled on the client.
         """
 
-        NON_ZERO_RETURN_CODE = ProcessState.ProcessStateEnum.V(7)
+        NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
         """The process exited with a non-zero return code. This could mean that a
         non-python exception was thrown (e.g. in the interpreter itself, or in a C
         extension), or os.exit was called with a non-zero argument, or there was a
         python exception thrown in the meadowgrid worker code.
         """
 
-        CANCELLED = ProcessState.ProcessStateEnum.V(8)
+        CANCELLED: ProcessState.ProcessStateEnum.ValueType = ...  # 8
         """Cancelled by request. pid/container_id, log_file_name, and return_code may
         not be populated.
         TODO implement cancelling
         """
 
-        ERROR_GETTING_STATE = ProcessState.ProcessStateEnum.V(9)
+        ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 9
         """There was an error while reading the outputs of the process. This could mean
         that the child process somehow silently failed to write its outputs correctly
         or there was a python exception thrown in the meadowgrid worker code.
         """
 
-        UNKNOWN = ProcessState.ProcessStateEnum.V(10)
+        UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 10
         """This state represents a job that is neither "done" nor "in progress"
 
         We do not know the job id
         """
-    DEFAULT = ProcessState.ProcessStateEnum.V(0)
+    class ProcessStateEnum(
+        _ProcessStateEnum, metaclass=_ProcessStateEnumEnumTypeWrapper
+    ):
+        pass
+    DEFAULT: ProcessState.ProcessStateEnum.ValueType = ...  # 0
     """Reserved, not used"""
 
-    RUN_REQUESTED = ProcessState.ProcessStateEnum.V(1)
+    RUN_REQUESTED: ProcessState.ProcessStateEnum.ValueType = ...  # 1
     """These states represent a job that is "in progress"
 
     The meadowgrid coordinator has received the Job
     """
 
-    ASSIGNED = ProcessState.ProcessStateEnum.V(2)
+    ASSIGNED: ProcessState.ProcessStateEnum.ValueType = ...  # 2
     """The meadowgrid coordinator has assigned the Job to a worker
     TODO add worker_id
     """
 
-    RUNNING = ProcessState.ProcessStateEnum.V(3)
+    RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 3
     """The assigned worker has launched the job. pid and log_file_name will be
     populated.
     """
 
-    SUCCEEDED = ProcessState.ProcessStateEnum.V(4)
+    SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
     """These states represent a job that is "done". log_file_name, return_code, and
     one of pid/container_id will be populated unless otherwise noted.
 
     The job has completed normally. pickled_result may be populated.
     """
 
-    RUN_REQUEST_FAILED = ProcessState.ProcessStateEnum.V(5)
+    RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 5
     """There was an exception before launching the job process. pid/container_id,
     log_file_name, and return_code will not be populated. pickled_result will be
     populated with a tuple representing the python exception from the job_worker
     process (see PYTHON_EXCEPTION for the format).
     """
 
-    PYTHON_EXCEPTION = ProcessState.ProcessStateEnum.V(6)
+    PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 6
     """A python exception was thrown from the job process. pickled_result will be a
     pickled tuple (exception_type, exception_message, exception_traceback). We
     don't pickle the exception itself because it may not be unpicklable on this
@@ -897,26 +901,26 @@ class ProcessState(google.protobuf.message.Message):
     they can be unpickled on the client.
     """
 
-    NON_ZERO_RETURN_CODE = ProcessState.ProcessStateEnum.V(7)
+    NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
     """The process exited with a non-zero return code. This could mean that a
     non-python exception was thrown (e.g. in the interpreter itself, or in a C
     extension), or os.exit was called with a non-zero argument, or there was a
     python exception thrown in the meadowgrid worker code.
     """
 
-    CANCELLED = ProcessState.ProcessStateEnum.V(8)
+    CANCELLED: ProcessState.ProcessStateEnum.ValueType = ...  # 8
     """Cancelled by request. pid/container_id, log_file_name, and return_code may
     not be populated.
     TODO implement cancelling
     """
 
-    ERROR_GETTING_STATE = ProcessState.ProcessStateEnum.V(9)
+    ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 9
     """There was an error while reading the outputs of the process. This could mean
     that the child process somehow silently failed to write its outputs correctly
     or there was a python exception thrown in the meadowgrid worker code.
     """
 
-    UNKNOWN = ProcessState.ProcessStateEnum.V(10)
+    UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 10
     """This state represents a job that is neither "done" nor "in progress"
 
     We do not know the job id
@@ -928,7 +932,7 @@ class ProcessState(google.protobuf.message.Message):
     LOG_FILE_NAME_FIELD_NUMBER: builtins.int
     PICKLED_RESULT_FIELD_NUMBER: builtins.int
     RETURN_CODE_FIELD_NUMBER: builtins.int
-    state: global___ProcessState.ProcessStateEnum.V = ...
+    state: global___ProcessState.ProcessStateEnum.ValueType = ...
     pid: builtins.int = ...
     container_id: typing.Text = ...
     log_file_name: typing.Text = ...
@@ -937,7 +941,7 @@ class ProcessState(google.protobuf.message.Message):
     def __init__(
         self,
         *,
-        state: global___ProcessState.ProcessStateEnum.V = ...,
+        state: global___ProcessState.ProcessStateEnum.ValueType = ...,
         pid: builtins.int = ...,
         container_id: typing.Text = ...,
         log_file_name: typing.Text = ...,
@@ -1198,7 +1202,7 @@ class AddCredentialsRequest(google.protobuf.message.Message):
     SERVICE_URL_FIELD_NUMBER: builtins.int
     AWS_SECRET_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FILE_FIELD_NUMBER: builtins.int
-    service: global___Credentials.Service.V = ...
+    service: global___Credentials.Service.ValueType = ...
     service_url: typing.Text = ...
     @property
     def aws_secret(self) -> global___AwsSecret: ...
@@ -1209,7 +1213,7 @@ class AddCredentialsRequest(google.protobuf.message.Message):
     def __init__(
         self,
         *,
-        service: global___Credentials.Service.V = ...,
+        service: global___Credentials.Service.ValueType = ...,
         service_url: typing.Text = ...,
         aws_secret: typing.Optional[global___AwsSecret] = ...,
         server_available_file: typing.Optional[global___ServerAvailableFile] = ...,
@@ -1252,36 +1256,38 @@ class Credentials(google.protobuf.message.Message):
     """Represents actual credentials"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    class _Service:
+        ValueType = typing.NewType("ValueType", builtins.int)
+        V: typing_extensions.TypeAlias = ValueType
+    class _ServiceEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Service.ValueType],
+        builtins.type,
+    ):
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
+        DEFAULT_SERVICE: Credentials.Service.ValueType = ...  # 0
+        DOCKER: Credentials.Service.ValueType = ...  # 1
+        GIT: Credentials.Service.ValueType = ...  # 2
     class Service(_Service, metaclass=_ServiceEnumTypeWrapper):
         pass
-    class _Service:
-        V = typing.NewType("V", builtins.int)
-    class _ServiceEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Service.V],
+    DEFAULT_SERVICE: Credentials.Service.ValueType = ...  # 0
+    DOCKER: Credentials.Service.ValueType = ...  # 1
+    GIT: Credentials.Service.ValueType = ...  # 2
+    class _Type:
+        ValueType = typing.NewType("ValueType", builtins.int)
+        V: typing_extensions.TypeAlias = ValueType
+    class _TypeEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Type.ValueType],
         builtins.type,
     ):
         DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT_SERVICE = Credentials.Service.V(0)
-        DOCKER = Credentials.Service.V(1)
-        GIT = Credentials.Service.V(2)
-    DEFAULT_SERVICE = Credentials.Service.V(0)
-    DOCKER = Credentials.Service.V(1)
-    GIT = Credentials.Service.V(2)
+        DEFAULT_TYPE: Credentials.Type.ValueType = ...  # 0
+        USERNAME_PASSWORD: Credentials.Type.ValueType = ...  # 1
+        SSH_KEY: Credentials.Type.ValueType = ...  # 2
     class Type(_Type, metaclass=_TypeEnumTypeWrapper):
         pass
-    class _Type:
-        V = typing.NewType("V", builtins.int)
-    class _TypeEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Type.V],
-        builtins.type,
-    ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT_TYPE = Credentials.Type.V(0)
-        USERNAME_PASSWORD = Credentials.Type.V(1)
-        SSH_KEY = Credentials.Type.V(2)
-    DEFAULT_TYPE = Credentials.Type.V(0)
-    USERNAME_PASSWORD = Credentials.Type.V(1)
-    SSH_KEY = Credentials.Type.V(2)
+    DEFAULT_TYPE: Credentials.Type.ValueType = ...  # 0
+    USERNAME_PASSWORD: Credentials.Type.ValueType = ...  # 1
+    SSH_KEY: Credentials.Type.ValueType = ...  # 2
 
     CREDENTIALS_FIELD_NUMBER: builtins.int
     credentials: builtins.bytes = ...
@@ -1308,12 +1314,12 @@ class AwsSecret(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
     SECRET_NAME_FIELD_NUMBER: builtins.int
-    credentials_type: global___Credentials.Type.V = ...
+    credentials_type: global___Credentials.Type.ValueType = ...
     secret_name: typing.Text = ...
     def __init__(
         self,
         *,
-        credentials_type: global___Credentials.Type.V = ...,
+        credentials_type: global___Credentials.Type.ValueType = ...,
         secret_name: typing.Text = ...,
     ) -> None: ...
     def ClearField(
@@ -1335,12 +1341,12 @@ class ServerAvailableFile(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
     PATH_FIELD_NUMBER: builtins.int
-    credentials_type: global___Credentials.Type.V = ...
+    credentials_type: global___Credentials.Type.ValueType = ...
     path: typing.Text = ...
     def __init__(
         self,
         *,
-        credentials_type: global___Credentials.Type.V = ...,
+        credentials_type: global___Credentials.Type.ValueType = ...,
         path: typing.Text = ...,
     ) -> None: ...
     def ClearField(

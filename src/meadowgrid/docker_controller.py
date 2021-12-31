@@ -219,7 +219,7 @@ async def get_latest_digest_from_registry(
                 # construct the request for the token. Example of a www-authenticate
                 # header is
                 # `Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/python:pull"` # noqa E501
-                auth_params = urllib.request.parse_keqv_list(
+                auth_params_parsed = urllib.request.parse_keqv_list(
                     urllib.request.parse_http_list(auth_params)
                 )
 
@@ -227,9 +227,11 @@ async def get_latest_digest_from_registry(
                 # string, so we remove realm from it because that's the only one we
                 # don't need
                 # TODO should this be case insensitive?
-                realm = auth_params["realm"]
-                del auth_params["realm"]
-                token_request_url = f"{realm}?{urllib.parse.urlencode(auth_params)}"
+                realm = auth_params_parsed["realm"]
+                del auth_params_parsed["realm"]
+                token_request_url = (
+                    f"{realm}?{urllib.parse.urlencode(auth_params_parsed)}"
+                )
 
                 # Even if no username_password was provided (i.e. basic_auth is None)
                 # it's worth trying this. E.g. DockerHub requires an anonymous token for

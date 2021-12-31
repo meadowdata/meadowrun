@@ -8,7 +8,7 @@ if sys.platform != "win32":
 
 
 class ExclusiveFileLockException(BaseException):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("Another process already holds this file lock")
 
 
@@ -29,8 +29,7 @@ def exclusive_file_lock(lock_file: str) -> None:
             if os.path.exists(lock_file):
                 os.unlink(lock_file)
             os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-        except OSError:
-            type, e, tb = sys.exc_info()
+        except OSError as e:
             if e.errno == 13:
                 raise ExclusiveFileLockException()
             raise

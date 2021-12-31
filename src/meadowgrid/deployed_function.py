@@ -4,7 +4,18 @@ import dataclasses
 import importlib
 import sys
 import types
-from typing import Any, Dict, Final, Sequence, Callable, Optional, Union, get_args
+from typing import (
+    Any,
+    Dict,
+    Final,
+    Sequence,
+    Callable,
+    Optional,
+    Union,
+    cast,
+    get_args,
+    overload,
+)
 
 from meadowgrid.credentials import get_docker_credentials, CredentialsDict
 from meadowgrid.docker_controller import get_latest_digest_from_registry
@@ -98,12 +109,30 @@ VersionedInterpreterDeployment = ContainerAtTag
 VersionedInterpreterDeploymentTypes: Final = (VersionedCodeDeployment,)
 
 
+@overload
+async def get_latest_code_version(
+    code: CodeDeployment,
+    credentials_dict: CredentialsDict,
+) -> CodeDeployment:
+    ...
+
+
+@overload
+async def get_latest_code_version(
+    code: VersionedCodeDeployment,
+    credentials_dict: CredentialsDict,
+) -> GitRepoCommit:
+    ...
+
+
 async def get_latest_code_version(
     code: Union[CodeDeployment, VersionedCodeDeployment],
     credentials_dict: CredentialsDict,
 ) -> CodeDeployment:
     if isinstance(code, CodeDeploymentTypes):
-        return code
+        # mypy wouldn't need a cast if we added the types explicitly instead of
+        # CodeDeploymentTypes...but then we'd need to repeat that.
+        return cast(CodeDeployment, code)
     elif isinstance(code, GitRepoBranch):
         # TODO this is a stub for now. We should remove logic for translating a branch
         #  into a commit in _get_git_repo_commit_interpreter_and_code and implement it
@@ -121,12 +150,28 @@ async def get_latest_code_version(
         )
 
 
+@overload
+async def get_latest_interpreter_version(
+    interpreter: InterpreterDeployment,
+    credentials_dict: CredentialsDict,
+) -> InterpreterDeployment:
+    ...
+
+
+@overload
+async def get_latest_interpreter_version(
+    interpreter: VersionedInterpreterDeployment,
+    credentials_dict: CredentialsDict,
+) -> ContainerAtDigest:
+    ...
+
+
 async def get_latest_interpreter_version(
     interpreter: Union[InterpreterDeployment, VersionedInterpreterDeployment],
     credentials_dict: CredentialsDict,
 ) -> InterpreterDeployment:
     if isinstance(interpreter, InterpreterDeploymentTypes):
-        return interpreter
+        return cast(InterpreterDeployment, interpreter)
     elif isinstance(interpreter, ContainerAtTag):
         return ContainerAtDigest(
             repository=interpreter.repository,
@@ -158,7 +203,7 @@ class MeadowGridDeployedRunnable:
     code_deployment: CodeDeployment
     interpreter_deployment: InterpreterDeployment
     runnable: Runnable
-    environment_variables: Optional[Dict[str, str]] = None
+    environment_variables: Dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,20 +216,23 @@ class MeadowGridVersionedDeployedRunnable:
     TODO this interface is very incomplete
     """
 
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None]
+    # TODO would be useful to make code_ and interpreter_deployment optional. This class
+    # is instantiated by various functions like grid_map and so it must be able to take
+    # None to mean "default value" on instantiation, so field(default_factory=...) is
+    # not a workable option. At the same time it is used in various places were None is
+    # not expected, so it's inconvenient to just make these field Union[...,None].
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment]
     interpreter_deployment: Union[InterpreterDeployment, VersionedInterpreterDeployment]
     runnable: Runnable
-    environment_variables: Optional[Dict[str, str]] = None
+    environment_variables: Dict[str, str] = dataclasses.field(default_factory=dict)
 
     async def get_latest(
         self, credentials_dict: CredentialsDict
     ) -> MeadowGridDeployedRunnable:
-        if self.code_deployment is None:
-            code_deployment = ServerAvailableFolder()
-        else:
-            code_deployment = await get_latest_code_version(
-                self.code_deployment, credentials_dict
-            )
+
+        code_deployment = await get_latest_code_version(
+            self.code_deployment, credentials_dict
+        )
 
         interpreter_deployment = await get_latest_interpreter_version(
             self.interpreter_deployment, credentials_dict
@@ -206,14 +254,14 @@ def convert_local_to_deployed_function(
 ) -> MeadowGridDeployedRunnable:
     """
     TODO this should do an entire upload of the current environment, which we don't do
-     right now. For now we just assume that we're on the same machine (or just have the
-     same code layout) as the machine we're calling from.
+    right now. For now we just assume that we're on the same machine (or just have the
+    same code layout) as the machine we're calling from.
 
     TODO there should also be a version of this function that uses cloudpickle and
-     assumes that the python/cloudpickle version on both ends is identical. That
-     function would support a wider variety of JobRunSpecFunctions. This version is much
-     more restricted in that the other end might be running a different version of
-     python, not have cloudpickle installed at all(?).
+    assumes that the python/cloudpickle version on both ends is identical. That
+    function would support a wider variety of JobRunSpecFunctions. This version is much
+    more restricted in that the other end might be running a different version of
+    python, not have cloudpickle installed at all(?).
     """
 
     # get the code_paths

@@ -58,7 +58,7 @@ def main_in_child_process(
             server_process.kill()
 
 
-def command_line_main():
+def command_line_main() -> None:
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()

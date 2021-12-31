@@ -206,4 +206,4 @@ class MeadowGridJobRunner(JobRunner):
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> Optional[bool]:
-        return await self._client.__aexit__(exc_type, exc_value, traceback)  # type: ignore # noqa E501
+        return await self._client.__aexit__(exc_type, exc_value, traceback)

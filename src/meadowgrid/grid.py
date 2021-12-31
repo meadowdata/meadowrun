@@ -3,6 +3,7 @@ import pickle
 import time
 import uuid
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Dict,
@@ -14,6 +15,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    cast,
 )
 
 import cloudpickle
@@ -30,8 +32,8 @@ from meadowgrid.coordinator_client import (
 from meadowgrid.deployed_function import (
     CodeDeployment,
     InterpreterDeployment,
-    MeadowGridDeployedRunnable,
     MeadowGridFunction,
+    MeadowGridVersionedDeployedRunnable,
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
@@ -55,7 +57,7 @@ def _get_coordinator_client_async(address: str) -> MeadowGridCoordinatorClientAs
     # grpc doesn't actually call asyncio.get_event_loop(), but I assume the behavior is
     # similar...
     # https://github.com/grpc/grpc/blob/60028a82a9ec546141ef98e92655cf0dfb35180e/src/python/grpcio/grpc/aio/_channel.py#L287
-    if address in _coordinator_clients_async:
+    if (address, event_loop) in _coordinator_clients_async:
         client = _coordinator_clients_async[(address, event_loop)]
     else:
         client = MeadowGridCoordinatorClientAsync(address)
@@ -123,7 +125,9 @@ def grid_map(
     job_id, friendly_name, pickled_function = _get_id_name_function(function)
 
     # add_py_grid_job expects (task_id, args, kwargs)
-    args = [(i, (arg,), {}) for i, arg in enumerate(args)]
+    arg_tuples: List[Tuple[int, Tuple, Dict[str, Any]]] = [
+        (i, (arg,), {}) for i, arg in enumerate(args)
+    ]
 
     # ServerAvailableFolder with no code_paths is the easiest way to express "no code
     # deployment"
@@ -139,12 +143,12 @@ def grid_map(
     client.add_py_grid_job(
         job_id,
         friendly_name,
-        MeadowGridDeployedRunnable(
+        MeadowGridVersionedDeployedRunnable(
             code_deployment,
             interpreter_deployment,
             MeadowGridFunction.from_pickled(pickled_function),
         ),
-        args,
+        arg_tuples,
         True,
         priority,
         resources_required_per_task,
@@ -154,7 +158,7 @@ def grid_map(
 
     # we constructed the task_ids to be contiguous integers, so task_states[task_id]
     # will store that task_id's result
-    task_states: List[Optional[ProcessState]] = [None] * len(args)
+    task_states: List[Optional[ProcessState]] = [None] * len(arg_tuples)
     task_ids_with_results: Set[int] = set()
 
     while len(task_ids_with_results) < len(task_states):
@@ -173,7 +177,11 @@ def grid_map(
         # TODO at some point we should time out
 
     failed_tasks = [
-        ts for ts in task_states if ts.state != ProcessState.ProcessStateEnum.SUCCEEDED
+        ts
+        # convince mypy that all task_states are not None,
+        # which is guaranteed by the while loop above.
+        for ts in cast(List[ProcessState], task_states)
+        if ts.state != ProcessState.ProcessStateEnum.SUCCEEDED
     ]
     if len(failed_tasks) > 0:
         # TODO create a new exception type
@@ -181,17 +189,19 @@ def grid_map(
             f"{len(failed_tasks)} failed: " + "; ".join(str(t) for t in failed_tasks)
         )
 
-    curr_task_states = []
+    result_task_states = []
     effects = []
 
-    for task in task_states:
-        r, e = pickle.loads(task.pickled_result)
-        curr_task_states.append(r)
+    for task_state in task_states:
+        if task_state is None:
+            continue
+        r, e = pickle.loads(task_state.pickled_result)
+        result_task_states.append(r)
         effects.append(e)
 
     # TODO need to merge effects into the meadowflow.effects
 
-    return curr_task_states
+    return result_task_states
 
 
 async def grid_map_async(
@@ -219,7 +229,9 @@ async def grid_map_async(
     #  iterate args and start the job at the same time, so that if args takes a long
     #  time to iterate, we start working on the first set of tasks as soon as we're able
     #  to
-    args = [(i, (arg,), {}) for i, arg in enumerate(args)]
+    tuple_args: List[Tuple[int, Tuple, Dict[str, Any]]] = [
+        (i, (arg,), {}) for i, arg in enumerate(args)
+    ]
 
     if code_deployment is None:
         code_deployment = ServerAvailableFolder()
@@ -228,12 +240,12 @@ async def grid_map_async(
     await client.add_py_grid_job(
         job_id,
         friendly_name,
-        MeadowGridDeployedRunnable(
+        MeadowGridVersionedDeployedRunnable(
             code_deployment,
             interpreter_deployment,
             MeadowGridFunction.from_pickled(pickled_function),
         ),
-        args,
+        tuple_args,
         True,
         priority,
         resources_required_per_task,
@@ -246,9 +258,11 @@ async def grid_map_async(
     event_loop = asyncio.get_running_loop()
     # TODO we should probably create a subclass of Future or an Awaitable that exposes
     #  metadata about the task (e.g. log file locations, pids, etc.)
-    task_states: List[asyncio.Future[_U]] = [event_loop.create_future() for _ in args]
+    task_states: List[asyncio.Future[_U]] = [
+        event_loop.create_future() for _ in tuple_args
+    ]
 
-    async def poll_for_results():
+    async def poll_for_results() -> None:
         task_ids_with_results: Set[int] = set()
 
         while len(task_ids_with_results) < len(task_states):

@@ -315,7 +315,7 @@ async def _apply_overrides_code_deployment(
     """Breaking out _apply_job_run_overrides into more readable chunks"""
     if run_overrides.code_deployment is not None:
         if isinstance(run_overrides.code_deployment, VersionedCodeDeploymentTypes):
-            new_deployment = await get_latest_code_version(
+            new_deployment: CodeDeployment = await get_latest_code_version(
                 run_overrides.code_deployment, credentials_dict
             )
         elif isinstance(run_overrides.code_deployment, CodeDeploymentTypes):

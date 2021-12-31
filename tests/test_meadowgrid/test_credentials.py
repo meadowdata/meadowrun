@@ -165,7 +165,7 @@ def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> None:
         # make this a nested function so that it gets pickled as code rather than as a
         # reference
         def test_function(x):
-            import example_package.example
+            import example_package.example  # type: ignore[import]
 
             return example_package.example.join_strings("hello ", str(x))
 

@@ -16,7 +16,7 @@ def main(
     available_resources: Optional[Dict[str, float]] = None,
     coordinator_host: Optional[str] = None,
     coordinator_port: Optional[int] = None,
-):
+) -> None:
     if working_folder is None:
         # figure out the default working_folder based on the OS
         if os.name == "nt":
@@ -77,7 +77,7 @@ def main_in_child_process(
             server_process.kill()
 
 
-def command_line_main():
+def command_line_main() -> None:
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()

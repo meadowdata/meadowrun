@@ -139,8 +139,8 @@ class MeadowFlowClientAsync:
         exc_type: Optional[Type[BaseException]],
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
-    ) -> Optional[bool]:
-        return await self._channel.__aexit__(exc_type, exc_value, traceback)  # type: ignore[no-any-return] # noqa E501
+    ) -> None:
+        await self._channel.__aexit__(exc_type, exc_value, traceback)
 
 
 class MeadowFlowClientSync:
@@ -206,4 +206,4 @@ class MeadowFlowClientSync:
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> Literal[False]:
-        return self._channel.__exit__(exc_type, exc_value, traceback)  # type: ignore[no-any-return] # noqa E501
+        return self._channel.__exit__(exc_type, exc_value, traceback)

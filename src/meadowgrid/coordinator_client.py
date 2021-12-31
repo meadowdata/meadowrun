@@ -2,7 +2,19 @@ from __future__ import annotations
 
 import json
 import pickle
-from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, List, Union
+from types import TracebackType
+from typing import (
+    Iterable,
+    Dict,
+    Sequence,
+    Tuple,
+    Any,
+    Optional,
+    Literal,
+    List,
+    Type,
+    Union,
+)
 
 import grpc
 import grpc.aio
@@ -96,7 +108,7 @@ def _make_valid_job_id(job_id: str) -> str:
     return "".join(c for c in job_id if c in JOB_ID_VALID_CHARACTERS)
 
 
-def _string_pairs_from_dict(d: Dict[str, str]) -> Iterable[StringPair]:
+def _string_pairs_from_dict(d: Optional[Dict[str, str]]) -> Iterable[StringPair]:
     """
     Opposite of _string_pairs_to_dict in job_worker.py. Helper for dicts in protobuf.
     """
@@ -189,7 +201,8 @@ def _create_py_function(
             protocol=pickle_protocol,
         )
     else:
-        pickled_function_arguments = None
+        # according to docs, None is translated to empty anyway
+        pickled_function_arguments = b""
 
     # then, construct the PyFunctionJob
     py_function = PyFunctionJob(pickled_function_arguments=pickled_function_arguments)
@@ -242,7 +255,7 @@ def _create_py_runnable_job(
                 protocol=_pickle_protocol_for_deployed_interpreter(),
             )
         else:
-            pickled_context_variables = None
+            pickled_context_variables = b""
 
         job.py_command.CopyFrom(
             PyCommandJob(
@@ -529,8 +542,13 @@ class MeadowGridCoordinatorClientAsync:
         await self._channel.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self._channel.__aexit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        return await self._channel.__aexit__(exc_type, exc_value, traceback)
 
 
 class MeadowGridCoordinatorClientSync:
@@ -623,12 +641,17 @@ class MeadowGridCoordinatorClientSync:
             _add_credentials_request(service, service_url, source)
         )
 
-    def __enter__(self):
+    def __enter__(self) -> MeadowGridCoordinatorClientSync:
         self._channel.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return self._channel.__exit__(exc_type, exc_val, exc_tb)
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Literal[False]:
+        return self._channel.__exit__(exc_type, exc_value, traceback)
 
 
 class MeadowGridCoordinatorClientForWorkersAsync:
@@ -684,20 +707,27 @@ class MeadowGridCoordinatorClientForWorkersAsync:
         """
 
         if task_state is not None:
-            task_state = GridTaskUpdateAndGetNextRequest(
+            task_state_request = GridTaskUpdateAndGetNextRequest(
                 job_id=job_id, task_id=task_state[0], process_state=task_state[1]
             )
         else:
-            task_state = GridTaskUpdateAndGetNextRequest(job_id=job_id, task_id=-1)
+            task_state_request = GridTaskUpdateAndGetNextRequest(
+                job_id=job_id, task_id=-1
+            )
 
-        return await self._stub.update_grid_task_state_and_get_next(task_state)
+        return await self._stub.update_grid_task_state_and_get_next(task_state_request)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> MeadowGridCoordinatorClientForWorkersAsync:
         await self._channel.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self._channel.__aexit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        return await self._channel.__aexit__(exc_type, exc_value, traceback)
 
 
 class MeadowGridCoordinatorClientForWorkersSync:
@@ -724,17 +754,24 @@ class MeadowGridCoordinatorClientForWorkersSync:
     ) -> GridTask:
         # job_id is always required
         if task_state is not None:
-            task_state = GridTaskUpdateAndGetNextRequest(
+            task_state_request = GridTaskUpdateAndGetNextRequest(
                 job_id=job_id, task_id=task_state[0], process_state=task_state[1]
             )
         else:
-            task_state = GridTaskUpdateAndGetNextRequest(job_id=job_id, task_id=-1)
+            task_state_request = GridTaskUpdateAndGetNextRequest(
+                job_id=job_id, task_id=-1
+            )
 
-        return self._stub.update_grid_task_state_and_get_next(task_state)
+        return self._stub.update_grid_task_state_and_get_next(task_state_request)
 
-    def __enter__(self):
+    def __enter__(self) -> MeadowGridCoordinatorClientForWorkersSync:
         self._channel.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return self._channel.__exit__(exc_type, exc_val, exc_tb)
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Literal[False]:
+        return self._channel.__exit__(exc_type, exc_value, traceback)

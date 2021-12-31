@@ -76,8 +76,8 @@ def main():
         # next, send the exception back
         tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
         # see MeadowGridClientAsync for why we don't just pickle the exception
-        with open(state_filename, "w", encoding="utf-8") as f:
-            f.write("PYTHON_EXCEPTION")
+        with open(state_filename, "w", encoding="utf-8") as state_text_writer:
+            state_text_writer.write("PYTHON_EXCEPTION")
         with open(result_filename, "wb") as f:
             # TODO we should potentially be returning effects on failures as well. And
             #  maybe even on unexpected process quitting?
@@ -92,8 +92,8 @@ def main():
             effects = meadowflow.effects.get_effects()
 
         # send back results
-        with open(state_filename, "w", encoding="utf-8") as f:
-            f.write("SUCCEEDED")
+        with open(state_filename, "w", encoding="utf-8") as state_text_writer:
+            state_text_writer.write("SUCCEEDED")
         with open(result_filename, "wb") as f:
             pickle.dump((result, effects), f, protocol=result_pickle_protocol)
 

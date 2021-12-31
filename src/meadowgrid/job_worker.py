@@ -1,3 +1,4 @@
+import asyncio
 import asyncio.subprocess
 import dataclasses
 import itertools
@@ -49,6 +50,7 @@ from meadowgrid.meadowgrid_pb2 import (
     JobStateUpdate,
     ProcessState,
     PyFunctionJob,
+    Resource,
     StringPair,
 )
 from meadowgrid.shared import pickle_exception
@@ -56,7 +58,7 @@ from meadowgrid.shared import pickle_exception
 ProcessStateEnum = ProcessState.ProcessStateEnum
 
 
-def _string_pairs_to_dict(pairs: List[StringPair]) -> Dict[str, str]:
+def _string_pairs_to_dict(pairs: Iterable[StringPair]) -> Dict[str, str]:
     """
     Opposite of _string_pairs_from_dict in coordinator_client.py. Helper for dicts in
     protobuf.
@@ -304,7 +306,7 @@ def _prepare_py_grid(
         io_path_container,
     ]
 
-    io_files = []
+    io_files: List[str] = []
 
     command_line_for_function, io_files_for_function = _prepare_function(
         job.job_id, job.py_grid.function, io_folder
@@ -559,7 +561,7 @@ async def _launch_non_container_job(
     # Windows according to the docs:
     # https://docs.python.org/3/library/subprocess.html#subprocess.Popen We can use
     # shutil to make the behavior reasonable on both platforms
-    new_first_command_line: str = shutil.which(
+    new_first_command_line = shutil.which(
         job_spec_transformed.command_line[0], path=paths_to_search
     )
     if new_first_command_line:
@@ -617,13 +619,13 @@ async def _non_container_job_continuation(
     try:
         # wait for the process to finish
         # TODO add an optional timeout
-        await process.wait()
+        returncode = await process.wait()
         return await _completed_job_state(
             job_spec_type,
             job_id,
             io_folder,
             log_file_name,
-            process.returncode,
+            returncode,
             process.pid,
             None,
         )
@@ -807,8 +809,9 @@ async def _completed_job_state(
             job_id=job_id,
             process_state=ProcessState(
                 state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
-                pid=pid,
-                container_id=container_id,
+                # TODO some other number? we should have either pid or container_id.
+                pid=pid or 0,
+                container_id=container_id or "",
                 log_file_name=log_file_name,
                 return_code=return_code,
             ),
@@ -824,8 +827,8 @@ async def _completed_job_state(
     # for py_funcs, get the state
     if job_spec_type == "py_function":
         state_file = os.path.join(io_folder, job_id + ".state")
-        with open(state_file, "r", encoding="utf-8") as f:
-            state_string = f.read()
+        with open(state_file, "r", encoding="utf-8") as state_file_text_reader:
+            state_string = state_file_text_reader.read()
         if state_string == "SUCCEEDED":
             state = ProcessStateEnum.SUCCEEDED
         elif state_string == "PYTHON_EXCEPTION":
@@ -842,10 +845,10 @@ async def _completed_job_state(
     # gets executed
     result_file = os.path.join(io_folder, job_id + ".result")
     if job_spec_type != "py_command" or os.path.exists(result_file):
-        with open(result_file, "rb") as f:
-            result = f.read()
+        with open(result_file, "rb") as result_file_reader:
+            result = result_file_reader.read()
     else:
-        result = None
+        result = b""
 
     # TODO clean up files in io_folder for this process
 
@@ -854,8 +857,8 @@ async def _completed_job_state(
         job_id=job_id,
         process_state=ProcessState(
             state=state,
-            pid=pid,
-            container_id=container_id,
+            pid=pid or 0,
+            container_id=container_id or "",
             log_file_name=log_file_name,
             return_code=0,
             pickled_result=result,
@@ -940,6 +943,7 @@ async def job_worker_main_loop(
             )
             for launched_job in launched_jobs:
                 # this corresponds to the return type of _launch_job, see docstring
+                job_state_update: Optional[JobStateUpdate]
                 job_state_update, running_job = launched_job.result()
 
                 if running_job is not None:
@@ -951,7 +955,8 @@ async def job_worker_main_loop(
                     else:
                         running_jobs.add(running_job)
 
-                job_state_updates.append(job_state_update)
+                if job_state_update is not None:
+                    job_state_updates.append(job_state_update)
 
         # next, check if any processes are done. If they are, get their state update,
         # and remove them from running_jobs
@@ -990,7 +995,9 @@ async def job_worker_main_loop(
                     if resource.name in available_resources:
                         available_resources[resource.name] -= resource.value
 
-                def free_resources(resources_to_free=job.resources_required):
+                def free_resources(
+                    resources_to_free: Iterable[Resource] = job.resources_required,
+                ) -> None:
                     for resource in resources_to_free:
                         if resource.name in available_resources:
                             available_resources[resource.name] += resource.value

@@ -133,7 +133,7 @@ async def test_meadowdb_effects():
                 assert "SUCCEEDED" == events[0].payload.state
                 all_effects = events[0].payload.effects.meadowdb_effects
                 assert len(all_effects) == 1
-                effects: MeadowdbEffects = list(all_effects.values())[0]
+                effects = list(all_effects.values())[0]
                 assert list(effects.tables_read.keys()) == [("U1", "A")]
                 assert list(effects.tables_written.keys()) == [("U1", "A")]
 

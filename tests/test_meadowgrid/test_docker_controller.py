@@ -1,3 +1,4 @@
+# type: ignore
 """
 These functions are hard to test because they need to test authentication and interact
 with arbitrary Docker Registry HTTP API servers that may have slightly different

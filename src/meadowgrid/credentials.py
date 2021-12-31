@@ -20,6 +20,8 @@ job then gets full access to that AWS secret.
 
 TODO actually encrypt the credentials as we send them over?
 """
+from __future__ import annotations
+
 import abc
 import dataclasses
 import json
@@ -37,7 +39,9 @@ CredentialsService = Literal["DOCKER", "GIT"]
 
 # Maps from a Credentials.Service to a list of (service_url, CredentialsSource). This is
 # usually how we'll store a set of CredentialsSources
-CredentialsDict = Dict["Credentials.Service", List[Tuple[str, CredentialsSource]]]
+CredentialsDict = Dict[
+    "Credentials.Service.ValueType", List[Tuple[str, CredentialsSource]]
+]
 
 
 class RawCredentials(abc.ABC):
@@ -101,7 +105,7 @@ def get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
 
 
 def get_matching_credentials(
-    service: Credentials.Service,
+    service: Credentials.Service.ValueType,
     service_url_to_match: str,
     credentials_dict: CredentialsDict,
 ) -> Optional[RawCredentials]:

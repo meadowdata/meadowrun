@@ -6,7 +6,7 @@ import importlib
 import os
 import pickle
 import traceback
-from typing import Optional, Tuple, Any, Callable
+from typing import Optional, Tuple, Any, Callable, Union
 
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersSync
 from meadowgrid.meadowgrid_pb2 import ProcessState
@@ -16,9 +16,7 @@ from meadowgrid.shared import pickle_exception
 def _main_loop(
     coordinator_address: str,
     job_id: str,
-    module_name: Optional[str],
-    function_name: Optional[str],
-    pickled_function_path: Optional[str],
+    module_function_or_pickled_function: Union[Tuple[str, str], str],
     pickled_arguments_path: Optional[str],
 ) -> None:
     """
@@ -52,12 +50,14 @@ def _main_loop(
         try:
             # populate function the first time through the loop
             if function is None:
-                if module_name is not None:
+                if isinstance(module_function_or_pickled_function, tuple):
+                    module_name, function_name = module_function_or_pickled_function
                     print("About to import {module_name}.{function_name}")
                     module = importlib.import_module(module_name)
                     function = getattr(module, function_name)
                     print(f"Imported {function_name} from {module.__file__}")
                 else:
+                    pickled_function_path = module_function_or_pickled_function
                     print(f"Unpickling function from {pickled_function_path}")
                     with open(pickled_function_path, "rb") as f:
                         function = pickle.load(f)
@@ -108,7 +108,7 @@ def _main_loop(
         previous_task_state = next_task.task_id, process_state
 
 
-def main():
+def main() -> None:
     usage = (
         "Runs a grid worker which requests grid tasks for the specified job id from the"
         " specified coordinator. The function for the grid job can be defined by "
@@ -139,13 +139,15 @@ def main():
             "Must specify either --module-name with --function-name OR "
             "--has-pickled-function but not both"
         )
-
+    function = (
+        args.io_path + ".function"
+        if args.has_pickled_function
+        else (args.module_name, args.function_name)
+    )
     _main_loop(
         args.coordinator_address,
         args.job_id,
-        args.module_name,
-        args.function_name,
-        args.io_path + ".function" if args.has_pickled_function else None,
+        function,
         args.io_path + ".arguments" if args.has_pickled_arguments else None,
     )
 

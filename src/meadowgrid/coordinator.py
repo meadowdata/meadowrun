@@ -157,7 +157,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     #  each function will always run without interruption. We might need a different
     #  model for improved performance at some point.
 
-    def __init__(self):
+    def __init__(self) -> None:
         # maps job_id -> _GridJob
         self._grid_jobs: Dict[str, _GridJob] = {}
         # maps job_id -> _SimpleJob
@@ -169,7 +169,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         # maps service -> (service_url, credentials)
         self._credentials_dict: CredentialsDict = {}
 
-    async def _resolve_deployments(self, job: Job) -> Job:
+    async def _resolve_deployments(self, job: Job) -> None:
         """
         Modifies job in place!!!
 
@@ -202,7 +202,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                 )
             )
 
-    async def add_job(
+    async def add_job(  # type: ignore[override]
         self, request: Job, context: grpc.aio.ServicerContext
     ) -> AddJobResponse:
 
@@ -257,7 +257,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return AddJobResponse(state=AddJobResponse.AddJobState.ADDED)
 
-    async def add_tasks_to_grid_job(
+    async def add_tasks_to_grid_job(  # type: ignore[override]
         self, request: AddTasksToGridJobRequest, context: grpc.aio.ServicerContext
     ) -> AddJobResponse:
         if request.job_id not in self._grid_jobs:
@@ -273,7 +273,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return AddJobResponse()
 
-    async def update_job_states(
+    async def update_job_states(  # type: ignore[override]
         self, request: JobStateUpdates, context: grpc.aio.ServicerContext
     ) -> UpdateStateResponse:
         for job_state in request.job_states:
@@ -361,7 +361,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return code_deployment_credentials, interpreter_deployment_credentials
 
-    async def get_next_job(
+    async def get_next_job(  # type: ignore[override]
         self, request: NextJobRequest, context: grpc.aio.ServicerContext
     ) -> NextJobResponse:
         # the resources available on the job worker that's asking for a new job
@@ -438,7 +438,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         else:
             return NextJobResponse()
 
-    async def update_grid_task_state_and_get_next(
+    async def update_grid_task_state_and_get_next(  # type: ignore[override]
         self,
         request: GridTaskUpdateAndGetNextRequest,
         context: grpc.aio.ServicerContext,
@@ -493,7 +493,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             )
             return GridTask(task_id=-1)
 
-    async def get_simple_job_states(
+    async def get_simple_job_states(  # type: ignore[override]
         self, request: JobStatesRequest, context: grpc.aio.ServicerContext
     ) -> ProcessStates:
         process_states = []
@@ -507,7 +507,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return ProcessStates(process_states=process_states)
 
-    async def get_grid_task_states(
+    async def get_grid_task_states(  # type: ignore[override]
         self, request: GridTaskStatesRequest, context: grpc.aio.ServicerContext
     ) -> GridTaskStates:
         if request.job_id not in self._grid_jobs:
@@ -527,11 +527,16 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             ]
         )
 
-    async def add_credentials(
+    async def add_credentials(  # type: ignore[override]
         self, request: AddCredentialsRequest, context: grpc.aio.ServicerContext
     ) -> AddCredentialsResponse:
+        source = request.WhichOneof("source")
+        if source is None:
+            raise ValueError(
+                f"AddCredentialsRequest request should have a source set: {request}"
+            )
         self._credentials_dict.setdefault(request.service, []).append(
-            (request.service_url, getattr(request, request.WhichOneof("source")))
+            (request.service_url, getattr(request, source))
         )
         return AddCredentialsResponse()
 

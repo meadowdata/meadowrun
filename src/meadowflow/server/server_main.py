@@ -38,7 +38,8 @@ def main_in_child_process(
     logs, etc. If there's an existing server already running, the child process will
     just die immediately without doing anything.
     """
-    server_process = multiprocessing.Process(
+    ctx = multiprocessing.get_context("spawn")
+    server_process = ctx.Process(
         target=main, args=(host, port, job_runner_poll_delay_seconds)
     )
     server_process.start()

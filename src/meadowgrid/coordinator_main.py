@@ -41,9 +41,8 @@ def main_in_child_process(
     it, see logs, etc. If there's an existing server already running, the child process
     will just die immediately without doing anything.
     """
-    server_process = multiprocessing.Process(
-        target=main, args=(host, port, meadowflow_address)
-    )
+    ctx = multiprocessing.get_context("spawn")
+    server_process = ctx.Process(target=main, args=(host, port, meadowflow_address))
     server_process.start()
 
     try:

@@ -57,7 +57,8 @@ def main_in_child_process(
     see logs, etc. If there's an existing worker already running, the child process will
     just die immediately without doing anything.
     """
-    server_process = multiprocessing.Process(
+    ctx = multiprocessing.get_context("spawn")
+    server_process = ctx.Process(
         target=main,
         args=(working_folder, available_resources, coordinator_host, coordinator_port),
     )

@@ -2,6 +2,7 @@
 TODO capabilities
 TODO checking for and restarting requested but not running jobs
 """
+import multiprocessing
 import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, Iterable, Callable, Any, Tuple, Sequence, Optional
@@ -41,7 +42,8 @@ class LocalJobRunner(JobRunner):
 
     def __init__(self, event_log: EventLog):
         self._running: Dict[str, Future] = {}
-        self._executor = ProcessPoolExecutor(max_workers=5)
+        ctx = multiprocessing.get_context("spawn")
+        self._executor = ProcessPoolExecutor(max_workers=5, mp_context=ctx)
         self._event_log = event_log
 
     async def run(

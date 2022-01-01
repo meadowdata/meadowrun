@@ -966,7 +966,8 @@ async def job_worker_main_loop(
 
         # now update the coordinator with the state updates we collected
 
-        await client.update_job_states(job_state_updates)
+        if job_state_updates:
+            await client.update_job_states(job_state_updates)
 
         # now get another job if we can with our remaining resources
 

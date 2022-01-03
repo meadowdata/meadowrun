@@ -729,7 +729,7 @@ class _CallAt:
         # notification--the run function will just pick up whichever one happens to
         # be in front and execute that one
         if prev_next_callback is None or time_and_callback < prev_next_callback:
-            asyncio.get_running_loop().call_soon(self._queue_modified.set)
+            self._queue_modified.set()
 
     async def _call_main_loop(self) -> None:
         """
@@ -737,8 +737,8 @@ class _CallAt:
 
         Callbacks run on "the" event loop, so they cannot be blocking.
 
-        This coroutine is started as part of initialization when this class is
-        awaited, it should not be called manually.
+        This coroutine is started as part of initialization when this class is awaited,
+        it should not be called manually.
         """
         while True:
             # with the lock, figure out what we need to do next

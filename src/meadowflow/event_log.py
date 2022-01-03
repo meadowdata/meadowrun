@@ -50,9 +50,6 @@ class EventLog:
     EventLog keeps track of events and calls subscribers based on those events. Think of
     it like a pub-sub system
 
-    TODO there are a lot of weird assumptions about what's called "on the event loop" vs
-    from outside of it/on a different thread and what's threadsafe
-
     TODO EventLog should be persisting data (potentially create a LocalEventLog and a
     PersistedEventLog)
     """
@@ -82,7 +79,7 @@ class EventLog:
         self._notify_call_subscribers: asyncio.Event
 
         # keep the task for the subscribers loop so we can cancel it in close().
-        self._subscibers_loop: asyncio.Task
+        self._subscribers_loop: asyncio.Task
 
         # make sure awaiting more than once doesn't mess with us.
         self._awaited = False
@@ -91,7 +88,7 @@ class EventLog:
         if self._awaited:
             return self
         self._notify_call_subscribers = asyncio.Event()
-        self._subscibers_loop = asyncio.create_task(self._call_subscribers_loop())
+        self._subscribers_loop = asyncio.create_task(self._call_subscribers_loop())
         self._awaited = True
         return self
 
@@ -120,7 +117,7 @@ class EventLog:
         # that the call_subscribers_loop will happen once per event--the loop might get
         # "backed up" until multiple events have been posted first, and then multiple
         # events will get processed in the same iteration of the loop.
-        asyncio.get_running_loop().call_soon(self._notify_call_subscribers.set)
+        self._notify_call_subscribers.set()
 
     def events(
         self,
@@ -249,9 +246,9 @@ class EventLog:
                 traceback.print_exc()
 
     async def close(self) -> None:
-        self._subscibers_loop.cancel()
+        self._subscribers_loop.cancel()
         try:
-            await self._subscibers_loop
+            await self._subscribers_loop
         except asyncio.CancelledError:
             pass  # that's fine, we just cancelled
 

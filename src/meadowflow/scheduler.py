@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio.tasks import Task
 import dataclasses
 import itertools
 import traceback
@@ -215,18 +216,6 @@ class Scheduler:
         return self._async_init().__await__()
 
     def register_job_runner(
-        self, job_runner_constructor: Callable[[EventLog], JobRunner]
-    ) -> None:
-        """
-        Registers the job runner with the scheduler. As with manual_run, all this does
-        is schedule a callback on the event_loop, so it's possible no state has changed
-        when this function returns.
-        """
-        asyncio.get_running_loop().call_soon(
-            self.register_job_runner_on_event_loop, job_runner_constructor
-        )
-
-    def register_job_runner_on_event_loop(
         self, job_runner_constructor: Callable[[EventLog], JobRunner]
     ) -> None:
         """
@@ -505,34 +494,37 @@ class Scheduler:
                             high_timestamp,
                         )
 
+    # def manual_run(
+    #     self, job_name: TopicName, overrides: Optional[JobRunOverrides] = None
+    # ) -> None:
+    #     """
+    #     Execute the Run Action on the specified job.
+
+    #     Important--when this function returns, it's possible that no events have been
+    #     created yet, not even RUN_REQUESTED.
+    #     """
+    #     if job_name not in self._jobs:
+    #         raise ValueError(f"Unknown job: {job_name}")
+    #     job = self._jobs[job_name]
+    #     asyncio.get_running_loop().call_soon(
+    #         lambda: asyncio.create_task(self._run_action(job, Actions.run, overrides))
+    #     )
+
     def manual_run(
         self, job_name: TopicName, overrides: Optional[JobRunOverrides] = None
-    ) -> None:
+    ) -> Task[str]:
         """
-        Execute the Run Action on the specified job.
+        Execute the Run Action on the specified job, returns a Task that returns the
+        request_id (see Run.execute for semantics of request_id)
 
         Important--when this function returns, it's possible that no events have been
         created yet, not even RUN_REQUESTED.
-        """
-        if job_name not in self._jobs:
-            raise ValueError(f"Unknown job: {job_name}")
-        job = self._jobs[job_name]
-        asyncio.get_running_loop().call_soon(
-            lambda: asyncio.create_task(self._run_action(job, Actions.run, overrides))
-        )
-
-    async def manual_run_on_event_loop(
-        self, job_name: TopicName, overrides: JobRunOverrides
-    ) -> str:
-        """
-        Execute the Run Action on the specified job, returns the request_id (see
-        Run.execute for semantics of request_id)
         """
         # TODO see if we can eliminate a little copy/paste here
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
-        return await self._run_action(job, Actions.run, overrides)
+        return asyncio.create_task(self._run_action(job, Actions.run, overrides))
 
     async def _run_action(
         self, topic: Topic, action: Action, overrides: Optional[JobRunOverrides]

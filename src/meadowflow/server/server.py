@@ -73,14 +73,14 @@ class MeadowFlowServerHandler(MeadowFlowServerServicer):
         else:
             raise ValueError(f"Unrecognized job runner type {request.job_runner_type}")
 
-        self._scheduler.register_job_runner_on_event_loop(job_runner_constructor)
+        self._scheduler.register_job_runner(job_runner_constructor)
 
         return RegisterJobRunnerResponse()
 
     async def manual_run(  # type: ignore[override]
         self, request: ManualRunRequest, context: grpc.aio.ServicerContext
     ) -> ManualRunResponse:
-        run_request_id = await self._scheduler.manual_run_on_event_loop(
+        run_request_id = await self._scheduler.manual_run(
             pickle.loads(request.pickled_job_name),
             pickle.loads(request.pickled_job_run_overrides),
         )

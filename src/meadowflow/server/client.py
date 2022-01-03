@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import pickle
 import time
 from types import TracebackType
-from typing import List, Literal, Optional, Tuple, Type, cast
+from typing import List, Literal, Optional, Type, cast
 
 import grpc
 import grpc.aio
@@ -23,6 +22,9 @@ from meadowflow.server.meadowflow_pb2 import (
 from meadowflow.server.meadowflow_pb2_grpc import MeadowFlowServerStub
 from meadowflow.topic_names import TopicName
 
+# TODO Figure out a better place to put _grpc_retry option.
+from meadowgrid.coordinator_client import _grpc_retry_option
+
 
 def _is_request_id_completed(events: List[Event[JobPayload]], request_id: str) -> bool:
     for event in events:
@@ -37,36 +39,6 @@ def _is_request_id_completed(events: List[Event[JobPayload]], request_id: str) -
 
 
 _POLL_PERIOD = 0.5  # poll every 500ms
-
-
-def _grpc_retry_option(
-    package: str, service: str
-) -> Tuple[Literal["grpc.service_config"], str]:
-    """Create a retry config.
-
-    Args:
-        package (str): package name (from proto file)
-        service (str): service name (from proto file)
-    """
-    # https://stackoverflow.com/questions/64227270/use-retrypolicy-with-python-grpc-client
-    json_config = json.dumps(
-        {
-            "methodConfig": [
-                {
-                    "name": [{"service": f"{package}.{service}"}],
-                    "retryPolicy": {
-                        "maxAttempts": 5,
-                        "initialBackoff": "1s",
-                        "maxBackoff": "10s",
-                        "backoffMultiplier": 2,
-                        "retryableStatusCodes": ["UNAVAILABLE"],
-                    },
-                }
-            ]
-        }
-    )
-
-    return ("grpc.service_config", json_config)
 
 
 class MeadowFlowClientAsync:

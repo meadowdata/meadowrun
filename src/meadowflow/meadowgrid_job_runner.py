@@ -155,6 +155,15 @@ class MeadowGridJobRunner(JobRunner):
                     pid=process_state.pid,
                     return_code=process_state.return_code,
                 )
+            elif process_state.state == ProcessStateEnum.RESOURCES_NOT_AVAILABLE:
+                # TODO Test this case
+                new_payload = JobPayload(
+                    request_id,
+                    "FAILED",
+                    failure_type="RESOURCES_NOT_AVAILABLE",
+                    pid=process_state.pid,
+                    return_code=process_state.return_code,
+                )
             elif (
                 process_state.state == ProcessStateEnum.UNKNOWN
                 or process_state.state == ProcessStateEnum.ERROR_GETTING_STATE

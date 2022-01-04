@@ -74,7 +74,12 @@ class JobPayload:
     request_id: Optional[str]
     state: JobState
     failure_type: Optional[
-        Literal["PYTHON_EXCEPTION", "NON_ZERO_RETURN_CODE", "RUN_REQUEST_FAILED"]
+        Literal[
+            "PYTHON_EXCEPTION",
+            "NON_ZERO_RETURN_CODE",
+            "RESOURCES_NOT_AVAILABLE",
+            "RUN_REQUEST_FAILED",
+        ]
     ] = None
     pid: Optional[int] = None
     result_value: Any = None

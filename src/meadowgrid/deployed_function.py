@@ -191,11 +191,11 @@ async def get_latest_interpreter_version(
 @dataclasses.dataclass(frozen=True)
 class MeadowGridDeployedRunnable:
     """
-    A "runnable" that a MeadowGrid worker can run. A runnable can either be a python
-    function or a command line. Specifies deployments that tell a MeadowGrid worker
-    where to find the codebase and interpreter. The command is then run with the
-    codebase as the working directory and the python interpreter's Scripts folder in the
-    path. This allows you to run commands like `jupyter nbconvert`, `jupyter kernel`, or
+    A "runnable" that a MeadowGrid agent can run. A runnable can either be a python
+    function or a command line. Specifies deployments that tell a MeadowGrid agent where
+    to find the codebase and interpreter. The command is then run with the codebase as
+    the working directory and the python interpreter's Scripts folder in the path. This
+    allows you to run commands like `jupyter nbconvert`, `jupyter kernel`, or
     `papermill` if those commands/scripts are installed in the specified python
     environment.
     """

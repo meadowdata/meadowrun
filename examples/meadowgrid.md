@@ -4,13 +4,13 @@ meadowgrid is a cluster manager with built-in support for running batch jobs (fr
 
 ## Key concepts
 
-There are two kinds of meadowgrid servers, the [coordinator](/src/meadowgrid/coordinator.py) and the [job workers](/src/meadowgrid/job_worker.py). These servers can be launched by running `meadowgrid_coordinator` or `meadowgrid_job_worker`, respectively, on the command line after the meadowdata package has been installed.
+There are two kinds of meadowgrid servers, the [coordinator](/src/meadowgrid/coordinator.py) and the [agents](/src/meadowgrid/agent.py). These servers can be launched by running `meadowgrid_coordinator` or `meadowgrid_agent`, respectively, on the command line after the meadowdata package has been installed.
 
-The job workers can run "simple jobs" which run a single function like `MeadowGridFunction.from_name("my_module", "my_function")` or a command line like `MeadowGridCommand(["jupyter", "nbconvert", "my_notebook.ipynb", "--to", "html"])`. Simple jobs are usually scheduled by a job scheduler like meadowflow. Job workers can also run "grid jobs" where a single function is run over many inputs (aka tasks) in parallel, like `grid_map(my_function, [task1, task2, ...], ...)`. Grid jobs are usually started by a simple job, or from an engineer/researcher's development environment. The compute environment should have one or more machines running a single job worker each. The job workers will run one or more jobs on their machines depending on the resources available.
+The agents can run "simple jobs" which run a single function like `MeadowGridFunction.from_name("my_module", "my_function")` or a command line like `MeadowGridCommand(["jupyter", "nbconvert", "my_notebook.ipynb", "--to", "html"])`. Simple jobs are usually scheduled by a job scheduler like meadowflow. Agents can also run "grid jobs" where a single function is run over many inputs (aka tasks) in parallel, like `grid_map(my_function, [task1, task2, ...], ...)`. Grid jobs are usually started by a simple job, or from an engineer/researcher's development environment. The compute environment should have one or more machines running a single agent each. The agents will run one or more jobs on their machines depending on the resources available.
 
-The coordinator (usually there will be just one) accepts jobs from clients and then assigns jobs/tasks to job workers. Clients and job workers never communicate directly.
+The coordinator (usually there will be just one) accepts jobs from clients and then assigns jobs/tasks to agents. Clients and agents never communicate directly.
 
-> Implementation detail: The coordinator has two sets of APIs. Clients use `add_job` and `get_simple_job_states`/`get_grid_task_states` to request that jobs get run and check on their status. Job workers use `get_next_job`, `update_job_states`, etc. to get jobs to run and report the results.
+> Implementation detail: The coordinator has two sets of APIs. Clients use `add_job` and `get_simple_job_states`/`get_grid_task_states` to request that jobs get run and check on their status. Agents use `get_next_job`, `update_job_states`, etc. to get jobs to run and report the results.
 
 ## Quickstart: How to run on AWS
 
@@ -41,20 +41,20 @@ Under construction
      [Install]
      WantedBy=multi-user.target
      ```
-   - Clients and job workers must be able to reach port 15319 on this host.
-2. Configure one or more job workers. These should ideally not run on the same machine as the coordinator. Each machine only needs one job worker service (a single job worker will launch many jobs depending on the resources of the machine). Similar to the coordinator, but schedule `meadowgrid_job_worker` to run instead. Example of how to install on Ubuntu (also will work on Windows)
+   - Clients and agents must be able to reach port 15319 on this host.
+2. Configure one or more agents. These should ideally not run on the same machine as the coordinator. Each machine only needs one agent service (a single agent will launch many jobs depending on the resources of the machine). Similar to the coordinator, but schedule `meadowgrid_agent` to run instead. Example of how to install on Ubuntu (also will work on Windows)
    - Optionally, [install Docker](https://docs.docker.com/engine/install/ubuntu/) if you are planning on using containers to run your jobs/tasks.
    - Same instructions as above to install python3.9 and create a virtual environment with meadowdata installed
-   - Set up meadowgrid_job_worker as a systemd service by creating a file at `/etc/systemd/system/meadowgrid_coordinator.service` with the contents:
+   - Set up meadowgrid_agent as a systemd service by creating a file at `/etc/systemd/system/meadowgrid_agent.service` with the contents:
      ```
      [Unit]
-     Description="meadowgrid job worker"
+     Description="meadowgrid agent"
      After=network.target
     
      [Service]
      User=<USER>
      Group=<GROUP>
-     ExecStart=/home/<USER>/meadowgrid_env/bin/meadowgrid_job_worker --coordinator-host <COORDINATOR_HOST>
+     ExecStart=/home/<USER>/meadowgrid_env/bin/meadowgrid_agent --coordinator-host <COORDINATOR_HOST>
      Restart=always
     
      [Install]
@@ -66,7 +66,7 @@ Under construction
    import meadowgrid
    
    meadowgrid.grid_map(
-       # this function will run on the job workers
+       # this function will run on the agents
        lambda x: x * 2,
        # we will run the above function on these 3 inputs/tasks
        [1, 2, 3],
@@ -101,13 +101,13 @@ Examples of `interpreter_deployment` are:
 - `PoetryProject()` (not implemented): a pyproject.toml and poetry.lock file in the `code_deployment` that specifies versions of the interpreter and libraries
 - `CondaEnv()` (not implemented): a condaenv.yml file in the `code_deployment` that specifies versions of the interpreter and libraries
 - `PipRequirements()` (not implemented): a requirements.txt file in the `code_deployment` that specifies versions of the interpreter and libraries
-- `ServerAvailableInterpreter(interpreter_path="/deployments/my_code/venv/bin/python")`: a python interpreter that already exists on the job worker machines. You are responsible for installing/managing the referenced interpreter
-- `ServerAvailableInterpreter(interpreter_path=meadowgrid.config.MEADOWGRID_INTERPRETER)`: the python interpreter that the job worker is running with. Should not be used except for tests.
+- `ServerAvailableInterpreter(interpreter_path="/deployments/my_code/venv/bin/python")`: a python interpreter that already exists on the agent machines. You are responsible for installing/managing the referenced interpreter
+- `ServerAvailableInterpreter(interpreter_path=meadowgrid.config.MEADOWGRID_INTERPRETER)`: the python interpreter that the agent is running with. Should not be used except for tests.
 
 Examples of `code_deployment` are:
 - `GitRepoBranch(repo_url="https://github.com/meadowdata/test_repo", branch="main")`: a branch on a git repo (the branch defaults to `main`). Note that this is not deterministic (branches can resolve to different commits over time).
 - `GitRepoCommit(repo_url="https://github.com/meadowdata/test_repo", commit="d44155a28cdcb171e6bad5090a787e9e15640663")`: a specific commit in a git repo
-- `ServerAvailableFolder(code_paths=["/deployments/my_code"])`: typically a shared folder that the job worker has access to via the machine's file system. You are responsible for populating/managing the referenced folders.
+- `ServerAvailableFolder(code_paths=["/deployments/my_code"])`: typically a shared folder that the agent has access to via the machine's file system. You are responsible for populating/managing the referenced folders.
 - `None`: no additional code is needed beyond the interpreter.
 
 `function` can reference any library or code provided by `code_deployment` and `interpreter_deployment`.
@@ -120,15 +120,15 @@ For grid jobs (but not for simple jobs), meadowdata must be available as a libra
 
 By default, jobs require `LOGICAL_CPU` and `MEMORY_GB` per the defaults in `DEFAULT_LOGICAL_CPU_REQUIRED` and `DEFAULT_MEMORY_GB_REQUIRED` in `meadowgrid.config`. You can override the defaults, e.g. `{meadowgrid.config.MEMORY_GB: 8}` will override `MEMORY_GB`, but `LOGICAL_CPU` will still be the default value. If you want to meadowgrid to ignore `LOGICAL_CPU` or `MEMORY_GB` requirements, then you can do something like `{meadowgrid.config.MEMORY_GB: 8, meadowgrid.config.LOGICAL_CPU: 0}`. In that case, meadowgrid will completely ignore `LOGICAL_CPU` when scheduling the job.
 
-You can also require custom resources, e.g. `{"TEMPERATURE_SENSOR": 1}`. For custom resources, you will also need to tell the job workers what custom resources they have available, e.g. on the command line `meadowgrid_job_worker --available_resource TEMPERATURE_SENSOR 4`.
+You can also require custom resources, e.g. `{"TEMPERATURE_SENSOR": 1}`. For custom resources, you will also need to tell the agent what custom resources they have available, e.g. on the command line `meadowgrid_agent --available_resource TEMPERATURE_SENSOR 4`.
 
-meadowgrid will not schedule jobs on a job worker unless all of the required resources are available.
+meadowgrid will not schedule jobs on an agent unless all of the required resources are available.
 
 ### priority
 
 - `priority: float = DEFAULT_PRIORITY`
 
-If the currently requested jobs require more resources than are available on the existing job workers, then the order that meadowgrid schedules jobs will be based on their priority. E.g. if jobs 1, 2, and 3 each have priority 100, and job 4 has priority 300, meadowgrid will choose job 1 with probability 100/600, and the same for 2 and 3. meadowgrid will choose job 4 with probability 300/600. In other words, `priority` is how many raffle tickets that job gets, and meadowgrid will randomly choose one of the raffle tickets to decide which job to run next.
+If the currently requested jobs require more resources than are available on the existing agents, then the order that meadowgrid schedules jobs will be based on their priority. E.g. if jobs 1, 2, and 3 each have priority 100, and job 4 has priority 300, meadowgrid will choose job 1 with probability 100/600, and the same for 2 and 3. meadowgrid will choose job 4 with probability 300/600. In other words, `priority` is how many raffle tickets that job gets, and meadowgrid will randomly choose one of the raffle tickets to decide which job to run next.
 
 ### Coordinator
 

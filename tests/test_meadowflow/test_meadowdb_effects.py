@@ -2,7 +2,7 @@ import datetime
 
 import meadowdb
 import meadowgrid.coordinator_main
-import meadowgrid.job_worker_main
+import meadowgrid.agent_main
 import pandas as pd
 import pytest
 from meadowdb import MAIN_USERSPACE_NAME
@@ -62,7 +62,7 @@ async def test_meadowdb_effects():
     """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
             scheduler.register_job_runner(MeadowGridJobRunner)

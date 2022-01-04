@@ -3,30 +3,15 @@ from __future__ import annotations
 import json
 import pickle
 from types import TracebackType
-from typing import (
-    Iterable,
-    Dict,
-    Sequence,
-    Tuple,
-    Any,
-    Optional,
-    Literal,
-    List,
-    Type,
-    Union,
-)
+from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, Type, Union
 
 import grpc
 import grpc.aio
 
 from meadowgrid.config import (
     DEFAULT_COORDINATOR_ADDRESS,
-    DEFAULT_LOGICAL_CPU_REQUIRED,
-    DEFAULT_MEMORY_GB_REQUIRED,
     DEFAULT_PRIORITY,
     JOB_ID_VALID_CHARACTERS,
-    LOGICAL_CPU,
-    MEMORY_GB,
 )
 from meadowgrid.credentials import CredentialsSource, CredentialsService
 from meadowgrid.deployed_function import (
@@ -51,21 +36,21 @@ from meadowgrid.meadowgrid_pb2 import (
     GitRepoBranch,
     GitRepoCommit,
     GridTask,
-    GridTaskState,
+    GridTaskStateResponse,
     GridTaskStatesRequest,
     GridTaskUpdateAndGetNextRequest,
     Job,
     JobStateUpdate,
     JobStateUpdates,
     JobStatesRequest,
-    NextJobRequest,
-    NextJobResponse,
+    NextJobsRequest,
+    NextJobsResponse,
     ProcessState,
     PyCommandJob,
     PyFunctionJob,
     PyGridJob,
     QualifiedFunctionName,
-    Resource,
+    RegisterAgentRequest,
     ServerAvailableContainer,
     ServerAvailableFile,
     ServerAvailableFolder,
@@ -73,35 +58,13 @@ from meadowgrid.meadowgrid_pb2 import (
     StringPair,
 )
 from meadowgrid.meadowgrid_pb2_grpc import MeadowGridCoordinatorStub
+from meadowgrid.resource_allocation import (
+    construct_resources_protobuf,
+    construct_resources_required_protobuf,
+)
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
-
-
-def _construct_resources_required(
-    resources: Optional[Dict[str, float]]
-) -> Sequence[Resource]:
-    """
-    If resources is None, provides the defaults for resources required. If resources is
-    not None, adds in the default resources if necessary. This means for default
-    resources like LOGICAL_CPU and MEMORY_GB, the only way to "opt-out" of these
-    resources is to explicitly set them to zero. Requiring zero of a resource is treated
-    the same as not requiring that resource at all.
-    """
-    if resources is None:
-        resources = {}
-
-    result = _construct_resources(resources)
-    if MEMORY_GB not in resources:
-        result.append(Resource(name=MEMORY_GB, value=DEFAULT_MEMORY_GB_REQUIRED))
-    if LOGICAL_CPU not in resources:
-        result.append(Resource(name=LOGICAL_CPU, value=DEFAULT_LOGICAL_CPU_REQUIRED))
-    return result
-
-
-def _construct_resources(resources: Dict[str, float]) -> List[Resource]:
-    """Small helper for constructing a sequence of Resource"""
-    return [Resource(name=name, value=value) for name, value in resources.items()]
 
 
 def _make_valid_job_id(job_id: str) -> str:
@@ -110,7 +73,7 @@ def _make_valid_job_id(job_id: str) -> str:
 
 def _string_pairs_from_dict(d: Optional[Dict[str, str]]) -> Iterable[StringPair]:
     """
-    Opposite of _string_pairs_to_dict in job_worker.py. Helper for dicts in protobuf.
+    Opposite of _string_pairs_to_dict in agent.py. Helper for dicts in protobuf.
     """
     if d is not None:
         for key, value in d.items():
@@ -240,7 +203,7 @@ def _create_py_runnable_job(
             deployed_runnable.environment_variables
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        resources_required=_construct_resources_required(resources_required),
+        resources_required=construct_resources_required_protobuf(resources_required),
     )
     _add_deployments_to_job(
         job, deployed_runnable.code_deployment, deployed_runnable.interpreter_deployment
@@ -298,7 +261,9 @@ def _create_py_grid_job(
             deployed_function.environment_variables
         ),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        resources_required=_construct_resources_required(resources_required_per_task),
+        resources_required=construct_resources_required_protobuf(
+            resources_required_per_task
+        ),
         py_grid=PyGridJob(
             function=_create_py_function(deployed_function.runnable, pickle_protocol),
             tasks=_create_task_requests(tasks, pickle_protocol),
@@ -416,7 +381,7 @@ class MeadowGridCoordinatorClientAsync:
     ) -> AddJobState:
         """
         Requests a run of the specified runnable in the context of a python environment
-        on a meadowgrid worker. See also MeadowGridDeployedRunnable docstring and Job in
+        on a meadowgrid agent. See also MeadowGridDeployedRunnable docstring and Job in
         meadowgrid.proto.
 
         Return value will either be ADDED (success) or IS_DUPLICATE, indicating that
@@ -517,7 +482,7 @@ class MeadowGridCoordinatorClientAsync:
 
     async def get_grid_task_states(
         self, job_id: str, task_ids_to_ignore: Sequence[int]
-    ) -> Sequence[GridTaskState]:
+    ) -> Sequence[GridTaskStateResponse]:
         """
         Gets the states and results for the tasks in the specified grid job.
         task_ids_to_ignore tells the server to not send back results for those task_ids
@@ -629,7 +594,7 @@ class MeadowGridCoordinatorClientSync:
 
     def get_grid_task_states(
         self, job_id: str, task_ids_to_ignore: Sequence[int]
-    ) -> Sequence[GridTaskState]:
+    ) -> Sequence[GridTaskStateResponse]:
         return self._stub.get_grid_task_states(
             GridTaskStatesRequest(job_id=job_id, task_ids_to_ignore=task_ids_to_ignore)
         ).task_states
@@ -657,8 +622,8 @@ class MeadowGridCoordinatorClientSync:
 class MeadowGridCoordinatorClientForWorkersAsync:
     """
     Talks to the same MeadowGridCoordinator server as MeadowGridCoordinatorClientAsync,
-    but only has the functions needed by the workers. The separation is just for keeping
-    the code organized.
+    but only has the functions needed by the workers/agents. The separation is just for
+    keeping the code organized.
     """
 
     def __init__(self, address: str = DEFAULT_COORDINATOR_ADDRESS):
@@ -667,28 +632,36 @@ class MeadowGridCoordinatorClientForWorkersAsync:
         )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    async def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
+    async def register_agent(self, agent_id: str, resources: Dict[str, float]) -> None:
+        """Registers an agent with the coordinator"""
+        await self._stub.register_agent(
+            RegisterAgentRequest(
+                agent_id=agent_id, resources=construct_resources_protobuf(resources)
+            )
+        )
+
+    async def update_job_states(
+        self, agent_id: str, job_states: Iterable[JobStateUpdate]
+    ) -> None:
         """
         Updates the coordinator that the specified jobs have entered the specified
         state.
         """
-        await self._stub.update_job_states(JobStateUpdates(job_states=job_states))
-
-    async def get_next_job(
-        self, resources_available: Dict[str, float]
-    ) -> NextJobResponse:
-        """
-        Gets a job that the current worker should work on. If there are no jobs to work
-        on, bool(Job.job_id) will be false.
-        """
-        return await self._stub.get_next_job(
-            NextJobRequest(
-                resources_available=_construct_resources(resources_available)
-            )
+        await self._stub.update_job_states(
+            JobStateUpdates(agent_id=agent_id, job_states=job_states)
         )
 
+    async def get_next_jobs(self, agent_id: str) -> NextJobsResponse:
+        """
+        Gets the jobs that the current agent should work on.
+        """
+        return await self._stub.get_next_jobs(NextJobsRequest(agent_id=agent_id))
+
     async def update_grid_task_state_and_get_next(
-        self, job_id: str, task_state: Optional[Tuple[int, ProcessState]]
+        self,
+        job_id: str,
+        grid_worker_id: str,
+        task_state: Optional[Tuple[int, ProcessState]],
     ) -> GridTask:
         """
         task_state can either be None or (task_id, process_state).
@@ -708,11 +681,14 @@ class MeadowGridCoordinatorClientForWorkersAsync:
 
         if task_state is not None:
             task_state_request = GridTaskUpdateAndGetNextRequest(
-                job_id=job_id, task_id=task_state[0], process_state=task_state[1]
+                job_id=job_id,
+                grid_worker_id=grid_worker_id,
+                task_id=task_state[0],
+                process_state=task_state[1],
             )
         else:
             task_state_request = GridTaskUpdateAndGetNextRequest(
-                job_id=job_id, task_id=-1
+                job_id=job_id, grid_worker_id=grid_worker_id, task_id=-1
             )
 
         return await self._stub.update_grid_task_state_and_get_next(task_state_request)
@@ -739,27 +715,40 @@ class MeadowGridCoordinatorClientForWorkersSync:
         )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    def update_job_states(self, job_states: Iterable[JobStateUpdate]) -> None:
-        self._stub.update_job_states(JobStateUpdates(job_states=job_states))
-
-    def get_next_job(self, resources_available: Dict[str, float]) -> NextJobResponse:
-        return self._stub.get_next_job(
-            NextJobRequest(
-                resources_available=_construct_resources(resources_available)
+    def register_agent(self, agent_id: str, resources: Dict[str, float]) -> None:
+        self._stub.register_agent(
+            RegisterAgentRequest(
+                agent_id=agent_id, resources=construct_resources_protobuf(resources)
             )
         )
 
+    def update_job_states(
+        self, agent_id: str, job_states: Iterable[JobStateUpdate]
+    ) -> None:
+        self._stub.update_job_states(
+            JobStateUpdates(agent_id=agent_id, job_states=job_states)
+        )
+
+    def get_next_jobs(self, agent_id: str) -> NextJobsResponse:
+        return self._stub.get_next_jobs(NextJobsRequest(agent_id=agent_id))
+
     def update_grid_task_state_and_get_next(
-        self, job_id: str, task_state: Optional[Tuple[int, ProcessState]]
+        self,
+        job_id: str,
+        grid_worker_id: str,
+        task_state: Optional[Tuple[int, ProcessState]],
     ) -> GridTask:
         # job_id is always required
         if task_state is not None:
             task_state_request = GridTaskUpdateAndGetNextRequest(
-                job_id=job_id, task_id=task_state[0], process_state=task_state[1]
+                job_id=job_id,
+                grid_worker_id=grid_worker_id,
+                task_id=task_state[0],
+                process_state=task_state[1],
             )
         else:
             task_state_request = GridTaskUpdateAndGetNextRequest(
-                job_id=job_id, task_id=-1
+                job_id=job_id, grid_worker_id=grid_worker_id, task_id=-1
             )
 
         return self._stub.update_grid_task_state_and_get_next(task_state_request)

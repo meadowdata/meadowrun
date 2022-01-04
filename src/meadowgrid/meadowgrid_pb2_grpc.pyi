@@ -17,14 +17,19 @@ class MeadowGridCoordinatorStub:
         meadowgrid.meadowgrid_pb2.AddJobResponse,
     ] = ...
 
+    register_agent: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.RegisterAgentRequest,
+        meadowgrid.meadowgrid_pb2.RegisterAgentResponse,
+    ] = ...
+
     update_job_states: grpc.UnaryUnaryMultiCallable[
         meadowgrid.meadowgrid_pb2.JobStateUpdates,
         meadowgrid.meadowgrid_pb2.UpdateStateResponse,
     ] = ...
 
-    get_next_job: grpc.UnaryUnaryMultiCallable[
-        meadowgrid.meadowgrid_pb2.NextJobRequest,
-        meadowgrid.meadowgrid_pb2.NextJobResponse,
+    get_next_jobs: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.NextJobsRequest,
+        meadowgrid.meadowgrid_pb2.NextJobsResponse,
     ] = ...
 
     update_grid_task_state_and_get_next: grpc.UnaryUnaryMultiCallable[
@@ -40,7 +45,7 @@ class MeadowGridCoordinatorStub:
 
     get_grid_task_states: grpc.UnaryUnaryMultiCallable[
         meadowgrid.meadowgrid_pb2.GridTaskStatesRequest,
-        meadowgrid.meadowgrid_pb2.GridTaskStates,
+        meadowgrid.meadowgrid_pb2.GridTaskStatesResponse,
     ] = ...
 
     add_credentials: grpc.UnaryUnaryMultiCallable[
@@ -62,17 +67,23 @@ class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
         context: grpc.ServicerContext,
     ) -> meadowgrid.meadowgrid_pb2.AddJobResponse: ...
     @abc.abstractmethod
+    def register_agent(
+        self,
+        request: meadowgrid.meadowgrid_pb2.RegisterAgentRequest,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.RegisterAgentResponse: ...
+    @abc.abstractmethod
     def update_job_states(
         self,
         request: meadowgrid.meadowgrid_pb2.JobStateUpdates,
         context: grpc.ServicerContext,
     ) -> meadowgrid.meadowgrid_pb2.UpdateStateResponse: ...
     @abc.abstractmethod
-    def get_next_job(
+    def get_next_jobs(
         self,
-        request: meadowgrid.meadowgrid_pb2.NextJobRequest,
+        request: meadowgrid.meadowgrid_pb2.NextJobsRequest,
         context: grpc.ServicerContext,
-    ) -> meadowgrid.meadowgrid_pb2.NextJobResponse: ...
+    ) -> meadowgrid.meadowgrid_pb2.NextJobsResponse: ...
     @abc.abstractmethod
     def update_grid_task_state_and_get_next(
         self,
@@ -92,7 +103,7 @@ class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
         self,
         request: meadowgrid.meadowgrid_pb2.GridTaskStatesRequest,
         context: grpc.ServicerContext,
-    ) -> meadowgrid.meadowgrid_pb2.GridTaskStates: ...
+    ) -> meadowgrid.meadowgrid_pb2.GridTaskStatesResponse: ...
     @abc.abstractmethod
     def add_credentials(
         self,

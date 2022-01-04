@@ -9,7 +9,7 @@ packages = [{ include = "scripts_redirect.py" }]
 # https://github.com/python-poetry/poetry/issues/3265 is fixed
 [tool.poetry.scripts]
 meadowgrid_coordinator_ = 'scripts_redirect:meadowgrid_coordinator_'
-meadowgrid_job_worker_ = 'scripts_redirect:meadowgrid_job_worker_'
+meadowgrid_agent_ = 'scripts_redirect:meadowgrid_agent_'
 meadowflow_ = 'scripts_redirect:meadowflow_'
 
 [tool.poetry.dependencies]

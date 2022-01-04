@@ -14,7 +14,7 @@ packages = [
 
 [tool.poetry.scripts]
 meadowgrid_coordinator = 'meadowgrid.coordinator_main:command_line_main'
-meadowgrid_job_worker = 'meadowgrid.job_worker_main:command_line_main'
+meadowgrid_agent = 'meadowgrid.agent_main:command_line_main'
 meadowflow = 'meadowflow.server.server_main:command_line_main'
 
 [tool.poetry.dependencies]

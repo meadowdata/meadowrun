@@ -38,6 +38,7 @@ from meadowgrid.deployed_function import (
     VersionedInterpreterDeployment,
 )
 from meadowgrid.meadowgrid_pb2 import ProcessState, ServerAvailableFolder
+from meadowgrid.shared import COMPLETED_PROCESS_STATES
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -73,18 +74,6 @@ def _get_coordinator_client_sync(address: str) -> MeadowGridCoordinatorClientSyn
         client = MeadowGridCoordinatorClientSync(address)
         _coordinator_clients_sync[address] = client
     return client
-
-
-# TODO This should live elsewhere...
-_COMPLETED_PROCESS_STATES = {
-    ProcessState.ProcessStateEnum.SUCCEEDED,
-    ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
-    ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-    ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
-    ProcessState.ProcessStateEnum.CANCELLED,
-    ProcessState.ProcessStateEnum.ERROR_GETTING_STATE,
-    ProcessState.ProcessStateEnum.UNKNOWN,
-}
 
 
 def _get_id_name_function(function: Callable[[_T], _U]) -> Tuple[str, str, bytes]:
@@ -170,7 +159,7 @@ def grid_map(
             job_id, list(task_ids_with_results)
         )
         for task in curr_task_states:
-            if task.process_state.state in _COMPLETED_PROCESS_STATES:
+            if task.process_state.state in COMPLETED_PROCESS_STATES:
                 task_states[task.task_id] = task.process_state
                 task_ids_with_results.add(task.task_id)
 
@@ -275,14 +264,19 @@ async def grid_map_async(
                 job_id, list(task_ids_with_results)
             )
             for task in curr_task_states:
-                if task.process_state.state in _COMPLETED_PROCESS_STATES:
+                if task.process_state.state in COMPLETED_PROCESS_STATES:
                     if (
                         task.process_state.state
                         != ProcessState.ProcessStateEnum.SUCCEEDED
                     ):
                         # TODO raise a better exception
                         task_states[task.task_id].set_exception(
-                            ValueError("Task failed")
+                            ValueError(
+                                "Task failed "
+                                + ProcessState.ProcessStateEnum.Name(
+                                    task.process_state.state
+                                )
+                            )
                         )
                     else:
                         result, effects = pickle.loads(

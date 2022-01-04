@@ -16,6 +16,7 @@ from meadowgrid.shared import pickle_exception
 def _main_loop(
     coordinator_address: str,
     job_id: str,
+    grid_worker_id: str,
     module_function_or_pickled_function: Union[Tuple[str, str], str],
     pickled_arguments_path: Optional[str],
 ) -> None:
@@ -40,7 +41,7 @@ def _main_loop(
 
     while True:
         next_task = client.update_grid_task_state_and_get_next(
-            job_id, previous_task_state
+            job_id, grid_worker_id, previous_task_state
         )
 
         # task_id == -1 means the coordinator has no more tasks for this grid job
@@ -119,6 +120,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(usage)
     parser.add_argument("--coordinator-address", required=True)
     parser.add_argument("--job-id", required=True)
+    parser.add_argument("--grid-worker-id", required=True)
     parser.add_argument("--module-name")
     parser.add_argument("--function-name")
     # --io-path is not technically required if neither --has-pickled-function nor
@@ -147,6 +149,7 @@ def main() -> None:
     _main_loop(
         args.coordinator_address,
         args.job_id,
+        args.grid_worker_id,
         function,
         args.io_path + ".arguments" if args.has_pickled_arguments else None,
     )

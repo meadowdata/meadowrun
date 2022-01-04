@@ -16,8 +16,8 @@ message StringPair {
 message ServerAvailableFolder {
     // code_paths[0] will be set as the working directory, and all code_paths will be
     // added to the PYTHONPATH. These code_paths must "make sense" on the machine where
-    // the meadowgrid worker is running. One typical use case for this is that the
-    // meadowgrid workers have access to a shared filesystem where code has been
+    // the meadowgrid agent is running. One typical use case for this is that the
+    // meadowgrid agents have access to a shared filesystem where code has been
     // deployed. Order matters as usual for PYTHONPATH. Another typical use case is to
     // provide no code_paths because all of the code needed is already specified in the
     // interpreter_deployment
@@ -140,8 +140,8 @@ message AddTasksToGridJobRequest {
 }
 
 
-// Job workers have resources, and jobs can use resources. Examples of resources are CPU
-// and memory
+// Agents have resources, and jobs can use resources. Examples of resources are CPU and
+// memory
 message Resource {
     string name = 1;
     float value = 2;
@@ -158,7 +158,7 @@ message Job {
     string job_friendly_name = 2;
 
     // priority determines which jobs are worked on first. The likelihood that a
-    // coordinator assigns a particular job to the next available worker is the priority
+    // coordinator assigns a particular job to the next available agent is the priority
     // of that job relative to the sum of the priorities of all jobs that need to be
     // worked on. Roughly, the overall intended effect is that if a particular job has
     // e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowgrid compute
@@ -214,15 +214,34 @@ message AddJobResponse {
 }
 
 
-message NextJobRequest {
-    repeated Resource resources_available = 1;
+message RegisterAgentRequest {
+    // The id of the agent that's registering itself
+    string agent_id = 1;
+    // The resources available on the agent
+    repeated Resource resources = 2;
 }
 
 
-message NextJobResponse {
+message RegisterAgentResponse {
+}
+
+
+message NextJobsRequest {
+    string agent_id = 1;
+}
+
+
+message NextJobsResponse {
+    repeated JobToRun jobs_to_run = 1;
+}
+
+
+message JobToRun {
     Job job = 1;
-    Credentials interpreter_deployment_credentials = 2;
-    Credentials code_deployment_credentials = 3;
+    // will only be populated if job is a GridJob
+    string grid_worker_id = 2;
+    Credentials interpreter_deployment_credentials = 3;
+    Credentials code_deployment_credentials = 4;
 }
 
 
@@ -236,48 +255,47 @@ message ProcessState {
 
         // The meadowgrid coordinator has received the Job
         RUN_REQUESTED = 1;
-        // The meadowgrid coordinator has assigned the Job to a worker
-        // TODO add worker_id
-        ASSIGNED = 2;
-        // The assigned worker has launched the job. pid and log_file_name will be
+
+        // The assigned agent has launched the job. pid and log_file_name will be
         // populated.
-        RUNNING = 3;
+        RUNNING = 2;
 
         // These states represent a job that is "done". log_file_name, return_code, and
         // one of pid/container_id will be populated unless otherwise noted.
 
         // The job has completed normally. pickled_result may be populated.
-        SUCCEEDED = 4;
+        SUCCEEDED = 3;
         // There was an exception before launching the job process. pid/container_id,
         // log_file_name, and return_code will not be populated. pickled_result will be
-        // populated with a tuple representing the python exception from the job_worker
+        // populated with a tuple representing the python exception from the agent
         // process (see PYTHON_EXCEPTION for the format).
-        RUN_REQUEST_FAILED = 5;
+        RUN_REQUEST_FAILED = 4;
         // A python exception was thrown from the job process. pickled_result will be a
         // pickled tuple (exception_type, exception_message, exception_traceback). We
         // don't pickle the exception itself because it may not be unpicklable on this
         // end (e.g. it involves types that don't exist in the current process' code
         // base). Exceptions are by their nature unexpected, so we shouldn't expect that
         // they can be unpickled on the client.
-        PYTHON_EXCEPTION = 6;
+        PYTHON_EXCEPTION = 5;
         // The process exited with a non-zero return code. This could mean that a
         // non-python exception was thrown (e.g. in the interpreter itself, or in a C
         // extension), or os.exit was called with a non-zero argument, or there was a
         // python exception thrown in the meadowgrid worker code.
-        NON_ZERO_RETURN_CODE = 7;
-        // Cancelled by request. pid/container_id, log_file_name, and return_code may
-        // not be populated.
-        // TODO implement cancelling
-        CANCELLED = 8;
+        NON_ZERO_RETURN_CODE = 6;
+        // We do not have any agents that are capable of running the job given its
+        // resource requirements. Either reduce the resource requirements of the job or
+        // launch agents that have enough resources.
+        RESOURCES_NOT_AVAILABLE = 7;
+
         // There was an error while reading the outputs of the process. This could mean
         // that the child process somehow silently failed to write its outputs correctly
         // or there was a python exception thrown in the meadowgrid worker code.
-        ERROR_GETTING_STATE = 9;
+        ERROR_GETTING_STATE = 8;
 
         // This state represents a job that is neither "done" nor "in progress"
 
         // We do not know the job id
-        UNKNOWN = 10;
+        UNKNOWN = 9;
     }
     ProcessStateEnum state = 1;
     int32 pid = 2;
@@ -295,7 +313,7 @@ message ProcessStates {
 
 // A general note on terminology below: a StateRequest is when a client requests the
 // state of a Job or GridTask. A plain State is a response to that kind of request. A
-// StateUpdate is when a worker is updating the coordinator that a Job/GridTask has
+// StateUpdate is when an agent is updating the coordinator that a Job/GridTask has
 // entered a new state.
 
 
@@ -308,13 +326,16 @@ message JobStatesRequest {
 // For updating the state of a job
 message JobStateUpdate {
     string job_id = 1;
-    ProcessState process_state = 2;
+    // will only be populated if job_id refers to a GridJob
+    string grid_worker_id = 2;
+    ProcessState process_state = 3;
 }
 
 
 // For updating the states of jobs
 message JobStateUpdates {
-    repeated JobStateUpdate job_states = 1;
+    string agent_id = 1;
+    repeated JobStateUpdate job_states = 2;
 }
 
 
@@ -326,15 +347,15 @@ message GridTaskStatesRequest {
 
 
 // For getting the state of a grid task
-message GridTaskState {
+message GridTaskStateResponse {
     int32 task_id = 1;
     ProcessState process_state = 2;
 }
 
 
 // For getting the states of grid tasks
-message GridTaskStates {
-    repeated GridTaskState task_states = 1;
+message GridTaskStatesResponse {
+    repeated GridTaskStateResponse task_states = 1;
 }
 
 
@@ -344,12 +365,14 @@ message GridTaskUpdateAndGetNextRequest {
     // the next task should come from
     string job_id = 1;
 
+    string grid_worker_id = 2;
+
     // -1 means we don't have a completed task to update. >= 0 means we are updating the
     // state on the specified task
-    int32 task_id = 2;
+    int32 task_id = 3;
 
     // the updated state for the specified task if task_id >= 0
-    ProcessState process_state = 3;
+    ProcessState process_state = 4;
 }
 
 
@@ -417,14 +440,15 @@ service MeadowGridCoordinator {
     rpc add_job(Job) returns (AddJobResponse) {};
     rpc add_tasks_to_grid_job(AddTasksToGridJobRequest) returns (AddJobResponse) {};
 
+    rpc register_agent(RegisterAgentRequest) returns (RegisterAgentResponse) {}
     rpc update_job_states(JobStateUpdates) returns (UpdateStateResponse) {};
-    rpc get_next_job(NextJobRequest) returns (NextJobResponse) {};
+    rpc get_next_jobs(NextJobsRequest) returns (NextJobsResponse) {};
 
     // this can only get tasks from the same job
     rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
 
     rpc get_simple_job_states(JobStatesRequest) returns (ProcessStates) {};
-    rpc get_grid_task_states(GridTaskStatesRequest) returns (GridTaskStates) {};
+    rpc get_grid_task_states(GridTaskStatesRequest) returns (GridTaskStatesResponse) {};
 
     rpc add_credentials(AddCredentialsRequest) returns (AddCredentialsResponse) {}
 }

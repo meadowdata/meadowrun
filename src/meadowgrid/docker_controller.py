@@ -370,8 +370,8 @@ async def run_container(
                 # Linux machines to use this (not supported in Linux at all before
                 # Docker v20.10). This is mostly for tests, so we include it and it
                 # shouldn't cause problems even if it doesn't work. See more at
-                # job_worker._prepare_py_grid's discussion of replacing localhost for
-                # the coordinator address. Also:
+                # agent._prepare_py_grid's discussion of replacing localhost for the
+                # coordinator address. Also:
                 # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
                 "ExtraHosts": ["host.docker.internal:host-gateway"],
             },

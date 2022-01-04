@@ -7,7 +7,7 @@ import os
 import os.path
 from typing import Iterator, Optional, Dict
 
-import meadowgrid.job_worker
+import meadowgrid.agent
 from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
 
 
@@ -36,7 +36,7 @@ def main(
         available_resources = {}
 
     asyncio.run(
-        meadowgrid.job_worker.job_worker_main_loop(
+        meadowgrid.agent.agent_main_loop(
             working_folder,
             available_resources,
             f"{coordinator_host}:{coordinator_port}",
@@ -52,9 +52,9 @@ def main_in_child_process(
     coordinator_port: Optional[int] = None,
 ) -> Iterator[Optional[int]]:
     """
-    Launch worker in a child process. Usually for unit tests. For debugging, it's better
-    to just run job_worker_main.py manually as a standalone process so you can debug it,
-    see logs, etc. If there's an existing worker already running, the child process will
+    Launch agent in a child process. Usually for unit tests. For debugging, it's better
+    to just run agent_main.py manually as a standalone process so you can debug it, see
+    logs, etc. If there's an existing agent already running, the child process will
     just die immediately without doing anything.
     """
     ctx = multiprocessing.get_context("spawn")

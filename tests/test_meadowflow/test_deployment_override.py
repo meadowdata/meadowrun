@@ -5,7 +5,7 @@ from meadowflow.meadowgrid_job_runner import MeadowGridJobRunner
 from meadowflow.scheduler import Scheduler
 from meadowflow.topic_names import pname
 import meadowgrid.coordinator_main
-import meadowgrid.job_worker_main
+import meadowgrid.agent_main
 import pytest
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.deployed_function import (
@@ -34,7 +34,7 @@ async def test_deployment_override() -> None:
     """Tests using JobRunOverride.deployment"""
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before

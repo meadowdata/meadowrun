@@ -1,6 +1,8 @@
 import pickle
 import traceback
 
+from meadowgrid.meadowgrid_pb2 import ProcessState
+
 
 def pickle_exception(e: Exception, pickle_protocol: int) -> bytes:
     """
@@ -12,3 +14,13 @@ def pickle_exception(e: Exception, pickle_protocol: int) -> bytes:
         (str(type(e)), str(e), tb),
         protocol=pickle_protocol,
     )
+
+
+COMPLETED_PROCESS_STATES = {
+    ProcessState.ProcessStateEnum.SUCCEEDED,
+    ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
+    ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+    ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
+    ProcessState.ProcessStateEnum.RESOURCES_NOT_AVAILABLE,
+    ProcessState.ProcessStateEnum.ERROR_GETTING_STATE,
+}

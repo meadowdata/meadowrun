@@ -8,7 +8,7 @@ DEFAULT_COORDINATOR_ADDRESS = f"{DEFAULT_COORDINATOR_HOST}:{DEFAULT_COORDINATOR_
 JOB_ID_VALID_CHARACTERS = set(string.ascii_letters + string.digits + "-_.")
 
 
-# A placeholder for the same interpreter that meadowgrid.job_worker is using. Mostly for
+# A placeholder for the same interpreter that meadowgrid.agent is using. Mostly for
 # testing, not recommended for normal use.
 MEADOWGRID_INTERPRETER = "__MEADOWGRID_INTERPRETER__"
 
@@ -31,11 +31,6 @@ DEFAULT_PRIORITY = 100
 
 # names of environment variables to communicate with the child process
 
-# Will be set in child processes launched by a job worker, gives the pid of the job
-# worker that launched the child process. Mostly for testing/debugging.
-MEADOWGRID_JOB_WORKER_PID = "MEADOWGRID_JOB_WORKER_PID"
-
-
-# The job worker will log what its available resources are roughly every N seconds as
-# per this setting
-LOG_AVAILABLE_RESOURCES_INTERVAL_SECS = 15
+# Will be set in child processes launched by an agent, gives the pid of the agent that
+# launched the child process. Mostly for testing/debugging.
+MEADOWGRID_AGENT_PID = "MEADOWGRID_AGENT_PID"

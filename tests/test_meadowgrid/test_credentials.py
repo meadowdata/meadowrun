@@ -1,7 +1,7 @@
 import asyncio
 
 import meadowgrid.coordinator_main
-import meadowgrid.job_worker_main
+import meadowgrid.agent_main
 from meadowgrid import grid_map
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientSync
@@ -77,7 +77,7 @@ def manual_test_docker_credentials_aws_secret():
 def _manual_test_docker_credentials(credentials_source: CredentialsSource) -> None:
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         asyncio.run(delete_images_from_repository(_PRIVATE_DOCKER_REPOSITORY))
 
@@ -157,7 +157,7 @@ def manual_test_git_ssh_key_aws_secret():
 def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> None:
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         with MeadowGridCoordinatorClientSync() as client:
             client.add_credentials("GIT", "git@github.com", credentials_source)

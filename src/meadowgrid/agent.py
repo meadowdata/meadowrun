@@ -8,7 +8,7 @@ import pathlib
 import pickle
 import shutil
 import sys
-import time
+import uuid
 from typing import (
     Any,
     Callable,
@@ -30,11 +30,10 @@ import meadowflow.context
 from meadowgrid.code_deployment import CodeDeploymentManager
 from meadowgrid.config import (
     LOGICAL_CPU,
-    LOG_AVAILABLE_RESOURCES_INTERVAL_SECS,
+    MEADOWGRID_AGENT_PID,
     MEADOWGRID_CODE_MOUNT_LINUX,
     MEADOWGRID_INTERPRETER,
     MEADOWGRID_IO_MOUNT_LINUX,
-    MEADOWGRID_JOB_WORKER_PID,
     MEMORY_GB,
 )
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersAsync
@@ -50,7 +49,6 @@ from meadowgrid.meadowgrid_pb2 import (
     JobStateUpdate,
     ProcessState,
     PyFunctionJob,
-    Resource,
     StringPair,
 )
 from meadowgrid.shared import pickle_exception
@@ -272,7 +270,11 @@ def _prepare_py_function(
 
 
 def _prepare_py_grid(
-    job: Job, io_folder: str, coordinator_address: str, is_container: bool
+    job: Job,
+    grid_worker_id: str,
+    io_folder: str,
+    coordinator_address: str,
+    is_container: bool,
 ) -> _JobSpecTransformed:
     """
     Creates files in io_folder for the child process to use and returns a
@@ -302,6 +304,8 @@ def _prepare_py_grid(
         coordinator_address,
         "--job-id",
         job.job_id,
+        "--grid-worker-id",
+        grid_worker_id,
         "--io-path",
         io_path_container,
     ]
@@ -331,6 +335,7 @@ def _prepare_py_grid(
 
 async def _launch_job(
     job: Job,
+    grid_worker_id: Optional[str],
     io_folder: str,
     job_logs_folder: str,
     coordinator_address: str,
@@ -383,17 +388,21 @@ async def _launch_job(
         elif job_spec_type == "py_function":
             job_spec_transformed = _prepare_py_function(job, io_folder, is_container)
         elif job_spec_type == "py_grid":
+            if grid_worker_id is None:
+                raise ValueError(
+                    "grid_worker_id cannot be none if job_spec_type is py_grid"
+                )
             job_spec_transformed = _prepare_py_grid(
-                job, io_folder, coordinator_address, is_container
+                job, grid_worker_id, io_folder, coordinator_address, is_container
             )
         else:
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
         # next, prepare a few other things
 
-        # add the job worker pid, but don't modify if it already exists somehow
-        if MEADOWGRID_JOB_WORKER_PID not in job_spec_transformed.environment_variables:
-            job_spec_transformed.environment_variables[MEADOWGRID_JOB_WORKER_PID] = str(
+        # add the agent pid, but don't modify if it already exists somehow
+        if MEADOWGRID_AGENT_PID not in job_spec_transformed.environment_variables:
+            job_spec_transformed.environment_variables[MEADOWGRID_AGENT_PID] = str(
                 os.getpid()
             )
 
@@ -420,6 +429,7 @@ async def _launch_job(
                 code_paths,
                 log_file_name,
                 job,
+                grid_worker_id,
                 io_folder,
                 free_resources,
             )
@@ -447,6 +457,7 @@ async def _launch_job(
                 code_paths,
                 log_file_name,
                 job,
+                grid_worker_id,
                 io_folder,
                 free_resources,
             )
@@ -467,6 +478,7 @@ async def _launch_job(
         return (
             JobStateUpdate(
                 job_id=job.job_id,
+                grid_worker_id=grid_worker_id or "",
                 process_state=ProcessState(
                     state=ProcessStateEnum.RUNNING,
                     pid=pid,
@@ -483,6 +495,7 @@ async def _launch_job(
         return (
             JobStateUpdate(
                 job_id=job.job_id,
+                grid_worker_id=grid_worker_id or "",
                 process_state=ProcessState(
                     state=ProcessStateEnum.RUN_REQUEST_FAILED,
                     pickled_result=pickle_exception(
@@ -500,6 +513,7 @@ async def _launch_non_container_job(
     code_paths: Sequence[str],
     log_file_name: str,
     job: Job,
+    grid_worker_id: Optional[str],
     io_folder: str,
     free_resources: Callable[[], None],
 ) -> Tuple[int, Coroutine[Any, Any, Optional[JobStateUpdate]]]:
@@ -592,6 +606,7 @@ async def _launch_non_container_job(
         process,
         job_spec_type,
         job.job_id,
+        grid_worker_id,
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
@@ -603,6 +618,7 @@ async def _non_container_job_continuation(
     process: asyncio.subprocess.Process,
     job_spec_type: Literal["py_command", "py_function", "py_grid"],
     job_id: str,
+    grid_worker_id: Optional[str],
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
@@ -623,6 +639,7 @@ async def _non_container_job_continuation(
         return await _completed_job_state(
             job_spec_type,
             job_id,
+            grid_worker_id,
             io_folder,
             log_file_name,
             returncode,
@@ -633,6 +650,7 @@ async def _non_container_job_continuation(
         # there was an exception while trying to get the final JobStateUpdate
         return JobStateUpdate(
             job_id=job_id,
+            grid_worker_id=grid_worker_id or "",
             process_state=ProcessState(
                 state=ProcessStateEnum.ERROR_GETTING_STATE,
                 pickled_result=pickle_exception(e, result_highest_pickle_protocol),
@@ -649,6 +667,7 @@ async def _launch_container_job(
     code_paths: Sequence[str],
     log_file_name: str,
     job: Job,
+    grid_worker_id: Optional[str],
     io_folder: str,
     free_resources: Callable[[], None],
 ) -> Tuple[str, Coroutine[Any, Any, Optional[JobStateUpdate]]]:
@@ -727,6 +746,7 @@ async def _launch_container_job(
         container,
         job_spec_type,
         job.job_id,
+        grid_worker_id,
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
@@ -738,6 +758,7 @@ async def _container_job_continuation(
     container: aiodocker.containers.DockerContainer,
     job_spec_type: Literal["py_command", "py_function", "py_grid"],
     job_id: str,
+    grid_worker_id: Optional[str],
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
@@ -766,6 +787,7 @@ async def _container_job_continuation(
         return await _completed_job_state(
             job_spec_type,
             job_id,
+            grid_worker_id,
             io_folder,
             log_file_name,
             return_code,
@@ -780,6 +802,7 @@ async def _container_job_continuation(
         # there was an exception while trying to get the final JobStateUpdate
         return JobStateUpdate(
             job_id=job_id,
+            grid_worker_id=grid_worker_id or "",
             process_state=ProcessState(
                 state=ProcessStateEnum.ERROR_GETTING_STATE,
                 pickled_result=pickle_exception(e, result_highest_pickle_protocol),
@@ -792,6 +815,7 @@ async def _container_job_continuation(
 async def _completed_job_state(
     job_spec_type: Literal["py_command", "py_function", "py_grid"],
     job_id: str,
+    grid_worker_id: Optional[str],
     io_folder: str,
     log_file_name: str,
     return_code: int,
@@ -807,6 +831,7 @@ async def _completed_job_state(
     if return_code != 0:
         return JobStateUpdate(
             job_id=job_id,
+            grid_worker_id=grid_worker_id or "",
             process_state=ProcessState(
                 state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
                 # TODO some other number? we should have either pid or container_id.
@@ -819,10 +844,20 @@ async def _completed_job_state(
 
     # if we returned normally
 
-    # for py_grid, we can stop here--if the grid_worker exited cleanly, it has already
-    # taken care of any needed communication with the coordinator
+    # for py_grid, we don't need to get any additional information because task-related
+    # information has already been sent by the grid_worker directly to the coordinator
     if job_spec_type == "py_grid":
-        return None
+        return JobStateUpdate(
+            job_id=job_id,
+            grid_worker_id=grid_worker_id or "",
+            process_state=ProcessState(
+                state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                pid=pid or 0,
+                container_id=container_id or "",
+                log_file_name=log_file_name,
+                return_code=0,
+            ),
+        )
 
     # for py_funcs, get the state
     if job_spec_type == "py_function":
@@ -855,6 +890,7 @@ async def _completed_job_state(
     # return the JobStateUpdate
     return JobStateUpdate(
         job_id=job_id,
+        grid_worker_id=grid_worker_id or "",
         process_state=ProcessState(
             state=state,
             pid=pid or 0,
@@ -866,10 +902,10 @@ async def _completed_job_state(
     )
 
 
-async def job_worker_main_loop(
+async def agent_main_loop(
     working_folder: str, available_resources: Dict[str, float], coordinator_address: str
 ) -> None:
-    """The main loop for the job_worker"""
+    """The main loop for the agent"""
 
     # TODO make this restartable if it crashes
 
@@ -896,11 +932,9 @@ async def job_worker_main_loop(
     # has the same working_folder or not), because we're also assuming that the entire
     # machine's resources are ours to manage.
 
-    exclusive_file_lock(lock_file=os.path.join(working_folder, "worker.lock"))
+    exclusive_file_lock(lock_file=os.path.join(working_folder, "agent.lock"))
 
     # initialize some more state
-
-    client = MeadowGridCoordinatorClientForWorkersAsync(coordinator_address)
 
     deployment_manager = CodeDeploymentManager(git_repos_folder, local_copies_folder)
 
@@ -916,19 +950,29 @@ async def job_worker_main_loop(
     # assume we can use the entire machine's resources
     # TODO we should maybe also keep track of the actual resources available? And
     #  potentially limit child processes using cgroups etc? Also account for system
-    #  processes/the job worker itself using some CPU/memory?
+    #  processes/the agent itself using some CPU/memory?
     if MEMORY_GB not in available_resources:
         available_resources[MEMORY_GB] = psutil.virtual_memory().total / (
             1024 * 1024 * 1024
         )
     if LOGICAL_CPU not in available_resources:
         available_resources[LOGICAL_CPU] = psutil.cpu_count(logical=True)
+    available_memory_gb = available_resources[MEMORY_GB]
+    available_logical_cpu = available_resources[LOGICAL_CPU]
 
-    last_available_resources_update = time.time()
     print(f"Available resources: {available_resources}")
+
+    # register ourselves with the coordinator
+
+    agent_id = str(uuid.uuid4())
+    client = MeadowGridCoordinatorClientForWorkersAsync(coordinator_address)
+    await client.register_agent(agent_id, available_resources)
 
     while True:
         # TODO a lot of try/catches needed here...
+
+        # TODO we should probably add a heartbeat so that the coordinator knows if the
+        #  agent has gone offline
 
         # first, check if any job launches have completed, get their state update, and
         # move them from launching_jobs to running_jobs
@@ -972,47 +1016,50 @@ async def job_worker_main_loop(
         # now update the coordinator with the state updates we collected
 
         if job_state_updates:
-            await client.update_job_states(job_state_updates)
+            await client.update_job_states(agent_id, job_state_updates)
 
-        # now get another job if we can with our remaining resources
+        # now get more jobs
 
-        if (
-            time.time() - last_available_resources_update
-            > LOG_AVAILABLE_RESOURCES_INTERVAL_SECS
-        ):
-            last_available_resources_update = time.time()
-            print(f"Available resources: {available_resources}")
-        # a bit of a hack, but no reason to make requests if we have no more memory or
-        # CPU to give out
-        if available_resources[MEMORY_GB] > 0 and available_resources[LOGICAL_CPU] > 0:
-            next_job_response = await client.get_next_job(available_resources)
-            job = next_job_response.job
-            if job.job_id:
+        # The coordinator has the "official" representation of this agent's resources,
+        # this is just a little performance hack--we don't bother seeing if there are
+        # new jobs for us # unless we have some memory and cpu remaining.
+        if available_memory_gb > 0 and available_logical_cpu > 0:
+            next_jobs_response = await client.get_next_jobs(agent_id)
+            for job_to_run in next_jobs_response.jobs_to_run:
+                job = job_to_run.job
+                required_memory_gb: float = 0
+                required_logical_cpu: float = 0
                 for resource in job.resources_required:
+                    if resource.name == MEMORY_GB:
+                        required_memory_gb = resource.value
+                        available_memory_gb -= required_memory_gb
+                    elif resource.name == LOGICAL_CPU:
+                        required_logical_cpu = resource.value
+                        available_logical_cpu -= required_logical_cpu
                     # TODO this should never happen, but consider doing something if the
-                    #  resource does not exist on this worker or if this takes us below
+                    #  resource does not exist on this agent or if this takes us below
                     #  zero?
-                    if resource.name in available_resources:
-                        available_resources[resource.name] -= resource.value
 
                 def free_resources(
-                    resources_to_free: Iterable[Resource] = job.resources_required,
+                    required_memory_gb: float = required_memory_gb,
+                    required_logical_cpu: float = required_logical_cpu,
                 ) -> None:
-                    for resource in resources_to_free:
-                        if resource.name in available_resources:
-                            available_resources[resource.name] += resource.value
+                    nonlocal available_memory_gb
+                    nonlocal available_logical_cpu
+                    available_memory_gb += required_memory_gb
+                    available_logical_cpu += required_logical_cpu
 
                 # unpickle credentials if necessary
-                if next_job_response.code_deployment_credentials.credentials:
+                if job_to_run.code_deployment_credentials.credentials:
                     code_deployment_credentials = pickle.loads(
-                        next_job_response.code_deployment_credentials.credentials
+                        job_to_run.code_deployment_credentials.credentials
                     )
                 else:
                     code_deployment_credentials = None
 
-                if next_job_response.interpreter_deployment_credentials.credentials:
+                if job_to_run.interpreter_deployment_credentials.credentials:
                     interpreter_deployment_credentials = pickle.loads(
-                        next_job_response.interpreter_deployment_credentials.credentials
+                        job_to_run.interpreter_deployment_credentials.credentials
                     )
                 else:
                     interpreter_deployment_credentials = None
@@ -1021,6 +1068,7 @@ async def job_worker_main_loop(
                     asyncio.create_task(
                         _launch_job(
                             job,
+                            job_to_run.grid_worker_id,
                             io_folder,
                             job_logs_folder,
                             coordinator_address,

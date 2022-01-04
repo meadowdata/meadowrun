@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import collections
-import dataclasses
 import itertools
 import pickle
-import random
 import traceback
-from typing import Dict, List, Union, Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Optional, Tuple, List
 
 import grpc.aio
 
@@ -27,76 +24,44 @@ from meadowgrid.meadowgrid_pb2 import (
     AddTasksToGridJobRequest,
     Credentials,
     GridTask,
-    GridTaskState,
-    GridTaskStates,
+    GridTaskStateResponse,
     GridTaskStatesRequest,
+    GridTaskStatesResponse,
     GridTaskUpdateAndGetNextRequest,
     Job,
     JobStateUpdates,
     JobStatesRequest,
-    NextJobRequest,
-    NextJobResponse,
+    JobToRun,
+    NextJobsRequest,
+    NextJobsResponse,
     ProcessState,
     ProcessStates,
-    Resource,
+    RegisterAgentRequest,
+    RegisterAgentResponse,
     UpdateStateResponse,
 )
 from meadowgrid.meadowgrid_pb2_grpc import (
     MeadowGridCoordinatorServicer,
     add_MeadowGridCoordinatorServicer_to_server,
 )
+from meadowgrid.resource_allocation import (
+    AgentState,
+    GridJobState,
+    GridTaskState,
+    JobState,
+    Resources,
+    SimpleJobState,
+    agent_available_resources_changed,
+    assign_task_to_grid_worker,
+    get_pending_workers_for_agent,
+    job_num_workers_needed_changed,
+    update_grid_job_state,
+    update_simple_job_state,
+    update_task_state,
+)
 
 
-@dataclasses.dataclass
-class _SimpleJob:
-    """
-    Keeps track of the state of a simple job. Simple jobs (unlike grid jobs) only
-    require running a single command or function. Job.py_command or Job.py_function will
-    be populated.
-
-    Coordinator server-side equivalent to MeadowGridDeployedRunnable
-    """
-
-    job: Job
-    state: ProcessState
-
-
-@dataclasses.dataclass
-class _GridJob:
-    """
-    Keeps track of the state of a grid job. Grid jobs have many "tasks" that will get
-    run with the same function in the same process as other tasks from that same grid
-    job. Job.py_grid will be populated.
-    """
-
-    job: Job
-
-    # all tasks that have been added to this grid job so far, indexed by
-    # _GridTask.task_id
-    all_tasks: Dict[int, _GridTask]
-    # Tasks that have not yet been assigned. This points to the same _GridTask objects
-    # as all_tasks.
-    unassigned_tasks: collections.deque[_GridTask]
-    # Indicates whether all tasks have been added or not
-    all_tasks_added: bool
-    # The number of grid_workers currently working on this grid job. (A single
-    # job_worker can spawn multiple grid_workers.)
-    num_current_grid_workers: int
-
-
-@dataclasses.dataclass
-class _GridTask:
-    """
-    Keeps track of the state of a task within a grid job. Not to be confused with
-    GridTask which is a protobuf message type.
-    """
-
-    task_id: int
-    pickled_function_arguments: bytes
-    state: ProcessState
-
-
-def _add_tasks_to_grid_job(grid_job: _GridJob, tasks: Iterable[GridTask]) -> None:
+def _add_tasks_to_grid_job(grid_job: GridJobState, tasks: Iterable[GridTask]) -> None:
     """
     Adds tasks to a grid job. Converts from GridTask protobuf messages to _GridTask (
     in-memory representation) and does a little validation.
@@ -115,10 +80,9 @@ def _add_tasks_to_grid_job(grid_job: _GridJob, tasks: Iterable[GridTask]) -> Non
             if task_request.task_id < 0:
                 raise ValueError("task_ids cannot be negative")
 
-            grid_task = _GridTask(
+            grid_task = GridTaskState(
                 task_request.task_id,
                 task_request.pickled_function_arguments,
-                ProcessState(state=ProcessState.ProcessStateEnum.RUN_REQUESTED),
             )
             grid_job.all_tasks[task_request.task_id] = grid_task
             grid_job.unassigned_tasks.append(grid_task)
@@ -129,28 +93,19 @@ def _add_tasks_to_grid_job(grid_job: _GridJob, tasks: Iterable[GridTask]) -> Non
             )
 
 
-def _resources_required_are_available(
-    required: Sequence[Resource], available: Dict[str, float]
-) -> bool:
-    for r in required:
-        # special consideration--requiring 0 of a resource is considered the same as not
-        # requiring it at all
-        if r.value > 0 and (r.name not in available or available[r.name] < r.value):
-            return False
-
-    return True
-
-
 class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     """
     The meadowgrid coordinator is effectively a job queue. Clients (e.g. meadowflow,
     users, etc.) will add jobs to the queue with add_job and get results with
-    get_simple_job_states and get_grid_task_states. Meanwhile meadowgrid.job_workers
-    will call get_next_job so that they can work on jobs and send results to the
-    coordinator with update_job_states.
+    get_simple_job_states and get_grid_task_states. Meanwhile meadowgrid.agents will
+    call get_next_job so that they can work on jobs and send results to the coordinator
+    with update_job_states.
 
     Also see MeadowGridCoordinatorClientAsync and
     MeadowGridCoordinatorClientForWorkersAsync
+
+    In terms of implementation, the logic for "which agents should work on which jobs"
+    is all in resource_allocation.py
     """
 
     # TODO we don't have any locks because we don't have any awaits, so we know that
@@ -159,12 +114,14 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
     def __init__(self) -> None:
         # maps job_id -> _GridJob
-        self._grid_jobs: Dict[str, _GridJob] = {}
+        self._grid_jobs: Dict[str, GridJobState] = {}
         # maps job_id -> _SimpleJob
-        self._simple_jobs: Dict[str, _SimpleJob] = {}
+        self._simple_jobs: Dict[str, SimpleJobState] = {}
 
         # TODO at some point we should remove completed and queried grid jobs from these
         #  lists
+
+        self._agents: Dict[str, AgentState] = {}
 
         # maps service -> (service_url, credentials)
         self._credentials_dict: CredentialsDict = {}
@@ -174,12 +131,11 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         Modifies job in place!!!
 
         Resolves non-deterministic deployments like GitRepoBranch and ContainerAtTag.
-        It's important that we do this here instead of later in the job worker for grid
-        jobs, otherwise we would run the risk of having different tasks running with
-        different versions. For simple jobs, that's not as important, but I think it's
-        still better to resolve these here. It's consistent with grid jobs, and if
-        performance becomes a concern it allows us to batch and cache resolution
-        requests centrally.
+        It's important that we do this here instead of later in the agent for grid jobs,
+        otherwise we would run the risk of having different tasks running with different
+        versions. For simple jobs, that's not as important, but I think it's still
+        better to resolve these here. It's consistent with grid jobs, and if performance
+        becomes a concern it allows us to batch and cache resolution requests centrally.
         """
 
         code_deployment = job.WhichOneof("code_deployment")
@@ -230,19 +186,25 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         # add to self.simple_jobs or self.grid_jobs
 
+        job: JobState
         job_spec = request.WhichOneof("job_spec")
         if job_spec == "py_command" or job_spec == "py_function":
-            self._simple_jobs[request.job_id] = _SimpleJob(
-                request, ProcessState(state=ProcessState.ProcessStateEnum.RUN_REQUESTED)
+            simple_job = SimpleJobState(
+                request, Resources.from_protobuf(request.resources_required)
             )
+            self._simple_jobs[request.job_id] = simple_job
+            job = simple_job
         elif job_spec == "py_grid":
-            grid_job = _GridJob(request, {}, collections.deque(), False, 0)
+            grid_job = GridJobState(
+                request,
+                Resources.from_protobuf(request.resources_required),
+            )
 
             _add_tasks_to_grid_job(grid_job, request.py_grid.tasks)
             # Now that the tasks have been added to grid_job, we remove them from the
-            # Job object. We're going to send this Job object to job_workers in the
-            # future, and they need all of the information in Job EXCEPT for the tasks
-            # which they'll request and get one by one.
+            # Job object. We're going to send this Job object to agents in the future,
+            # and they need all of the information in Job EXCEPT for the tasks which
+            # they'll request and get one by one.
             del grid_job.job.py_grid.tasks[:]
 
             # We have to initially set grid_job.all_tasks_added to False (regardless of
@@ -252,8 +214,12 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             grid_job.all_tasks_added = request.py_grid.all_tasks_added
 
             self._grid_jobs[request.job_id] = grid_job
+            job = grid_job
         else:
             raise ValueError(f"Unknown job_spec {job_spec}")
+
+        # TODO this shouldn't really block responding to the client
+        job_num_workers_needed_changed(job, list(self._agents.values()))
 
         return AddJobResponse(state=AddJobResponse.AddJobState.ADDED)
 
@@ -271,37 +237,40 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         if request.all_tasks_added:
             job.all_tasks_added = True
 
+        # TODO this shouldn't really block responding to the client
+        job_num_workers_needed_changed(job, list(self._agents.values()))
+
         return AddJobResponse()
+
+    def _all_jobs(self) -> List[JobState]:
+        """Gets all jobs (simple jobs and grid jobs)"""
+        return list(
+            itertools.chain(self._grid_jobs.values(), self._simple_jobs.values())
+        )
 
     async def update_job_states(  # type: ignore[override]
         self, request: JobStateUpdates, context: grpc.aio.ServicerContext
     ) -> UpdateStateResponse:
+        agent = self._agents[request.agent_id]
+        any_available_resources_changed = False
         for job_state in request.job_states:
+            available_resources_changed = False
             if job_state.job_id in self._simple_jobs:
-                # TODO we should probably make it so that the state of the job can't
-                #  "regress", e.g. go from SUCCEEDED to RUNNING.
-                self._simple_jobs[job_state.job_id].state = job_state.process_state
+                available_resources_changed = update_simple_job_state(
+                    agent, self._simple_jobs[job_state.job_id], job_state.process_state
+                )
             elif job_state.job_id in self._grid_jobs:
-                # TODO some updates are redundant and can be ignored/turned off like
-                #  RUNNING, but RUN_REQUEST_FAILED (and possibly others) should be
-                #  handled correctly.
-                if (
-                    job_state.process_state.state
-                    == ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED
-                ):
-                    error = pickle.loads(job_state.process_state.pickled_result)
-                else:
-                    error = ""
-                print(
-                    f"Got an update for a grid job {job_state.process_state.state}. "
-                    + " ".join(
-                        [
-                            str(error),
-                            str(job_state.process_state.pid),
-                            job_state.process_state.container_id,
-                            job_state.process_state.log_file_name,
-                        ]
+                grid_job = self._grid_jobs[job_state.job_id]
+                if job_state.grid_worker_id not in grid_job.grid_workers:
+                    print(
+                        f"Tried to update status of job {job_state.job_id} but the "
+                        f"grid_worker_id {job_state.grid_worker_id} is not known"
                     )
+                available_resources_changed = update_grid_job_state(
+                    agent,
+                    grid_job.grid_workers[job_state.grid_worker_id],
+                    grid_job,
+                    job_state.process_state,
                 )
             else:
                 # There's not much we can do at this point--we could maybe keep these
@@ -312,6 +281,14 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                     f"Tried to update status of job {job_state.job_id} but it does not "
                     "exist, ignoring the update."
                 )
+
+            any_available_resources_changed = (
+                any_available_resources_changed or available_resources_changed
+            )
+
+        # find new jobs for this agent if we have resources for it
+        if any_available_resources_changed:
+            agent_available_resources_changed(agent, self._all_jobs())
 
         return UpdateStateResponse()
 
@@ -361,82 +338,44 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return code_deployment_credentials, interpreter_deployment_credentials
 
-    async def get_next_job(  # type: ignore[override]
-        self, request: NextJobRequest, context: grpc.aio.ServicerContext
-    ) -> NextJobResponse:
-        # the resources available on the job worker that's asking for a new job
-        resources_available = {a.name: a.value for a in request.resources_available}
+    async def register_agent(  # type: ignore[override]
+        self, request: RegisterAgentRequest, context: grpc.aio.ServicerContext
+    ) -> RegisterAgentResponse:
+        if not request.agent_id:
+            raise ValueError("agent_id must be non-None and non-empty")
 
-        # TODO we should let users know if there's a job that won't run because its
-        #  required resources aren't available on any worker.
-        # TODO we should also consider thinking about "conserving resources" when we
-        #  assign jobs. E.g. if we have one worker with 1 CPU, and a second worker with
-        #  16 CPUs, it seems strictly better to assign a job that only requires 1 CPU to
-        #  the first worker. That way if a job comes along that requires 16 CPUs, we are
-        #  able to send it to the second worker. Another related case is if we just have
-        #  the 16 CPU machine, it's possible to get bad behavior if we have many
-        #  low-priority jobs that require 1 CPU, and then a high-priority job requiring
-        #  16 CPUs comes along. Because we're constantly trying to schedule jobs, unless
-        #  all the low-priority jobs finish at the exact same time, we'll never "see"
-        #  the 16 available CPUs to run the high-priority job
+        if request.agent_id in self._agents:
+            raise ValueError(f"agent_id {request.agent_id} already exists")
 
-        # get grid_jobs where the number of tasks left to run is greater
-        # than the number of workers currently working
-        # TODO this could be way more sophisticated, e.g. estimating how long it takes
-        #  to set up a new worker vs how long the existing workers would be able to
-        #  finish the outstanding tasks. E.g. maybe this should be len(job.tasks_to_run)
-        #  > job.num_current_workers_in_setup_phase
-        available_grid_jobs = (
-            job
-            for job in self._grid_jobs.values()
-            if len(job.unassigned_tasks) > job.num_current_grid_workers
-            and _resources_required_are_available(
-                job.job.resources_required, resources_available
-            )
-        )
-        # get simple_jobs not being worked on
-        available_simple_jobs = (
-            job
-            for job in self._simple_jobs.values()
-            if job.state.state == ProcessState.ProcessStateEnum.RUN_REQUESTED
-            and _resources_required_are_available(
-                job.job.resources_required, resources_available
-            )
-        )
-        available_jobs: List[Union[_GridJob, _SimpleJob]] = list(
-            itertools.chain(available_grid_jobs, available_simple_jobs)
-        )
+        resources = Resources.from_protobuf(request.resources)
+        agent = AgentState(request.agent_id, resources, {}, resources)
+        self._agents[request.agent_id] = agent
 
-        if len(available_jobs) > 0:
-            # See the docstring on Job.priority in meadowgrid.proto for how jobs get
-            # selected.
+        # give jobs to this agent if appropriate
+        agent_available_resources_changed(agent, self._all_jobs())
 
-            job = random.choices(
-                available_jobs, [job.job.priority for job in available_jobs]
-            )[0]
-            if isinstance(job, _GridJob):
-                # TODO we need a way to decrement this even if the job_worker or
-                #  grid_worker don't exit cleanly
-                job.num_current_grid_workers += 1
-            elif isinstance(job, _SimpleJob):
-                # TODO we need a way to update this if the job_worker doesn't exit
-                #  cleanly so that we're not in a running state forever
-                job.state = ProcessState(state=ProcessState.ProcessStateEnum.ASSIGNED)
-            else:
-                raise ValueError(f"Unexpected type of job {type(job)}")
+        return RegisterAgentResponse()
 
+    async def get_next_jobs(  # type: ignore[override]
+        self, request: NextJobsRequest, context: grpc.aio.ServicerContext
+    ) -> NextJobsResponse:
+        agent = self._agents[request.agent_id]
+
+        results = []
+        for job, grid_worker_id in get_pending_workers_for_agent(agent):
             (
                 code_deployment_credentials,
                 interpreter_deployment_credentials,
             ) = self._get_credentials_for_job(job.job)
-
-            return NextJobResponse(
-                job=job.job,
-                code_deployment_credentials=code_deployment_credentials,
-                interpreter_deployment_credentials=interpreter_deployment_credentials,
+            results.append(
+                JobToRun(
+                    job=job.job,
+                    grid_worker_id=grid_worker_id or "",
+                    interpreter_deployment_credentials=code_deployment_credentials,
+                    code_deployment_credentials=interpreter_deployment_credentials,
+                )
             )
-        else:
-            return NextJobResponse()
+        return NextJobsResponse(jobs_to_run=results)
 
     async def update_grid_task_state_and_get_next(  # type: ignore[override]
         self,
@@ -471,26 +410,28 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                 # job
                 return GridTask(task_id=-1)
 
-            grid_job.all_tasks[request.task_id].state = request.process_state
+            update_task_state(
+                grid_job.all_tasks[request.task_id], request.process_state
+            )
 
         # if we have any work left to do on this job, assign it
-        # TODO consider to not returning another task even if there are tasks remaining
-        #  in the scenario where all the workers are busy with tasks for a relatively
-        #  unimportant job, and a new important job comes in that can't get any tasks
-        if len(grid_job.unassigned_tasks) > 0:
-            chosen_task = grid_job.unassigned_tasks.popleft()
-            # TODO deal with case where worker never returns--we don't want tasks to
-            #  disappear forever
+        if request.grid_worker_id not in grid_job.grid_workers:
+            print(
+                f"Unexpected grid_worker_id {request.grid_worker_id} for job "
+                f"{grid_job.job.job_id}"
+            )
+            return GridTask(task_id=-1)
+
+        next_task = assign_task_to_grid_worker(
+            grid_job.grid_workers[request.grid_worker_id], grid_job
+        )
+
+        if next_task is not None:
             return GridTask(
-                task_id=chosen_task.task_id,
-                pickled_function_arguments=chosen_task.pickled_function_arguments,
+                task_id=next_task.task_id,
+                pickled_function_arguments=next_task.pickled_function_arguments,
             )
         else:
-            # TODO we should use worker ids instead to make sure we don't double
-            #  decrement, rather than this big hack
-            grid_job.num_current_grid_workers = max(
-                0, grid_job.num_current_grid_workers - 1
-            )
             return GridTask(task_id=-1)
 
     async def get_simple_job_states(  # type: ignore[override]
@@ -509,7 +450,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
     async def get_grid_task_states(  # type: ignore[override]
         self, request: GridTaskStatesRequest, context: grpc.aio.ServicerContext
-    ) -> GridTaskStates:
+    ) -> GridTaskStatesResponse:
         if request.job_id not in self._grid_jobs:
             raise ValueError(f"grid job_id {request.job_id} does not exist")
 
@@ -519,9 +460,9 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         #  would require that task_ids are always sorted
         task_ids_to_ignore = set(request.task_ids_to_ignore)
 
-        return GridTaskStates(
+        return GridTaskStatesResponse(
             task_states=[
-                GridTaskState(task_id=task.task_id, process_state=task.state)
+                GridTaskStateResponse(task_id=task.task_id, process_state=task.state)
                 for task in job.all_tasks.values()
                 if task.task_id not in task_ids_to_ignore
             ]

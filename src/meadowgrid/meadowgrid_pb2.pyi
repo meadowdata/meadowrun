@@ -43,8 +43,8 @@ class ServerAvailableFolder(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[typing.Text]:
         """code_paths[0] will be set as the working directory, and all code_paths will be
         added to the PYTHONPATH. These code_paths must "make sense" on the machine where
-        the meadowgrid worker is running. One typical use case for this is that the
-        meadowgrid workers have access to a shared filesystem where code has been
+        the meadowgrid agent is running. One typical use case for this is that the
+        meadowgrid agents have access to a shared filesystem where code has been
         deployed. Order matters as usual for PYTHONPATH. Another typical use case is to
         provide no code_paths because all of the code needed is already specified in the
         interpreter_deployment
@@ -444,8 +444,8 @@ class AddTasksToGridJobRequest(google.protobuf.message.Message):
 global___AddTasksToGridJobRequest = AddTasksToGridJobRequest
 
 class Resource(google.protobuf.message.Message):
-    """Job workers have resources, and jobs can use resources. Examples of resources are CPU
-    and memory
+    """Agents have resources, and jobs can use resources. Examples of resources are CPU and
+    memory
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
@@ -493,7 +493,7 @@ class Job(google.protobuf.message.Message):
     job_friendly_name: typing.Text = ...
     priority: builtins.float = ...
     """priority determines which jobs are worked on first. The likelihood that a
-    coordinator assigns a particular job to the next available worker is the priority
+    coordinator assigns a particular job to the next available agent is the priority
     of that job relative to the sum of the priorities of all jobs that need to be
     worked on. Roughly, the overall intended effect is that if a particular job has
     e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowgrid compute
@@ -709,36 +709,88 @@ class AddJobResponse(google.protobuf.message.Message):
 
 global___AddJobResponse = AddJobResponse
 
-class NextJobRequest(google.protobuf.message.Message):
+class RegisterAgentRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
-    RESOURCES_AVAILABLE_FIELD_NUMBER: builtins.int
+    AGENT_ID_FIELD_NUMBER: builtins.int
+    RESOURCES_FIELD_NUMBER: builtins.int
+    agent_id: typing.Text = ...
+    """The id of the agent that's registering itself"""
     @property
-    def resources_available(
+    def resources(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___Resource
-    ]: ...
+    ]:
+        """The resources available on the agent"""
+        pass
     def __init__(
         self,
         *,
-        resources_available: typing.Optional[typing.Iterable[global___Resource]] = ...,
+        agent_id: typing.Text = ...,
+        resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "resources_available", b"resources_available"
+            "agent_id", b"agent_id", "resources", b"resources"
         ],
     ) -> None: ...
 
-global___NextJobRequest = NextJobRequest
+global___RegisterAgentRequest = RegisterAgentRequest
 
-class NextJobResponse(google.protobuf.message.Message):
+class RegisterAgentResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___RegisterAgentResponse = RegisterAgentResponse
+
+class NextJobsRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    AGENT_ID_FIELD_NUMBER: builtins.int
+    agent_id: typing.Text = ...
+    def __init__(
+        self,
+        *,
+        agent_id: typing.Text = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["agent_id", b"agent_id"]
+    ) -> None: ...
+
+global___NextJobsRequest = NextJobsRequest
+
+class NextJobsResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    JOBS_TO_RUN_FIELD_NUMBER: builtins.int
+    @property
+    def jobs_to_run(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___JobToRun
+    ]: ...
+    def __init__(
+        self,
+        *,
+        jobs_to_run: typing.Optional[typing.Iterable[global___JobToRun]] = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["jobs_to_run", b"jobs_to_run"]
+    ) -> None: ...
+
+global___NextJobsResponse = NextJobsResponse
+
+class JobToRun(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     JOB_FIELD_NUMBER: builtins.int
+    GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     INTERPRETER_DEPLOYMENT_CREDENTIALS_FIELD_NUMBER: builtins.int
     CODE_DEPLOYMENT_CREDENTIALS_FIELD_NUMBER: builtins.int
     @property
     def job(self) -> global___Job: ...
+    grid_worker_id: typing.Text = ...
+    """will only be populated if job is a GridJob"""
     @property
     def interpreter_deployment_credentials(self) -> global___Credentials: ...
     @property
@@ -747,6 +799,7 @@ class NextJobResponse(google.protobuf.message.Message):
         self,
         *,
         job: typing.Optional[global___Job] = ...,
+        grid_worker_id: typing.Text = ...,
         interpreter_deployment_credentials: typing.Optional[global___Credentials] = ...,
         code_deployment_credentials: typing.Optional[global___Credentials] = ...,
     ) -> None: ...
@@ -766,6 +819,8 @@ class NextJobResponse(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "code_deployment_credentials",
             b"code_deployment_credentials",
+            "grid_worker_id",
+            b"grid_worker_id",
             "interpreter_deployment_credentials",
             b"interpreter_deployment_credentials",
             "job",
@@ -773,7 +828,7 @@ class NextJobResponse(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global___NextJobResponse = NextJobResponse
+global___JobToRun = JobToRun
 
 class ProcessState(google.protobuf.message.Message):
     """Represents the state of a process, can apply to a job or a grid task"""
@@ -798,31 +853,26 @@ class ProcessState(google.protobuf.message.Message):
         The meadowgrid coordinator has received the Job
         """
 
-        ASSIGNED: ProcessState.ProcessStateEnum.ValueType = ...  # 2
-        """The meadowgrid coordinator has assigned the Job to a worker
-        TODO add worker_id
-        """
-
-        RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 3
-        """The assigned worker has launched the job. pid and log_file_name will be
+        RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 2
+        """The assigned agent has launched the job. pid and log_file_name will be
         populated.
         """
 
-        SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
+        SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 3
         """These states represent a job that is "done". log_file_name, return_code, and
         one of pid/container_id will be populated unless otherwise noted.
 
         The job has completed normally. pickled_result may be populated.
         """
 
-        RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 5
+        RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
         """There was an exception before launching the job process. pid/container_id,
         log_file_name, and return_code will not be populated. pickled_result will be
-        populated with a tuple representing the python exception from the job_worker
+        populated with a tuple representing the python exception from the agent
         process (see PYTHON_EXCEPTION for the format).
         """
 
-        PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 6
+        PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 5
         """A python exception was thrown from the job process. pickled_result will be a
         pickled tuple (exception_type, exception_message, exception_traceback). We
         don't pickle the exception itself because it may not be unpicklable on this
@@ -831,26 +881,26 @@ class ProcessState(google.protobuf.message.Message):
         they can be unpickled on the client.
         """
 
-        NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
+        NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 6
         """The process exited with a non-zero return code. This could mean that a
         non-python exception was thrown (e.g. in the interpreter itself, or in a C
         extension), or os.exit was called with a non-zero argument, or there was a
         python exception thrown in the meadowgrid worker code.
         """
 
-        CANCELLED: ProcessState.ProcessStateEnum.ValueType = ...  # 8
-        """Cancelled by request. pid/container_id, log_file_name, and return_code may
-        not be populated.
-        TODO implement cancelling
+        RESOURCES_NOT_AVAILABLE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
+        """We do not have any agents that are capable of running the job given its
+        resource requirements. Either reduce the resource requirements of the job or
+        launch agents that have enough resources.
         """
 
-        ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 9
+        ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 8
         """There was an error while reading the outputs of the process. This could mean
         that the child process somehow silently failed to write its outputs correctly
         or there was a python exception thrown in the meadowgrid worker code.
         """
 
-        UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 10
+        UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 9
         """This state represents a job that is neither "done" nor "in progress"
 
         We do not know the job id
@@ -868,31 +918,26 @@ class ProcessState(google.protobuf.message.Message):
     The meadowgrid coordinator has received the Job
     """
 
-    ASSIGNED: ProcessState.ProcessStateEnum.ValueType = ...  # 2
-    """The meadowgrid coordinator has assigned the Job to a worker
-    TODO add worker_id
-    """
-
-    RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 3
-    """The assigned worker has launched the job. pid and log_file_name will be
+    RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 2
+    """The assigned agent has launched the job. pid and log_file_name will be
     populated.
     """
 
-    SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
+    SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 3
     """These states represent a job that is "done". log_file_name, return_code, and
     one of pid/container_id will be populated unless otherwise noted.
 
     The job has completed normally. pickled_result may be populated.
     """
 
-    RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 5
+    RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
     """There was an exception before launching the job process. pid/container_id,
     log_file_name, and return_code will not be populated. pickled_result will be
-    populated with a tuple representing the python exception from the job_worker
+    populated with a tuple representing the python exception from the agent
     process (see PYTHON_EXCEPTION for the format).
     """
 
-    PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 6
+    PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 5
     """A python exception was thrown from the job process. pickled_result will be a
     pickled tuple (exception_type, exception_message, exception_traceback). We
     don't pickle the exception itself because it may not be unpicklable on this
@@ -901,26 +946,26 @@ class ProcessState(google.protobuf.message.Message):
     they can be unpickled on the client.
     """
 
-    NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
+    NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 6
     """The process exited with a non-zero return code. This could mean that a
     non-python exception was thrown (e.g. in the interpreter itself, or in a C
     extension), or os.exit was called with a non-zero argument, or there was a
     python exception thrown in the meadowgrid worker code.
     """
 
-    CANCELLED: ProcessState.ProcessStateEnum.ValueType = ...  # 8
-    """Cancelled by request. pid/container_id, log_file_name, and return_code may
-    not be populated.
-    TODO implement cancelling
+    RESOURCES_NOT_AVAILABLE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
+    """We do not have any agents that are capable of running the job given its
+    resource requirements. Either reduce the resource requirements of the job or
+    launch agents that have enough resources.
     """
 
-    ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 9
+    ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 8
     """There was an error while reading the outputs of the process. This could mean
     that the child process somehow silently failed to write its outputs correctly
     or there was a python exception thrown in the meadowgrid worker code.
     """
 
-    UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 10
+    UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 9
     """This state represents a job that is neither "done" nor "in progress"
 
     We do not know the job id
@@ -991,7 +1036,7 @@ global___ProcessStates = ProcessStates
 class JobStatesRequest(google.protobuf.message.Message):
     """A general note on terminology below: a StateRequest is when a client requests the
     state of a Job or GridTask. A plain State is a response to that kind of request. A
-    StateUpdate is when a worker is updating the coordinator that a Job/GridTask has
+    StateUpdate is when an agent is updating the coordinator that a Job/GridTask has
     entered a new state.
 
     For requesting states of a job
@@ -1021,14 +1066,18 @@ class JobStateUpdate(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     JOB_ID_FIELD_NUMBER: builtins.int
+    GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
     job_id: typing.Text = ...
+    grid_worker_id: typing.Text = ...
+    """will only be populated if job_id refers to a GridJob"""
     @property
     def process_state(self) -> global___ProcessState: ...
     def __init__(
         self,
         *,
         job_id: typing.Text = ...,
+        grid_worker_id: typing.Text = ...,
         process_state: typing.Optional[global___ProcessState] = ...,
     ) -> None: ...
     def HasField(
@@ -1037,7 +1086,12 @@ class JobStateUpdate(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "job_id", b"job_id", "process_state", b"process_state"
+            "grid_worker_id",
+            b"grid_worker_id",
+            "job_id",
+            b"job_id",
+            "process_state",
+            b"process_state",
         ],
     ) -> None: ...
 
@@ -1047,7 +1101,9 @@ class JobStateUpdates(google.protobuf.message.Message):
     """For updating the states of jobs"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    AGENT_ID_FIELD_NUMBER: builtins.int
     JOB_STATES_FIELD_NUMBER: builtins.int
+    agent_id: typing.Text = ...
     @property
     def job_states(
         self,
@@ -1057,10 +1113,14 @@ class JobStateUpdates(google.protobuf.message.Message):
     def __init__(
         self,
         *,
+        agent_id: typing.Text = ...,
         job_states: typing.Optional[typing.Iterable[global___JobStateUpdate]] = ...,
     ) -> None: ...
     def ClearField(
-        self, field_name: typing_extensions.Literal["job_states", b"job_states"]
+        self,
+        field_name: typing_extensions.Literal[
+            "agent_id", b"agent_id", "job_states", b"job_states"
+        ],
     ) -> None: ...
 
 global___JobStateUpdates = JobStateUpdates
@@ -1093,7 +1153,7 @@ class GridTaskStatesRequest(google.protobuf.message.Message):
 
 global___GridTaskStatesRequest = GridTaskStatesRequest
 
-class GridTaskState(google.protobuf.message.Message):
+class GridTaskStateResponse(google.protobuf.message.Message):
     """For getting the state of a grid task"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
@@ -1118,9 +1178,9 @@ class GridTaskState(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global___GridTaskState = GridTaskState
+global___GridTaskStateResponse = GridTaskStateResponse
 
-class GridTaskStates(google.protobuf.message.Message):
+class GridTaskStatesResponse(google.protobuf.message.Message):
     """For getting the states of grid tasks"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
@@ -1129,24 +1189,27 @@ class GridTaskStates(google.protobuf.message.Message):
     def task_states(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___GridTaskState
+        global___GridTaskStateResponse
     ]: ...
     def __init__(
         self,
         *,
-        task_states: typing.Optional[typing.Iterable[global___GridTaskState]] = ...,
+        task_states: typing.Optional[
+            typing.Iterable[global___GridTaskStateResponse]
+        ] = ...,
     ) -> None: ...
     def ClearField(
         self, field_name: typing_extensions.Literal["task_states", b"task_states"]
     ) -> None: ...
 
-global___GridTaskStates = GridTaskStates
+global___GridTaskStatesResponse = GridTaskStatesResponse
 
 class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
     """For updating the state of a grid task and getting the next task"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     JOB_ID_FIELD_NUMBER: builtins.int
+    GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     TASK_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
     job_id: typing.Text = ...
@@ -1154,6 +1217,7 @@ class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
     the next task should come from
     """
 
+    grid_worker_id: typing.Text = ...
     task_id: builtins.int = ...
     """-1 means we don't have a completed task to update. >= 0 means we are updating the
     state on the specified task
@@ -1166,6 +1230,7 @@ class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
         self,
         *,
         job_id: typing.Text = ...,
+        grid_worker_id: typing.Text = ...,
         task_id: builtins.int = ...,
         process_state: typing.Optional[global___ProcessState] = ...,
     ) -> None: ...
@@ -1175,6 +1240,8 @@ class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
+            "grid_worker_id",
+            b"grid_worker_id",
             "job_id",
             b"job_id",
             "process_state",

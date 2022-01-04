@@ -106,8 +106,6 @@ class MeadowGridJobRunner(JobRunner):
                 new_payload = JobPayload(
                     request_id, "RUN_REQUESTED", pid=process_state.pid
                 )
-            elif process_state.state == ProcessStateEnum.ASSIGNED:
-                new_payload = JobPayload(request_id, "RUNNING")
             elif process_state.state == ProcessStateEnum.RUNNING:
                 # TODO if we already created a RUNNING event without a pid based on a
                 #  ProcessStateEnum.ASSIGNED, this update will be ignored and we'll
@@ -157,9 +155,6 @@ class MeadowGridJobRunner(JobRunner):
                     pid=process_state.pid,
                     return_code=process_state.return_code,
                 )
-            elif process_state.state == ProcessStateEnum.CANCELLED:
-                # TODO handle this and test it
-                raise NotImplementedError("TBD")
             elif (
                 process_state.state == ProcessStateEnum.UNKNOWN
                 or process_state.state == ProcessStateEnum.ERROR_GETTING_STATE

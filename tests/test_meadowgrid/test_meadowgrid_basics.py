@@ -7,7 +7,7 @@ from typing import List, Sequence, Union
 import meadowgrid.coordinator
 import meadowgrid.coordinator_main
 import meadowgrid.docker_controller
-import meadowgrid.job_worker_main
+import meadowgrid.agent_main
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
@@ -76,7 +76,7 @@ TEST_WORKING_FOLDER = str(
 )
 
 
-# For all of these processes, to debug the coordinator and job_worker, just run them
+# For all of these processes, to debug the coordinator and agent, just run them
 # separately and the child processes we start in these tests will just silently fail.
 
 
@@ -128,7 +128,6 @@ async def _wait_for_process(
         or results[0].state  # noqa F821
         in (
             ProcessStateEnum.RUN_REQUESTED,
-            ProcessStateEnum.ASSIGNED,
             ProcessStateEnum.RUNNING,
         )
         and (time.time() - t0) < seconds_to_wait
@@ -168,7 +167,7 @@ def _test_meadowgrid(
 ):
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -207,7 +206,6 @@ def _test_meadowgrid(
                 assert len(results) == 1
                 assert results[0].state in (
                     ProcessStateEnum.RUN_REQUESTED,
-                    ProcessStateEnum.ASSIGNED,
                     ProcessStateEnum.RUNNING,
                 )
 
@@ -267,7 +265,7 @@ def test_meadowgrid_server_path_in_repo():
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -316,7 +314,7 @@ def test_meadowgrid_command_context_variables():
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -366,7 +364,7 @@ def test_meadowgrid_containers():
     """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():
@@ -401,7 +399,7 @@ def test_meadowgrid_containers():
 def test_meadowgrid_grid_job():
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         interpreters: List[InterpreterDeployment] = [
             ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
@@ -423,7 +421,7 @@ def test_meadowgrid_grid_job():
 def test_meadowgrid_grid_map_async():
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
 
         async def run():

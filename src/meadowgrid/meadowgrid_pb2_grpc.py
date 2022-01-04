@@ -24,15 +24,20 @@ class MeadowGridCoordinatorStub(object):
             request_serializer=meadowgrid_dot_meadowgrid__pb2.AddTasksToGridJobRequest.SerializeToString,
             response_deserializer=meadowgrid_dot_meadowgrid__pb2.AddJobResponse.FromString,
         )
+        self.register_agent = channel.unary_unary(
+            "/meadowgrid.MeadowGridCoordinator/register_agent",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.RegisterAgentRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.RegisterAgentResponse.FromString,
+        )
         self.update_job_states = channel.unary_unary(
             "/meadowgrid.MeadowGridCoordinator/update_job_states",
             request_serializer=meadowgrid_dot_meadowgrid__pb2.JobStateUpdates.SerializeToString,
             response_deserializer=meadowgrid_dot_meadowgrid__pb2.UpdateStateResponse.FromString,
         )
-        self.get_next_job = channel.unary_unary(
-            "/meadowgrid.MeadowGridCoordinator/get_next_job",
-            request_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobRequest.SerializeToString,
-            response_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobResponse.FromString,
+        self.get_next_jobs = channel.unary_unary(
+            "/meadowgrid.MeadowGridCoordinator/get_next_jobs",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobsRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobsResponse.FromString,
         )
         self.update_grid_task_state_and_get_next = channel.unary_unary(
             "/meadowgrid.MeadowGridCoordinator/update_grid_task_state_and_get_next",
@@ -47,7 +52,7 @@ class MeadowGridCoordinatorStub(object):
         self.get_grid_task_states = channel.unary_unary(
             "/meadowgrid.MeadowGridCoordinator/get_grid_task_states",
             request_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.SerializeToString,
-            response_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStates.FromString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesResponse.FromString,
         )
         self.add_credentials = channel.unary_unary(
             "/meadowgrid.MeadowGridCoordinator/add_credentials",
@@ -71,13 +76,19 @@ class MeadowGridCoordinatorServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def register_agent(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def update_job_states(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def get_next_job(self, request, context):
+    def get_next_jobs(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -120,15 +131,20 @@ def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
             request_deserializer=meadowgrid_dot_meadowgrid__pb2.AddTasksToGridJobRequest.FromString,
             response_serializer=meadowgrid_dot_meadowgrid__pb2.AddJobResponse.SerializeToString,
         ),
+        "register_agent": grpc.unary_unary_rpc_method_handler(
+            servicer.register_agent,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.RegisterAgentRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.RegisterAgentResponse.SerializeToString,
+        ),
         "update_job_states": grpc.unary_unary_rpc_method_handler(
             servicer.update_job_states,
             request_deserializer=meadowgrid_dot_meadowgrid__pb2.JobStateUpdates.FromString,
             response_serializer=meadowgrid_dot_meadowgrid__pb2.UpdateStateResponse.SerializeToString,
         ),
-        "get_next_job": grpc.unary_unary_rpc_method_handler(
-            servicer.get_next_job,
-            request_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobRequest.FromString,
-            response_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobResponse.SerializeToString,
+        "get_next_jobs": grpc.unary_unary_rpc_method_handler(
+            servicer.get_next_jobs,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.NextJobsRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.NextJobsResponse.SerializeToString,
         ),
         "update_grid_task_state_and_get_next": grpc.unary_unary_rpc_method_handler(
             servicer.update_grid_task_state_and_get_next,
@@ -143,7 +159,7 @@ def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
         "get_grid_task_states": grpc.unary_unary_rpc_method_handler(
             servicer.get_grid_task_states,
             request_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.FromString,
-            response_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStates.SerializeToString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskStatesResponse.SerializeToString,
         ),
         "add_credentials": grpc.unary_unary_rpc_method_handler(
             servicer.add_credentials,
@@ -220,6 +236,35 @@ class MeadowGridCoordinator(object):
         )
 
     @staticmethod
+    def register_agent(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/meadowgrid.MeadowGridCoordinator/register_agent",
+            meadowgrid_dot_meadowgrid__pb2.RegisterAgentRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.RegisterAgentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
     def update_job_states(
         request,
         target,
@@ -249,7 +294,7 @@ class MeadowGridCoordinator(object):
         )
 
     @staticmethod
-    def get_next_job(
+    def get_next_jobs(
         request,
         target,
         options=(),
@@ -264,9 +309,9 @@ class MeadowGridCoordinator(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/meadowgrid.MeadowGridCoordinator/get_next_job",
-            meadowgrid_dot_meadowgrid__pb2.NextJobRequest.SerializeToString,
-            meadowgrid_dot_meadowgrid__pb2.NextJobResponse.FromString,
+            "/meadowgrid.MeadowGridCoordinator/get_next_jobs",
+            meadowgrid_dot_meadowgrid__pb2.NextJobsRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.NextJobsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -353,7 +398,7 @@ class MeadowGridCoordinator(object):
             target,
             "/meadowgrid.MeadowGridCoordinator/get_grid_task_states",
             meadowgrid_dot_meadowgrid__pb2.GridTaskStatesRequest.SerializeToString,
-            meadowgrid_dot_meadowgrid__pb2.GridTaskStates.FromString,
+            meadowgrid_dot_meadowgrid__pb2.GridTaskStatesResponse.FromString,
             options,
             channel_credentials,
             insecure,

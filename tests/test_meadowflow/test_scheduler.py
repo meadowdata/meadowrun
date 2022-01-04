@@ -11,7 +11,7 @@ import meadowflow.server.config
 import meadowflow.server.server_main
 import meadowflow.time_event_publisher
 import meadowgrid.coordinator_main
-import meadowgrid.job_worker_main
+import meadowgrid.agent_main
 from meadowflow.event_log import Event
 from meadowflow.events_arg import LatestEventsArg
 from meadowflow.job_runner_predicates import JobRunnerTypePredicate
@@ -87,7 +87,7 @@ async def test_simple_jobs_meadowgrid_server_available() -> None:
     """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
@@ -113,7 +113,7 @@ async def test_simple_jobs_meadowgrid_git() -> None:
 
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.job_worker_main.main_in_child_process(TEST_WORKING_FOLDER),
+        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
@@ -229,7 +229,7 @@ def test_simple_jobs_meadowflow_server() -> None:
         job_runner_poll_delay_seconds=0.05,
     ), meadowgrid.coordinator_main.main_in_child_process(
         meadowflow_address=meadowflow.server.config.DEFAULT_ADDRESS
-    ), meadowgrid.job_worker_main.main_in_child_process(
+    ), meadowgrid.agent_main.main_in_child_process(
         TEST_WORKING_FOLDER
     ):
         with meadowflow.server.client.MeadowFlowClientSync() as client:

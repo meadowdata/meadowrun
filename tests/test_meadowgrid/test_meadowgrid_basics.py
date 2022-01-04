@@ -219,7 +219,7 @@ def _test_meadowgrid(
                     pickle.loads(results[0].pickled_result)[0]
                     == f"hello {arguments[0]}"
                 )
-                with open(results[0].log_file_name, "r") as log_file:
+                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
                     text = log_file.read()
                 assert f"example_runner called with {arguments[0]}" in text
 
@@ -245,7 +245,7 @@ def _test_meadowgrid(
                 results = await _wait_for_process(client, request_id)
                 assert_successful(results[0])
                 assert bool(results[0].pid > 0) ^ bool(results[0].container_id)
-                with open(results[0].log_file_name, "r") as log_file:
+                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
                     text = log_file.read()
                 # this used to check that pip.__version__ is in text, but the version we
                 # have is not necessarily the same as the version in the container - the
@@ -344,13 +344,13 @@ def test_meadowgrid_command_context_variables():
 
                 results = await _wait_for_process(client, request_id3)
                 assert_successful(results[0])
-                with open(results[0].log_file_name, "r") as log_file:
+                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
                     text = log_file.read()
                 assert "hello there: no_data" in text
 
                 results = await _wait_for_process(client, request_id4)
                 assert_successful(results[0])
-                with open(results[0].log_file_name, "r") as log_file:
+                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
                     text = log_file.read()
                 assert "hello there: bar" in text
 
@@ -389,7 +389,9 @@ def test_meadowgrid_containers():
                     assert add_job_state == "ADDED"
                     results = await _wait_for_process(client, request_id, 600)
                     assert_successful(results[0])
-                    with open(results[0].log_file_name, "r") as log_file:
+                    with open(
+                        results[0].log_file_name, "r", encoding="utf-8"
+                    ) as log_file:
                         text = log_file.read()
                     assert text.startswith(f"Python {version}")
 

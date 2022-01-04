@@ -775,7 +775,7 @@ async def _container_job_continuation(
         # that in a hacky way here.
         # TODO figure out overall strategy for logging, maybe eventually implement our
         #  own plain text/whatever log driver for docker.
-        with open(log_file_name, "w") as f:
+        with open(log_file_name, "w", encoding="utf-8") as f:
             async for line in container.log(stdout=True, stderr=True, follow=True):
                 f.write(line)
 

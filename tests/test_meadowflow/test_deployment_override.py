@@ -31,7 +31,12 @@ from test_meadowgrid.test_meadowgrid_basics import (
 
 @pytest.mark.asyncio
 async def test_deployment_override() -> None:
-    """Tests using JobRunOverride.deployment"""
+    """
+    Tests using JobRunOverride.deployment
+
+    Requires cloning https://github.com/meadowdata/test_repo in the folder "next to" the
+    meadowdata repo, and also pulling the test_branch branch in test_repo
+    """
     with (
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),

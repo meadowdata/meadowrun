@@ -15,8 +15,13 @@ from meadowgrid.config import (
     MEADOWGRID_INTERPRETER,
     MEMORY_GB,
 )
+from meadowgrid.coordinator_client import MeadowGridCoordinatorClientAsync
 from meadowgrid.grid import grid_map_async
-from test_meadowgrid.test_meadowgrid_basics import TEST_WORKING_FOLDER, MEADOWDATA_CODE
+from test_meadowgrid.test_meadowgrid_basics import (
+    TEST_WORKING_FOLDER,
+    MEADOWDATA_CODE,
+    wait_for_agents_async,
+)
 
 
 async def run_job(
@@ -66,8 +71,8 @@ async def test_basic_resources():
 
             t0 = time.time()
 
-            # make sure both agents have enough time to register themselves
-            await asyncio.sleep(3)
+            async with MeadowGridCoordinatorClientAsync() as coordinator_client:
+                await wait_for_agents_async(coordinator_client, 2)
 
             # all of the jobs we're running will require the same resources:
             resources_required: Dict[str, float] = {MEMORY_GB: 4, LOGICAL_CPU: 2}
@@ -126,6 +131,9 @@ async def test_custom_resources():
         ) as agent1_pid, meadowgrid.agent_main.main_in_child_process(
             TEST_WORKING_FOLDER + "2", {LOGICAL_CPU: 2}
         ) as agent2_pid:
+
+            async with MeadowGridCoordinatorClientAsync() as coordinator_client:
+                await wait_for_agents_async(coordinator_client, 2)
 
             t0 = time.time()
 

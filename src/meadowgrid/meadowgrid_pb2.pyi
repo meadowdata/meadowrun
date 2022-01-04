@@ -1432,3 +1432,70 @@ class AddCredentialsResponse(google.protobuf.message.Message):
     ) -> None: ...
 
 global___AddCredentialsResponse = AddCredentialsResponse
+
+class AgentStatesRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___AgentStatesRequest = AgentStatesRequest
+
+class AgentStatesResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    AGENTS_FIELD_NUMBER: builtins.int
+    @property
+    def agents(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___AgentStateResponse
+    ]: ...
+    def __init__(
+        self,
+        *,
+        agents: typing.Optional[typing.Iterable[global___AgentStateResponse]] = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["agents", b"agents"]
+    ) -> None: ...
+
+global___AgentStatesResponse = AgentStatesResponse
+
+class AgentStateResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    AGENT_ID_FIELD_NUMBER: builtins.int
+    TOTAL_RESOURCES_FIELD_NUMBER: builtins.int
+    AVAILABLE_RESOURCES_FIELD_NUMBER: builtins.int
+    agent_id: typing.Text = ...
+    @property
+    def total_resources(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___Resource
+    ]: ...
+    @property
+    def available_resources(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___Resource
+    ]: ...
+    def __init__(
+        self,
+        *,
+        agent_id: typing.Text = ...,
+        total_resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
+        available_resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "agent_id",
+            b"agent_id",
+            "available_resources",
+            b"available_resources",
+            "total_resources",
+            b"total_resources",
+        ],
+    ) -> None: ...
+
+global___AgentStateResponse = AgentStateResponse

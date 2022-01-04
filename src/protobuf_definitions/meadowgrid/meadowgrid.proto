@@ -436,19 +436,44 @@ message AddCredentialsResponse {
 }
 
 
+message AgentStatesRequest {
+}
+
+
+message AgentStatesResponse {
+    repeated AgentStateResponse agents = 1;
+}
+
+message AgentStateResponse {
+    string agent_id = 1;
+    repeated Resource total_resources = 2;
+    repeated Resource available_resources = 3;
+
+    // TODO we will want to include more information eventually
+}
+
+
 service MeadowGridCoordinator {
+    // client functions
+
     rpc add_job(Job) returns (AddJobResponse) {};
     rpc add_tasks_to_grid_job(AddTasksToGridJobRequest) returns (AddJobResponse) {};
-
-    rpc register_agent(RegisterAgentRequest) returns (RegisterAgentResponse) {}
-    rpc update_job_states(JobStateUpdates) returns (UpdateStateResponse) {};
-    rpc get_next_jobs(NextJobsRequest) returns (NextJobsResponse) {};
-
-    // this can only get tasks from the same job
-    rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
 
     rpc get_simple_job_states(JobStatesRequest) returns (ProcessStates) {};
     rpc get_grid_task_states(GridTaskStatesRequest) returns (GridTaskStatesResponse) {};
 
-    rpc add_credentials(AddCredentialsRequest) returns (AddCredentialsResponse) {}
+    rpc add_credentials(AddCredentialsRequest) returns (AddCredentialsResponse) {};
+
+    rpc get_agent_states(AgentStatesRequest) returns (AgentStatesResponse) {};
+
+    // agent/worker functions
+
+    rpc register_agent(RegisterAgentRequest) returns (RegisterAgentResponse) {};
+
+    rpc get_next_jobs(NextJobsRequest) returns (NextJobsResponse) {};
+
+    rpc update_job_states(JobStateUpdates) returns (UpdateStateResponse) {};
+
+    // this can only get tasks from the same job
+    rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
 }

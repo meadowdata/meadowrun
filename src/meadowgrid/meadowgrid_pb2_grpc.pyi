@@ -7,6 +7,8 @@ import grpc
 import meadowgrid.meadowgrid_pb2
 
 class MeadowGridCoordinatorStub:
+    """client functions"""
+
     def __init__(self, channel: grpc.Channel) -> None: ...
     add_job: grpc.UnaryUnaryMultiCallable[
         meadowgrid.meadowgrid_pb2.Job, meadowgrid.meadowgrid_pb2.AddJobResponse
@@ -16,27 +18,6 @@ class MeadowGridCoordinatorStub:
         meadowgrid.meadowgrid_pb2.AddTasksToGridJobRequest,
         meadowgrid.meadowgrid_pb2.AddJobResponse,
     ] = ...
-
-    register_agent: grpc.UnaryUnaryMultiCallable[
-        meadowgrid.meadowgrid_pb2.RegisterAgentRequest,
-        meadowgrid.meadowgrid_pb2.RegisterAgentResponse,
-    ] = ...
-
-    update_job_states: grpc.UnaryUnaryMultiCallable[
-        meadowgrid.meadowgrid_pb2.JobStateUpdates,
-        meadowgrid.meadowgrid_pb2.UpdateStateResponse,
-    ] = ...
-
-    get_next_jobs: grpc.UnaryUnaryMultiCallable[
-        meadowgrid.meadowgrid_pb2.NextJobsRequest,
-        meadowgrid.meadowgrid_pb2.NextJobsResponse,
-    ] = ...
-
-    update_grid_task_state_and_get_next: grpc.UnaryUnaryMultiCallable[
-        meadowgrid.meadowgrid_pb2.GridTaskUpdateAndGetNextRequest,
-        meadowgrid.meadowgrid_pb2.GridTask,
-    ] = ...
-    """this can only get tasks from the same job"""
 
     get_simple_job_states: grpc.UnaryUnaryMultiCallable[
         meadowgrid.meadowgrid_pb2.JobStatesRequest,
@@ -53,7 +34,38 @@ class MeadowGridCoordinatorStub:
         meadowgrid.meadowgrid_pb2.AddCredentialsResponse,
     ] = ...
 
+    get_agent_states: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.AgentStatesRequest,
+        meadowgrid.meadowgrid_pb2.AgentStatesResponse,
+    ] = ...
+
+    register_agent: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.RegisterAgentRequest,
+        meadowgrid.meadowgrid_pb2.RegisterAgentResponse,
+    ] = ...
+    """agent/worker functions
+
+    """
+
+    get_next_jobs: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.NextJobsRequest,
+        meadowgrid.meadowgrid_pb2.NextJobsResponse,
+    ] = ...
+
+    update_job_states: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.JobStateUpdates,
+        meadowgrid.meadowgrid_pb2.UpdateStateResponse,
+    ] = ...
+
+    update_grid_task_state_and_get_next: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.GridTaskUpdateAndGetNextRequest,
+        meadowgrid.meadowgrid_pb2.GridTask,
+    ] = ...
+    """this can only get tasks from the same job"""
+
 class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
+    """client functions"""
+
     @abc.abstractmethod
     def add_job(
         self,
@@ -66,32 +78,6 @@ class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
         request: meadowgrid.meadowgrid_pb2.AddTasksToGridJobRequest,
         context: grpc.ServicerContext,
     ) -> meadowgrid.meadowgrid_pb2.AddJobResponse: ...
-    @abc.abstractmethod
-    def register_agent(
-        self,
-        request: meadowgrid.meadowgrid_pb2.RegisterAgentRequest,
-        context: grpc.ServicerContext,
-    ) -> meadowgrid.meadowgrid_pb2.RegisterAgentResponse: ...
-    @abc.abstractmethod
-    def update_job_states(
-        self,
-        request: meadowgrid.meadowgrid_pb2.JobStateUpdates,
-        context: grpc.ServicerContext,
-    ) -> meadowgrid.meadowgrid_pb2.UpdateStateResponse: ...
-    @abc.abstractmethod
-    def get_next_jobs(
-        self,
-        request: meadowgrid.meadowgrid_pb2.NextJobsRequest,
-        context: grpc.ServicerContext,
-    ) -> meadowgrid.meadowgrid_pb2.NextJobsResponse: ...
-    @abc.abstractmethod
-    def update_grid_task_state_and_get_next(
-        self,
-        request: meadowgrid.meadowgrid_pb2.GridTaskUpdateAndGetNextRequest,
-        context: grpc.ServicerContext,
-    ) -> meadowgrid.meadowgrid_pb2.GridTask:
-        """this can only get tasks from the same job"""
-        pass
     @abc.abstractmethod
     def get_simple_job_states(
         self,
@@ -110,6 +96,40 @@ class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
         request: meadowgrid.meadowgrid_pb2.AddCredentialsRequest,
         context: grpc.ServicerContext,
     ) -> meadowgrid.meadowgrid_pb2.AddCredentialsResponse: ...
+    @abc.abstractmethod
+    def get_agent_states(
+        self,
+        request: meadowgrid.meadowgrid_pb2.AgentStatesRequest,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.AgentStatesResponse: ...
+    @abc.abstractmethod
+    def register_agent(
+        self,
+        request: meadowgrid.meadowgrid_pb2.RegisterAgentRequest,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.RegisterAgentResponse:
+        """agent/worker functions"""
+        pass
+    @abc.abstractmethod
+    def get_next_jobs(
+        self,
+        request: meadowgrid.meadowgrid_pb2.NextJobsRequest,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.NextJobsResponse: ...
+    @abc.abstractmethod
+    def update_job_states(
+        self,
+        request: meadowgrid.meadowgrid_pb2.JobStateUpdates,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.UpdateStateResponse: ...
+    @abc.abstractmethod
+    def update_grid_task_state_and_get_next(
+        self,
+        request: meadowgrid.meadowgrid_pb2.GridTaskUpdateAndGetNextRequest,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.GridTask:
+        """this can only get tasks from the same job"""
+        pass
 
 def add_MeadowGridCoordinatorServicer_to_server(
     servicer: MeadowGridCoordinatorServicer, server: grpc.Server

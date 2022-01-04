@@ -21,6 +21,7 @@ from meadowflow.scopes import ALL_SCOPES, BASE_SCOPE, ScopeValues
 from meadowflow.topic import TriggerAction
 from meadowflow.topic_names import pname
 from meadowgrid.config import MEADOWGRID_INTERPRETER
+from meadowgrid.coordinator_client import MeadowGridCoordinatorClientAsync
 from meadowgrid.deployed_function import (
     MeadowGridCommand,
     MeadowGridDeployedRunnable,
@@ -31,6 +32,7 @@ from test_meadowgrid.test_meadowgrid_basics import (
     EXAMPLE_CODE,
     MEADOWDATA_CODE,
     TEST_WORKING_FOLDER,
+    wait_for_agents_async,
 )
 
 from test_meadowflow.test_scheduler import _run_func, _wait_for_scheduler
@@ -64,8 +66,11 @@ async def test_meadowdb_effects():
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        async with Scheduler(job_runner_poll_delay_seconds=0.05) as scheduler:
+        async with Scheduler(
+            job_runner_poll_delay_seconds=0.05
+        ) as scheduler, MeadowGridCoordinatorClientAsync() as coordinator_client:
             scheduler.register_job_runner(MeadowGridJobRunner)
+            await wait_for_agents_async(coordinator_client, 1)
 
             scheduler.add_jobs(
                 [

@@ -22,6 +22,9 @@ from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsResponse,
     AddJobResponse,
     AddTasksToGridJobRequest,
+    AgentStateResponse,
+    AgentStatesRequest,
+    AgentStatesResponse,
     Credentials,
     GridTask,
     GridTaskStateResponse,
@@ -355,6 +358,22 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         agent_available_resources_changed(agent, self._all_jobs())
 
         return RegisterAgentResponse()
+
+    async def get_agent_states(  # type: ignore[override]
+        self,
+        request: AgentStatesRequest,
+        context: grpc.ServicerContext,
+    ) -> AgentStatesResponse:
+        return AgentStatesResponse(
+            agents=[
+                AgentStateResponse(
+                    agent_id=agent.agent_id,
+                    total_resources=agent.total_resources.to_protobuf(),
+                    available_resources=agent.available_resources.to_protobuf(),
+                )
+                for agent in self._agents.values()
+            ]
+        )
 
     async def get_next_jobs(  # type: ignore[override]
         self, request: NextJobsRequest, context: grpc.aio.ServicerContext

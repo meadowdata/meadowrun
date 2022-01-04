@@ -35,13 +35,22 @@ from meadowflow.time_event_publisher import PointInTime, PointInTimePredicate
 from meadowflow.topic import TriggerAction, NotPredicate
 from meadowflow.topic_names import pname, FrozenDict, TopicName, CURRENT_JOB
 from meadowgrid.config import MEADOWGRID_INTERPRETER
+from meadowgrid.coordinator_client import (
+    MeadowGridCoordinatorClientAsync,
+    MeadowGridCoordinatorClientSync,
+)
 from meadowgrid.deployed_function import (
     MeadowGridFunction,
     MeadowGridVersionedDeployedRunnable,
 )
 from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter, GitRepoBranch
 from test_meadowflow.test_time_events import _TIME_INCREMENT
-from test_meadowgrid.test_meadowgrid_basics import TEST_REPO, TEST_WORKING_FOLDER
+from test_meadowgrid.test_meadowgrid_basics import (
+    TEST_REPO,
+    TEST_WORKING_FOLDER,
+    wait_for_agents_async,
+    wait_for_agents_sync,
+)
 
 
 def _run_func(*args: Any, **_kwargs: Any) -> str:
@@ -89,10 +98,13 @@ async def test_simple_jobs_meadowgrid_server_available() -> None:
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        async with Scheduler(
+            job_runner_poll_delay_seconds=0.05
+        ) as s, MeadowGridCoordinatorClientAsync() as coordinator_client:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(MeadowGridJobRunner)
+            await wait_for_agents_async(coordinator_client, 1)
             await _test_simple_jobs(
                 s,
                 # TODO MeadowGridJobRunner automatically converts LocalFunctions into
@@ -115,10 +127,13 @@ async def test_simple_jobs_meadowgrid_git() -> None:
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        async with Scheduler(
+            job_runner_poll_delay_seconds=0.05
+        ) as s, MeadowGridCoordinatorClientAsync() as coordinator_client:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(MeadowGridJobRunner)
+            await wait_for_agents_async(coordinator_client, 1)
             await _test_simple_jobs(
                 s,
                 lambda args: MeadowGridVersionedDeployedRunnable(
@@ -233,7 +248,10 @@ def test_simple_jobs_meadowflow_server() -> None:
         TEST_WORKING_FOLDER
     ):
         with meadowflow.server.client.MeadowFlowClientSync() as client:
-            # wait for the meadowgrid job runner to register itself with the scheduler
+            # wait for the agent to register itself with the coordinator
+            with MeadowGridCoordinatorClientSync() as coordinator_client:
+                wait_for_agents_sync(coordinator_client, 1)
+            # wait for the meadowgrid coordinator to register itself with the scheduler
             time.sleep(3)
 
             client.add_jobs(

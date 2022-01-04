@@ -92,6 +92,12 @@ class Resources:
 
         return cls(memory_gb, logical_cpu, resources_dict)
 
+    def to_protobuf(self) -> List[Resource]:
+        resources_dict = self.custom.copy()
+        resources_dict[MEMORY_GB] = self.memory_gb
+        resources_dict[LOGICAL_CPU] = self.logical_cpu
+        return construct_resources_protobuf(resources_dict)
+
 
 def construct_resources_required_protobuf(
     resources: Optional[Dict[str, float]]

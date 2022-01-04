@@ -8,6 +8,7 @@ import meadowgrid.coordinator_main
 import meadowgrid.agent_main
 import pytest
 from meadowgrid.config import MEADOWGRID_INTERPRETER
+from meadowgrid.coordinator_client import MeadowGridCoordinatorClientAsync
 from meadowgrid.deployed_function import (
     CodeDeployment,
     MeadowGridDeployedRunnable,
@@ -26,6 +27,7 @@ from test_meadowgrid.test_meadowgrid_basics import (
     MEADOWDATA_CODE,
     TEST_REPO,
     TEST_WORKING_FOLDER,
+    wait_for_agents_async,
 )
 
 
@@ -41,10 +43,13 @@ async def test_deployment_override() -> None:
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        async with Scheduler(job_runner_poll_delay_seconds=0.05) as s:
+        async with Scheduler(
+            job_runner_poll_delay_seconds=0.05
+        ) as s, MeadowGridCoordinatorClientAsync() as coordinator_client:
             # TODO this line is sketchy as it's not necessarily guaranteed to run before
             #  anything in the next function
             s.register_job_runner(MeadowGridJobRunner)
+            await wait_for_agents_async(coordinator_client, 1)
 
             s.add_jobs(
                 [

@@ -2,7 +2,7 @@ import asyncio
 import pathlib
 import pickle
 import time
-from typing import List, Sequence, Union
+from typing import List, Sequence, Union, Optional
 
 import meadowgrid.coordinator
 import meadowgrid.coordinator_main
@@ -11,6 +11,7 @@ import meadowgrid.agent_main
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
+    MeadowGridCoordinatorClientSync,
     ProcessStateEnum,
 )
 from meadowgrid.deployed_function import (
@@ -40,6 +41,64 @@ EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()
 )
 MEADOWDATA_CODE = str((pathlib.Path(__file__).parent.parent.parent / "src").resolve())
+
+
+async def wait_for_agents_async(
+    client: MeadowGridCoordinatorClientAsync,
+    num_agents_to_wait_for: int,
+    seconds_to_wait: float = 10,
+) -> None:
+    """
+    Waits up to seconds_to_wait for the coordinator to have exactly
+    num_agents_to_wait_for agents
+    """
+    start = time.time()
+    num_agents = None
+    while time.time() - start < seconds_to_wait:
+        num_agents = len(await client.get_agent_states())
+        if num_agents == num_agents_to_wait_for:
+            break
+
+    _wait_for_agents_helper(num_agents, num_agents_to_wait_for, seconds_to_wait)
+
+
+def wait_for_agents_sync(
+    client: MeadowGridCoordinatorClientSync,
+    num_agents_to_wait_for: int,
+    seconds_to_wait: float = 10,
+) -> None:
+
+    """
+    Waits up to seconds_to_wait for the coordinator to have exactly
+    num_agents_to_wait_for agents
+    """
+    start = time.time()
+    num_agents = None
+    while time.time() - start < seconds_to_wait:
+        num_agents = len(client.get_agent_states())
+        if num_agents == num_agents_to_wait_for:
+            break
+
+    _wait_for_agents_helper(num_agents, num_agents_to_wait_for, seconds_to_wait)
+
+
+def _wait_for_agents_helper(
+    num_agents: Optional[int],
+    num_agents_to_wait_for: int,
+    seconds_to_wait: float = 10,
+) -> None:
+    if num_agents is None:
+        raise ValueError(
+            "This should never happen--test process suffered a very long pause "
+            f"{seconds_to_wait}"
+        )
+
+    if num_agents != num_agents_to_wait_for:
+        raise AssertionError(
+            f"Waited {seconds_to_wait} seconds for {num_agents_to_wait_for} agent(s) to"
+            "be registered with the coordinator, but after waiting, the coordinator "
+            f"only had {num_agents} agent(s)."
+        )
 
 
 def test_meadowgrid_server_available_folder():
@@ -172,6 +231,7 @@ def _test_meadowgrid(
 
         async def run():
             async with MeadowGridCoordinatorClientAsync() as client:
+                await wait_for_agents_async(client, 1)
 
                 # run a remote process
                 arguments = ["foo"]
@@ -270,6 +330,7 @@ def test_meadowgrid_server_path_in_repo():
 
         async def run():
             async with MeadowGridCoordinatorClientAsync() as client:
+                await wait_for_agents_async(client, 1)
 
                 # run a remote process
                 arguments = ["foo"]
@@ -319,6 +380,8 @@ def test_meadowgrid_command_context_variables():
 
         async def run():
             async with MeadowGridCoordinatorClientAsync() as client:
+                await wait_for_agents_async(client, 1)
+
                 request_id3 = "request3"
                 request_id4 = "request4"
                 await client.add_py_runnable_job(
@@ -369,6 +432,8 @@ def test_meadowgrid_containers():
 
         async def run():
             async with MeadowGridCoordinatorClientAsync() as client:
+                await wait_for_agents_async(client, 1)
+
                 for version in ["3.9.8", "3.8.12"]:
                     digest = await (
                         meadowgrid.docker_controller.get_latest_digest_from_registry(
@@ -403,6 +468,9 @@ def test_meadowgrid_grid_job():
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
+        with MeadowGridCoordinatorClientSync() as coordinator_client:
+            wait_for_agents_sync(coordinator_client, 1)
+
         interpreters: List[InterpreterDeployment] = [
             ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
             # We need an image that has meadowdata in it. This can be produced by
@@ -427,6 +495,9 @@ def test_meadowgrid_grid_map_async():
     ):
 
         async def run():
+            async with MeadowGridCoordinatorClientAsync() as coordinator_client:
+                await wait_for_agents_async(coordinator_client, 1)
+
             tasks = await grid_map_async(
                 lambda s: f"hello {s}",
                 ["abc", "def", "ghi"],

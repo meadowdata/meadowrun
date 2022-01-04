@@ -15,8 +15,10 @@ from meadowgrid.meadowgrid_pb2 import (
     ServerAvailableFile,
     ServerAvailableInterpreter,
 )
-from test_meadowgrid.test_meadowgrid_basics import TEST_WORKING_FOLDER
-
+from test_meadowgrid.test_meadowgrid_basics import (
+    TEST_WORKING_FOLDER,
+    wait_for_agents_sync,
+)
 
 _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
 
@@ -81,8 +83,11 @@ def _manual_test_docker_credentials(credentials_source: CredentialsSource) -> No
     ):
         asyncio.run(delete_images_from_repository(_PRIVATE_DOCKER_REPOSITORY))
 
-        with MeadowGridCoordinatorClientSync() as client:
-            client.add_credentials("DOCKER", "registry-1.docker.io", credentials_source)
+        with MeadowGridCoordinatorClientSync() as coordinator_client:
+            coordinator_client.add_credentials(
+                "DOCKER", "registry-1.docker.io", credentials_source
+            )
+            wait_for_agents_sync(coordinator_client, 1)
 
         grid_map(
             lambda x: x * 2,
@@ -159,8 +164,11 @@ def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> None:
         meadowgrid.coordinator_main.main_in_child_process(),
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
-        with MeadowGridCoordinatorClientSync() as client:
-            client.add_credentials("GIT", "git@github.com", credentials_source)
+        with MeadowGridCoordinatorClientSync() as coordinator_client:
+            coordinator_client.add_credentials(
+                "GIT", "git@github.com", credentials_source
+            )
+            wait_for_agents_sync(coordinator_client, 1)
 
         # make this a nested function so that it gets pickled as code rather than as a
         # reference

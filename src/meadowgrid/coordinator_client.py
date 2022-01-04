@@ -29,6 +29,8 @@ from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsRequest,
     AddJobResponse,
     AddTasksToGridJobRequest,
+    AgentStateResponse,
+    AgentStatesRequest,
     AwsSecret,
     ContainerAtDigest,
     ContainerAtTag,
@@ -503,6 +505,9 @@ class MeadowGridCoordinatorClientAsync:
             _add_credentials_request(service, service_url, source)
         )
 
+    async def get_agent_states(self) -> Sequence[AgentStateResponse]:
+        return (await self._stub.get_agent_states(AgentStatesRequest())).agents
+
     async def __aenter__(self) -> MeadowGridCoordinatorClientAsync:
         await self._channel.__aenter__()
         return self
@@ -605,6 +610,9 @@ class MeadowGridCoordinatorClientSync:
         self._stub.add_credentials(
             _add_credentials_request(service, service_url, source)
         )
+
+    def get_agent_states(self) -> Sequence[AgentStateResponse]:
+        return self._stub.get_agent_states(AgentStatesRequest()).agents
 
     def __enter__(self) -> MeadowGridCoordinatorClientSync:
         self._channel.__enter__()

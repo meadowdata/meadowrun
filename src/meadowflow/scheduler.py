@@ -555,7 +555,7 @@ class Scheduler:
                 traceback.print_exc()
             await asyncio.sleep(self._job_runner_poll_delay_seconds)
 
-    async def shutdown(self) -> None:
+    async def close(self) -> None:
         self._poll_job_runners_loop.cancel()
         # any exceptions are ignored here
         ev_ex, time_ex, poll_ex = await asyncio.gather(
@@ -582,7 +582,7 @@ class Scheduler:
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> None:
-        await self.shutdown()
+        await self.close()
 
     def all_are_waiting(self) -> bool:
         """

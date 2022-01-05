@@ -117,10 +117,10 @@ class UntilMeadowdbWritten(meadowflow.topic.StatePredicate):
     anything.
 
     TODO this isn't great--probably needs to be way more expressive, ideally this would
-     be more like a lambda or at least a full language (eval?), but it needs to be part
-     of the job definition and therefore serializable (I think). You might care about
-     the connection key, limit how far you go back when looking, more complicated logic
-     on which tables were written
+    be more like a lambda or at least a full language (eval?), but it needs to be part
+    of the job definition and therefore serializable (I think). You might care about
+    the connection key, limit how far you go back when looking, more complicated logic
+    on which tables were written
     """
 
     job_name: TopicName

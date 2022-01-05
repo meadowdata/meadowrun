@@ -95,7 +95,7 @@ class MeadowGridJobRunner(JobRunner):
                 "responses"
             )
 
-        timestamp = self._event_log.curr_timestamp
+        timestamp = self._event_log.next_timestamp
 
         for last_event, process_state in zip(last_events, process_states):
             request_id = last_event.payload.request_id

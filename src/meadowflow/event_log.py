@@ -1,22 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
+import logging
 from dataclasses import dataclass
 from types import TracebackType
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Dict,
     Generator,
+    Generic,
     Iterable,
     List,
     Optional,
     Set,
     Type,
     TypeVar,
-    Generic,
-    Awaitable,
 )
 
 from meadowflow.topic_names import TopicName
@@ -79,7 +79,7 @@ class EventLog:
         self._notify_call_subscribers: asyncio.Event
 
         # keep the task for the subscribers loop so we can cancel it in close().
-        self._subscribers_loop: asyncio.Task
+        self._subscribers_loop: asyncio.Task[None]
 
         # make sure awaiting more than once doesn't mess with us.
         self._awaited = False
@@ -96,15 +96,15 @@ class EventLog:
         return self._init_async().__await__()
 
     @property
-    def curr_timestamp(self) -> Timestamp:
+    def next_timestamp(self) -> Timestamp:
         """
         The smallest timestamp that has not yet been used. I.e. for all events,
-        currently event < curr_timestamp
+        event.timestamp < self.next_timestamp.
         """
         return self._next_timestamp
 
     def append_event(self, topic_name: TopicName, payload: Any) -> None:
-        """Append a new state change to the event log, at a new and latest time"""
+        """Append a new state change to the event log, at next_timestamp."""
 
         print(f"append_event {self._next_timestamp} {topic_name} {payload}")
 
@@ -128,7 +128,7 @@ class EventLog:
         """
         Return all events with timestamp: low_timestamp <= timestamp < high_timestamp in
         decreasing timestamp order. If topic_name is not None, then restrict to events
-        with the specified topic_name
+        with the specified topic_name.
         """
         if topic_name is None:
             all_events = self._event_log
@@ -212,6 +212,15 @@ class EventLog:
         Call all subscribers for any outstanding events. See subscribe for details on
         semantics.
         """
+
+        # if any exceptions occur here, they are basically ignored and logged. This is
+        # because the subscribers should be meadowflow-internal code, and should take
+        # care not to throw when getting notified of event changes. Of course, something
+        # can go wrong while executing some action as a result of a subscribe call, but
+        # in that case the subscriber should handle that, and should in all likelihood
+        # generate an event to indicate the failed action. In no case is it up to the
+        # event log to handle this.
+
         while True:
             await self._notify_call_subscribers.wait()
             self._notify_call_subscribers.clear()
@@ -227,23 +236,23 @@ class EventLog:
                     )
 
                 # call the subscribers
-                # TODO I think ideal behavior here would be to
-                # retry failures 3 times or something before giving up on a
-                # subscriber. Current behavior is very bad--failure in one
-                # subscriber means we will never progress. I think the outer
-                # try/except is probably not necessary.
-                await asyncio.gather(
+                results = await asyncio.gather(
                     *(
                         subscriber(low_timestamp, high_timestamp)
                         for subscriber in subscribers
-                    )
+                    ),
+                    return_exceptions=True,
                 )
 
+                for subscriber, result in zip(subscribers, results):
+                    if result is not None:
+                        _log_unexpected_exception(
+                            result, low_timestamp, high_timestamp, subscriber
+                        )
+
                 self._subscribers_called_timestamp = high_timestamp
-            except Exception:
-                # TODO this function isn't awaited, so exceptions need to make it
-                # back into the scheduler somehow
-                traceback.print_exc()
+            except BaseException as exc:
+                _log_unexpected_exception(exc, low_timestamp, high_timestamp)
 
     async def close(self) -> None:
         self._subscribers_loop.cancel()
@@ -262,3 +271,16 @@ class EventLog:
         traceback: Optional[TracebackType],
     ) -> None:
         await self.close()
+
+
+def _log_unexpected_exception(
+    exc: BaseException,
+    low: Timestamp,
+    high: Timestamp,
+    subscriber: Optional[Subscriber] = None,
+) -> None:
+    logging.exception(
+        f"Unexpected exception while calling {subscriber or 'subscribers'} for "
+        f" timestamps {low} to {high} - indicating a bug in meadowflow.",
+        exc_info=exc,
+    )

@@ -473,7 +473,7 @@ def choose_job_runner(
 class Actions:
     """All the available actions"""
 
-    run: Final[Run] = Run()
+    run: Final = Run()
     # TODO other actions: abort, bypass, init, pause
 
 

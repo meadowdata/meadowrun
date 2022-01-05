@@ -494,22 +494,6 @@ class Scheduler:
                             high_timestamp,
                         )
 
-    # def manual_run(
-    #     self, job_name: TopicName, overrides: Optional[JobRunOverrides] = None
-    # ) -> None:
-    #     """
-    #     Execute the Run Action on the specified job.
-
-    #     Important--when this function returns, it's possible that no events have been
-    #     created yet, not even RUN_REQUESTED.
-    #     """
-    #     if job_name not in self._jobs:
-    #         raise ValueError(f"Unknown job: {job_name}")
-    #     job = self._jobs[job_name]
-    #     asyncio.get_running_loop().call_soon(
-    #         lambda: asyncio.create_task(self._run_action(job, Actions.run, overrides))
-    #     )
-
     def manual_run(
         self, job_name: TopicName, overrides: Optional[JobRunOverrides] = None
     ) -> Task[str]:
@@ -536,7 +520,7 @@ class Scheduler:
                 overrides,
                 self._job_runners,
                 self._event_log,
-                self._event_log.curr_timestamp,
+                self._event_log.next_timestamp,
             )
         except Exception as e:
             # TODO this function isn't awaited, so exceptions need to make it back into
@@ -550,7 +534,7 @@ class Scheduler:
         """
         Returns the latest event for any job that's in RUN_REQUESTED or RUNNING state
         """
-        timestamp = self._event_log.curr_timestamp
+        timestamp = self._event_log.next_timestamp
         for name in self._jobs.keys():
             ev = self._event_log.last_event(name, timestamp)
             if ev and ev.payload.state in ("RUN_REQUESTED", "RUNNING"):
@@ -613,6 +597,6 @@ class Scheduler:
         """For unit tests/debugging"""
         return list(
             self._event_log.events_and_state(
-                topic_name, 0, self._event_log.curr_timestamp
+                topic_name, 0, self._event_log.next_timestamp
             )
         )

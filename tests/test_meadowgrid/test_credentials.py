@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 
 import meadowgrid.coordinator_main
 import meadowgrid.agent_main
@@ -42,13 +43,7 @@ def manual_test_docker_credentials_file():
        > docker login
        > docker push <username>/test1
 
-    5. Delete the local copy of the image and log out of docker
-       > docker image rm <username>/test1
-       > docker image rm <username>/test1@<digest>
-       > docker image rm meadowdata
-       > docker logout
-
-    6. Now run this test
+    5. Now run this test
     """
     _manual_test_docker_credentials(
         ServerAvailableFile(
@@ -82,6 +77,9 @@ def _manual_test_docker_credentials(credentials_source: CredentialsSource) -> No
         meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
     ):
         asyncio.run(delete_images_from_repository(_PRIVATE_DOCKER_REPOSITORY))
+        # doesn't seem like there's an API for this, so we just have to use the command
+        # line
+        subprocess.run("docker logout", check=True)
 
         with MeadowGridCoordinatorClientSync() as coordinator_client:
             coordinator_client.add_credentials(

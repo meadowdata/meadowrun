@@ -415,8 +415,10 @@ async def _launch_job(
         code_paths = await deployment_manager.get_code_paths(
             job, code_deployment_credentials
         )
+        grid_worker_id_for_filename = f".{grid_worker_id}" if grid_worker_id else ""
         log_file_name = os.path.join(
-            job_logs_folder, f"{job.job_friendly_name}.{job.job_id}.log"
+            job_logs_folder,
+            f"{job.job_friendly_name}.{job.job_id}{grid_worker_id_for_filename}.log",
         )
 
         # next we need to launch the job depending on how we've specified the

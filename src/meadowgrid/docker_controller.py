@@ -57,23 +57,6 @@ _MANIFEST_ACCEPT_HEADER_FOR_DIGEST = (
 )
 
 
-_client: Optional[aiodocker.Docker] = None
-
-
-def _get_client() -> aiodocker.Docker:
-    """
-    aiodocker.Docker is a context manager and should theoretically be closed, but we
-    return Container objects, and then the user calls .wait on them, and only then can
-    the client be closed. This is hard to manage, so it seems better just to keep one
-    client
-    TODO see if there are downsides to keeping the client around indefinitely
-    """
-    global _client
-    if _client is None:
-        _client = aiodocker.Docker()
-    return _client
-
-
 def get_registry_domain(repository: str) -> Tuple[str, str]:
     """
     Takes a repository name and returns the registry domain name for that repository and
@@ -280,7 +263,8 @@ async def _does_digest_exist_locally(image: str) -> bool:
     # exists locally--call inspect and then see whether we get a 404 or not. We assume
     # that calling list would be less efficient when there are many images.
     try:
-        await _get_client().images.inspect(image)
+        async with aiodocker.Docker() as client:
+            await client.images.inspect(image)
         return True
     except aiodocker.DockerError as e:
         if e.status == 404:
@@ -317,7 +301,8 @@ async def pull_image(
 
         # pull the image
         print(f"Pulling docker image {image}")
-        statuses = await _get_client().images.pull(image, auth=auth)
+        async with aiodocker.Docker() as client:
+            statuses = await client.images.pull(image, auth=auth)
 
         # double check just in case that the digest is actually there
         if not await _does_digest_exist_locally(image):
@@ -355,7 +340,8 @@ async def run_container(
 
     # Now actually run the container. For documentation on the config object:
     # https://docs.docker.com/engine/api/v1.41/#operation/ContainerCreate
-    container = await _get_client().containers.run(
+    client = await aiodocker.Docker().__aenter__()
+    container = await client.containers.run(
         {
             "Image": image,
             "Cmd": cmd,
@@ -380,19 +366,24 @@ async def run_container(
 
     return container
 
+    # TODO container captures a reference to client and needs to keep using it, we
+    # should eventually call container.docker.__aexit__ somewhere
+
 
 async def get_image_environment_variables(image: str) -> Optional[List[str]]:
     """
     Returns a list of strings like ["PATH=/foo/bar", "PYTHON_VERSION=3.9.7"] for the
     image that we have locally.
     """
-    return (await _get_client().images.inspect(image))["ContainerConfig"]["Env"]
+    async with aiodocker.Docker() as client:
+        return (await client.images.inspect(image))["ContainerConfig"]["Env"]
 
 
 async def delete_image(image: str) -> None:
     """Deletes the specified image, used for testing"""
     try:
-        await _get_client().images.delete(image, force=True)
+        async with aiodocker.Docker() as client:
+            await client.images.delete(image, force=True)
     except DockerError as e:
         # ignore failures saying the image doesn't exist
         if e.status != 404:
@@ -404,21 +395,22 @@ async def delete_images_from_repository(repository: str) -> None:
     Deletes all images repository@<digest> or a tag repository:<tag>. Warning: deletes
     images even if there are other labels pointing to those images. Used for testing.
     """
-    client = _get_client()
-    delete_tasks = []
-    for image in await client.images.list():
-        if (
-            image["RepoDigests"]
-            and any(
-                digest.startswith(f"{repository}@") for digest in image["RepoDigests"]
-            )
-        ) or (
-            image["RepoTags"]
-            and any(tag.startswith(f"{repository}:") for tag in image["RepoTags"])
-        ):
-            image_id = image["Id"]
-            print(f"Will delete image id: {image_id}")
-            delete_tasks.append(delete_image(image_id))
+    async with aiodocker.Docker() as client:
+        delete_tasks = []
+        for image in await client.images.list():
+            if (
+                image["RepoDigests"]
+                and any(
+                    digest.startswith(f"{repository}@")
+                    for digest in image["RepoDigests"]
+                )
+            ) or (
+                image["RepoTags"]
+                and any(tag.startswith(f"{repository}:") for tag in image["RepoTags"])
+            ):
+                image_id = image["Id"]
+                print(f"Will delete image id: {image_id}")
+                delete_tasks.append(delete_image(image_id))
 
-    if delete_tasks:
-        await asyncio.wait(delete_tasks)
+        if delete_tasks:
+            await asyncio.wait(delete_tasks)

@@ -148,6 +148,16 @@ class CodeDeploymentManager:
     async def _get_git_repo_local_clone(self, repo_url: str) -> _GitRepoLocalClone:
         """Clones the specified repo locally"""
 
+        # try to normalize the url a little bit
+        # TODO also consider .lower() in some cases?
+        suffix_removed = True
+        while suffix_removed:
+            suffix_removed = False
+            for s in _GIT_REPO_URL_SUFFIXES_TO_REMOVE:
+                if repo_url.endswith(s):
+                    repo_url = repo_url[: -len(s)]
+                    suffix_removed = True
+
         async with self._git_local_clones_lock:
             if repo_url in self._git_local_clones:
                 local_clone = self._git_local_clones[repo_url]
@@ -165,33 +175,29 @@ class CodeDeploymentManager:
                 # TODO probably worth looking at git source code to figure out the exact
                 #  semantics and avoid failures due to invalid paths especially on
                 #  Windows
-                suffix_removed = True
-                while suffix_removed:
-                    suffix_removed = False
-                    for s in _GIT_REPO_URL_SUFFIXES_TO_REMOVE:
-                        if repo_url.endswith(s):
-                            repo_url = repo_url[: -len(s)]
-                            suffix_removed = True
 
                 last_slash = max(repo_url.rfind("/"), repo_url.rfind("\\"))
                 local_folder_prefix = repo_url[last_slash + 1 :]
 
                 # now add an integer suffix to make sure this is unique
                 i = 0
+                local_folder = f"{local_folder_prefix}_{i}"
                 while (
-                    f"{local_folder_prefix}_{i}" in self._git_local_clones.values()
+                    # just in case our "human-ish" name collides with a different URL's
+                    # human-ish name
+                    any(
+                        local_folder == local_clone.local_name
+                        for local_clone in self._git_local_clones.values()
+                    )
                     # TODO this is terrible--there shouldn't be folders we don't know
                     #  about lying around
                     or os.path.exists(
-                        os.path.join(
-                            self._git_repos_folder, f"{local_folder_prefix}_{i}"
-                        )
+                        os.path.join(self._git_repos_folder, local_folder)
                     )
                 ):
                     i += 1
-                local_clone = _GitRepoLocalClone(
-                    f"{local_folder_prefix}_{i}", asyncio.Lock(), "new"
-                )
+                    local_folder = f"{local_folder_prefix}_{i}"
+                local_clone = _GitRepoLocalClone(local_folder, asyncio.Lock(), "new")
                 self._git_local_clones[repo_url] = local_clone
 
             return local_clone

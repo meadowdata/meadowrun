@@ -294,7 +294,7 @@ class Scheduler:
                             # the EventFilter
                             if any(
                                 event_filter.apply(event)
-                                for topic_name in event_filter.topic_names_to_subscribe()  # noqa E501
+                                for topic_name in event_filter.topic_names_to_subscribe()  # noqa: E501
                                 for event in self._event_log.events(
                                     topic_name, low_timestamp, high_timestamp
                                 )

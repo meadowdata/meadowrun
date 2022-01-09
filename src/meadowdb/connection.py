@@ -15,7 +15,7 @@ try:
     # we try to import meadowflow.effects because we want to make sure that
     # _save_effects gets registered in the case where the user code only references
     # meadowdb and not meadowflow.effects
-    import meadowflow.effects  # noqa F401
+    import meadowflow.effects  # noqa: F401
 except Exception:
     pass
 

@@ -43,6 +43,7 @@ mypy-protobuf = "^3.0.0"
 flake8 = "^4.0.1"
 pytest-asyncio = "^0.16.0"
 types-psutil = "^5.8.19"
+flake8-noqa = "^1.2.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

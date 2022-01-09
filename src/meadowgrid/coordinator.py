@@ -390,7 +390,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                 JobToRun(
                     job=job.job,
                     grid_worker_id=grid_worker_id or "",
-                    interpreter_deployment_credentials=interpreter_deployment_credentials,  # noqa E501
+                    interpreter_deployment_credentials=interpreter_deployment_credentials,  # noqa: E501
                     code_deployment_credentials=code_deployment_credentials,
                 )
             )

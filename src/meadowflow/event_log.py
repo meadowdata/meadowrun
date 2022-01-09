@@ -22,7 +22,6 @@ from typing import (
 from meadowflow.topic_names import TopicName
 
 Timestamp = int
-Subscriber = Callable[[Timestamp, Timestamp], Awaitable[None]]
 
 
 T = TypeVar("T")
@@ -45,6 +44,9 @@ class Event(Generic[T]):
     payload: T
 
 
+Subscriber = Callable[[Timestamp, Timestamp, List[Event]], Awaitable[None]]
+
+
 class EventLog:
     """
     EventLog keeps track of events and calls subscribers based on those events. Think of
@@ -59,8 +61,7 @@ class EventLog:
         self._next_timestamp: Timestamp = 0
 
         # the timestamp up to which all subscribers have been called. I.e. subscribers
-        # have already been called for all events with timestamp <
-        # _subscribers_called_timestamp
+        # have been called for events with timestamp < _subscribers_called_timestamp.
         self._subscribers_called_timestamp: Timestamp = 0
 
         # the log of events, in increasing timestamp order
@@ -187,6 +188,9 @@ class EventLog:
         event. If topic_names is not None, subscribe to events matching one of the
         topic_names.
 
+        Subscribing to topics is idempotent - i.e. subscribing to the same topic twice
+        still results in a single notification.
+
         The EventLog processes a batch of events at a time, which means that subscriber
         may be getting called once even though multiple events have happened. subscriber
         will get called with subscriber(low_timestamp, high_timestamp). The current
@@ -198,9 +202,15 @@ class EventLog:
         matching events (a "universal subscriber" i.e. one without topic_names will
         always see low_timestamp equal to the previous high_timestamp).
         """
+        # To ensure idempotence given universal subscribers and topical subscribers,
+        # some shenanigans needed here.
         if topic_names is None:
             self._universal_subscribers.add(subscriber)
-        else:
+            # unsubscribe from topics. Could speed this up by keeping reverse dict of
+            # subscribers-to-topic.
+            for per_topic_subscribers in self._topic_subscribers.values():
+                per_topic_subscribers.remove(subscriber)
+        elif subscriber not in self._universal_subscribers:
             for topic_name in topic_names:
                 self._topic_subscribers.setdefault(topic_name, set()).add(subscriber)
 
@@ -226,20 +236,29 @@ class EventLog:
             self._notify_call_subscribers.clear()
 
             try:
-                # get the list of subscribers that need to be called
-                subscribers: Set[Subscriber] = self._universal_subscribers.copy()
                 low_timestamp = self._subscribers_called_timestamp
                 high_timestamp = self._next_timestamp
-                for event in self.events(None, low_timestamp, high_timestamp):
-                    subscribers.update(
-                        self._topic_subscribers.get(event.topic_name, set())
-                    )
+                events_to_process = list(
+                    self.events(None, low_timestamp, high_timestamp)
+                )
+
+                # get the list of subscribers that need to be called
+                subscribers: Dict[Subscriber, List[Event]] = {
+                    subscriber: events_to_process
+                    for subscriber in self._universal_subscribers
+                }
+
+                for event in events_to_process:
+                    topic_subscribers = self._topic_subscribers.get(event.topic_name)
+                    if topic_subscribers:
+                        for subscriber in topic_subscribers:
+                            subscribers.setdefault(subscriber, []).append(event)
 
                 # call the subscribers
                 results = await asyncio.gather(
                     *(
-                        subscriber(low_timestamp, high_timestamp)
-                        for subscriber in subscribers
+                        subscriber(low_timestamp, high_timestamp, events)
+                        for subscriber, events in subscribers.items()
                     ),
                     return_exceptions=True,
                 )

@@ -74,7 +74,7 @@ class FrozenDict(Mapping[TK, TV]):
         return self._hash
 
     def __repr__(self) -> str:
-        return "FrozenDict" + self._d.__repr__()
+        return f"FrozenDict({repr(self._d)})"
 
     def as_mutable(self) -> Dict[TK, TV]:
         return self._d.copy()

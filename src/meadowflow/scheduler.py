@@ -284,6 +284,7 @@ class Scheduler:
                         async def subscriber(
                             low_timestamp: Timestamp,
                             high_timestamp: Timestamp,
+                            events: List[Event],
                             # to avoid capturing loop variables
                             job: Job = job,
                             event_filter: EventFilter = event_filter,
@@ -295,9 +296,8 @@ class Scheduler:
                             if any(
                                 event_filter.apply(event)
                                 for topic_name in event_filter.topic_names_to_subscribe()  # noqa: E501
-                                for event in self._event_log.events(
-                                    topic_name, low_timestamp, high_timestamp
-                                )
+                                for event in events
+                                if event.topic_name == topic_name
                             ):
                                 # then check that the condition is met and if so execute
                                 # the action
@@ -341,7 +341,7 @@ class Scheduler:
         self._event_log.append_event(scope.topic_name(), scope)
 
     async def _process_effects(
-        self, low_timestamp: Timestamp, high_timestamp: Timestamp
+        self, low_timestamp: Timestamp, high_timestamp: Timestamp, events: List[Event]
     ) -> None:
         """
         Should get called for all events. Idea is to react to effects in Job-related
@@ -351,9 +351,7 @@ class Scheduler:
         futures: List[Awaitable] = []
 
         # we want to iterate through events oldest first
-        for event in reversed(
-            list(self._event_log.events(None, low_timestamp, high_timestamp))
-        ):
+        for event in reversed(events):
             if isinstance(event.payload, JobPayload):
                 if event.payload.state == "SUCCEEDED":
                     # Adding jobs and instantiating scopes isn't a normal effect in

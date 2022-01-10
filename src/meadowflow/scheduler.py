@@ -1,41 +1,44 @@
 from __future__ import annotations
 
 import asyncio
-from asyncio.tasks import Task
 import dataclasses
 import itertools
+import logging
 import traceback
+from asyncio.tasks import Task
 from types import TracebackType
 from typing import (
     Any,
-    Dict,
-    Generator,
-    List,
-    Tuple,
-    Iterable,
-    Optional,
-    Callable,
     Awaitable,
+    Callable,
+    Dict,
+    Final,
+    Generator,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
     Type,
     Union,
-    Literal,
-    Set,
     overload,
 )
 
+from meadowdb.connection import ConnectionKey
+
+from meadowflow.effects import MeadowdbDynamicDependency
 from meadowflow.event_log import Event, EventLog, Timestamp
-from meadowflow.scopes import ScopeValues, ALL_SCOPES
-from meadowflow.topic_names import TopicName
 from meadowflow.jobs import Actions, Job, JobPayload, JobRunner, JobRunOverrides
 from meadowflow.local_job_runner import LocalJobRunner
+from meadowflow.scopes import ALL_SCOPES, ScopeValues
 from meadowflow.time_event_publisher import (
     TimeEventPublisher,
-    create_time_event_state_predicates,
     create_time_event_filters,
+    create_time_event_state_predicates,
 )
-from meadowflow.topic import Action, Topic, StatePredicate, EventFilter
-from meadowflow.effects import MeadowdbDynamicDependency
-from meadowdb.connection import ConnectionKey
+from meadowflow.topic import Action, EventFilter, StatePredicate, Topic
+from meadowflow.topic_names import TopicName
 
 
 @overload
@@ -502,7 +505,6 @@ class Scheduler:
         Important--when this function returns, it's possible that no events have been
         created yet, not even RUN_REQUESTED.
         """
-        # TODO see if we can eliminate a little copy/paste here
         if job_name not in self._jobs:
             raise ValueError(f"Unknown job: {job_name}")
         job = self._jobs[job_name]
@@ -540,22 +542,32 @@ class Scheduler:
 
     async def _call_poll_job_runners_loop(self) -> None:
         """Periodically polls the job runners we know about"""
+        EXCEPTION_MESSAGE: Final = "Unexpected exception while polling jobs."
         while True:
             try:
                 # TODO should we keep track of which jobs are running on which job
                 #  runner and only poll for those jobs?
+                # -> yes, because if we can't reach a job runner, we need to be able
+                # to change the state of those jobs, i.e. publish an event that changes
+                # state to UNREACHABLE.
                 last_events = list(self._get_running_and_requested_jobs())
-                await asyncio.gather(
-                    *[jr.poll_jobs(last_events) for jr in self._job_runners]
+                results = await asyncio.gather(
+                    *[jr.poll_jobs(last_events) for jr in self._job_runners],
+                    return_exceptions=True,
                 )
-            except Exception:
-                # TODO do something smarter here...
-                traceback.print_exc()
-            await asyncio.sleep(self._job_runner_poll_delay_seconds)
+                for result in results:
+                    if result is not None:
+                        logging.exception(EXCEPTION_MESSAGE, exc_info=result)
+
+                await asyncio.sleep(self._job_runner_poll_delay_seconds)
+            except asyncio.CancelledError:
+                logging.info("Job runner poll loop cancelled.")
+                raise
+            except BaseException:
+                logging.exception(EXCEPTION_MESSAGE)
 
     async def close(self) -> None:
         self._poll_job_runners_loop.cancel()
-        # any exceptions are ignored here
         ev_ex, time_ex, poll_ex = await asyncio.gather(
             self._event_log.close(),
             self.time.close(),
@@ -563,7 +575,7 @@ class Scheduler:
             return_exceptions=True,
         )
         # we can still lose exceptions here.
-        # asyncio does not have the equivalent of AggregateException.
+        # asyncio does not have an aggregate exception, so we prioritize.
         if poll_ex is not None and not isinstance(poll_ex, asyncio.CancelledError):
             raise poll_ex
         if ev_ex is not None:

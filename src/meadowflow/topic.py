@@ -74,7 +74,7 @@ class EventFilter(ABC):
     @abstractmethod
     def topic_names_to_subscribe(self) -> Iterable[TopicName]:
         """
-        Limits the scope of events that need to have event_passes_filter called on them.
+        Limits the scope of events that need to have apply called on them.
         """
         pass
 

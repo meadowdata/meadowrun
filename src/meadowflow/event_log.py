@@ -183,18 +183,16 @@ class EventLog:
         self, topic_names: Optional[Iterable[TopicName]], subscriber: Subscriber
     ) -> None:
         """
-        If topic_names is None, subscribe subscriber to be called whenever there is an
-        event. If topic_names is not None, subscribe to events matching one of the
-        event. If topic_names is not None, subscribe to events matching one of the
-        topic_names.
+        If topic_names is None, subscribe subscriber to all events. If topic_names is
+        not None, subscribe to events matching one of the topic_names.
 
         Subscribing to topics is idempotent - i.e. subscribing to the same topic twice
         still results in a single notification.
 
         The EventLog processes a batch of events at a time, which means that subscriber
         may be getting called once even though multiple events have happened. subscriber
-        will get called with subscriber(low_timestamp, high_timestamp). The current
-        batch of events being processed are the events where low_timestamp <=
+        will get called with subscriber(low_timestamp, high_timestamp, events). The
+        current batch of events being processed are the events where low_timestamp <=
         event.timestamp < high_timestamp. It is guaranteed that subscriber has never
         been called for any of the events in the current batch. It is NOT the case that
         a particular subscriber will always see a low_timestamp equal to the previous

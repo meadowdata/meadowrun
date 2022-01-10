@@ -11,14 +11,14 @@ MeadowFlowClientAsync.instantiate_scopes).
 from __future__ import annotations
 
 import dataclasses
-from typing import Iterable, Any
+from typing import FrozenSet, Iterable, Any
 
 from meadowflow.event_log import Event
 from meadowflow.topic import EventFilter
 from meadowflow.topic_names import FrozenDict, TopicName, pname
 
 
-class ScopeValues(FrozenDict):
+class ScopeValues(FrozenDict[str, Any]):
     """Represents an instantiated scope."""
 
     def topic_name(self) -> TopicName:
@@ -49,7 +49,7 @@ class ScopeInstantiated(EventFilter):
     keys. Event payload will be a ScopeValues.
     """
 
-    scope_vars: frozenset
+    scope_vars: FrozenSet[str]
 
     @classmethod
     def construct(cls, *args: Any) -> ScopeInstantiated:

@@ -632,7 +632,7 @@ types-futures = "*"
 
 [[package]]
 name = "types-psutil"
-version = "5.8.18"
+version = "5.8.19"
 description = "Typing stubs for psutil"
 category = "dev"
 optional = false
@@ -682,7 +682,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "744582f7c7a499b3098e9afd53b407dcc6d376b44f2eeae66ba701d3b9eeacaa"
+content-hash = "5cfb98825716fc29a44598660730ee758f1c9c405cba83c2663a37c69bf4c0f0"
 
 [metadata.files]
 aiodocker = [
@@ -1459,8 +1459,8 @@ types-protobuf = [
     {file = "types_protobuf-3.18.4-py3-none-any.whl", hash = "sha256:0f2e8a5c36b1efbce57e17c81ac2efd848fde61a93f0faf25c9f1f8c44db7ff9"},
 ]
 types-psutil = [
-    {file = "types-psutil-5.8.18.tar.gz", hash = "sha256:f827ed503369f721296a9e300b403f75e7501fd6d928c9f3d419b678440a182a"},
-    {file = "types_psutil-5.8.18-py3-none-any.whl", hash = "sha256:229d75327d522aa9cfdfc76081f38a3be929bffaec5ee523090f6dfe2069a8bd"},
+    {file = "types-psutil-5.8.19.tar.gz", hash = "sha256:c9713eda05d6c833c7a461f22b8f413e0f7586b239f06c745003550b0b075c52"},
+    {file = "types_psutil-5.8.19-py3-none-any.whl", hash = "sha256:ab64669edb9850787ed5842a34129fb169a89dcf3f808f1224c299c423ebeb45"},
 ]
 types-pytz = [
     {file = "types-pytz-2021.3.4.tar.gz", hash = "sha256:101da53091013bb07403468c20d36930d749d3918054ac46f9c1bfc607dadf7d"},

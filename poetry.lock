@@ -621,7 +621,7 @@ python-versions = "*"
 
 [[package]]
 name = "types-protobuf"
-version = "3.18.4"
+version = "3.19.0"
 description = "Typing stubs for protobuf"
 category = "dev"
 optional = false
@@ -682,7 +682,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "5cfb98825716fc29a44598660730ee758f1c9c405cba83c2663a37c69bf4c0f0"
+content-hash = "9f13d5f707b563bd1a5df475b21007c6cc81a52841c3d1039f96c23669f5c2ca"
 
 [metadata.files]
 aiodocker = [
@@ -1455,8 +1455,8 @@ types-futures = [
     {file = "types_futures-3.3.2-py3-none-any.whl", hash = "sha256:6de5eea3049fe29aa72b5a65fa8cae5c086bfcf9b87d5bf099c8b1d63347336c"},
 ]
 types-protobuf = [
-    {file = "types-protobuf-3.18.4.tar.gz", hash = "sha256:2aed45e5257e9adebce306637179bfa111d42ecdd523e2a13d30cf8b2ee3cc84"},
-    {file = "types_protobuf-3.18.4-py3-none-any.whl", hash = "sha256:0f2e8a5c36b1efbce57e17c81ac2efd848fde61a93f0faf25c9f1f8c44db7ff9"},
+    {file = "types-protobuf-3.19.0.tar.gz", hash = "sha256:84d9c46116ded7c59d2072d1996d8fa4c046c4f6dab65c450f325a91d8b50d37"},
+    {file = "types_protobuf-3.19.0-py3-none-any.whl", hash = "sha256:0b5b45849dcb9ac064d2ece8722f34265e7d6f5ee41e1bf679880bc5fe682fe0"},
 ]
 types-psutil = [
     {file = "types-psutil-5.8.19.tar.gz", hash = "sha256:c9713eda05d6c833c7a461f22b8f413e0f7586b239f06c745003550b0b075c52"},

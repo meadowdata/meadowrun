@@ -14,7 +14,29 @@ The coordinator (usually there will be just one) accepts jobs from clients and t
 
 ## Quickstart: How to run on AWS
 
-Under construction
+1. Install and configure the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html) on your machine
+2. Run a distributed job!
+```python
+import meadowgrid
+import meadowgrid.aws_integration
+
+coordinator_host = await meadowgrid.aws_integration.launch_meadowgrid_coordinator()
+
+def remote_code(x: float) -> float:
+    return x * 2
+
+meadowgrid.grid_map(
+    remote_code,
+    [1, 2, 3, 4],
+    # this is a publicly available image with just meadowdata installed in it, see the deep
+    # dive below for how to use your own libraries and code
+    meadowgrid.ContainerAtTag(repository="hrichardlee/meadowdata", tag="latest"),
+    memory_gb_required_per_task=1,
+    logical_cpu_required_per_task=0.5,
+    coordinator_host=coordinator_host,
+)
+```
+
 
 ## Quickstart: How to run on-premise
 
@@ -116,9 +138,11 @@ For grid jobs (but not for simple jobs), meadowdata must be available as a libra
 
 ### Resources
 
-- `resources_required_per_task: Optional[Dict[str, float]] = None`
+- `memory_gb_required_per_task: float = DEFAULT_MEMORY_GB_REQUIRED`
+- `logical_cpu_required_per_task: float = DEFAULT_LOGICAL_CPU_REQUIRED`
+- `custom_resources_required_per_task: Optional[Dict[str, float]] = None`
 
-By default, jobs require `LOGICAL_CPU` and `MEMORY_GB` per the defaults in `DEFAULT_LOGICAL_CPU_REQUIRED` and `DEFAULT_MEMORY_GB_REQUIRED` in `meadowgrid.config`. You can override the defaults, e.g. `{meadowgrid.config.MEMORY_GB: 8}` will override `MEMORY_GB`, but `LOGICAL_CPU` will still be the default value. If you want to meadowgrid to ignore `LOGICAL_CPU` or `MEMORY_GB` requirements, then you can do something like `{meadowgrid.config.MEMORY_GB: 8, meadowgrid.config.LOGICAL_CPU: 0}`. In that case, meadowgrid will completely ignore `LOGICAL_CPU` when scheduling the job.
+Every task has to have a default memory and CPU requirement. The only way to "turn this off" is to set e.g. `memory_gb_required_per_task=0`. 
 
 You can also require custom resources, e.g. `{"TEMPERATURE_SENSOR": 1}`. For custom resources, you will also need to tell the agent what custom resources they have available, e.g. on the command line `meadowgrid_agent --available_resource TEMPERATURE_SENSOR 4`.
 

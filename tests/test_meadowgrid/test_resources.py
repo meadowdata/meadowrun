@@ -49,7 +49,9 @@ async def run_job(
         task_arguments,
         ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
         ServerAvailableFolder(code_paths=[MEADOWDATA_CODE]),
-        resources_required_per_task=resources_required_per_task,
+        memory_gb_required_per_task=resources_required_per_task[MEMORY_GB],
+        logical_cpu_required_per_task=resources_required_per_task[LOGICAL_CPU],
+        custom_resources_required_per_task=resources_required_per_task,
     )
 
     results = []

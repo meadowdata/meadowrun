@@ -84,7 +84,7 @@ WantedBy=cloud-init.target
 ```
 - Then enable the systemd service: `sudo systemctl enable meadowgrid_agent`
 
-Now, create the `meadowgrid-agent-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. This AMI will be used to run the meadowgrid agent. Copy the AMI ID for this into `aws_integration.py:_AGENT_AWS_AMI`.
+Now, create the `meadowgrid-agent-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. This AMI will be used to run the meadowgrid agent. Copy the AMI ID for this into `aws_integration.py:_AGENT_AWS_AMI` and make the AMI public.
 
 ## Set up the coordinator
 
@@ -112,4 +112,4 @@ WantedBy=cloud-init.target
 - Then enable the systemd service: `sudo systemctl enable meadowgrid_coordinator`
 - This is quite hacky, but to make things a bit quicker, we're going to patch in the agent AMI ID. So `vi /meadowgrid/env/lib/python3.9/site-packages/meadowgrid/aws_integration.py` and edit `_AGENT_AWS_AMI` to be the AMI ID for the agent that we created in the last step.
 
-Now, create the `meadowgrid-coordinator-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. This AMI will be used to run the meadowgrid coordinator. Copy the AMI ID for this into `aws_integration.py:_COORDINATOR_AWS_AMI`.
+Now, create the `meadowgrid-coordinator-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. This AMI will be used to run the meadowgrid coordinator. Copy the AMI ID for this into `aws_integration.py:_COORDINATOR_AWS_AMI` and make the AMI public.

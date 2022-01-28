@@ -21,7 +21,6 @@ import grpc.aio
 
 from meadowgrid.config import (
     DEFAULT_COORDINATOR_ADDRESS,
-    DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,
     DEFAULT_LOGICAL_CPU_REQUIRED,
     DEFAULT_MEMORY_GB_REQUIRED,
     DEFAULT_PRIORITY,
@@ -265,7 +264,7 @@ def _create_py_grid_job(
     all_tasks_added: bool,
     priority: float,
     interruption_probability_threshold: float,
-    resources_required_per_task: Optional[Dict[str, float]],
+    resources_required_per_task: Dict[str, float],
 ) -> Job:
     if not isinstance(deployed_function.runnable, MeadowGridFunction):
         raise ValueError("simple_job must have a MeadowGridFunction runnable")
@@ -455,9 +454,9 @@ class MeadowGridCoordinatorClientAsync:
         ],
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
-        priority: float = DEFAULT_PRIORITY,
-        interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
-        resources_required_per_task: Optional[Dict[str, float]] = None,
+        priority: float,
+        interruption_probability_threshold: float,
+        resources_required_per_task: Dict[str, float],
     ) -> AddJobState:
         """
         Creates a grid job. See also MeadowGridDeployedRunnable, Job in
@@ -613,9 +612,9 @@ class MeadowGridCoordinatorClientSync:
         ],
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
-        priority: float = DEFAULT_PRIORITY,
-        interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
-        resources_required_per_task: Optional[Dict[str, float]] = None,
+        priority: float,
+        interruption_probability_threshold: float,
+        resources_required_per_task: Dict[str, float],
     ) -> AddJobState:
         return _add_job_state_string(
             self._stub.add_job(

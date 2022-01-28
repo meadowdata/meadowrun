@@ -3,7 +3,7 @@ import time
 import pytest
 import meadowgrid.coordinator_main
 from meadowgrid import grid_map, ServerAvailableInterpreter
-from meadowgrid.config import MEMORY_GB, LOGICAL_CPU, MEADOWGRID_INTERPRETER
+from meadowgrid.config import MEADOWGRID_INTERPRETER
 
 
 @pytest.mark.asyncio
@@ -20,5 +20,6 @@ async def test_local_agent_creator():
             test_function,
             [1, 1, 1, 1],
             ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
-            resources_required_per_task={MEMORY_GB: 1, LOGICAL_CPU: 0.5},
+            memory_gb_required_per_task=1,
+            logical_cpu_required_per_task=0.5,
         )

@@ -6,7 +6,7 @@ from meadowgrid.aws_integration import (
     _get_ec2_instance_types,
     launch_meadowgrid_coordinator,
 )
-from meadowgrid.config import MEADOWGRID_INTERPRETER, MEMORY_GB, LOGICAL_CPU
+from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.resource_allocation import Resources
 
 
@@ -25,7 +25,8 @@ async def manual_test_aws_coordinator():
         test_function,
         [1, 1, 1, 1],
         ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
-        resources_required_per_task={MEMORY_GB: 1, LOGICAL_CPU: 0.5},
+        memory_gb_required_per_task=1,
+        logical_cpu_required_per_task=0.5,
         coordinator_host=coordinator_host,
     )
 

@@ -75,7 +75,8 @@ async def test_not_enough_resources():
                 test_function,
                 [1],
                 _interpreter,
-                resources_required_per_task={MEMORY_GB: 4, LOGICAL_CPU: 2},
+                memory_gb_required_per_task=4,
+                logical_cpu_required_per_task=2,
             )
             with pytest.raises(ValueError, match=".*RESOURCES_NOT_AVAILABLE.*"):
                 # TODO this exception should be more specific
@@ -91,7 +92,8 @@ async def test_not_enough_resources():
                     test_function,
                     [1],
                     _interpreter,
-                    resources_required_per_task={MEMORY_GB: 4, LOGICAL_CPU: 2},
+                    memory_gb_required_per_task=4,
+                    logical_cpu_required_per_task=2,
                 )
                 await tasks[0]
 
@@ -100,7 +102,8 @@ async def test_not_enough_resources():
                     test_function,
                     [1],
                     _interpreter,
-                    resources_required_per_task={MEMORY_GB: 24, LOGICAL_CPU: 82},
+                    memory_gb_required_per_task=24,
+                    logical_cpu_required_per_task=82,
                 )
                 with pytest.raises(ValueError, match=".*RESOURCES_NOT_AVAILABLE.*"):
                     await tasks[0]

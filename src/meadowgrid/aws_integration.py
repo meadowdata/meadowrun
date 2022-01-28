@@ -291,7 +291,7 @@ async def _ensure_meadowgrid_security_groups(ec2_resource: Any) -> str:
     return security_group.id
 
 
-async def launch_meadowgrid_coordinator(region_name: Optional[str]) -> str:
+async def launch_meadowgrid_coordinator(region_name: Optional[str] = None) -> str:
     """
     Launches a meadowgrid coordinator in AWS. Returns the address of the coordinator,
     e.g. 1.1.1.1:15319

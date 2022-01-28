@@ -25,6 +25,10 @@ from meadowgrid.config import (
     DEFAULT_COORDINATOR_PORT,
     DEFAULT_PRIORITY,
     DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,
+    DEFAULT_MEMORY_GB_REQUIRED,
+    DEFAULT_LOGICAL_CPU_REQUIRED,
+    MEMORY_GB,
+    LOGICAL_CPU,
 )
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
@@ -92,6 +96,19 @@ def _get_id_name_function(function: Callable[[_T], _U]) -> Tuple[str, str, bytes
     return job_id, friendly_name, pickled_function
 
 
+def _construct_resources(
+    memory_required: float,
+    logical_cpu_required: float,
+    custom_resources_required: Optional[Dict[str, float]],
+) -> Dict[str, float]:
+    result = {}
+    if custom_resources_required:
+        result.update(custom_resources_required)
+    result[MEMORY_GB] = memory_required
+    result[LOGICAL_CPU] = logical_cpu_required
+    return result
+
+
 def grid_map(
     function: Callable[[_T], _U],
     args: Iterable[_T],
@@ -99,7 +116,9 @@ def grid_map(
         InterpreterDeployment, VersionedInterpreterDeployment
     ],
     code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
-    resources_required_per_task: Optional[Dict[str, float]] = None,
+    memory_gb_required_per_task: float = DEFAULT_MEMORY_GB_REQUIRED,
+    logical_cpu_required_per_task: float = DEFAULT_LOGICAL_CPU_REQUIRED,
+    custom_resources_required_per_task: Optional[Dict[str, float]] = None,
     priority: float = DEFAULT_PRIORITY,
     interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,
@@ -143,7 +162,11 @@ def grid_map(
         True,
         priority,
         interruption_probability_threshold,
-        resources_required_per_task,
+        _construct_resources(
+            memory_gb_required_per_task,
+            logical_cpu_required_per_task,
+            custom_resources_required_per_task,
+        ),
     )
 
     # poll the coordinator until all of the tasks are done
@@ -203,7 +226,9 @@ async def grid_map_async(
         InterpreterDeployment, VersionedInterpreterDeployment
     ],
     code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
-    resources_required_per_task: Optional[Dict[str, float]] = None,
+    memory_gb_required_per_task: float = DEFAULT_MEMORY_GB_REQUIRED,
+    logical_cpu_required_per_task: float = DEFAULT_LOGICAL_CPU_REQUIRED,
+    custom_resources_required_per_task: Optional[Dict[str, float]] = None,
     priority: float = DEFAULT_PRIORITY,
     interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,
@@ -242,7 +267,11 @@ async def grid_map_async(
         True,
         priority,
         interruption_probability_threshold,
-        resources_required_per_task,
+        _construct_resources(
+            memory_gb_required_per_task,
+            logical_cpu_required_per_task,
+            custom_resources_required_per_task,
+        ),
     )
 
     # poll the coordinator in the background until all of the tasks are done

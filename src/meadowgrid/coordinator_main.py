@@ -7,6 +7,7 @@ import contextlib
 from typing import Iterator, Optional
 
 import meadowgrid.coordinator
+from meadowgrid.agent_creator import AgentCreatorType
 from meadowgrid.config import DEFAULT_COORDINATOR_HOST, DEFAULT_COORDINATOR_PORT
 
 
@@ -14,6 +15,7 @@ def main(
     host: Optional[str] = None,
     port: Optional[int] = None,
     meadowflow_address: Optional[str] = None,
+    agent_creator: AgentCreatorType = None,
 ) -> None:
     """A function for running a meadowgrid coordinator"""
 
@@ -24,7 +26,7 @@ def main(
 
     asyncio.run(
         meadowgrid.coordinator.start_meadowgrid_coordinator(
-            host, port, meadowflow_address
+            host, port, meadowflow_address, agent_creator
         )
     )
 
@@ -34,6 +36,7 @@ def main_in_child_process(
     host: Optional[str] = None,
     port: Optional[int] = None,
     meadowflow_address: Optional[str] = None,
+    agent_creator: AgentCreatorType = None,
 ) -> Iterator[Optional[int]]:
     """
     Launch server in a child process. Usually for unit tests. For debugging, it's better
@@ -42,7 +45,9 @@ def main_in_child_process(
     will just die immediately without doing anything.
     """
     ctx = multiprocessing.get_context("spawn")
-    server_process = ctx.Process(target=main, args=(host, port, meadowflow_address))
+    server_process = ctx.Process(
+        target=main, args=(host, port, meadowflow_address, agent_creator)
+    )
     server_process.start()
 
     try:
@@ -65,10 +70,11 @@ def command_line_main() -> None:
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--meadowflow-address")
+    parser.add_argument("--agent-creator", choices=["aws"])  # can also be None
 
     args = parser.parse_args()
 
-    main(args.host, args.port, args.meadowflow_address)
+    main(args.host, args.port, args.meadowflow_address, args.agent_creator)
 
 
 if __name__ == "__main__":

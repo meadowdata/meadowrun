@@ -27,6 +27,7 @@ DEFAULT_LOGICAL_CPU_REQUIRED = 1
 
 
 DEFAULT_PRIORITY = 100
+DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD = 15
 
 
 # names of environment variables to communicate with the child process
@@ -34,3 +35,7 @@ DEFAULT_PRIORITY = 100
 # Will be set in child processes launched by an agent, gives the pid of the agent that
 # launched the child process. Mostly for testing/debugging.
 MEADOWGRID_AGENT_PID = "MEADOWGRID_AGENT_PID"
+
+
+# specifies how often EC2 prices should get updated
+EC2_PRICES_UPDATE_SECS = 60 * 30  # 30 minutes

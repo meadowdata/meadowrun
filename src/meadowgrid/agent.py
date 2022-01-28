@@ -546,12 +546,13 @@ async def _launch_non_container_job(
     # directly
     env_vars["PYTHONPATH"] = os.pathsep.join(code_paths)
 
-    # We believe that interpreter_path can be one of two formats,
+    # On Windows, we believe that interpreter_path can be one of two formats,
     # python_or_venv_dir/python or python_or_venv_dir/Scripts/python. We need to add the
     # scripts directory to the path so that we can run executables as if we're "in the
-    # python environment".
+    # python environment". On Linux, there is no "Scripts" directory and everything is
+    # always available in the same directory as the python executable.
     interpreter_path = pathlib.Path(interpreter_path)
-    if interpreter_path.parent.name == "Scripts":
+    if interpreter_path.parent.name == "Scripts" or os.name != "nt":
         scripts_dir = str(interpreter_path.parent.resolve())
     else:
         scripts_dir = str((interpreter_path.parent / "Scripts").resolve())
@@ -905,7 +906,11 @@ async def _completed_job_state(
 
 
 async def agent_main_loop(
-    working_folder: str, available_resources: Dict[str, float], coordinator_address: str
+    working_folder: str,
+    available_resources: Dict[str, float],
+    coordinator_address: str,
+    agent_id: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> None:
     """The main loop for the agent"""
 
@@ -966,9 +971,10 @@ async def agent_main_loop(
 
     # register ourselves with the coordinator
 
-    agent_id = str(uuid.uuid4())
+    if not agent_id:
+        agent_id = str(uuid.uuid4())
     client = MeadowGridCoordinatorClientForWorkersAsync(coordinator_address)
-    await client.register_agent(agent_id, available_resources)
+    await client.register_agent(agent_id, available_resources, job_id)
 
     while True:
         # TODO a lot of try/catches needed here...
@@ -1018,7 +1024,7 @@ async def agent_main_loop(
         # now update the coordinator with the state updates we collected
 
         if job_state_updates:
-            await client.update_job_states(agent_id, job_state_updates)
+            await client.update_job_states(agent_id, job_id, job_state_updates)
 
         # now get more jobs
 
@@ -1026,7 +1032,7 @@ async def agent_main_loop(
         # this is just a little performance hack--we don't bother seeing if there are
         # new jobs for us # unless we have some memory and cpu remaining.
         if available_memory_gb > 0 and available_logical_cpu > 0:
-            next_jobs_response = await client.get_next_jobs(agent_id)
+            next_jobs_response = await client.get_next_jobs(agent_id, job_id)
             for job_to_run in next_jobs_response.jobs_to_run:
                 job = job_to_run.job
                 required_memory_gb: float = 0

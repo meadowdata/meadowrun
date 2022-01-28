@@ -3,15 +3,31 @@ from __future__ import annotations
 import json
 import pickle
 from types import TracebackType
-from typing import Iterable, Dict, Sequence, Tuple, Any, Optional, Literal, Type, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+)
 
 import grpc
 import grpc.aio
 
 from meadowgrid.config import (
     DEFAULT_COORDINATOR_ADDRESS,
+    DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,
+    DEFAULT_LOGICAL_CPU_REQUIRED,
+    DEFAULT_MEMORY_GB_REQUIRED,
     DEFAULT_PRIORITY,
     JOB_ID_VALID_CHARACTERS,
+    LOGICAL_CPU,
+    MEMORY_GB,
 )
 from meadowgrid.credentials import CredentialsSource, CredentialsService
 from meadowgrid.deployed_function import (
@@ -41,6 +57,8 @@ from meadowgrid.meadowgrid_pb2 import (
     GridTaskStateResponse,
     GridTaskStatesRequest,
     GridTaskUpdateAndGetNextRequest,
+    HealthCheckRequest,
+    HealthCheckResponse,
     Job,
     JobStateUpdate,
     JobStateUpdates,
@@ -53,6 +71,7 @@ from meadowgrid.meadowgrid_pb2 import (
     PyGridJob,
     QualifiedFunctionName,
     RegisterAgentRequest,
+    Resource,
     ServerAvailableContainer,
     ServerAvailableFile,
     ServerAvailableFolder,
@@ -60,10 +79,6 @@ from meadowgrid.meadowgrid_pb2 import (
     StringPair,
 )
 from meadowgrid.meadowgrid_pb2_grpc import MeadowGridCoordinatorStub
-from meadowgrid.resource_allocation import (
-    construct_resources_protobuf,
-    construct_resources_required_protobuf,
-)
 
 # make this enum available for users
 ProcessStateEnum = ProcessState.ProcessStateEnum
@@ -249,6 +264,7 @@ def _create_py_grid_job(
     tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
     all_tasks_added: bool,
     priority: float,
+    interruption_probability_threshold: float,
     resources_required_per_task: Optional[Dict[str, float]],
 ) -> Job:
     if not isinstance(deployed_function.runnable, MeadowGridFunction):
@@ -259,6 +275,7 @@ def _create_py_grid_job(
         job_id=_make_valid_job_id(job_id),
         job_friendly_name=_make_valid_job_id(job_friendly_name),
         priority=priority,
+        interruption_probability_threshold=interruption_probability_threshold,
         environment_variables=_string_pairs_from_dict(
             deployed_function.environment_variables
         ),
@@ -357,6 +374,34 @@ def _grpc_retry_option(
     return ("grpc.service_config", json_config)
 
 
+def construct_resources_required_protobuf(
+    resources: Optional[Dict[str, float]]
+) -> Sequence[Resource]:
+    """
+    If resources is None, provides the defaults for resources required. If resources is
+    not None, adds in the default resources if necessary. This means for default
+    resources like LOGICAL_CPU and MEMORY_GB, the only way to "opt-out" of these
+    resources is to explicitly set them to zero. Requiring zero of a resource is treated
+    the same as not requiring that resource at all.
+
+    "Opposite" of Resources.from_protobuf
+    """
+    if resources is None:
+        resources = {}
+
+    result = construct_resources_protobuf(resources)
+    if MEMORY_GB not in resources:
+        result.append(Resource(name=MEMORY_GB, value=DEFAULT_MEMORY_GB_REQUIRED))
+    if LOGICAL_CPU not in resources:
+        result.append(Resource(name=LOGICAL_CPU, value=DEFAULT_LOGICAL_CPU_REQUIRED))
+    return result
+
+
+def construct_resources_protobuf(resources: Dict[str, float]) -> List[Resource]:
+    """Small helper for constructing a sequence of Resource"""
+    return [Resource(name=name, value=value) for name, value in resources.items()]
+
+
 class MeadowGridCoordinatorClientAsync:
     """
     A client for MeadowGridCoordinator for "users" of the system. Effectively allows
@@ -411,6 +456,7 @@ class MeadowGridCoordinatorClientAsync:
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: float = DEFAULT_PRIORITY,
+        interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
         resources_required_per_task: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
         """
@@ -432,6 +478,7 @@ class MeadowGridCoordinatorClientAsync:
                     tasks,
                     all_tasks_added,
                     priority,
+                    interruption_probability_threshold,
                     resources_required_per_task,
                 )
             )
@@ -508,6 +555,11 @@ class MeadowGridCoordinatorClientAsync:
     async def get_agent_states(self) -> Sequence[AgentStateResponse]:
         return (await self._stub.get_agent_states(AgentStatesRequest())).agents
 
+    async def check(self) -> bool:
+        return (
+            await self._stub.Check(HealthCheckRequest())
+        ).status == HealthCheckResponse.ServingStatus.SERVING
+
     async def __aenter__(self) -> MeadowGridCoordinatorClientAsync:
         await self._channel.__aenter__()
         return self
@@ -562,6 +614,7 @@ class MeadowGridCoordinatorClientSync:
         tasks: Sequence[Tuple[int, Sequence[Any], Dict[str, Any]]],
         all_tasks_added: bool,
         priority: float = DEFAULT_PRIORITY,
+        interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
         resources_required_per_task: Optional[Dict[str, float]] = None,
     ) -> AddJobState:
         return _add_job_state_string(
@@ -573,6 +626,7 @@ class MeadowGridCoordinatorClientSync:
                     tasks,
                     all_tasks_added,
                     priority,
+                    interruption_probability_threshold,
                     resources_required_per_task,
                 )
             )
@@ -614,6 +668,12 @@ class MeadowGridCoordinatorClientSync:
     def get_agent_states(self) -> Sequence[AgentStateResponse]:
         return self._stub.get_agent_states(AgentStatesRequest()).agents
 
+    def check(self) -> bool:
+        return (
+            self._stub.Check(HealthCheckRequest()).status
+            == HealthCheckResponse.ServingStatus.SERVING
+        )
+
     def __enter__(self) -> MeadowGridCoordinatorClientSync:
         self._channel.__enter__()
         return self
@@ -640,30 +700,45 @@ class MeadowGridCoordinatorClientForWorkersAsync:
         )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    async def register_agent(self, agent_id: str, resources: Dict[str, float]) -> None:
+    async def register_agent(
+        self, agent_id: str, resources: Dict[str, float], job_id: Optional[str]
+    ) -> None:
         """Registers an agent with the coordinator"""
         await self._stub.register_agent(
             RegisterAgentRequest(
-                agent_id=agent_id, resources=construct_resources_protobuf(resources)
+                agent_id=agent_id,
+                resources=construct_resources_protobuf(resources),
+                job_id=job_id or "",
             )
         )
 
     async def update_job_states(
-        self, agent_id: str, job_states: Iterable[JobStateUpdate]
+        self,
+        agent_id: str,
+        agent_job_id: Optional[str],
+        job_states: Iterable[JobStateUpdate],
     ) -> None:
         """
         Updates the coordinator that the specified jobs have entered the specified
         state.
         """
         await self._stub.update_job_states(
-            JobStateUpdates(agent_id=agent_id, job_states=job_states)
+            JobStateUpdates(
+                agent_id=agent_id,
+                agent_job_id=agent_job_id or "",
+                job_states=job_states,
+            )
         )
 
-    async def get_next_jobs(self, agent_id: str) -> NextJobsResponse:
+    async def get_next_jobs(
+        self, agent_id: str, job_id: Optional[str]
+    ) -> NextJobsResponse:
         """
         Gets the jobs that the current agent should work on.
         """
-        return await self._stub.get_next_jobs(NextJobsRequest(agent_id=agent_id))
+        return await self._stub.get_next_jobs(
+            NextJobsRequest(agent_id=agent_id, job_id=job_id or "")
+        )
 
     async def update_grid_task_state_and_get_next(
         self,
@@ -723,22 +798,35 @@ class MeadowGridCoordinatorClientForWorkersSync:
         )
         self._stub = MeadowGridCoordinatorStub(self._channel)
 
-    def register_agent(self, agent_id: str, resources: Dict[str, float]) -> None:
+    def register_agent(
+        self, agent_id: str, resources: Dict[str, float], job_id: Optional[str]
+    ) -> None:
         self._stub.register_agent(
             RegisterAgentRequest(
-                agent_id=agent_id, resources=construct_resources_protobuf(resources)
+                agent_id=agent_id,
+                resources=construct_resources_protobuf(resources),
+                job_id=job_id or "",
             )
         )
 
     def update_job_states(
-        self, agent_id: str, job_states: Iterable[JobStateUpdate]
+        self,
+        agent_id: str,
+        agent_job_id: Optional[str],
+        job_states: Iterable[JobStateUpdate],
     ) -> None:
         self._stub.update_job_states(
-            JobStateUpdates(agent_id=agent_id, job_states=job_states)
+            JobStateUpdates(
+                agent_id=agent_id,
+                agent_job_id=agent_job_id or "",
+                job_states=job_states,
+            )
         )
 
-    def get_next_jobs(self, agent_id: str) -> NextJobsResponse:
-        return self._stub.get_next_jobs(NextJobsRequest(agent_id=agent_id))
+    def get_next_jobs(self, agent_id: str, job_id: Optional[str]) -> NextJobsResponse:
+        return self._stub.get_next_jobs(
+            NextJobsRequest(agent_id=agent_id, job_id=job_id or "")
+        )
 
     def update_grid_task_state_and_get_next(
         self,

@@ -64,6 +64,11 @@ class MeadowGridCoordinatorStub(object):
             request_serializer=meadowgrid_dot_meadowgrid__pb2.GridTaskUpdateAndGetNextRequest.SerializeToString,
             response_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTask.FromString,
         )
+        self.Check = channel.unary_unary(
+            "/meadowgrid.MeadowGridCoordinator/Check",
+            request_serializer=meadowgrid_dot_meadowgrid__pb2.HealthCheckRequest.SerializeToString,
+            response_deserializer=meadowgrid_dot_meadowgrid__pb2.HealthCheckResponse.FromString,
+        )
 
 
 class MeadowGridCoordinatorServicer(object):
@@ -129,6 +134,12 @@ class MeadowGridCoordinatorServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def Check(self, request, context):
+        """per convention: https://github.com/grpc/grpc/blob/master/doc/health-checking.md"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -181,6 +192,11 @@ def add_MeadowGridCoordinatorServicer_to_server(servicer, server):
             servicer.update_grid_task_state_and_get_next,
             request_deserializer=meadowgrid_dot_meadowgrid__pb2.GridTaskUpdateAndGetNextRequest.FromString,
             response_serializer=meadowgrid_dot_meadowgrid__pb2.GridTask.SerializeToString,
+        ),
+        "Check": grpc.unary_unary_rpc_method_handler(
+            servicer.Check,
+            request_deserializer=meadowgrid_dot_meadowgrid__pb2.HealthCheckRequest.FromString,
+            response_serializer=meadowgrid_dot_meadowgrid__pb2.HealthCheckResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -473,6 +489,35 @@ class MeadowGridCoordinator(object):
             "/meadowgrid.MeadowGridCoordinator/update_grid_task_state_and_get_next",
             meadowgrid_dot_meadowgrid__pb2.GridTaskUpdateAndGetNextRequest.SerializeToString,
             meadowgrid_dot_meadowgrid__pb2.GridTask.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
+    def Check(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/meadowgrid.MeadowGridCoordinator/Check",
+            meadowgrid_dot_meadowgrid__pb2.HealthCheckRequest.SerializeToString,
+            meadowgrid_dot_meadowgrid__pb2.HealthCheckResponse.FromString,
             options,
             channel_credentials,
             insecure,

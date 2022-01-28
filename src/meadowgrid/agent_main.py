@@ -16,6 +16,8 @@ def main(
     available_resources: Optional[Dict[str, float]] = None,
     coordinator_host: Optional[str] = None,
     coordinator_port: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> None:
     if working_folder is None:
         # figure out the default working_folder based on the OS
@@ -40,6 +42,8 @@ def main(
             working_folder,
             available_resources,
             f"{coordinator_host}:{coordinator_port}",
+            agent_id,
+            job_id,
         )
     )
 
@@ -50,6 +54,8 @@ def main_in_child_process(
     available_resources: Optional[Dict[str, float]] = None,
     coordinator_host: Optional[str] = None,
     coordinator_port: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> Iterator[Optional[int]]:
     """
     Launch agent in a child process. Usually for unit tests. For debugging, it's better
@@ -60,7 +66,14 @@ def main_in_child_process(
     ctx = multiprocessing.get_context("spawn")
     server_process = ctx.Process(
         target=main,
-        args=(working_folder, available_resources, coordinator_host, coordinator_port),
+        args=(
+            working_folder,
+            available_resources,
+            coordinator_host,
+            coordinator_port,
+            agent_id,
+            job_id,
+        ),
     )
     server_process.start()
 
@@ -87,6 +100,11 @@ def command_line_main() -> None:
     )
     parser.add_argument("--coordinator-host")
     parser.add_argument("--coordinator-port")
+    # agent-id is optional, if it's not provided, the agent will create its own id
+    parser.add_argument("--agent-id")
+    # If job-id is provided, this agent will only run the specified job. Otherwise, the
+    # agent will be a "generic" agent that can run any type of job.
+    parser.add_argument("--job-id")
 
     args = parser.parse_args()
 
@@ -107,6 +125,8 @@ def command_line_main() -> None:
         available_resources,
         args.coordinator_host,
         args.coordinator_port,
+        args.agent_id,
+        args.job_id,
     )
 
 

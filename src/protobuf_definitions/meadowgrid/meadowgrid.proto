@@ -165,41 +165,48 @@ message Job {
     // resources will be dedicated to this job.
     float priority = 3;
 
+    // If we need create job-specific agents for this job, this will sets what
+    // probability of interruption is acceptable, which drives which spot instance types
+    // if any. This should be a percentage, so 0 means spot instances are not
+    // acceptable, and 50 means only spot instances that have <50% chance of being
+    // interrupted are acceptable.
+    float interruption_probability_threshold = 4;
+
     oneof code_deployment {
-        ServerAvailableFolder server_available_folder = 4;
-        GitRepoCommit git_repo_commit = 5;
-        GitRepoBranch git_repo_branch = 6;
+        ServerAvailableFolder server_available_folder = 5;
+        GitRepoCommit git_repo_commit = 6;
+        GitRepoBranch git_repo_branch = 7;
     }
     oneof interpreter_deployment {
-        ServerAvailableInterpreter server_available_interpreter = 7;
+        ServerAvailableInterpreter server_available_interpreter = 8;
 
         // The container specified should be such that running `docker run
         // [repository]@[digest] python --version` works. Currently only works with
         // Linux containers. If code_deployment specifies any code folders, they will be
         // mounted in the container as /meadowgrid/code0, /meadowgrid/code1, etc.
-        ContainerAtDigest container_at_digest = 8;
-        ContainerAtTag container_at_tag = 9;
+        ContainerAtDigest container_at_digest = 9;
+        ContainerAtTag container_at_tag = 10;
 
-        ServerAvailableContainer server_available_container = 10;
+        ServerAvailableContainer server_available_container = 11;
 
         // TODO add requirements_in_code, or conda_environment_yml_in_code etc.
     }
 
-    repeated StringPair environment_variables = 11;
+    repeated StringPair environment_variables = 12;
 
     // result_highest_pickle_protocol tells the remote code what the highest pickle
     // protocol we can read on this end is which will help it determine what pickle
     // protocol to use to send back results. This should almost always be set to
     // pickle.HIGHEST_PROTOCOL in the calling python process
-    int32 result_highest_pickle_protocol = 12;
+    int32 result_highest_pickle_protocol = 13;
 
-    repeated Resource resources_required = 13;
+    repeated Resource resources_required = 14;
 
     // determines what kind of job this is
     oneof job_spec {
-        PyCommandJob py_command = 14;
-        PyFunctionJob py_function = 15;
-        PyGridJob py_grid = 16;
+        PyCommandJob py_command = 15;
+        PyFunctionJob py_function = 16;
+        PyGridJob py_grid = 17;
     }
 }
 
@@ -219,6 +226,8 @@ message RegisterAgentRequest {
     string agent_id = 1;
     // The resources available on the agent
     repeated Resource resources = 2;
+    // Will be empty for generic agents, populated for job-specific agents
+    string job_id = 3;
 }
 
 
@@ -228,6 +237,8 @@ message RegisterAgentResponse {
 
 message NextJobsRequest {
     string agent_id = 1;
+    // Will be empty for generic agents, populated for job-specific agents
+    string job_id = 2;
 }
 
 
@@ -335,7 +346,9 @@ message JobStateUpdate {
 // For updating the states of jobs
 message JobStateUpdates {
     string agent_id = 1;
-    repeated JobStateUpdate job_states = 2;
+    // Will be empty for generic agents, populated for job-specific agents
+    string agent_job_id = 2;
+    repeated JobStateUpdate job_states = 3;
 }
 
 
@@ -444,12 +457,29 @@ message AgentStatesResponse {
     repeated AgentStateResponse agents = 1;
 }
 
+
 message AgentStateResponse {
     string agent_id = 1;
     repeated Resource total_resources = 2;
     repeated Resource available_resources = 3;
 
     // TODO we will want to include more information eventually
+}
+
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;  // Used only by the Watch method.
+  }
+  ServingStatus status = 1;
 }
 
 
@@ -476,4 +506,7 @@ service MeadowGridCoordinator {
 
     // this can only get tasks from the same job
     rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
+
+    // per convention: https://github.com/grpc/grpc/blob/master/doc/health-checking.md
+    rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
 }

@@ -3,10 +3,13 @@ from __future__ import annotations
 import itertools
 import pickle
 import traceback
-from typing import Dict, Iterable, Optional, Tuple, List
+from types import TracebackType
+from typing import Dict, Iterable, Optional, Tuple, List, Type, Generator, Any
 
 import grpc.aio
 
+from meadowgrid.agent_creator import AgentCreatorType, AgentCreator
+from meadowgrid.aws_integration import AwsAgentCreator
 from meadowgrid.config import JOB_ID_VALID_CHARACTERS
 from meadowgrid.credentials import (
     CredentialsDict,
@@ -17,6 +20,7 @@ from meadowgrid.deployed_function import (
     get_latest_code_version,
     get_latest_interpreter_version,
 )
+from meadowgrid.local_agent_creator import LocalAgentCreator
 from meadowgrid.meadowgrid_pb2 import (
     AddCredentialsRequest,
     AddCredentialsResponse,
@@ -31,6 +35,8 @@ from meadowgrid.meadowgrid_pb2 import (
     GridTaskStatesRequest,
     GridTaskStatesResponse,
     GridTaskUpdateAndGetNextRequest,
+    HealthCheckRequest,
+    HealthCheckResponse,
     Job,
     JobStateUpdates,
     JobStatesRequest,
@@ -49,14 +55,15 @@ from meadowgrid.meadowgrid_pb2_grpc import (
 )
 from meadowgrid.resource_allocation import (
     AgentState,
+    GenericAgentState,
     GridJobState,
     GridTaskState,
+    JobSpecificAgentState,
     JobState,
     Resources,
     SimpleJobState,
-    agent_available_resources_changed,
     assign_task_to_grid_worker,
-    get_pending_workers_for_agent,
+    agent_available_resources_changed,
     job_num_workers_needed_changed,
     update_grid_job_state,
     update_simple_job_state,
@@ -115,7 +122,10 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     #  each function will always run without interruption. We might need a different
     #  model for improved performance at some point.
 
-    def __init__(self) -> None:
+    def __init__(self, agent_creator_type: AgentCreatorType) -> None:
+        self._awaited = False
+        self._agent_creator_type = agent_creator_type
+
         # maps job_id -> _GridJob
         self._grid_jobs: Dict[str, GridJobState] = {}
         # maps job_id -> _SimpleJob
@@ -124,10 +134,40 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         # TODO at some point we should remove completed and queried grid jobs from these
         #  lists
 
-        self._agents: Dict[str, AgentState] = {}
+        self._generic_agents: Dict[str, GenericAgentState] = {}
 
         # maps service -> (service_url, credentials)
         self._credentials_dict: CredentialsDict = {}
+
+    async def __aenter__(self) -> MeadowGridCoordinatorHandler:
+        if self._awaited:
+            return self
+
+        if self._agent_creator_type == "aws":
+            self._agent_creator: Optional[AgentCreator] = await AwsAgentCreator(None)
+        elif self._agent_creator_type == "local":
+            self._agent_creator = await LocalAgentCreator()
+        elif self._agent_creator_type is None:
+            self._agent_creator = None
+        else:
+            raise ValueError(f"Invalid agent_creator_type {self._agent_creator_type}")
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
+        await self.close()
+
+    def __await__(self) -> Generator[Any, None, MeadowGridCoordinatorHandler]:
+        return self.__aenter__().__await__()
+
+    async def close(self) -> None:
+        if self._agent_creator is not None:
+            await self._agent_creator.close()
 
     async def _resolve_deployments(self, job: Job) -> None:
         """
@@ -222,7 +262,9 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             raise ValueError(f"Unknown job_spec {job_spec}")
 
         # TODO this shouldn't really block responding to the client
-        job_num_workers_needed_changed(job, list(self._agents.values()))
+        await job_num_workers_needed_changed(
+            job, list(self._generic_agents.values()), self._agent_creator
+        )
 
         return AddJobResponse(state=AddJobResponse.AddJobState.ADDED)
 
@@ -241,7 +283,9 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
             job.all_tasks_added = True
 
         # TODO this shouldn't really block responding to the client
-        job_num_workers_needed_changed(job, list(self._agents.values()))
+        await job_num_workers_needed_changed(
+            job, list(self._generic_agents.values()), self._agent_creator
+        )
 
         return AddJobResponse()
 
@@ -254,7 +298,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
     async def update_job_states(  # type: ignore[override]
         self, request: JobStateUpdates, context: grpc.aio.ServicerContext
     ) -> UpdateStateResponse:
-        agent = self._agents[request.agent_id]
+        agent = self._get_agent_state(request.agent_id, request.agent_job_id)
         any_available_resources_changed = False
         for job_state in request.job_states:
             available_resources_changed = False
@@ -291,7 +335,13 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         # find new jobs for this agent if we have resources for it
         if any_available_resources_changed:
-            agent_available_resources_changed(agent, self._all_jobs())
+            if isinstance(agent, GenericAgentState):
+                jobs = self._all_jobs()
+            elif isinstance(agent, JobSpecificAgentState):
+                jobs = [agent.job]
+            else:
+                raise ValueError(f"Unexpected type of AgentState {type(agent)}")
+            agent_available_resources_changed(agent, jobs)
 
         return UpdateStateResponse()
 
@@ -341,21 +391,65 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
 
         return code_deployment_credentials, interpreter_deployment_credentials
 
+    def _get_agent_state(self, agent_id: str, job_id: Optional[str]) -> AgentState:
+        """Gets the AgentState object representing the specified agent"""
+        if job_id:
+            return self._get_job_specific_agent_state(agent_id, job_id)
+        else:
+            return self._generic_agents[agent_id]
+
+    def _get_job_specific_agent_state(
+        self, agent_id: str, job_id: str
+    ) -> JobSpecificAgentState:
+        """JobSpecificAgentStates are stored on the relevant Job"""
+
+        job: Optional[JobState]
+        if job_id in self._simple_jobs:
+            job = self._simple_jobs[job_id]
+        elif job_id in self._grid_jobs:
+            job = self._grid_jobs[job_id]
+        else:
+            raise ValueError(
+                f"While looking for job-specific agent {agent_id}, job_id {job_id} was "
+                f"not found"
+            )
+
+        if agent_id not in job.job_specific_agents:
+            raise ValueError(
+                f"Job-specific agent {agent_id} does not exist for job {job_id}"
+            )
+
+        return job.job_specific_agents[agent_id]
+
     async def register_agent(  # type: ignore[override]
         self, request: RegisterAgentRequest, context: grpc.aio.ServicerContext
     ) -> RegisterAgentResponse:
         if not request.agent_id:
             raise ValueError("agent_id must be non-None and non-empty")
 
-        if request.agent_id in self._agents:
-            raise ValueError(f"agent_id {request.agent_id} already exists")
+        if request.job_id:
+            # job specific agent
+            self._get_job_specific_agent_state(
+                request.agent_id, request.job_id
+            ).has_registered = True
 
-        resources = Resources.from_protobuf(request.resources)
-        agent = AgentState(request.agent_id, resources, {}, resources)
-        self._agents[request.agent_id] = agent
+            # no need to call something like agent_available_resources_changed--workers
+            # should have already been assigned to this agent when we decided to create
+            # it
 
-        # give jobs to this agent if appropriate
-        agent_available_resources_changed(agent, self._all_jobs())
+            # TODO should maybe reconcile request.resources against the existing
+            # JobSpecificAgentState.total_resources
+        else:
+            # generic agent
+            if request.agent_id in self._generic_agents:
+                raise ValueError(f"agent_id {request.agent_id} already exists")
+
+            resources = Resources.from_protobuf(request.resources)
+            agent = GenericAgentState(request.agent_id, resources, resources)
+            self._generic_agents[request.agent_id] = agent
+
+            # give jobs to this agent if appropriate
+            agent_available_resources_changed(agent, self._all_jobs())
 
         return RegisterAgentResponse()
 
@@ -364,6 +458,7 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         request: AgentStatesRequest,
         context: grpc.ServicerContext,
     ) -> AgentStatesResponse:
+        # TODO currently only returns generic agents
         return AgentStatesResponse(
             agents=[
                 AgentStateResponse(
@@ -371,17 +466,17 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
                     total_resources=agent.total_resources.to_protobuf(),
                     available_resources=agent.available_resources.to_protobuf(),
                 )
-                for agent in self._agents.values()
+                for agent in self._generic_agents.values()
             ]
         )
 
     async def get_next_jobs(  # type: ignore[override]
         self, request: NextJobsRequest, context: grpc.aio.ServicerContext
     ) -> NextJobsResponse:
-        agent = self._agents[request.agent_id]
+        agent = self._get_agent_state(request.agent_id, request.job_id)
 
         results = []
-        for job, grid_worker_id in get_pending_workers_for_agent(agent):
+        for job, grid_worker_id in agent.get_pending_workers():
             (
                 code_deployment_credentials,
                 interpreter_deployment_credentials,
@@ -500,9 +595,20 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         )
         return AddCredentialsResponse()
 
+    async def Check(  # type: ignore[override]
+        self, request: HealthCheckRequest, context: grpc.aio.ServicerContext
+    ) -> HealthCheckResponse:
+        if not request.service:
+            return HealthCheckResponse(status=HealthCheckResponse.ServingStatus.SERVING)
+        else:
+            return HealthCheckResponse(status=HealthCheckResponse.ServingStatus.UNKNOWN)
+
 
 async def start_meadowgrid_coordinator(
-    host: str, port: int, meadowflow_address: Optional[str]
+    host: str,
+    port: int,
+    meadowflow_address: Optional[str],
+    agent_creator: AgentCreatorType,
 ) -> None:
     """
     Runs the meadowgrid coordinator server.
@@ -512,25 +618,26 @@ async def start_meadowgrid_coordinator(
     """
 
     server = grpc.aio.server()
-    add_MeadowGridCoordinatorServicer_to_server(MeadowGridCoordinatorHandler(), server)
-    address = f"{host}:{port}"
-    server.add_insecure_port(address)
-    await server.start()
+    async with MeadowGridCoordinatorHandler(agent_creator) as handler:
+        add_MeadowGridCoordinatorServicer_to_server(handler, server)
+        address = f"{host}:{port}"
+        server.add_insecure_port(address)
+        await server.start()
 
-    if meadowflow_address is not None:
-        # TODO this is a little weird that we're taking a dependency on the meadowflow
-        #  code
-        import meadowflow.server.client
+        if meadowflow_address is not None:
+            # TODO this is a little weird that we're taking a dependency on the
+            # meadowflow code
+            import meadowflow.server.client
 
-        async with meadowflow.server.client.MeadowFlowClientAsync(
-            meadowflow_address
-        ) as c:
-            await c.register_job_runner("meadowgrid", address)
+            async with meadowflow.server.client.MeadowFlowClientAsync(
+                meadowflow_address
+            ) as c:
+                await c.register_job_runner("meadowgrid", address)
 
-    try:
-        await server.wait_for_termination()
-    finally:
-        # Shuts down the server with 5 seconds of grace period. During the grace period,
-        # the server won't accept new connections and allow existing RPCs to continue
-        # within the grace period.
-        await server.stop(5)
+        try:
+            await server.wait_for_termination()
+        finally:
+            # Shuts down the server with 5 seconds of grace period. During the grace
+            # period, the server won't accept new connections and allow existing RPCs to
+            # continue within the grace period.
+            await server.stop(5)

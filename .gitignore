@@ -9,3 +9,6 @@ __pycache__
 
 # personal vscode settings
 .vscode/settings.json
+
+# test data
+/test_data/

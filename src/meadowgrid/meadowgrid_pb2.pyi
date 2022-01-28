@@ -470,6 +470,7 @@ class Job(google.protobuf.message.Message):
     JOB_ID_FIELD_NUMBER: builtins.int
     JOB_FRIENDLY_NAME_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
+    INTERRUPTION_PROBABILITY_THRESHOLD_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FOLDER_FIELD_NUMBER: builtins.int
     GIT_REPO_COMMIT_FIELD_NUMBER: builtins.int
     GIT_REPO_BRANCH_FIELD_NUMBER: builtins.int
@@ -499,6 +500,9 @@ class Job(google.protobuf.message.Message):
     e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowgrid compute
     resources will be dedicated to this job.
     """
+
+    interruption_probability_threshold: builtins.float = ...
+    """TODO IMMEDIATE write comment"""
     @property
     def server_available_folder(self) -> global___ServerAvailableFolder: ...
     @property
@@ -549,6 +553,7 @@ class Job(google.protobuf.message.Message):
         job_id: typing.Text = ...,
         job_friendly_name: typing.Text = ...,
         priority: builtins.float = ...,
+        interruption_probability_threshold: builtins.float = ...,
         server_available_folder: typing.Optional[global___ServerAvailableFolder] = ...,
         git_repo_commit: typing.Optional[global___GitRepoCommit] = ...,
         git_repo_branch: typing.Optional[global___GitRepoBranch] = ...,
@@ -617,6 +622,8 @@ class Job(google.protobuf.message.Message):
             b"git_repo_commit",
             "interpreter_deployment",
             b"interpreter_deployment",
+            "interruption_probability_threshold",
+            b"interruption_probability_threshold",
             "job_friendly_name",
             b"job_friendly_name",
             "job_id",
@@ -713,6 +720,7 @@ class RegisterAgentRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     AGENT_ID_FIELD_NUMBER: builtins.int
     RESOURCES_FIELD_NUMBER: builtins.int
+    JOB_ID_FIELD_NUMBER: builtins.int
     agent_id: typing.Text = ...
     """The id of the agent that's registering itself"""
     @property
@@ -723,16 +731,19 @@ class RegisterAgentRequest(google.protobuf.message.Message):
     ]:
         """The resources available on the agent"""
         pass
+    job_id: typing.Text = ...
+    """TODO explain"""
     def __init__(
         self,
         *,
         agent_id: typing.Text = ...,
         resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
+        job_id: typing.Text = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "agent_id", b"agent_id", "resources", b"resources"
+            "agent_id", b"agent_id", "job_id", b"job_id", "resources", b"resources"
         ],
     ) -> None: ...
 
@@ -749,14 +760,21 @@ global___RegisterAgentResponse = RegisterAgentResponse
 class NextJobsRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     AGENT_ID_FIELD_NUMBER: builtins.int
+    JOB_ID_FIELD_NUMBER: builtins.int
     agent_id: typing.Text = ...
+    job_id: typing.Text = ...
+    """TODO explain. Only for job-specific agents"""
     def __init__(
         self,
         *,
         agent_id: typing.Text = ...,
+        job_id: typing.Text = ...,
     ) -> None: ...
     def ClearField(
-        self, field_name: typing_extensions.Literal["agent_id", b"agent_id"]
+        self,
+        field_name: typing_extensions.Literal[
+            "agent_id", b"agent_id", "job_id", b"job_id"
+        ],
     ) -> None: ...
 
 global___NextJobsRequest = NextJobsRequest
@@ -1102,8 +1120,10 @@ class JobStateUpdates(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
     AGENT_ID_FIELD_NUMBER: builtins.int
+    AGENT_JOB_ID_FIELD_NUMBER: builtins.int
     JOB_STATES_FIELD_NUMBER: builtins.int
     agent_id: typing.Text = ...
+    agent_job_id: typing.Text = ...
     @property
     def job_states(
         self,
@@ -1114,12 +1134,18 @@ class JobStateUpdates(google.protobuf.message.Message):
         self,
         *,
         agent_id: typing.Text = ...,
+        agent_job_id: typing.Text = ...,
         job_states: typing.Optional[typing.Iterable[global___JobStateUpdate]] = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "agent_id", b"agent_id", "job_states", b"job_states"
+            "agent_id",
+            b"agent_id",
+            "agent_job_id",
+            b"agent_job_id",
+            "job_states",
+            b"job_states",
         ],
     ) -> None: ...
 
@@ -1499,3 +1525,56 @@ class AgentStateResponse(google.protobuf.message.Message):
     ) -> None: ...
 
 global___AgentStateResponse = AgentStateResponse
+
+class HealthCheckRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    SERVICE_FIELD_NUMBER: builtins.int
+    service: typing.Text = ...
+    def __init__(
+        self,
+        *,
+        service: typing.Text = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["service", b"service"]
+    ) -> None: ...
+
+global___HealthCheckRequest = HealthCheckRequest
+
+class HealthCheckResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    class _ServingStatus:
+        ValueType = typing.NewType("ValueType", builtins.int)
+        V: typing_extensions.TypeAlias = ValueType
+    class _ServingStatusEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            _ServingStatus.ValueType
+        ],
+        builtins.type,
+    ):
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
+        UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 0
+        SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 1
+        NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 2
+        SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 3
+        """Used only by the Watch method."""
+    class ServingStatus(_ServingStatus, metaclass=_ServingStatusEnumTypeWrapper):
+        pass
+    UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 0
+    SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 1
+    NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 2
+    SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 3
+    """Used only by the Watch method."""
+
+    STATUS_FIELD_NUMBER: builtins.int
+    status: global___HealthCheckResponse.ServingStatus.ValueType = ...
+    def __init__(
+        self,
+        *,
+        status: global___HealthCheckResponse.ServingStatus.ValueType = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["status", b"status"]
+    ) -> None: ...
+
+global___HealthCheckResponse = HealthCheckResponse

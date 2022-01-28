@@ -1,6 +1,0 @@
-# This folder will be used by the meadowrun unit tests.
-
-# Ignore everything in this directory
-*
-# Except this file
-!.gitignore

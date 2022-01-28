@@ -24,6 +24,7 @@ from meadowgrid.config import (
     DEFAULT_COORDINATOR_HOST,
     DEFAULT_COORDINATOR_PORT,
     DEFAULT_PRIORITY,
+    DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,
 )
 from meadowgrid.coordinator_client import (
     MeadowGridCoordinatorClientAsync,
@@ -100,6 +101,7 @@ def grid_map(
     code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
     resources_required_per_task: Optional[Dict[str, float]] = None,
     priority: float = DEFAULT_PRIORITY,
+    interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,
     coordinator_port: int = DEFAULT_COORDINATOR_PORT,
 ) -> Sequence[_U]:
@@ -140,6 +142,7 @@ def grid_map(
         arg_tuples,
         True,
         priority,
+        interruption_probability_threshold,
         resources_required_per_task,
     )
 
@@ -202,6 +205,7 @@ async def grid_map_async(
     code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
     resources_required_per_task: Optional[Dict[str, float]] = None,
     priority: float = DEFAULT_PRIORITY,
+    interruption_probability_threshold: float = DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD,  # noqa: E501
     coordinator_host: str = DEFAULT_COORDINATOR_HOST,
     coordinator_port: int = DEFAULT_COORDINATOR_PORT,
 ) -> Sequence[Awaitable[_U]]:
@@ -237,6 +241,7 @@ async def grid_map_async(
         tuple_args,
         True,
         priority,
+        interruption_probability_threshold,
         resources_required_per_task,
     )
 

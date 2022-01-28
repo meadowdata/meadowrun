@@ -63,6 +63,12 @@ class MeadowGridCoordinatorStub:
     ] = ...
     """this can only get tasks from the same job"""
 
+    Check: grpc.UnaryUnaryMultiCallable[
+        meadowgrid.meadowgrid_pb2.HealthCheckRequest,
+        meadowgrid.meadowgrid_pb2.HealthCheckResponse,
+    ] = ...
+    """per convention: https://github.com/grpc/grpc/blob/master/doc/health-checking.md"""
+
 class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
     """client functions"""
 
@@ -129,6 +135,14 @@ class MeadowGridCoordinatorServicer(metaclass=abc.ABCMeta):
         context: grpc.ServicerContext,
     ) -> meadowgrid.meadowgrid_pb2.GridTask:
         """this can only get tasks from the same job"""
+        pass
+    @abc.abstractmethod
+    def Check(
+        self,
+        request: meadowgrid.meadowgrid_pb2.HealthCheckRequest,
+        context: grpc.ServicerContext,
+    ) -> meadowgrid.meadowgrid_pb2.HealthCheckResponse:
+        """per convention: https://github.com/grpc/grpc/blob/master/doc/health-checking.md"""
         pass
 
 def add_MeadowGridCoordinatorServicer_to_server(

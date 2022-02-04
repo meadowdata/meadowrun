@@ -225,18 +225,15 @@ async def _test_time_event_publisher_time_of_day():
         tz_nz = pytz.timezone("Pacific/Auckland")
 
         now = meadowflow.time_event_publisher._utc_now()
-        now_rounded = (
-            datetime.datetime(
-                year=now.year,
-                month=now.month,
-                day=now.day,
-                hour=now.hour,
-                minute=now.minute,
-                second=now.second,
-                tzinfo=now.tzinfo,
-            )
-            + datetime.timedelta(seconds=1)
-        )
+        now_rounded = datetime.datetime(
+            year=now.year,
+            month=now.month,
+            day=now.day,
+            hour=now.hour,
+            minute=now.minute,
+            second=now.second,
+            tzinfo=now.tzinfo,
+        ) + datetime.timedelta(seconds=1)
 
         # this should make sure we're very close to now_rounded and possibly a little
         # bit after it

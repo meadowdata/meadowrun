@@ -684,9 +684,11 @@ global___Job = Job
 
 class AddJobResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+
     class _AddJobState:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
+
     class _AddJobStateEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
             _AddJobState.ValueType
@@ -697,6 +699,7 @@ class AddJobResponse(google.protobuf.message.Message):
         DEFAULT: AddJobResponse.AddJobState.ValueType = ...  # 0
         ADDED: AddJobResponse.AddJobState.ValueType = ...  # 1
         IS_DUPLICATE: AddJobResponse.AddJobState.ValueType = ...  # 2
+
     class AddJobState(_AddJobState, metaclass=_AddJobStateEnumTypeWrapper):
         pass
     DEFAULT: AddJobResponse.AddJobState.ValueType = ...  # 0
@@ -852,9 +855,11 @@ class ProcessState(google.protobuf.message.Message):
     """Represents the state of a process, can apply to a job or a grid task"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+
     class _ProcessStateEnum:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
+
     class _ProcessStateEnumEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
             _ProcessStateEnum.ValueType
@@ -923,6 +928,7 @@ class ProcessState(google.protobuf.message.Message):
 
         We do not know the job id
         """
+
     class ProcessStateEnum(
         _ProcessStateEnum, metaclass=_ProcessStateEnumEnumTypeWrapper
     ):
@@ -1349,9 +1355,11 @@ class Credentials(google.protobuf.message.Message):
     """Represents actual credentials"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+
     class _Service:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
+
     class _ServiceEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Service.ValueType],
         builtins.type,
@@ -1360,14 +1368,17 @@ class Credentials(google.protobuf.message.Message):
         DEFAULT_SERVICE: Credentials.Service.ValueType = ...  # 0
         DOCKER: Credentials.Service.ValueType = ...  # 1
         GIT: Credentials.Service.ValueType = ...  # 2
+
     class Service(_Service, metaclass=_ServiceEnumTypeWrapper):
         pass
     DEFAULT_SERVICE: Credentials.Service.ValueType = ...  # 0
     DOCKER: Credentials.Service.ValueType = ...  # 1
     GIT: Credentials.Service.ValueType = ...  # 2
+
     class _Type:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
+
     class _TypeEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Type.ValueType],
         builtins.type,
@@ -1376,6 +1387,7 @@ class Credentials(google.protobuf.message.Message):
         DEFAULT_TYPE: Credentials.Type.ValueType = ...  # 0
         USERNAME_PASSWORD: Credentials.Type.ValueType = ...  # 1
         SSH_KEY: Credentials.Type.ValueType = ...  # 2
+
     class Type(_Type, metaclass=_TypeEnumTypeWrapper):
         pass
     DEFAULT_TYPE: Credentials.Type.ValueType = ...  # 0
@@ -1543,9 +1555,11 @@ global___HealthCheckRequest = HealthCheckRequest
 
 class HealthCheckResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+
     class _ServingStatus:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
+
     class _ServingStatusEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
             _ServingStatus.ValueType
@@ -1558,6 +1572,7 @@ class HealthCheckResponse(google.protobuf.message.Message):
         NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 2
         SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 3
         """Used only by the Watch method."""
+
     class ServingStatus(_ServingStatus, metaclass=_ServingStatusEnumTypeWrapper):
         pass
     UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 0

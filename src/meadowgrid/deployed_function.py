@@ -17,7 +17,11 @@ from typing import (
     overload,
 )
 
-from meadowgrid.credentials import get_docker_credentials, CredentialsDict
+from meadowgrid.credentials import (
+    CredentialsDict,
+    RawCredentials,
+    get_docker_credentials,
+)
 from meadowgrid.docker_controller import get_latest_digest_from_registry
 from meadowgrid.meadowgrid_pb2 import (
     ContainerAtDigest,
@@ -112,7 +116,7 @@ VersionedInterpreterDeploymentTypes: Final = (VersionedCodeDeployment,)
 @overload
 async def get_latest_code_version(
     code: CodeDeployment,
-    credentials_dict: CredentialsDict,
+    credentials: Union[CredentialsDict, RawCredentials, None],
 ) -> CodeDeployment:
     ...
 
@@ -120,14 +124,14 @@ async def get_latest_code_version(
 @overload
 async def get_latest_code_version(
     code: VersionedCodeDeployment,
-    credentials_dict: CredentialsDict,
+    credentials: Union[CredentialsDict, RawCredentials, None],
 ) -> GitRepoCommit:
     ...
 
 
 async def get_latest_code_version(
     code: Union[CodeDeployment, VersionedCodeDeployment],
-    credentials_dict: CredentialsDict,
+    credentials: Union[CredentialsDict, RawCredentials, None],
 ) -> CodeDeployment:
     if isinstance(code, CodeDeploymentTypes):
         # mypy wouldn't need a cast if we added the types explicitly instead of
@@ -153,7 +157,7 @@ async def get_latest_code_version(
 @overload
 async def get_latest_interpreter_version(
     interpreter: InterpreterDeployment,
-    credentials_dict: CredentialsDict,
+    credentials: Union[CredentialsDict, RawCredentials, None],
 ) -> InterpreterDeployment:
     ...
 
@@ -161,24 +165,26 @@ async def get_latest_interpreter_version(
 @overload
 async def get_latest_interpreter_version(
     interpreter: VersionedInterpreterDeployment,
-    credentials_dict: CredentialsDict,
+    credentials: Union[CredentialsDict, RawCredentials, None],
 ) -> ContainerAtDigest:
     ...
 
 
 async def get_latest_interpreter_version(
     interpreter: Union[InterpreterDeployment, VersionedInterpreterDeployment],
-    credentials_dict: CredentialsDict,
+    credentials: Union[CredentialsDict, RawCredentials, None],
 ) -> InterpreterDeployment:
     if isinstance(interpreter, InterpreterDeploymentTypes):
         return cast(InterpreterDeployment, interpreter)
     elif isinstance(interpreter, ContainerAtTag):
+        if credentials is not None and not isinstance(credentials, RawCredentials):
+            credentials = get_docker_credentials(interpreter.repository, credentials)
         return ContainerAtDigest(
             repository=interpreter.repository,
             digest=await get_latest_digest_from_registry(
                 interpreter.repository,
                 interpreter.tag,
-                get_docker_credentials(interpreter.repository, credentials_dict),
+                credentials,
             ),
         )
     else:

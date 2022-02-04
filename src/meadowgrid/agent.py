@@ -343,7 +343,7 @@ async def _launch_job(
     free_resources: Callable[[], None],
     code_deployment_credentials: Optional[RawCredentials],
     interpreter_deployment_credentials: Optional[RawCredentials],
-) -> Tuple[JobStateUpdate, Optional[asyncio.Task[Optional[JobStateUpdate]]]]:
+) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
     """
     Gets the deployment needed and launches a child process to run the specified job.
 
@@ -357,9 +357,7 @@ async def _launch_job(
     If the initial job state is RUNNING, then continuation will be an asyncio Task that
     will complete once the child process has completed, and then return another
     JobStateUpdate that indicates how the job completed, e.g. SUCCEEDED,
-    PYTHON_EXCEPTION, NON_ZERO_RETURN_CODE. The returned JobState could also be None
-    which means that the child process itself already took care of updating the
-    coordinator.
+    PYTHON_EXCEPTION, NON_ZERO_RETURN_CODE.
 
     If the initial job state is RUN_REQUEST_FAILED, the continuation will be None, as
     there is no need for additional updates on the state of this job.
@@ -518,7 +516,7 @@ async def _launch_non_container_job(
     grid_worker_id: Optional[str],
     io_folder: str,
     free_resources: Callable[[], None],
-) -> Tuple[int, Coroutine[Any, Any, Optional[JobStateUpdate]]]:
+) -> Tuple[int, Coroutine[Any, Any, JobStateUpdate]]:
     """
     Contains logic specific to launching jobs that run using
     server_available_interpreter. Only separated from _launch_job for readability.
@@ -626,7 +624,7 @@ async def _non_container_job_continuation(
     result_highest_pickle_protocol: int,
     log_file_name: str,
     free_resources: Callable[[], None],
-) -> Optional[JobStateUpdate]:
+) -> JobStateUpdate:
     """
     Takes an asyncio.subprocess.Process, waits for it to finish, gets results from
     io_folder from the child process if necessary, and then returns an appropriate
@@ -639,7 +637,7 @@ async def _non_container_job_continuation(
         # wait for the process to finish
         # TODO add an optional timeout
         returncode = await process.wait()
-        return await _completed_job_state(
+        return _completed_job_state(
             job_spec_type,
             job_id,
             grid_worker_id,
@@ -673,7 +671,7 @@ async def _launch_container_job(
     grid_worker_id: Optional[str],
     io_folder: str,
     free_resources: Callable[[], None],
-) -> Tuple[str, Coroutine[Any, Any, Optional[JobStateUpdate]]]:
+) -> Tuple[str, Coroutine[Any, Any, JobStateUpdate]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
     from _launch_job for readability.
@@ -766,7 +764,7 @@ async def _container_job_continuation(
     result_highest_pickle_protocol: int,
     log_file_name: str,
     free_resources: Callable[[], None],
-) -> Optional[JobStateUpdate]:
+) -> JobStateUpdate:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
     then returns a JobStateUpdate indicating the state of this container when it
@@ -787,7 +785,7 @@ async def _container_job_continuation(
         # can get the return code from the result
         return_code = wait_result["StatusCode"]
 
-        return await _completed_job_state(
+        return _completed_job_state(
             job_spec_type,
             job_id,
             grid_worker_id,
@@ -815,7 +813,7 @@ async def _container_job_continuation(
         free_resources()
 
 
-async def _completed_job_state(
+def _completed_job_state(
     job_spec_type: Literal["py_command", "py_function", "py_grid"],
     job_id: str,
     grid_worker_id: Optional[str],
@@ -824,7 +822,7 @@ async def _completed_job_state(
     return_code: int,
     pid: Optional[int],
     container_id: Optional[str],
-) -> Optional[JobStateUpdate]:
+) -> JobStateUpdate:
     """
     This creates an appropriate JobStateUpdate for a job that has completed (regardless
     of whether it ran in a process or container).
@@ -947,12 +945,10 @@ async def agent_main_loop(
 
     # represents jobs where we are preparing to launch the child process
     launching_jobs: Set[
-        asyncio.Task[
-            Tuple[JobStateUpdate, Optional[asyncio.Task[Optional[JobStateUpdate]]]]
-        ]
+        asyncio.Task[Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]]
     ] = set()
     # represents jobs where the child process has been launched and is running
-    running_jobs: Set[asyncio.Task[Optional[JobStateUpdate]]] = set()
+    running_jobs: Set[asyncio.Task[JobStateUpdate]] = set()
 
     # assume we can use the entire machine's resources
     # TODO we should maybe also keep track of the actual resources available? And

@@ -152,6 +152,8 @@ class MeadowGridCoordinatorHandler(MeadowGridCoordinatorServicer):
         else:
             raise ValueError(f"Invalid agent_creator_type {self._agent_creator_type}")
 
+        self._awaited = True
+
         return self
 
     async def __aexit__(

@@ -47,6 +47,7 @@ from meadowgrid.exclusive_file_lock import exclusive_file_lock
 from meadowgrid.meadowgrid_pb2 import (
     Job,
     JobStateUpdate,
+    JobToRun,
     ProcessState,
     PyFunctionJob,
     StringPair,
@@ -903,16 +904,24 @@ def _completed_job_state(
     )
 
 
-async def agent_main_loop(
-    working_folder: str,
-    available_resources: Dict[str, float],
-    coordinator_address: str,
-    agent_id: Optional[str] = None,
-    job_id: Optional[str] = None,
-) -> None:
-    """The main loop for the agent"""
+def _set_up_working_folder(
+    working_folder: Optional[str],
+) -> Tuple[str, str, CodeDeploymentManager]:
+    """
+    Sets the working_folder to a default if it's not set, creates the necessary
+    subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
+    job_logs_folder, and CodeDeploymentManager
+    """
 
-    # TODO make this restartable if it crashes
+    if not working_folder:
+        # figure out the default working_folder based on the OS
+        if os.name == "nt":
+            working_folder = os.path.join(os.environ["USERPROFILE"], "meadowgrid")
+        elif os.name == "posix":
+            working_folder = os.path.join(os.environ["HOME"], "meadowgrid")
+        else:
+            raise ValueError(f"Unexpected os.name {os.name}")
+        os.makedirs(working_folder, exist_ok=True)
 
     # first, create the directories that we need
 
@@ -942,6 +951,48 @@ async def agent_main_loop(
     # initialize some more state
 
     deployment_manager = CodeDeploymentManager(git_repos_folder, local_copies_folder)
+
+    return io_folder, job_logs_folder, deployment_manager
+
+
+def _unpickle_credentials(
+    job_to_run: JobToRun,
+) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
+    """Returns code_deployment_credentials, interpreter_deployment_credentials"""
+    if job_to_run.code_deployment_credentials.credentials:
+        code_deployment_credentials = pickle.loads(
+            job_to_run.code_deployment_credentials.credentials
+        )
+    else:
+        code_deployment_credentials = None
+
+    if job_to_run.interpreter_deployment_credentials.credentials:
+        interpreter_deployment_credentials = pickle.loads(
+            job_to_run.interpreter_deployment_credentials.credentials
+        )
+    else:
+        interpreter_deployment_credentials = None
+
+    return code_deployment_credentials, interpreter_deployment_credentials
+
+
+async def agent_main_loop(
+    working_folder: Optional[str],
+    available_resources: Dict[str, float],
+    coordinator_address: str,
+    agent_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> None:
+    """
+    The main loop for the agent. Periodically queries the coordinator to pick up new
+    jobs, runs them, and sends JobStateUpdates to the coordinator.
+    """
+
+    # TODO make this restartable if it crashes
+
+    io_folder, job_logs_folder, deployment_manager = _set_up_working_folder(
+        working_folder
+    )
 
     # represents jobs where we are preparing to launch the child process
     launching_jobs: Set[
@@ -1054,19 +1105,10 @@ async def agent_main_loop(
                     available_logical_cpu += required_logical_cpu
 
                 # unpickle credentials if necessary
-                if job_to_run.code_deployment_credentials.credentials:
-                    code_deployment_credentials = pickle.loads(
-                        job_to_run.code_deployment_credentials.credentials
-                    )
-                else:
-                    code_deployment_credentials = None
-
-                if job_to_run.interpreter_deployment_credentials.credentials:
-                    interpreter_deployment_credentials = pickle.loads(
-                        job_to_run.interpreter_deployment_credentials.credentials
-                    )
-                else:
-                    interpreter_deployment_credentials = None
+                (
+                    code_deployment_credentials,
+                    interpreter_deployment_credentials,
+                ) = _unpickle_credentials(job_to_run)
 
                 launching_jobs.add(
                     asyncio.create_task(
@@ -1090,3 +1132,54 @@ async def agent_main_loop(
         #  reason we didn't get one (not enough resources here vs not a enough jobs),
         #  how many other agents there are, we should retry/wait
         await asyncio.sleep(0.1)
+
+
+def _no_op() -> None:
+    pass
+
+
+async def run_one_job(
+    job_to_run: JobToRun, working_folder: Optional[str] = None
+) -> ProcessState:
+    """
+    Runs one job using the specified working_folder (or uses the default). Returns a
+    ProcessState when the job finishes.
+
+    job_to_run.grid_worker_id, job.priority, job.interruption_probability_threshold are
+    not used
+    """
+
+    # TODO the exclusive lock on working_folder here doesn't make sense
+    io_folder, job_logs_folder, deployment_manager = _set_up_working_folder(
+        working_folder
+    )
+
+    # unpickle credentials if necessary
+    (
+        code_deployment_credentials,
+        interpreter_deployment_credentials,
+    ) = _unpickle_credentials(job_to_run)
+
+    # run the job and return the results
+    job = job_to_run.job
+    first_state, continuation = await _launch_job(
+        job,
+        job_to_run.grid_worker_id,
+        io_folder,
+        job_logs_folder,
+        # we only need a coordinator host for g rid jobs
+        "",
+        deployment_manager,
+        # we're not managing resources because we're only running a single job
+        _no_op,
+        code_deployment_credentials,
+        interpreter_deployment_credentials,
+    )
+
+    if (
+        first_state.process_state.state != ProcessStateEnum.RUNNING
+        or continuation is None
+    ):
+        return first_state.process_state
+
+    return (await continuation).process_state

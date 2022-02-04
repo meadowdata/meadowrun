@@ -3,8 +3,6 @@ import asyncio
 import contextlib
 import logging
 import multiprocessing
-import os
-import os.path
 from typing import Iterator, Optional, Dict
 
 import meadowgrid.agent
@@ -19,16 +17,6 @@ def main(
     agent_id: Optional[str] = None,
     job_id: Optional[str] = None,
 ) -> None:
-    if working_folder is None:
-        # figure out the default working_folder based on the OS
-        if os.name == "nt":
-            working_folder = os.path.join(os.environ["USERPROFILE"], "meadowgrid")
-        elif os.name == "posix":
-            working_folder = os.path.join(os.environ["HOME"], "meadowgrid")
-        else:
-            raise ValueError(f"Unexpected os.name {os.name}")
-        os.makedirs(working_folder, exist_ok=True)
-
     if coordinator_host is None:
         coordinator_host = DEFAULT_COORDINATOR_HOST
     if coordinator_port is None:

@@ -7,7 +7,7 @@ import tempfile
 from typing import Literal, List, Optional, Tuple, Dict, Sequence
 
 from meadowgrid.credentials import RawCredentials, SshKey
-from meadowgrid.meadowgrid_pb2 import Job, GitRepoCommit
+from meadowgrid.meadowgrid_pb2 import Job
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
@@ -134,13 +134,20 @@ class CodeDeploymentManager:
         if case == "server_available_folder":
             return job.server_available_folder.code_paths
         elif case == "git_repo_commit":
-            return await self._get_git_repo_commit_code_paths(
-                job.git_repo_commit, credentials
+            return await self._get_git_code_paths(
+                job.git_repo_commit.repo_url,
+                job.git_repo_commit.commit,
+                job.git_repo_commit.path_in_repo,
+                credentials,
             )
         elif case == "git_repo_branch":
-            raise ValueError(
-                "Programming error: git_repo_branch should have been resolved in the "
-                "coordinator"
+            # warning this is not reproducible!!! should ideally be resolved on the
+            # client
+            return await self._get_git_code_paths(
+                job.git_repo_branch.repo_url,
+                job.git_repo_branch.branch,
+                job.git_repo_branch.path_in_repo,
+                credentials,
             )
         else:
             raise ValueError(f"Unrecognized code_deployment {case}")
@@ -202,12 +209,16 @@ class CodeDeploymentManager:
 
             return local_clone
 
-    async def _get_git_repo_commit_code_paths(
-        self, git_repo_commit: GitRepoCommit, credentials: Optional[RawCredentials]
+    async def _get_git_code_paths(
+        self,
+        repo_url: str,
+        revision_spec: str,
+        path_in_repo: str,
+        credentials: Optional[RawCredentials],
     ) -> Sequence[str]:
         """Returns code_paths for GitRepoCommit"""
 
-        local_clone = await self._get_git_repo_local_clone(git_repo_commit.repo_url)
+        local_clone = await self._get_git_repo_local_clone(repo_url)
 
         async with local_clone.lock:
             # clone the repo locally/update it
@@ -215,7 +226,7 @@ class CodeDeploymentManager:
             if local_clone.state == "new":
                 # TODO do something with output?
                 _ = await _run_git(
-                    ["clone", git_repo_commit.repo_url, local_path],
+                    ["clone", repo_url, local_path],
                     self._git_repos_folder,
                     credentials,
                 )
@@ -226,7 +237,7 @@ class CodeDeploymentManager:
 
             # TODO we should (maybe) prevent very ambiguous specifications like HEAD
             out, err = await _run_git(
-                ["rev-parse", git_repo_commit.commit], local_path, credentials
+                ["rev-parse", revision_spec], local_path, credentials
             )
             commit_hash = out.strip()
             # TODO do something with output?
@@ -250,6 +261,6 @@ class CodeDeploymentManager:
 
         # TODO raise a friendlier exception if this path doesn't exist
         path_in_local_copy = str(
-            (pathlib.Path(local_copy_path) / git_repo_commit.path_in_repo).resolve()
+            (pathlib.Path(local_copy_path) / path_in_repo).resolve()
         )
         return [path_in_local_copy]

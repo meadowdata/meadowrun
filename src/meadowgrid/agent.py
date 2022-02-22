@@ -373,6 +373,7 @@ async def _launch_job(
         interpreter_deployment = job.WhichOneof("interpreter_deployment")
         is_container = interpreter_deployment in (
             "container_at_digest",
+            "container_at_tag",
             "server_available_container",
         )
 
@@ -442,6 +443,13 @@ async def _launch_job(
                 await pull_image(
                     container_image_name, interpreter_deployment_credentials
                 )
+            elif interpreter_deployment == "container_at_tag":
+                # warning this is not reproducible!!! should ideally be resolved on the
+                # client
+                container_image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"  # noqa: E501
+                await pull_image(
+                    container_image_name, interpreter_deployment_credentials
+                )
             elif interpreter_deployment == "server_available_container":
                 container_image_name = job.server_available_container.image_name
                 # server_available_container assumes that we do not need to pull, and it
@@ -464,11 +472,6 @@ async def _launch_job(
             )
             # due to the way protobuf works, this is equivalent to None
             pid = 0
-        elif interpreter_deployment == "container_at_tag":
-            raise ValueError(
-                "Programming error, container_at_tag should have been resolved in the "
-                "coordinator"
-            )
         else:
             raise ValueError(
                 f"Did not recognize interpreter_deployment {interpreter_deployment}"
@@ -1140,7 +1143,7 @@ def _no_op() -> None:
 
 async def run_one_job(
     job_to_run: JobToRun, working_folder: Optional[str] = None
-) -> ProcessState:
+) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
     """
     Runs one job using the specified working_folder (or uses the default). Returns a
     ProcessState when the job finishes.
@@ -1161,9 +1164,8 @@ async def run_one_job(
     ) = _unpickle_credentials(job_to_run)
 
     # run the job and return the results
-    job = job_to_run.job
-    first_state, continuation = await _launch_job(
-        job,
+    return await _launch_job(
+        job_to_run.job,
         job_to_run.grid_worker_id,
         io_folder,
         job_logs_folder,
@@ -1175,11 +1177,3 @@ async def run_one_job(
         code_deployment_credentials,
         interpreter_deployment_credentials,
     )
-
-    if (
-        first_state.process_state.state != ProcessStateEnum.RUNNING
-        or continuation is None
-    ):
-        return first_state.process_state
-
-    return (await continuation).process_state

@@ -1,14 +1,22 @@
+from __future__ import annotations
+
+import abc
+import asyncio
+import dataclasses
 import io
 import os.path
 import pickle
 import shlex
+import threading
 import uuid
-from typing import Callable, TypeVar, Union, Any, Dict, Optional, Sequence
+from typing import Callable, TypeVar, Union, Any, Dict, Optional, Sequence, cast, Tuple
 
 import fabric
+import paramiko.ssh_exception
 
 from meadowgrid import ServerAvailableFolder
 from meadowgrid.agent import run_one_job
+from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import (
     _add_deployments_to_job,
     _create_py_function,
@@ -24,33 +32,233 @@ from meadowgrid.deployed_function import (
     VersionedInterpreterDeployment,
 )
 from meadowgrid.grid import _get_id_name_function
-from meadowgrid.meadowgrid_pb2 import JobToRun, Job, ProcessState, PyCommandJob
-
+from meadowgrid.meadowgrid_pb2 import (
+    Job,
+    JobToRun,
+    ProcessState,
+    PyCommandJob,
+    ServerAvailableInterpreter,
+)
 
 _T = TypeVar("_T")
 
 
-def _construct_job_to_run_function(
+async def _retry(
+    function: Callable[[], _T],
+    exception_types: Exception,
+    max_num_attempts: int = 3,
+    delay_seconds: float = 1,
+) -> _T:
+    i = 0
+    while True:
+        try:
+            return function()
+        except exception_types as e:  # type: ignore
+            i += 1
+            if i >= max_num_attempts:
+                raise
+            else:
+                print(f"Retrying on error: {e}")
+                await asyncio.sleep(delay_seconds)
+
+
+@dataclasses.dataclass(frozen=True)
+class Deployment:
+    interpreter: Union[InterpreterDeployment, VersionedInterpreterDeployment]
+    code: Union[CodeDeployment, VersionedCodeDeployment, None] = None
+    environment_variables: Optional[Dict[str, str]] = None
+
+
+def _add_defaults_to_deployment(
+    deployment: Optional[Deployment],
+) -> Tuple[
+    Union[InterpreterDeployment, VersionedInterpreterDeployment],
+    Union[CodeDeployment, VersionedCodeDeployment],
+    Dict[str, str],
+]:
+    if deployment is None:
+        return (
+            ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
+            ServerAvailableFolder(),
+            {},
+        )
+
+    return (
+        deployment.interpreter,
+        deployment.code or ServerAvailableFolder(),
+        deployment.environment_variables or {},
+    )
+
+
+class Host(abc.ABC):
+    @abc.abstractmethod
+    async def run_job(self, job_to_run: JobToRun) -> Any:
+        pass
+
+
+@dataclasses.dataclass(frozen=True)
+class LocalHost(Host):
+    async def run_job(self, job_to_run: JobToRun) -> Any:
+        initial_update, continuation = await run_one_job(job_to_run)
+        if (
+            initial_update.process_state.state != ProcessState.ProcessStateEnum.RUNNING
+            or continuation is None
+        ):
+            result = initial_update.process_state
+        else:
+            result = (await continuation).process_state
+
+        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+            return pickle.loads(result.pickled_result)
+        else:
+            # TODO make better error messages
+            raise ValueError(f"Error: {result.state}")
+
+
+@dataclasses.dataclass(frozen=True)
+class SshHost(Host):
+    address: str
+    # these options are forwarded directly to Fabric
+    fabric_kwargs: Optional[Dict[str, Any]] = None
+
+    async def run_job(self, job_to_run: JobToRun) -> Any:
+        with fabric.Connection(
+            self.address, **(self.fabric_kwargs or {})
+        ) as connection:
+            job_io_prefix = ""
+
+            try:
+                # assumes that meadowgrid is installed in /meadowgrid/env as per
+                # build_meadowgrid_amis.md. Also uses the default working_folder, which
+                # should (but doesn't strictly need to) correspond to
+                # agent._set_up_working_folder
+
+                # try the first command 3 times, as this is when we actually try to
+                # connect to the remote machine.
+                home_result = await _retry(
+                    lambda: connection.run("echo $HOME"),
+                    cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
+                )
+                if not home_result.ok:
+                    raise ValueError(
+                        "Error getting home directory on remote machine "
+                        + home_result.stdout
+                    )
+
+                remote_working_folder = f"{home_result.stdout.strip()}/meadowgrid"
+                mkdir_result = connection.run(f"mkdir -p {remote_working_folder}/io")
+                if not mkdir_result.ok:
+                    raise ValueError(
+                        "Error creating meadowgrid directory " + mkdir_result.stdout
+                    )
+
+                job_io_prefix = f"{remote_working_folder}/io/{job_to_run.job.job_id}"
+
+                # serialize job_to_run and send it to the remote machine
+                with io.BytesIO(
+                    job_to_run.SerializeToString()
+                ) as job_to_run_serialized:
+                    connection.put(
+                        job_to_run_serialized, remote=f"{job_io_prefix}.job_to_run"
+                    )
+
+                # fabric doesn't have any async APIs, which means that in order to run
+                # more than one fabric command at the same time, we need to have a
+                # thread per fabric command. We use an asyncio.Future here to make the
+                # API async, so from the user perspective, it feels like this function
+                # is async
+
+                # fabric is supposedly not threadsafe, but it seems to work as long as
+                # more than one connection is not being opened at the same time:
+                # https://github.com/fabric/fabric/pull/2010/files
+                result_future: asyncio.Future = asyncio.Future()
+                event_loop = asyncio.get_running_loop()
+
+                def run_and_wait() -> None:
+                    try:
+                        # use meadowrun to run the job
+                        returned_result = connection.run(
+                            "/meadowgrid/env/bin/meadowrun "
+                            f"--job-io-prefix {job_io_prefix} "
+                            f"--working-folder {remote_working_folder}"
+                        )
+                        event_loop.call_soon_threadsafe(
+                            lambda r=returned_result: result_future.set_result(r)
+                        )
+                    except Exception as e2:
+                        event_loop.call_soon_threadsafe(
+                            lambda e2=e2: result_future.set_exception(e2)
+                        )
+
+                threading.Thread(target=run_and_wait).start()
+
+                result = await result_future
+
+                # TODO consider using result.tail, result.stdout
+
+                # see if we got a normal return code
+                if result.return_code != 0:
+                    raise ValueError(f"Process exited {result.return_code}")
+
+                with io.BytesIO() as result_buffer:
+                    connection.get(f"{job_io_prefix}.process_state", result_buffer)
+                    result_buffer.seek(0)
+                    process_state = ProcessState()
+                    process_state.ParseFromString(result_buffer.read())
+
+                if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+                    job_spec_type = job_to_run.job.WhichOneof("job_spec")
+                    # we must have a result from functions, in other cases we can
+                    # optionally have a result
+                    if job_spec_type == "py_function" or process_state.pickled_result:
+                        return pickle.loads(process_state.pickled_result)
+                    else:
+                        return None
+                else:
+                    # TODO we should throw a better exception
+                    raise ValueError(f"Running remotely failed: {process_state}")
+            finally:
+                if job_io_prefix:
+                    remote_paths = " ".join(
+                        [
+                            f"{job_io_prefix}.job_to_run",
+                            f"{job_io_prefix}.state",
+                            f"{job_io_prefix}.result",
+                            f"{job_io_prefix}.process_state",
+                            f"{job_io_prefix}.initial_process_state",
+                        ]
+                    )
+                    try:
+                        # -f so that we don't throw an error on files that don't
+                        # exist
+                        connection.run(f"rm -f {remote_paths}")
+                    except Exception as e:
+                        print(
+                            f"Error cleaning up files on remote machine: "
+                            f"{remote_paths} {e}"
+                        )
+
+                    # TODO also clean up log file?s
+
+
+async def run_function(
     function: Callable[..., _T],
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
+    host: Host,
+    deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
-    environment_variables: Optional[Dict[str, str]] = None,
-) -> JobToRun:
+) -> _T:
     """
-    Basically a "user-friendly" JobToRun constructor for functions.
+    Same as run_function_async, but runs on a remote machine, specified by "host".
+    Connects to the remote machine over SSH via the fabric library
+    https://www.fabfile.org/ fabric_kwargs are passed directly to fabric.Connection().
 
-    Kind of a combination of meadowgrid.grid.grid_map and
-    meadowgrid.coordinator_client._create_py_runnable_job
+    The remote machine must have meadowgrid installed as per build_meadowgrid_amis.md
     """
 
     job_id, friendly_name, pickled_function = _get_id_name_function(function)
 
-    if code_deployment is None:
-        code_deployment = ServerAvailableFolder()
+    interpreter, code, environment_variables = _add_defaults_to_deployment(deployment)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     job = Job(
@@ -63,19 +271,21 @@ def _construct_job_to_run_function(
             pickle_protocol,
         ),
     )
-    _add_deployments_to_job(job, code_deployment, interpreter_deployment)
-    return JobToRun(job=job)
+    _add_deployments_to_job(job, code, interpreter)
+
+    # TODO figure out what to do about the [0], which is there for dropping effects
+    return (await host.run_job(JobToRun(job=job)))[0]
 
 
-def _construct_job_to_run_command(
+async def run_command(
     args: Union[str, Sequence[str]],
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
-    environment_variables: Optional[Dict[str, str]] = None,
-) -> JobToRun:
-    """Basically a "user-friendly" JobToRun constructor for commands."""
+    host: Host,
+    deployment: Optional[Deployment] = None,
+) -> None:
+    """
+    Runs the specified command on a remote machine. See run_function_remote for more
+    details on requirements for the remote host.
+    """
 
     job_id = str(uuid.uuid4())
     if isinstance(args, str):
@@ -84,8 +294,7 @@ def _construct_job_to_run_command(
     # elements of args as if they're paths and take the last part of each path
     friendly_name = "-".join(os.path.basename(arg) for arg in args[:3])
 
-    if code_deployment is None:
-        code_deployment = ServerAvailableFolder()
+    interpreter, code, environment_variables = _add_defaults_to_deployment(deployment)
 
     job = Job(
         job_id=_make_valid_job_id(job_id),
@@ -94,164 +303,6 @@ def _construct_job_to_run_command(
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_command=PyCommandJob(command_line=args),
     )
-    _add_deployments_to_job(job, code_deployment, interpreter_deployment)
-    return JobToRun(job=job)
+    _add_deployments_to_job(job, code, interpreter)
 
-
-async def run_function_async(
-    function: Callable[..., _T],
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
-    args: Optional[Sequence[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    environment_variables: Optional[Dict[str, str]] = None,
-) -> _T:
-    """
-    Runs the specified function on the local machine with the specified deployment(s)
-    """
-
-    result = await run_one_job(
-        _construct_job_to_run_function(
-            function,
-            interpreter_deployment,
-            code_deployment,
-            args,
-            kwargs,
-            environment_variables,
-        )
-    )
-
-    if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-        # TODO figure out what to do about the [0], which is there for dropping effects
-        return pickle.loads(result.pickled_result)[0]
-    else:
-        # TODO make better error messages
-        raise ValueError(f"Error: {result.state}")
-
-
-# We should have run_command_async for completeness
-
-
-def run_function_remote(
-    function: Callable[..., _T],
-    host: str,
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
-    args: Optional[Sequence[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    environment_variables: Optional[Dict[str, str]] = None,
-    # these options are forwarded directly to Fabric
-    fabric_kwargs: Optional[Dict[str, Any]] = None,
-) -> _T:
-    """
-    Same as run_function_async, but runs on a remote machine, specified by "host".
-    Connects to the remote machine over SSH via the fabric library
-    https://www.fabfile.org/ fabric_kwargs are passed directly to fabric.Connection().
-
-    The remote machine must have meadowgrid installed as per build_meadowgrid_amis.md
-    """
-
-    job_to_run = _construct_job_to_run_function(
-        function,
-        interpreter_deployment,
-        code_deployment,
-        args,
-        kwargs,
-        environment_variables,
-    )
-    return _run_remote(job_to_run, host, fabric_kwargs)
-
-
-def run_command_remote(
-    args: Union[str, Sequence[str]],
-    host: str,
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment, None] = None,
-    environment_variables: Optional[Dict[str, str]] = None,
-    # these options are forwarded directly to Fabric
-    fabric_kwargs: Optional[Dict[str, Any]] = None,
-) -> None:
-    """
-    Runs the specified command on a remote machine. See run_function_remote for more
-    details on requirements for the remote host.
-    """
-    job_to_run = _construct_job_to_run_command(
-        args, interpreter_deployment, code_deployment, environment_variables
-    )
-    _run_remote(job_to_run, host, fabric_kwargs)
-
-
-def _run_remote(
-    job_to_run: JobToRun,
-    host: str,
-    # these options are forwarded directly to Fabric
-    fabric_kwargs: Optional[Dict[str, Any]] = None,
-) -> Any:
-    if fabric_kwargs is None:
-        fabric_kwargs = {}
-
-    with fabric.Connection(host, **fabric_kwargs) as connection:
-        # assumes that meadowgrid is installed in /meadowgrid/env as per
-        # build_meadowgrid_amis.md. Also uses the default working_folder, which should
-        # (but doesn't strictly need to) correspond to agent._set_up_working_folder
-        home_result = connection.run("echo $HOME")
-        if not home_result.ok:
-            raise ValueError(
-                "Error getting home directory on remote machine " + home_result.stderr
-            )
-
-        remote_working_folder = f"{home_result.stdout.strip()}/meadowgrid"
-        job_io_prefix = f"{remote_working_folder}/io/{job_to_run.job.job_id}"
-        remote_job_to_run_path = f"{job_io_prefix}.job_to_run"
-
-        # serialize job_to_run and send it to the remote machine
-        with io.BytesIO(job_to_run.SerializeToString()) as job_to_run_serialized:
-            connection.put(job_to_run_serialized, remote=remote_job_to_run_path)
-
-        # use meadowrun to run the job
-        result = connection.run(
-            "/meadowgrid/env/bin/meadowrun "
-            f"--serialized-job-to-run-path {remote_job_to_run_path} "
-            f"--working-folder {remote_working_folder}"
-        )
-
-        # TODO consider using result.tail, result.stdout, result.stderr
-
-        # copied/adapted from meadowgrid.agent._completed_job_state
-
-        # see if we got a normal return code
-        if result.return_code != 0:
-            raise ValueError(f"Process exited {result.return_code}")
-
-        job_spec_type = job_to_run.job.WhichOneof("job_spec")
-
-        if job_spec_type == "py_command":
-            return None
-        elif job_spec_type == "py_function":
-            # get the state
-            with io.BytesIO() as state_buffer:
-                connection.get(f"{job_io_prefix}.state", state_buffer)
-                state_buffer.seek(0)
-                with io.TextIOWrapper(state_buffer, encoding="utf-8") as wrapper:
-                    state_string = wrapper.read()
-
-            # next get the result
-            with io.BytesIO() as result_buffer:
-                connection.get(f"{job_io_prefix}.result", result_buffer)
-                result_buffer.seek(0)
-                result = pickle.load(result_buffer)
-
-            if state_string == "SUCCEEDED":
-                return result[0]  # drop effects
-            elif state_string == "PYTHON_EXCEPTION":
-                raise ValueError("Python exception in remote process") from result
-            else:
-                raise ValueError(f"Unknown state string: {state_string}")
-        else:
-            raise ValueError(f"Unknown job_spec {job_spec_type}")
+    await host.run_job(JobToRun(job=job))

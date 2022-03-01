@@ -1081,7 +1081,7 @@ python-versions = "*"
 
 [[package]]
 name = "types-pytz"
-version = "2021.3.4"
+version = "2021.3.5"
 description = "Typing stubs for pytz"
 category = "dev"
 optional = false
@@ -1123,7 +1123,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "73d2cf6bddb06bf5bd308fa8b197c5072c2284545bdfd342b78bf12f54d018af"
+content-hash = "8b8ff5b440fac657e24afed8814776dbd1d5297e3163628fcad70b958d283149"
 
 [metadata.files]
 aiodocker = [
@@ -2024,8 +2024,8 @@ types-psutil = [
     {file = "types_psutil-5.8.20-py3-none-any.whl", hash = "sha256:b9c5d6c1f8bd6154f845a79dfbe46e7628f8d58978c6cadde0afa4abe6400294"},
 ]
 types-pytz = [
-    {file = "types-pytz-2021.3.4.tar.gz", hash = "sha256:101da53091013bb07403468c20d36930d749d3918054ac46f9c1bfc607dadf7d"},
-    {file = "types_pytz-2021.3.4-py3-none-any.whl", hash = "sha256:ccfa2ed29f816e3de2f882541c06ad2791f808a79cfe38265411820190999f0f"},
+    {file = "types-pytz-2021.3.5.tar.gz", hash = "sha256:fef8de238ee95135952229a2a23bfb87bd63d5a6c8598106a46cfcf48f069ea8"},
+    {file = "types_pytz-2021.3.5-py3-none-any.whl", hash = "sha256:8831f689379ac9e2a62668157381379ed74b3702980e08e71f8673c179c4e3c7"},
 ]
 typing-extensions = [
     {file = "typing_extensions-4.0.1-py3-none-any.whl", hash = "sha256:7f001e5ac290a0c0401508864c7ec868be4e701886d5b573a9528ed3973d9d3b"},

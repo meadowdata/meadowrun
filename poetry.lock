@@ -804,7 +804,7 @@ test = ["hypothesis (>=5.5.3)", "pytest (>=6.0)", "pytest-xdist (>=1.31)"]
 
 [[package]]
 name = "pandas-stubs"
-version = "1.2.0.47"
+version = "1.2.0.49"
 description = "Type annotations for Pandas"
 category = "dev"
 optional = false
@@ -1343,6 +1343,7 @@ colorama = [
 ]
 cramjam = [
     {file = "cramjam-2.5.0-cp310-cp310-macosx_10_7_x86_64.whl", hash = "sha256:df76f686f779396f5cada703cd0ab2b5bed16d3d83741ab82bb6b428cf537361"},
+    {file = "cramjam-2.5.0-cp310-cp310-macosx_10_9_x86_64.macosx_11_0_arm64.macosx_10_9_universal2.whl", hash = "sha256:fd37e27786f0d3e939ba24ad23eca90a7bfa8359257dec97c90a60e3dd9a9101"},
     {file = "cramjam-2.5.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2afd306d8e905aa9267b3b23fd1bd9dd572aea2ea20c05c04c0899446f014328"},
     {file = "cramjam-2.5.0-cp310-cp310-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:80750e25bc9641813a07169a5f10d1d598177af614b96eab9f3d8b053df65ce4"},
     {file = "cramjam-2.5.0-cp310-cp310-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", hash = "sha256:1993ae4aa69424f9a898cbe66a1f7e59eb8b1d7ee19eca74226c81cc81014004"},
@@ -1398,9 +1399,11 @@ cramjam = [
     {file = "cramjam-2.5.0-pp36-pypy36_pp73-manylinux2010_x86_64.whl", hash = "sha256:8f2b6b0cb76abf069912d64f52fec27c62f2cc392dddecf3bccd0409758d2677"},
     {file = "cramjam-2.5.0-pp37-pypy37_pp73-macosx_10_7_x86_64.whl", hash = "sha256:41eff78c8c5cbd1db03c27891cf931c33fe3cfef640e94ea20b953f460ea46d0"},
     {file = "cramjam-2.5.0-pp37-pypy37_pp73-manylinux2010_x86_64.whl", hash = "sha256:79a1c741c052a35ee256b51201ff5052daf37cbb1271f9ae39ec9a738d6b4f25"},
+    {file = "cramjam-2.5.0-pp37-pypy37_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bcd83b96dbf21e48ba006a8bf0d86f6e9392e578742d7478c2066d562ad8a2b6"},
     {file = "cramjam-2.5.0-pp37-pypy37_pp73-manylinux_2_5_x86_64.manylinux1_x86_64.whl", hash = "sha256:39013a0ed2e99fe3bd0568cf53ad30af16b4a6f10f7e43ab66a48b1f3534a723"},
     {file = "cramjam-2.5.0-pp38-pypy38_pp73-macosx_10_7_x86_64.whl", hash = "sha256:362e55d89af7289a127fba3fdba2d29c71348260b26e013395d2f04e6690983e"},
     {file = "cramjam-2.5.0-pp38-pypy38_pp73-manylinux2010_x86_64.whl", hash = "sha256:6256654cccb7002dfc583d4d428cc4618771d5db2c51a313c330d35a8c3a8952"},
+    {file = "cramjam-2.5.0-pp38-pypy38_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f4f7457e35620832bc24f1192fd8f4b0dbbe1971f07bbe3ee6302b8d1cb53a08"},
     {file = "cramjam-2.5.0-pp38-pypy38_pp73-manylinux_2_5_x86_64.manylinux1_x86_64.whl", hash = "sha256:cf98053f331ea57c4277a163cdbbf471b1ea1153103a0ffd0c61706770e80d37"},
     {file = "cramjam-2.5.0.tar.gz", hash = "sha256:a92c0c2db4c6a3804eaffa253c7ca49f849e7a893a31c902a8123d7c36b2b487"},
 ]
@@ -1827,8 +1830,8 @@ pandas = [
     {file = "pandas-1.4.0.tar.gz", hash = "sha256:cdd76254c7f0a1583bd4e4781fb450d0ebf392e10d3f12e92c95575942e37df5"},
 ]
 pandas-stubs = [
-    {file = "pandas-stubs-1.2.0.47.tar.gz", hash = "sha256:78801efb504abe75c2cf73cb3469b97003080e80fb03aa2a406ca4928f3fd887"},
-    {file = "pandas_stubs-1.2.0.47-py3-none-any.whl", hash = "sha256:54df4b9d344f2bbb5b65646a77d420b6f0250d2bb6742e5b04e65006acc60e8a"},
+    {file = "pandas-stubs-1.2.0.49.tar.gz", hash = "sha256:c13c462a3747fe222a06dbbcc7b1cb641d1782d39d79e9057f364af503312f70"},
+    {file = "pandas_stubs-1.2.0.49-py3-none-any.whl", hash = "sha256:b7fea04d557ad0f4b1113df76ee872d63ae8e83d3897255be5bf54ad32af727a"},
 ]
 paramiko = [
     {file = "paramiko-2.9.2-py2.py3-none-any.whl", hash = "sha256:04097dbd96871691cdb34c13db1883066b8a13a0df2afd4cb0a92221f51c2603"},
@@ -1890,6 +1893,11 @@ psutil = [
     {file = "psutil-5.9.0-cp310-cp310-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:742c34fff804f34f62659279ed5c5b723bb0195e9d7bd9907591de9f8f6558e2"},
     {file = "psutil-5.9.0-cp310-cp310-win32.whl", hash = "sha256:8293942e4ce0c5689821f65ce6522ce4786d02af57f13c0195b40e1edb1db61d"},
     {file = "psutil-5.9.0-cp310-cp310-win_amd64.whl", hash = "sha256:9b51917c1af3fa35a3f2dabd7ba96a2a4f19df3dec911da73875e1edaf22a40b"},
+    {file = "psutil-5.9.0-cp36-cp36m-macosx_10_9_x86_64.whl", hash = "sha256:e9805fed4f2a81de98ae5fe38b75a74c6e6ad2df8a5c479594c7629a1fe35f56"},
+    {file = "psutil-5.9.0-cp36-cp36m-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:c51f1af02334e4b516ec221ee26b8fdf105032418ca5a5ab9737e8c87dafe203"},
+    {file = "psutil-5.9.0-cp36-cp36m-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:32acf55cb9a8cbfb29167cd005951df81b567099295291bcfd1027365b36591d"},
+    {file = "psutil-5.9.0-cp36-cp36m-win32.whl", hash = "sha256:e5c783d0b1ad6ca8a5d3e7b680468c9c926b804be83a3a8e95141b05c39c9f64"},
+    {file = "psutil-5.9.0-cp36-cp36m-win_amd64.whl", hash = "sha256:d62a2796e08dd024b8179bd441cb714e0f81226c352c802fca0fd3f89eeacd94"},
     {file = "psutil-5.9.0-cp37-cp37m-macosx_10_9_x86_64.whl", hash = "sha256:3d00a664e31921009a84367266b35ba0aac04a2a6cad09c550a89041034d19a0"},
     {file = "psutil-5.9.0-cp37-cp37m-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:7779be4025c540d1d65a2de3f30caeacc49ae7a2152108adeaf42c7534a115ce"},
     {file = "psutil-5.9.0-cp37-cp37m-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:072664401ae6e7c1bfb878c65d7282d4b4391f1bc9a56d5e03b5a490403271b5"},

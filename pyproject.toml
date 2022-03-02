@@ -39,7 +39,7 @@ mypy = "0.*"
 black = {version = "^22.1", allow-prereleases = true}
 grpcio-tools = "^1.39.0"
 pandas-stubs = "^1.2.0"
-types-protobuf = "^3.19.8"
+types-protobuf = "^3.19.12"
 types-pytz = "^2021.3.5"
 mypy-protobuf = "^3.0.0"
 flake8 = "^4.0.1"

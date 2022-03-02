@@ -1046,23 +1046,12 @@ optional = false
 python-versions = ">=3.6"
 
 [[package]]
-name = "types-futures"
-version = "3.3.8"
-description = "Typing stubs for futures"
-category = "dev"
-optional = false
-python-versions = "*"
-
-[[package]]
 name = "types-protobuf"
-version = "3.19.8"
+version = "3.19.12"
 description = "Typing stubs for protobuf"
 category = "dev"
 optional = false
 python-versions = "*"
-
-[package.dependencies]
-types-futures = "*"
 
 [[package]]
 name = "types-psutil"
@@ -1116,7 +1105,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "d131375a568d7f368b01d316314c5350bedb6bb1f8de4ca5b81e1d969a5b03e0"
+content-hash = "3b51a324811dfc0e3ba9cb91b21507c6ca4edeeba493f7e111f15a40957b0f80"
 
 [metadata.files]
 aiodocker = [
@@ -2000,13 +1989,9 @@ tomli = [
     {file = "tomli-1.2.3-py3-none-any.whl", hash = "sha256:e3069e4be3ead9668e21cb9b074cd948f7b3113fd9c8bba083f48247aab8b11c"},
     {file = "tomli-1.2.3.tar.gz", hash = "sha256:05b6166bff487dc068d322585c7ea4ef78deed501cc124060e0f238e89a9231f"},
 ]
-types-futures = [
-    {file = "types-futures-3.3.8.tar.gz", hash = "sha256:6fe8ccc2c2af7ef2fdd9bf73eab6d617074f09f30ad7d373510b4043d39c42de"},
-    {file = "types_futures-3.3.8-py3-none-any.whl", hash = "sha256:d6e97ec51d56b96debfbf1dea32ebec22c1687f16d2547ea0a34b48db45df205"},
-]
 types-protobuf = [
-    {file = "types-protobuf-3.19.8.tar.gz", hash = "sha256:5ff1a5b7d0f36e3600ad1a3d4b55ba6c446cef2ef82d25f06a0aa43912345fb4"},
-    {file = "types_protobuf-3.19.8-py3-none-any.whl", hash = "sha256:1364327ebfb4360b36bd62b55fb32f704a516c8c26d82bad566938a23e644eca"},
+    {file = "types-protobuf-3.19.12.tar.gz", hash = "sha256:b022247347471219acbe2fe68d2f3623d788252e99e9b97358b7ab904d268a78"},
+    {file = "types_protobuf-3.19.12-py3-none-any.whl", hash = "sha256:130bf00e688ae9376682ac8f3d6610be797d8a6072f102f530ca1d579b52e54b"},
 ]
 types-psutil = [
     {file = "types-psutil-5.8.20.tar.gz", hash = "sha256:35e16c5d58c21cd638b7a74a8b451b3c099e0f8140121f1d084174c60625a5c8"},

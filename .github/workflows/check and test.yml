@@ -18,7 +18,7 @@ jobs:
       run:
         working-directory: ./meadowdata # this sets the default dir for run steps only.
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         path: meadowdata
     - name: Set up Python ${{ matrix.python-version }}
@@ -47,7 +47,7 @@ jobs:
       run: |
         poetry run mypy
     - name: Checkout test repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: meadowdata/test_repo
         path: test_repo

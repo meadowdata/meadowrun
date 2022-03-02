@@ -16,6 +16,7 @@ import paramiko.ssh_exception
 
 from meadowgrid import ServerAvailableFolder
 from meadowgrid.agent import run_one_job
+from meadowgrid.aws_integration import _get_default_region_name
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import (
     _add_deployments_to_job,
@@ -31,6 +32,7 @@ from meadowgrid.deployed_function import (
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
+from meadowgrid.ec2_alloc import allocate_ec2_instances
 from meadowgrid.grid import _get_id_name_function
 from meadowgrid.meadowgrid_pb2 import (
     Job,
@@ -39,6 +41,7 @@ from meadowgrid.meadowgrid_pb2 import (
     PyCommandJob,
     ServerAvailableInterpreter,
 )
+from meadowgrid.resource_allocation import Resources
 
 _T = TypeVar("_T")
 
@@ -179,8 +182,11 @@ class SshHost(Host):
                         # use meadowrun to run the job
                         returned_result = connection.run(
                             "/meadowgrid/env/bin/meadowrun "
-                            f"--job-io-prefix {job_io_prefix} "
-                            f"--working-folder {remote_working_folder}"
+                            f"--job-id {job_to_run.job.job_id} "
+                            f"--working-folder {remote_working_folder} "
+                            # TODO this flag should only be passed in if we were
+                            # originally using an EC2AllocHost
+                            f"--needs-deallocation"
                         )
                         event_loop.call_soon_threadsafe(
                             lambda r=returned_result: result_future.set_result(r)
@@ -239,6 +245,43 @@ class SshHost(Host):
                         )
 
                     # TODO also clean up log file?s
+
+
+@dataclasses.dataclass(frozen=True)
+class EC2AllocHost(Host):
+    """A placeholder for a host that will be allocated/created by ec2_alloc.py"""
+
+    logical_cpu_required: int
+    memory_gb_required: float
+    interruption_probability_threshold: float
+    region_name: Optional[str] = None
+    private_key_filename: Optional[str] = None
+
+    async def run_job(self, job_to_run: JobToRun) -> Any:
+        hosts = await allocate_ec2_instances(
+            Resources(self.memory_gb_required, self.logical_cpu_required, {}),
+            1,
+            self.interruption_probability_threshold,
+            self.region_name or await _get_default_region_name(),
+        )
+
+        fabric_kwargs: Dict[str, Any] = {"user": "ubuntu"}
+        if self.private_key_filename:
+            fabric_kwargs["connect_kwargs"] = {
+                "key_filename": self.private_key_filename
+            }
+
+        if len(hosts) != 1:
+            raise ValueError(f"Asked for one host, but got back {len(hosts)}")
+        for host, job_ids in hosts.items():
+            if len(job_ids) != 1:
+                raise ValueError(f"Asked for one job allocation but got {len(job_ids)}")
+
+            # Kind of weird that we're changing the job_id here, but okay as long as
+            # job_id remains mostly an internal concept
+            job_to_run.job.job_id = job_ids[0]
+
+            return await SshHost(host, fabric_kwargs).run_job(job_to_run)
 
 
 async def run_function(

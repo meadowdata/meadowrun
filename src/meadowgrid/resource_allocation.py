@@ -37,7 +37,7 @@ class Resources:
     """
 
     memory_gb: float
-    logical_cpu: float
+    logical_cpu: int
     custom: Dict[str, float]
 
     def subtract(self, required: Resources) -> Optional[Resources]:
@@ -90,10 +90,10 @@ class Resources:
             memory_gb = 0.0
 
         if LOGICAL_CPU in resources_dict:
-            logical_cpu = resources_dict[LOGICAL_CPU]
+            logical_cpu = int(resources_dict[LOGICAL_CPU])
             del resources_dict[LOGICAL_CPU]
         else:
-            logical_cpu = 0.0
+            logical_cpu = 0
 
         return cls(memory_gb, logical_cpu, resources_dict)
 

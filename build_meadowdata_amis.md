@@ -57,59 +57,13 @@ pip install /meadowgrid/meadowdata-0.1.0-py3-none-any.whl
 
 Now, create another AMI from this image, naming it based on the version that were actually installed, e.g. `meadowdata-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5`. This AMI won't actually be used, but we'll create the next two images with this image as a base.
 
-## Set up the agent
+## Set up EC2 alloc
 
-Continuing from the `meadowdata-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance, we'll set up the meadowgrid agent.
+Continuing from the `meadowdata-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance, we'll set up the deallocate_jobs.py script which needs to run on every EC2 instance.
 
-- On the EC2 instance, write a file using e.g. `sudo vi /etc/systemd/system/meadowgrid_agent.service` with the contents:
+- On the EC2 instance, add a new cronjob by running `crontab -e` and then adding
 ```
-[Unit]
-Description="meadowgrid agent"
-# per https://serverfault.com/questions/871328/start-service-after-aws-user-data-has-run
-After=cloud-final.service
-StartLimitIntervalSec=0
-
-[Service]
-User=ubuntu
-Group=ubuntu
-# we're expecting this file to contain e.g. COORDINATOR_HOST=127.0.0.1\nAGENT_ID=ae094361-3b47-4861-9c46-34e990fb16f5\nJOB_ID
-EnvironmentFile=/meadowgrid/agent.conf
-Environment=PYTHONUNBUFFERED=1
-ExecStart=/meadowgrid/env/bin/meadowgrid_agent --working-folder /meadowgrid/working_folder --coordinator-host $COORDINATOR_HOST --agent-id $AGENT_ID --job-id $JOB_ID
-Restart=always
-RestartSec=1
-
-[Install]
-WantedBy=cloud-init.target
+* * * * * /meadowgrid/env/bin/python /meadowgrid/env/lib/python3.9/site-packages/meadowgrid/deallocate_jobs.py >> /meadowgrid/deallocate_jobs.log 2>&1
 ```
-- Then enable the systemd service: `sudo systemctl enable meadowgrid_agent`
 
-Now, create the `meadowgrid-agent-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. This AMI will be used to run the meadowgrid agent. Copy the AMI ID for this into `aws_integration.py:_AGENT_AWS_AMI` and make the AMI public.
-
-## Set up the coordinator
-
-Now create a fresh instance from the `meadowdata-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image (i.e. "undo" everything we did to set up the agent).
-
-- On the EC2 instance, write a file using e.g. `sudo vi /etc/systemd/system/meadowgrid_coordinator.service` with the contents:
-```
-[Unit]
-Description="meadowgrid coordinator"
-# per https://serverfault.com/questions/871328/start-service-after-aws-user-data-has-run
-After=cloud-final.service
-StartLimitIntervalSec=0
-
-[Service]
-User=ubuntu
-Group=ubuntu
-Environment=PYTHONUNBUFFERED=1
-ExecStart=/meadowgrid/env/bin/meadowgrid_coordinator --host 0.0.0.0 --agent-creator aws
-Restart=always
-RestartSec=1
-
-[Install]
-WantedBy=cloud-init.target
-```
-- Then enable the systemd service: `sudo systemctl enable meadowgrid_coordinator`
-- This is quite hacky, but to make things a bit quicker, we're going to patch in the agent AMI ID. So `vi /meadowgrid/env/lib/python3.9/site-packages/meadowgrid/aws_integration.py` and edit `_AGENT_AWS_AMI` to be the AMI ID for the agent that we created in the last step.
-
-Now, create the `meadowgrid-coordinator-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. This AMI will be used to run the meadowgrid coordinator. Copy the AMI ID for this into `aws_integration.py:_COORDINATOR_AWS_AMI` and make the AMI public.
+Now, create the `meadowgrid-ec2alloc-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5` image/instance. Copy the AMI ID for this into `aws_integration.py:_EC2ALLOC_AWS_AMI` and make the AMI public.

@@ -1,12 +1,14 @@
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.meadowgrid_pb2 import ServerAvailableInterpreter
 from meadowgrid.runner import (
+    Deployment,
+    EC2AllocHost,
+    LocalHost,
+    SshHost,
     run_command,
     run_function,
-    SshHost,
-    Deployment,
-    LocalHost,
 )
+from test_meadowgrid.test_ec2_alloc import _PRIVATE_KEY_FILENAME
 
 
 async def test_run_function_local():
@@ -43,3 +45,13 @@ async def manual_test_run_command_remote():
     )
     # right now we don't get the stdout back, so the only way to check this is to look
     # at the log file on the remote host
+
+
+async def manual_test_run_function_allocated_ec2_host():
+    result = await run_function(
+        lambda x: x * 2,
+        EC2AllocHost(1, 1, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
+        args=[5],
+    )
+
+    assert result == 10

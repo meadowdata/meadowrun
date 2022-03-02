@@ -907,6 +907,16 @@ def _completed_job_state(
     )
 
 
+def _get_default_working_folder() -> str:
+    # figure out the default working_folder based on the OS
+    if os.name == "nt":
+        return os.path.join(os.environ["USERPROFILE"], "meadowgrid")
+    elif os.name == "posix":
+        return os.path.join(os.environ["HOME"], "meadowgrid")
+    else:
+        raise ValueError(f"Unexpected os.name {os.name}")
+
+
 def _set_up_working_folder(
     working_folder: Optional[str],
 ) -> Tuple[str, str, CodeDeploymentManager]:
@@ -917,13 +927,7 @@ def _set_up_working_folder(
     """
 
     if not working_folder:
-        # figure out the default working_folder based on the OS
-        if os.name == "nt":
-            working_folder = os.path.join(os.environ["USERPROFILE"], "meadowgrid")
-        elif os.name == "posix":
-            working_folder = os.path.join(os.environ["HOME"], "meadowgrid")
-        else:
-            raise ValueError(f"Unexpected os.name {os.name}")
+        working_folder = _get_default_working_folder()
         os.makedirs(working_folder, exist_ok=True)
 
     # first, create the directories that we need

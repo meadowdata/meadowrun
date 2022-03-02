@@ -12,3 +12,6 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # no point in having more than 2 pull requests at a time as a rebase is always
+    # necessary
+    open-pull-requests-limit: 2

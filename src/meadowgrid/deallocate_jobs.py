@@ -12,9 +12,8 @@ from meadowgrid.aws_integration import _get_ec2_metadata
 from meadowgrid.ec2_alloc import (
     get_jobs_on_ec2_instance,
     deallocate_job_from_ec2_instance,
-    _ALLOCATED_TIME,
 )
-
+from meadowgrid.ec2_alloc_lambda.ec2_alloc_stub import _ALLOCATED_TIME
 
 # If a job is allocated but we never see a pid file for it, we assume after this amount
 # of time that the client process crashed

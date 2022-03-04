@@ -10,7 +10,6 @@ import traceback
 from types import TracebackType
 from typing import (
     Any,
-    Callable,
     Dict,
     Generator,
     Iterable,
@@ -24,8 +23,6 @@ from typing import (
 import aiohttp
 import aiohttp.client_exceptions
 import boto3
-import botocore.client
-import botocore.exceptions
 import pandas as pd
 
 from meadowgrid.agent_creator import (
@@ -35,6 +32,7 @@ from meadowgrid.agent_creator import (
 )
 from meadowgrid.config import DEFAULT_COORDINATOR_PORT, EC2_PRICES_UPDATE_SECS
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientAsync
+from meadowgrid.ec2_alloc_lambda.ec2_alloc_stub import ignore_boto3_error_code
 from meadowgrid.resource_allocation import Resources
 
 _MEADOWGRID_COORDINATOR_ROLE = "meadowgridCoordinatorRole"
@@ -45,40 +43,32 @@ _MEADOWGRID_SSH_SECURITY_GROUP = "meadowgridSshSecurityGroup"
 _COORDINATOR_AWS_AMI = "ami-0e2b160b07bab8a4b"
 _AGENT_AWS_AMI = "ami-00fefcea9b035e2d6"
 # An AMI with meadowgrid installed0
-_EC2ALLOC_AWS_AMI = "ami-0cf49eaf7e7d2b5ec"
+_EC2ALLOC_AWS_AMI = "ami-0055710bcca30d82a"
 
-_EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{"Statement":
-[
-    {
-        "Action": "sts:AssumeRole",
-        "Effect": "Allow",
-        "Principal": {"Service": "ec2.amazonaws.com"}
-    }
-],
-"Version": "2012-10-17"}"""
+_EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
+    "Version": "2012-10-17"
+    "Statement": [
+        {
+            "Action": "sts:AssumeRole",
+            "Effect": "Allow",
+            "Principal": {"Service": "ec2.amazonaws.com"}
+        }
+    ]
+}"""
+
+_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": "sts:AssumeRole",
+            "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" }
+        }
+    ]
+}"""
 
 
 _T = TypeVar("_T")
-
-
-def _ignore_boto3_error_code(
-    func: Callable[[], _T], error_code: str
-) -> Tuple[bool, Optional[_T]]:
-    """
-    Calls func. If func succeeds, return (True, result of func). If func raises a boto3
-    error with the specified code, returns False, None. If func raises any other type of
-    exception (i.e. a boto3 error with a different code or a different type of error
-    altogether), then the exception is raised normally.
-    """
-    try:
-        return True, func()
-    except botocore.exceptions.ClientError as e:
-        if "Error" in e.response:
-            error = e.response["Error"]
-            if "Code" in error and error["Code"] == error_code:
-                return False, None
-
-        raise
 
 
 def _boto3_paginate(method: Any, **kwargs: Any) -> Iterable[Any]:
@@ -188,7 +178,7 @@ def _get_ec2_security_group(ec2_resource: Any, name: str) -> Any:
     Optional[boto3.resources.factory.ec2.SecurityGroup] (not in the type signature
     because boto3 uses dynamic types).
     """
-    success, groups = _ignore_boto3_error_code(
+    success, groups = ignore_boto3_error_code(
         lambda: list(ec2_resource.security_groups.filter(GroupNames=[name])),
         "InvalidGroup.NotFound",
     )
@@ -257,7 +247,7 @@ def ensure_security_group(
         )
 
     for from_port, to_port, cidr_ip in open_port_cidr_block:
-        _ignore_boto3_error_code(
+        ignore_boto3_error_code(
             lambda: security_group.authorize_ingress(
                 IpProtocol="tcp",
                 CidrIp=cidr_ip,
@@ -268,7 +258,7 @@ def ensure_security_group(
         )
 
     for from_port, to_port, group_id in open_port_group:
-        _ignore_boto3_error_code(
+        ignore_boto3_error_code(
             lambda: security_group.authorize_ingress(
                 IpPermissions=[
                     {
@@ -294,12 +284,16 @@ async def launch_ec2_instance(
     iam_role_name: Optional[str] = None,
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
     wait_for_dns_name: bool = True,
 ) -> Optional[str]:
     """
     Launches the specified EC2 instance. If wait_for_dns_name is True, waits for the
     instance to get a public dns name assigned, and then returns that. Otherwise returns
     None.
+
+    One wrinkle is that if you specify tags for a spot instance, we have to wait for it
+    to launch, as there's no way to tag a spot instance before it's running.
     """
 
     optional_args: Dict[str, Any] = {}
@@ -313,6 +307,15 @@ async def launch_ec2_instance(
     if on_demand_or_spot == "on_demand":
         if user_data:
             optional_args["UserData"] = user_data
+        if tags:
+            optional_args["TagSpecifications"] = [
+                {
+                    "ResourceType": "instance",
+                    "Tags": [
+                        {"Key": key, "Value": value} for key, value in tags.items()
+                    ],
+                }
+            ]
 
         ec2_resource = boto3.resource("ec2", region_name=region_name)
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
@@ -367,7 +370,7 @@ async def launch_ec2_instance(
             },
         )
 
-        if wait_for_dns_name:
+        if wait_for_dns_name or tags:
             # see above for comment about boto3 async/threads
             spot_instance_request_id = spot_instance_request["SpotInstanceRequests"][0][
                 "SpotInstanceRequestId"
@@ -389,6 +392,14 @@ async def launch_ec2_instance(
             instance_id = client.describe_spot_instance_requests(
                 SpotInstanceRequestIds=[spot_instance_request_id]
             )["SpotInstanceRequests"][0]["InstanceId"]
+
+            # now that we have an instance id, we can add our tags
+            if tags:
+                client.create_tags(
+                    Resources=[instance_id],
+                    Tags=[{"Key": key, "Value": value} for key, value in tags.items()],
+                )
+
             return client.describe_instances(InstanceIds=[instance_id])["Reservations"][
                 0
             ]["Instances"][0]["PublicDnsName"]
@@ -427,6 +438,7 @@ async def launch_ec2_instances(
     iam_role_name: Optional[str] = None,
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
 ) -> Sequence[EC2Instance]:
     """
     Launches enough EC2 instances to run num_jobs jobs that each require the specified
@@ -487,6 +499,7 @@ async def launch_ec2_instances(
                     iam_role_name=iam_role_name,
                     user_data=user_data,
                     key_name=key_name,
+                    tags=tags,
                     wait_for_dns_name=True,
                 )
             )

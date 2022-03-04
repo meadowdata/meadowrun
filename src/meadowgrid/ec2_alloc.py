@@ -1,19 +1,40 @@
+import asyncio
 import dataclasses
 import datetime
 import decimal
+import io
+import os.path
+import pkgutil
 import uuid
-from typing import Any, List, Dict, Tuple
+import zipfile
+from typing import Any, List, Dict, Tuple, Callable, TypeVar
 
 import boto3
 
+import meadowgrid.ec2_alloc_lambda
 from meadowgrid.aws_integration import (
-    _ignore_boto3_error_code,
-    launch_ec2_instances,
     _EC2ALLOC_AWS_AMI,
-    ensure_meadowgrid_ssh_security_group,
-    _iam_role_exists,
     _EC2_ASSUME_ROLE_POLICY_DOCUMENT,
+    _LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
     _get_default_region_name,
+    _iam_role_exists,
+    ensure_meadowgrid_ssh_security_group,
+    launch_ec2_instances,
+)
+from meadowgrid.ec2_alloc_lambda.adjust_ec2_instances import lambda_handler
+from meadowgrid.ec2_alloc_lambda.ec2_alloc_stub import (
+    _ALLOCATED_TIME,
+    _EC2_ALLOC_TABLE_NAME,
+    _EC2_ALLOC_TAG,
+    _EC2_ALLOC_TAG_VALUE,
+    _LAST_UPDATE_TIME,
+    _LOGICAL_CPU_ALLOCATED,
+    _LOGICAL_CPU_AVAILABLE,
+    _MEMORY_GB_ALLOCATED,
+    _MEMORY_GB_AVAILABLE,
+    _PUBLIC_ADDRESS,
+    _RUNNING_JOBS,
+    ignore_boto3_error_code,
 )
 from meadowgrid.resource_allocation import (
     Resources,
@@ -21,11 +42,12 @@ from meadowgrid.resource_allocation import (
     _assert_is_not_none,
 )
 
+
+_T = TypeVar("_T")
+
 # AWS resources needed for the serverless coordinator to function
 
-# a dynamodb table that holds information about EC2 instances we've created and what has
-# been allocated to which instances
-_EC2_ALLOC_TABLE_NAME = "_meadowgrid_ec2_alloc_table"
+# SEE ALSO ec2_alloc_stub.py
 
 # an IAM role/an associated policy that grants permission to read/write the EC2 alloc
 # dynamodb table
@@ -58,15 +80,33 @@ _EC2_TABLE_ACCESS_POLICY_DOCUMENT = """{
     "$TABLE_NAME", _EC2_ALLOC_TABLE_NAME
 )
 
-# names of attributes/keys in the EC2 alloc table
-_PUBLIC_ADDRESS = "public_address"
-_LOGICAL_CPU_AVAILABLE = "logical_cpu_available"
-_LOGICAL_CPU_ALLOCATED = "logical_cpu_allocated"
-_MEMORY_GB_AVAILABLE = "memory_gb_available"
-_MEMORY_GB_ALLOCATED = "memory_gb_allocated"
-_ALLOCATED_TIME = "allocated_time"
-_RUNNING_JOBS = "running_jobs"
-_JOB_ID = "job_id"
+# the name of the lambda that runs adjust_ec2_instances.py
+_EC2_ALLOC_LAMBDA_NAME = "meadowgrid_ec2_alloc_lambda"
+# the role that the lambda runs under
+_EC2_ALLOC_LAMBDA_ROLE = "meadowgrid_ec2_alloc_lambda_role"
+# the EventBridge rule that triggers the lambda
+_EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowgrid_ec2_alloc_lambda_schedule_rule"
+
+
+def _get_account_number() -> str:
+    # weird that we have to do this to get the account number to construct the ARN
+    return boto3.client("sts").get_caller_identity().get("Account")
+
+
+def _ensure_ec2_alloc_table_access_policy(iam_client: Any) -> str:
+    """Creates a policy that gives permission to read/write the EC2 alloc table"""
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.create_policy
+    ignore_boto3_error_code(
+        lambda: iam_client.create_policy(
+            PolicyName=_EC2_ALLOC_TABLE_ACCESS_POLICY_NAME,
+            PolicyDocument=_EC2_TABLE_ACCESS_POLICY_DOCUMENT,
+        ),
+        "EntityAlreadyExists",
+    )
+    return (
+        f"arn:aws:iam::{_get_account_number()}:policy/"
+        f"{_EC2_ALLOC_TABLE_ACCESS_POLICY_NAME}"
+    )
 
 
 def _ensure_ec2_alloc_role(region_name: str) -> None:
@@ -82,7 +122,7 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
     if not _iam_role_exists(iam, _EC2_ALLOC_ROLE):
         # create the role
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.ServiceResource.create_role
-        _ignore_boto3_error_code(
+        ignore_boto3_error_code(
             lambda: iam.create_role(
                 RoleName=_EC2_ALLOC_ROLE,
                 # allow EC2 instances to assume this role
@@ -93,33 +133,22 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
         )
 
         # create the table access policy and attach it to the role
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.create_policy
-        _ignore_boto3_error_code(
-            lambda: iam.create_policy(
-                PolicyName=_EC2_ALLOC_TABLE_ACCESS_POLICY_NAME,
-                PolicyDocument=_EC2_TABLE_ACCESS_POLICY_DOCUMENT,
-            ),
-            "EntityAlreadyExists",
-        )
-        # weird that we have to do this to get the account number to construct the ARN
-        account_number = boto3.client("sts").get_caller_identity().get("Account")
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.attach_role_policy
         iam.attach_role_policy(
             RoleName=_EC2_ALLOC_ROLE,
             # TODO should create a policy that only allows what we actually need
-            PolicyArn=f"arn:aws:iam::{account_number}:policy"
-            f"/{_EC2_ALLOC_TABLE_ACCESS_POLICY_NAME}",
+            PolicyArn=_ensure_ec2_alloc_table_access_policy(iam),
         )
 
         # create an instance profile (so that EC2 instances can assume it) and attach
         # the role to the instance profile
-        _ignore_boto3_error_code(
+        ignore_boto3_error_code(
             lambda: iam.create_instance_profile(
                 InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE
             ),
             "EntityAlreadyExists",
         )
-        _ignore_boto3_error_code(
+        ignore_boto3_error_code(
             lambda: iam.add_role_to_instance_profile(
                 InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE,
                 RoleName=_EC2_ALLOC_ROLE,
@@ -141,7 +170,7 @@ async def _ensure_ec2_alloc_table() -> Any:
     # about the same performance
 
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.ServiceResource.create_table
-    success, table = _ignore_boto3_error_code(
+    success, table = ignore_boto3_error_code(
         lambda: db.create_table(
             TableName=_EC2_ALLOC_TABLE_NAME,
             AttributeDefinitions=[
@@ -195,7 +224,7 @@ async def _register_ec2_instance(
     now = datetime.datetime.utcnow().isoformat()
     table = await _ensure_ec2_alloc_table()
 
-    success, result = _ignore_boto3_error_code(
+    success, result = ignore_boto3_error_code(
         lambda: table.put_item(
             Item={
                 # the public address of the EC2 instance
@@ -225,6 +254,8 @@ async def _register_ec2_instance(
                     }
                     for job_id, allocated_resources in running_jobs
                 },
+                # The last time a job was allocated or deallocated to this machine
+                _LAST_UPDATE_TIME: now,
             },
             ConditionExpression=f"attribute_not_exists({_PUBLIC_ADDRESS})",
         ),
@@ -239,16 +270,6 @@ async def _register_ec2_instance(
             f"Tried to register an ec2_instance {public_address} but it already exists,"
             " this should never happen!"
         )
-
-
-async def _deregister_ec2_instance(public_address: str) -> None:
-    """
-    Deregisters an EC2 instance.
-
-    TODO currently unused, need to create a lambda that queries for EC2 instances that
-    have died and deregisters them
-    """
-    (await _ensure_ec2_alloc_table()).delete_item(Key={_PUBLIC_ADDRESS: public_address})
 
 
 def _get_ec2_instances(table: Any) -> List[_EC2InstanceState]:
@@ -322,6 +343,7 @@ def _allocate_job_to_ec2_instance(
 
     expression_attribute_names = {}
     set_expressions = []
+    now = datetime.datetime.utcnow().isoformat()
     expression_attribute_values: Dict[str, Any] = {
         ":logical_cpu_to_allocate": decimal.Decimal(
             resources_allocated_per_job.logical_cpu * len(new_job_ids)
@@ -329,9 +351,9 @@ def _allocate_job_to_ec2_instance(
         ":memory_gb_to_allocate": decimal.Decimal(
             resources_allocated_per_job.memory_gb * len(new_job_ids)
         ),
+        ":now": now,
     }
     attribute_not_exists_expressions = []
-    now = datetime.datetime.utcnow().isoformat()
     for i, job_id in enumerate(new_job_ids):
         # job_ids might not be valid dynamodb identifiers
         expression_attribute_names[f"#j{i}"] = job_id
@@ -351,7 +373,7 @@ def _allocate_job_to_ec2_instance(
             f"attribute_not_exists({_RUNNING_JOBS}.#j{i})"
         )
 
-    success, result = _ignore_boto3_error_code(
+    success, result = ignore_boto3_error_code(
         lambda: table.update_item(
             Key={_PUBLIC_ADDRESS: public_address},
             # subtract resources that we're allocating
@@ -361,6 +383,7 @@ def _allocate_job_to_ec2_instance(
                     f"{_LOGICAL_CPU_AVAILABLE} - :logical_cpu_to_allocate, "
                     f"{_MEMORY_GB_AVAILABLE}="
                     f"{_MEMORY_GB_AVAILABLE} - :memory_gb_to_allocate, "
+                    f"{_LAST_UPDATE_TIME}=:now, "
                 )
                 + ", ".join(set_expressions)
             ),
@@ -391,14 +414,15 @@ async def deallocate_job_from_ec2_instance(
     """
     table = await _ensure_ec2_alloc_table()
 
-    success, result = _ignore_boto3_error_code(
+    success, result = ignore_boto3_error_code(
         lambda: table.update_item(
             Key={_PUBLIC_ADDRESS: public_address},
             UpdateExpression=(
                 f"SET {_LOGICAL_CPU_AVAILABLE}="
                 f"{_LOGICAL_CPU_AVAILABLE} + :logical_cpu_allocated, "
                 f"{_MEMORY_GB_AVAILABLE}="
-                f"{_MEMORY_GB_AVAILABLE} + :memory_gb_allocated "
+                f"{_MEMORY_GB_AVAILABLE} + :memory_gb_allocated, "
+                f"{_LAST_UPDATE_TIME}=:now "
                 f"REMOVE {_RUNNING_JOBS}.#job_id"
             ),
             # make sure we haven't already removed this job
@@ -407,6 +431,7 @@ async def deallocate_job_from_ec2_instance(
             ExpressionAttributeValues={
                 ":logical_cpu_allocated": job[_LOGICAL_CPU_ALLOCATED],
                 ":memory_gb_allocated": job[_MEMORY_GB_ALLOCATED],
+                ":now": datetime.datetime.utcnow().isoformat(),
             },
         ),
         "ConditionalCheckFailedException",
@@ -536,6 +561,7 @@ async def _launch_new_ec2_instances(
         # TODO we should let users set their own IAM role as long as it grants access to
         # the dynamodb table we need for deallocation
         iam_role_name=_EC2_ALLOC_ROLE_INSTANCE_PROFILE,
+        tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
     )
 
     description_strings = []
@@ -608,3 +634,183 @@ async def allocate_ec2_instances(
         )
 
     return allocated
+
+
+async def _retry(
+    function: Callable[[], Tuple[bool, _T]],
+    max_num_attempts: int = 3,
+    delay_seconds: float = 1,
+) -> _T:
+    i = 0
+    while True:
+        success, result = function()
+        if success:
+            return result
+        else:
+            i += 1
+            if i >= max_num_attempts:
+                raise ValueError(f"Failed after {i} attempts")
+            else:
+                print("Retrying on error")
+                await asyncio.sleep(delay_seconds)
+
+
+def _get_zipped_lambda_code() -> bytes:
+    """
+    Gets the contents of the ec2_alloc_lambda folder as a zip file. This is the code we
+    want to run as a lambda.
+
+    Warning, this doesn't recurse into any subdirectories (because it is not currently
+    needed)
+    """
+    lambda_root_path = meadowgrid.ec2_alloc_lambda.__path__[0]
+    module_names = [name for _, name, _ in pkgutil.iter_modules([lambda_root_path])]
+    path_prefix = meadowgrid.ec2_alloc_lambda.__name__.replace(".", os.path.sep)
+
+    with io.BytesIO() as buffer:
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for module_name in module_names:
+                zf.write(
+                    os.path.join(lambda_root_path, module_name + ".py"),
+                    os.path.join(path_prefix, module_name + ".py"),
+                )
+
+        buffer.seek(0)
+
+        return buffer.read()
+
+
+def _ensure_ec2_alloc_lambda_role(region_name: str) -> None:
+    """Creates the role for the ec2 alloc lambda to run as"""
+    iam = boto3.client("iam", region_name=region_name)
+    if not _iam_role_exists(iam, _EC2_ALLOC_LAMBDA_ROLE):
+        # create the role
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.ServiceResource.create_role
+        ignore_boto3_error_code(
+            lambda: iam.create_role(
+                RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+                # allow EC2 instances to assume this role
+                AssumeRolePolicyDocument=_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
+                Description="Allows reading/writing the EC2 alloc table and "
+                "creating/terminating EC2 instances",
+            ),
+            "EntityAlreadyExists",
+        )
+
+        # allow accessing the EC2 alloc dynamodb table
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.attach_role_policy
+        iam.attach_role_policy(
+            RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+            PolicyArn=_ensure_ec2_alloc_table_access_policy(iam),
+        )
+
+        # allow creating/terminating EC2 instances
+        iam.attach_role_policy(
+            RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+            # TODO should create a policy that only allows what we actually need
+            PolicyArn="arn:aws:iam::aws:policy/AmazonEC2FullAccess",
+        )
+
+        # allow writing CloudWatch logs
+        # TODO also configure CloudWatch retention so that we don't keep everything
+        # forever
+        iam.attach_role_policy(
+            RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+            PolicyArn="arn:aws:iam::aws:policy/service-role/"
+            "AWSLambdaBasicExecutionRole",
+        )
+
+
+async def _create_ec2_alloc_lambda(region_name: str, lambda_client: Any) -> None:
+    """Creates the ec2 alloc lambda assuming it does not already exist"""
+    account_number = _get_account_number()
+
+    # create the role that the lambda will run as
+    _ensure_ec2_alloc_lambda_role(region_name)
+
+    # create the lambda
+    def create_function_if_not_exists() -> Tuple[bool, None]:
+        ignore_boto3_error_code(
+            lambda: lambda_client.create_function(
+                FunctionName=_EC2_ALLOC_LAMBDA_NAME,
+                Runtime="python3.9",
+                Role=f"arn:aws:iam::{account_number}:role/{_EC2_ALLOC_LAMBDA_ROLE}",
+                Handler=f"{lambda_handler.__module__}.{lambda_handler.__name__}",
+                Code={"ZipFile": _get_zipped_lambda_code()},
+                Timeout=120,
+                MemorySize=128,  # memory available in MB
+            ),
+            "ResourceConflictException",
+        )
+        return True, None
+
+    # totally crazy, but sometimes you just have to wait 5-10 seconds after
+    # creating the role to be able to create a lambda with that role:
+    # https://stackoverflow.com/a/37438525
+    await _retry(
+        lambda: ignore_boto3_error_code(
+            create_function_if_not_exists, "InvalidParameterValueException"
+        ),
+        10,
+        2,
+    )
+
+    # now create an EventBridge rule that triggers every 1 minute
+    events_client = boto3.client("events")
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/events.html#EventBridge.Client.put_rule
+    events_client.put_rule(
+        Name=_EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+        ScheduleExpression="rate(1 minute)",
+    )
+
+    # add the lambda as a target for that rule
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/events.html#EventBridge.Client.put_targets
+    events_client.put_targets(
+        Rule=_EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+        Targets=[
+            {
+                "Id": _EC2_ALLOC_LAMBDA_NAME,
+                "Arn": f"arn:aws:lambda:us-east-2:{account_number}:function:"
+                f"{_EC2_ALLOC_LAMBDA_NAME}",
+            }
+        ],
+    )
+
+    # add permissions for that rule to invoke this lambda
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/lambda.html#Lambda.Client.add_permission
+    ignore_boto3_error_code(
+        lambda: lambda_client.add_permission(
+            FunctionName=_EC2_ALLOC_LAMBDA_NAME,
+            StatementId=f"{_EC2_ALLOC_LAMBDA_SCHEDULE_RULE}_invokes_"
+            f"{_EC2_ALLOC_LAMBDA_NAME}",
+            Action="lambda:InvokeFunction",
+            Principal="events.amazonaws.com",
+            SourceArn=f"arn:aws:events:us-east-2:{account_number}:rule/"
+            f"{_EC2_ALLOC_LAMBDA_SCHEDULE_RULE}",
+        ),
+        "ResourceConflictException",
+    )
+
+
+async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
+    """
+    Create the ec2 alloc lambda if it doesn't exist. If update_if_exists is true,
+    updates the code if the lambda already exists.
+
+    Even if this is called with update_if_exists, it is not guaranteed to update the
+    code if another process creates the lambda after this function starts executing.
+    """
+    region_name = await _get_default_region_name()
+    lambda_client = boto3.client("lambda", region_name=region_name)
+
+    exists, _ = ignore_boto3_error_code(
+        lambda: lambda_client.get_function(FunctionName=_EC2_ALLOC_LAMBDA_NAME),
+        "ResourceNotFoundException",
+    )
+
+    if not exists:
+        await _create_ec2_alloc_lambda(region_name, lambda_client)
+    elif update_if_exists:
+        lambda_client.update_function_code(
+            FunctionName=_EC2_ALLOC_LAMBDA_NAME, ZipFile=_get_zipped_lambda_code()
+        )

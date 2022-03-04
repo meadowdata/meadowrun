@@ -4,30 +4,39 @@ import platform
 import time
 from typing import Tuple
 
+import boto3
 import pytest
 
 from meadowgrid.aws_integration import _get_default_region_name
 from meadowgrid.ec2_alloc import (
     _EC2InstanceState,
+    _EC2_ALLOC_LAMBDA_NAME,
     _allocate_job_to_ec2_instance,
     _choose_existing_ec2_instances,
-    _deregister_ec2_instance,
     _ensure_ec2_alloc_table,
     _get_ec2_instances,
     _register_ec2_instance,
     allocate_ec2_instances,
     deallocate_job_from_ec2_instance,
+    ensure_ec2_alloc_lambda,
     get_jobs_on_ec2_instance,
+)
+from meadowgrid.ec2_alloc_lambda.adjust_ec2_instances import (
+    _deregister_ec2_instance,
+    adjust,
 )
 from meadowgrid.resource_allocation import Resources
 from meadowgrid.runner import run_function, EC2AllocHost
 
 
 async def _clear_ec2_instances_table() -> None:
+    # pretend that we're running in a lambda for _deregister_ec2_instance
+    os.environ["AWS_REGION"] = await _get_default_region_name()
+
     table = await _ensure_ec2_alloc_table()
     instances = _get_ec2_instances(table)
     for instance in instances:
-        await _deregister_ec2_instance(instance.public_address)
+        _deregister_ec2_instance(instance.public_address, False)
 
 
 async def manual_test_allocate_deallocate_mechanics():
@@ -219,3 +228,101 @@ async def very_manual_test_deallocate_before_running():
     # this should NOT deallocate the job because the timeout has not elapsed yet
     # 2. Wait 7 minutes and then run the same command again, and the job should get
     # deallocated
+
+
+async def manual_test_deregister():
+    """Tests registering and deregistering, does not involve real machines"""
+    await _clear_ec2_instances_table()
+
+    await _register_ec2_instance("testhost-1", 8, 64, [])
+    await _register_ec2_instance(
+        "testhost-2", 4, 32, [("worker-1", Resources(1, 2, {}))]
+    )
+
+    assert _deregister_ec2_instance("testhost-1", True)
+    # with require_no_running_jobs=True, testhost-2 should fail to deregister
+    assert not _deregister_ec2_instance("testhost-2", True)
+    assert _deregister_ec2_instance("testhost-2", False)
+
+
+def _run_adjust(use_lambda: bool) -> None:
+    if use_lambda:
+        lambda_client = boto3.client("lambda")
+        lambda_client.invoke(FunctionName=_EC2_ALLOC_LAMBDA_NAME)
+    else:
+        adjust()
+
+
+async def very_manual_test_adjust_ec2_instances(use_lambda: bool):
+    """
+    Tests the adjust function, involves running real machines, but they should all get
+    terminated automatically by the test.
+
+    If use_lambda is false, the test will just call the adjust function directly. For a
+    slightly more realistic test, you can run with use_lambda set to true. In that case,
+    the test will invoke the ec2 alloc lambda, assuming it has already been created.
+    """
+
+    await _clear_ec2_instances_table()
+    table = await _ensure_ec2_alloc_table()
+
+    # first, register an instance that's not actually running
+    await _register_ec2_instance(
+        "testhost-1", 8, 64, [("worker-1", Resources(1, 2, {}))]
+    )
+    assert len(_get_ec2_instances(table)) == 1
+
+    # adjust should deregister the instance (even if there are "jobs" supposedly running
+    # on it) because there's no actual instance running
+    _run_adjust(use_lambda)
+    assert len(_get_ec2_instances(table)) == 0
+
+    # now, launch two instances (which should get registered automatically)
+    instances1 = await allocate_ec2_instances(
+        Resources(0.5, 1, {}), 1, 15, await _get_default_region_name()
+    )
+    assert len(instances1) == 1
+    public_address1 = list(instances1.keys())[0]
+
+    instances2 = await allocate_ec2_instances(
+        Resources(0.5, 1, {}), 1, 15, await _get_default_region_name()
+    )
+    assert len(instances2) == 1
+    public_address2 = list(instances2.keys())[0]
+    job2 = list(instances2.values())[0][0]
+
+    assert len(_get_ec2_instances(table)) == 2
+
+    # deregister one without turning off the instance then adjust should terminate it
+    # automatically
+    _deregister_ec2_instance(public_address1, False)
+    _run_adjust(use_lambda)
+    assert len(_get_ec2_instances(table)) == 1
+    print(
+        f"Now manually check that {public_address1} is being terminated but "
+        f"{public_address2} is still running"
+    )
+
+    # now deallocate the job from the second instance
+    await deallocate_job_from_ec2_instance(
+        public_address2, job2, (await get_jobs_on_ec2_instance(public_address2))[job2]
+    )
+
+    # adjust should NOT deregister/terminate the instance because the timeout has not
+    # happened yet.
+    _run_adjust(use_lambda)
+    assert len(_get_ec2_instances(table)) == 1
+
+    # after 30 seconds, run adjust again, now that instance should get
+    # deregistered/terminated
+    time.sleep(31)
+    _run_adjust(use_lambda)
+    assert len(_get_ec2_instances(table)) == 0
+    print(f"Now manually check that {public_address2} is also being terminated")
+
+
+async def very_manual_test_create_ec2_alloc_lambda():
+    """Tests setting up the ec2_alloc lambda"""
+    # 1. delete the lambda and the ec2_alloc_lambda_role, then run this.
+    # 2. make a small change to the lambda code then run this again
+    await ensure_ec2_alloc_lambda(True)

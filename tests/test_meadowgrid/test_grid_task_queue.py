@@ -22,6 +22,7 @@ def manual_test_grid_task_queue():
     resources.
     """
     region_name = asyncio.run(_get_default_region_name())
+    task_arguments = ["hello", ("hey", "there"), {"a": 1}]
 
     # dummy variables
     job_id = str(uuid.uuid4())
@@ -45,7 +46,6 @@ def manual_test_grid_task_queue():
     results_thread.start()
 
     # add some tasks
-    task_arguments = ["hello", ("hey", "there"), {"a": 1}]
     asyncio.run(_add_tasks(request_queue_url, region_name, task_arguments))
 
     # get some tasks and complete them
@@ -113,13 +113,12 @@ def manual_test_grid_task_queue():
 
 def manual_test_worker():
     region_name = asyncio.run(_get_default_region_name())
+    task_arguments = [1, 2, 3, 4]
 
     # dummy variables
     job_id = str(uuid.uuid4())
     public_address = "foo"
     worker_id = 1
-
-    task_arguments = [1, 2, 3, 4]
 
     request_queue_url, result_queue_url = asyncio.run(
         _create_queues_for_job(job_id, region_name)
@@ -159,6 +158,7 @@ def manual_test_worker():
 
 
 async def manual_test_run_map():
+    """Runs a "real" run_map"""
     results = await run_map(
         lambda x: x**x,
         [1, 2, 3, 4],

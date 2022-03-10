@@ -8,12 +8,12 @@ import google.protobuf.message
 import typing
 import typing_extensions
 
-DESCRIPTOR: google.protobuf.descriptor.FileDescriptor = ...
+DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class AddJobsRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     PICKLED_JOB_DEFINITIONS_FIELD_NUMBER: builtins.int
-    pickled_job_definitions: builtins.bytes = ...
+    pickled_job_definitions: builtins.bytes
     def __init__(
         self,
         *,
@@ -29,9 +29,9 @@ class AddJobsRequest(google.protobuf.message.Message):
 global___AddJobsRequest = AddJobsRequest
 
 class AddJobsResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     STATUS_FIELD_NUMBER: builtins.int
-    status: typing.Text = ...
+    status: typing.Text
     def __init__(
         self,
         *,
@@ -44,9 +44,9 @@ class AddJobsResponse(google.protobuf.message.Message):
 global___AddJobsResponse = AddJobsResponse
 
 class InstantiateScopesRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     PICKLED_SCOPES_FIELD_NUMBER: builtins.int
-    pickled_scopes: builtins.bytes = ...
+    pickled_scopes: builtins.bytes
     def __init__(
         self,
         *,
@@ -59,7 +59,7 @@ class InstantiateScopesRequest(google.protobuf.message.Message):
 global___InstantiateScopesRequest = InstantiateScopesRequest
 
 class InstantiateScopesResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     def __init__(
         self,
     ) -> None: ...
@@ -67,9 +67,9 @@ class InstantiateScopesResponse(google.protobuf.message.Message):
 global___InstantiateScopesResponse = InstantiateScopesResponse
 
 class EventsRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     PICKLED_TOPIC_NAMES_FIELD_NUMBER: builtins.int
-    pickled_topic_names: builtins.bytes = ...
+    pickled_topic_names: builtins.bytes
     def __init__(
         self,
         *,
@@ -85,9 +85,9 @@ class EventsRequest(google.protobuf.message.Message):
 global___EventsRequest = EventsRequest
 
 class Events(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     PICKLED_EVENTS_FIELD_NUMBER: builtins.int
-    pickled_events: builtins.bytes = ...
+    pickled_events: builtins.bytes
     def __init__(
         self,
         *,
@@ -100,11 +100,11 @@ class Events(google.protobuf.message.Message):
 global___Events = Events
 
 class RegisterJobRunnerRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_RUNNER_TYPE_FIELD_NUMBER: builtins.int
     ADDRESS_FIELD_NUMBER: builtins.int
-    job_runner_type: typing.Text = ...
-    address: typing.Text = ...
+    job_runner_type: typing.Text
+    address: typing.Text
     def __init__(
         self,
         *,
@@ -121,7 +121,7 @@ class RegisterJobRunnerRequest(google.protobuf.message.Message):
 global___RegisterJobRunnerRequest = RegisterJobRunnerRequest
 
 class RegisterJobRunnerResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     def __init__(
         self,
     ) -> None: ...
@@ -129,11 +129,11 @@ class RegisterJobRunnerResponse(google.protobuf.message.Message):
 global___RegisterJobRunnerResponse = RegisterJobRunnerResponse
 
 class ManualRunRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     PICKLED_JOB_NAME_FIELD_NUMBER: builtins.int
     PICKLED_JOB_RUN_OVERRIDES_FIELD_NUMBER: builtins.int
-    pickled_job_name: builtins.bytes = ...
-    pickled_job_run_overrides: builtins.bytes = ...
+    pickled_job_name: builtins.bytes
+    pickled_job_run_overrides: builtins.bytes
     def __init__(
         self,
         *,
@@ -153,9 +153,9 @@ class ManualRunRequest(google.protobuf.message.Message):
 global___ManualRunRequest = ManualRunRequest
 
 class ManualRunResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     RUN_REQUEST_ID_FIELD_NUMBER: builtins.int
-    run_request_id: typing.Text = ...
+    run_request_id: typing.Text
     def __init__(
         self,
         *,

@@ -10,7 +10,18 @@ import pickle
 import shlex
 import threading
 import uuid
-from typing import Callable, TypeVar, Union, Any, Dict, Optional, Sequence, cast, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import cloudpickle
 import fabric
@@ -21,12 +32,14 @@ from meadowgrid.agent import run_one_job
 from meadowgrid.aws_integration import _get_default_region_name
 from meadowgrid.config import MEADOWGRID_INTERPRETER
 from meadowgrid.coordinator_client import (
+    _add_credentials_request,
     _add_deployments_to_job,
     _create_py_function,
     _make_valid_job_id,
     _pickle_protocol_for_deployed_interpreter,
     _string_pairs_from_dict,
 )
+from meadowgrid.credentials import CredentialsService, CredentialsSource
 from meadowgrid.deployed_function import (
     CodeDeployment,
     InterpreterDeployment,
@@ -42,8 +55,9 @@ from meadowgrid.grid_task_queue import (
     create_queues_and_add_tasks,
 )
 from meadowgrid.meadowgrid_pb2 import (
+    AddCredentialsRequest,
     Job,
-    JobToRun,
+    JobToRun2,
     ProcessState,
     PyCommandJob,
     PyFunctionJob,
@@ -80,10 +94,21 @@ async def _retry(
 
 
 @dataclasses.dataclass(frozen=True)
+class CredentialsSourceAndService:
+    """A CredentialsSource with metadata about what service it should be used for"""
+    service: CredentialsService
+    service_url: str
+    source: CredentialsSource
+
+
+@dataclasses.dataclass(frozen=True)
 class Deployment:
-    interpreter: Union[InterpreterDeployment, VersionedInterpreterDeployment]
+    interpreter: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment, None
+    ] = None
     code: Union[CodeDeployment, VersionedCodeDeployment, None] = None
     environment_variables: Optional[Dict[str, str]] = None
+    credentials_sources: Optional[List[CredentialsSourceAndService]] = None
 
 
 def _add_defaults_to_deployment(
@@ -92,30 +117,42 @@ def _add_defaults_to_deployment(
     Union[InterpreterDeployment, VersionedInterpreterDeployment],
     Union[CodeDeployment, VersionedCodeDeployment],
     Dict[str, str],
+    List[AddCredentialsRequest],
 ]:
     if deployment is None:
         return (
             ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
             ServerAvailableFolder(),
             {},
+            [],
         )
 
+    if deployment.credentials_sources:
+        credentials_sources = [
+            _add_credentials_request(c.service, c.service_url, c.source)
+            for c in deployment.credentials_sources
+        ]
+    else:
+        credentials_sources = []
+
     return (
-        deployment.interpreter,
+        deployment.interpreter
+        or ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
         deployment.code or ServerAvailableFolder(),
         deployment.environment_variables or {},
+        credentials_sources,
     )
 
 
 class Host(abc.ABC):
     @abc.abstractmethod
-    async def run_job(self, job_to_run: JobToRun) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> Any:
         pass
 
 
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
-    async def run_job(self, job_to_run: JobToRun) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> Any:
         initial_update, continuation = await run_one_job(job_to_run)
         if (
             initial_update.process_state.state != ProcessState.ProcessStateEnum.RUNNING
@@ -138,7 +175,7 @@ class SshHost(Host):
     # these options are forwarded directly to Fabric
     fabric_kwargs: Optional[Dict[str, Any]] = None
 
-    async def run_job(self, job_to_run: JobToRun) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> Any:
         with fabric.Connection(
             self.address, **(self.fabric_kwargs or {})
         ) as connection:
@@ -271,7 +308,7 @@ class EC2AllocHost(Host):
     region_name: Optional[str] = None
     private_key_filename: Optional[str] = None
 
-    async def run_job(self, job_to_run: JobToRun) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> Any:
         hosts = await allocate_ec2_instances(
             Resources(self.memory_gb_required, self.logical_cpu_required, {}),
             1,
@@ -330,7 +367,12 @@ async def run_function(
 
     job_id, friendly_name, pickled_function = _get_id_name_function(function)
 
-    interpreter, code, environment_variables = _add_defaults_to_deployment(deployment)
+    (
+        interpreter,
+        code,
+        environment_variables,
+        credentials_sources,
+    ) = _add_defaults_to_deployment(deployment)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     job = Job(
@@ -346,7 +388,9 @@ async def run_function(
     _add_deployments_to_job(job, code, interpreter)
 
     # TODO figure out what to do about the [0], which is there for dropping effects
-    return (await host.run_job(JobToRun(job=job)))[0]
+    return (
+        await host.run_job(JobToRun2(job=job, credentials_sources=credentials_sources))
+    )[0]
 
 
 async def run_command(
@@ -366,7 +410,12 @@ async def run_command(
     # elements of args as if they're paths and take the last part of each path
     friendly_name = "-".join(os.path.basename(arg) for arg in args[:3])
 
-    interpreter, code, environment_variables = _add_defaults_to_deployment(deployment)
+    (
+        interpreter,
+        code,
+        environment_variables,
+        credentials_sources,
+    ) = _add_defaults_to_deployment(deployment)
 
     job = Job(
         job_id=_make_valid_job_id(job_id),
@@ -377,7 +426,7 @@ async def run_command(
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    await host.run_job(JobToRun(job=job))
+    await host.run_job(JobToRun2(job=job, credentials_sources=credentials_sources))
 
 
 async def run_map(
@@ -416,7 +465,12 @@ async def run_map(
 
     # 3. prepare some variables for constructing the worker jobs
     friendly_name = _make_valid_job_id(_get_friendly_name(function))
-    interpreter, code, environment_variables = _add_defaults_to_deployment(deployment)
+    (
+        interpreter,
+        code,
+        environment_variables,
+        credentials_sources,
+    ) = _add_defaults_to_deployment(deployment)
     environment_variables = _string_pairs_from_dict(environment_variables)
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     fabric_kwargs: Dict[str, Any] = {"user": "ubuntu"}
@@ -456,7 +510,9 @@ async def run_map(
 
             worker_tasks.append(
                 asyncio.create_task(
-                    SshHost(public_address, fabric_kwargs).run_job(JobToRun(job=job))
+                    SshHost(public_address, fabric_kwargs).run_job(
+                        JobToRun2(job=job, credentials_sources=credentials_sources)
+                    )
                 )
             )
 

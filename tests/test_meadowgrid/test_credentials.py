@@ -1,11 +1,5 @@
-import asyncio
 import subprocess
 
-import meadowgrid.coordinator_main
-import meadowgrid.agent_main
-from meadowgrid import grid_map
-from meadowgrid.config import MEADOWGRID_INTERPRETER
-from meadowgrid.coordinator_client import MeadowGridCoordinatorClientSync
 from meadowgrid.credentials import CredentialsSource
 from meadowgrid.docker_controller import delete_images_from_repository
 from meadowgrid.meadowgrid_pb2 import (
@@ -14,17 +8,18 @@ from meadowgrid.meadowgrid_pb2 import (
     Credentials,
     GitRepoBranch,
     ServerAvailableFile,
-    ServerAvailableInterpreter,
 )
-from test_meadowgrid.test_meadowgrid_basics import (
-    TEST_WORKING_FOLDER,
-    wait_for_agents_sync,
+from meadowgrid.runner import (
+    CredentialsSourceAndService,
+    Deployment,
+    LocalHost,
+    run_function,
 )
 
 _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
 
 
-def manual_test_docker_credentials_file():
+async def manual_test_docker_credentials_file():
     r"""
     This is a manual test because it requires out-of-band steps to set up.
 
@@ -45,7 +40,7 @@ def manual_test_docker_credentials_file():
 
     5. Now run this test
     """
-    _manual_test_docker_credentials(
+    await _manual_test_docker_credentials(
         ServerAvailableFile(
             credentials_type=Credentials.Type.USERNAME_PASSWORD,
             path=r"C:\temp\dockerhub_credentials.txt",
@@ -53,7 +48,7 @@ def manual_test_docker_credentials_file():
     )
 
 
-def manual_test_docker_credentials_aws_secret():
+async def manual_test_docker_credentials_aws_secret():
     """
     Follow the same steps as in manual_test_docker_credentials_file, but just a
     different step 2:
@@ -64,41 +59,39 @@ def manual_test_docker_credentials_aws_secret():
        you've installed the AWS CLI, `aws secretsmanager get-secret-value --secret-id
        dockerhub` should work.
     """
-    _manual_test_docker_credentials(
+    await _manual_test_docker_credentials(
         AwsSecret(
             credentials_type=Credentials.Type.USERNAME_PASSWORD, secret_name="dockerhub"
         )
     )
 
 
-def _manual_test_docker_credentials(credentials_source: CredentialsSource) -> None:
-    with (
-        meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-        asyncio.run(delete_images_from_repository(_PRIVATE_DOCKER_REPOSITORY))
-        # doesn't seem like there's an API for this, so we just have to use the command
-        # line
-        subprocess.run("docker logout", check=True)
+async def _manual_test_docker_credentials(
+    credentials_source: CredentialsSource,
+) -> None:
+    await delete_images_from_repository(_PRIVATE_DOCKER_REPOSITORY)
+    # doesn't seem like there's an API for this, so we just have to use the command
+    # line
+    subprocess.run("docker logout", check=True)
 
-        with MeadowGridCoordinatorClientSync() as coordinator_client:
-            coordinator_client.add_credentials(
-                "DOCKER", "registry-1.docker.io", credentials_source
-            )
-            wait_for_agents_sync(coordinator_client, 1)
-
-        grid_map(
-            lambda x: x * 2,
-            [1, 2, 3],
+    await run_function(
+        lambda: 2 + 2,
+        LocalHost(),
+        Deployment(
             ContainerAtTag(repository=_PRIVATE_DOCKER_REPOSITORY, tag="latest"),
-            None,
-        )
+            credentials_sources=[
+                CredentialsSourceAndService(
+                    "DOCKER", "registry-1.docker.io", credentials_source
+                )
+            ],
+        ),
+    )
 
 
 _PRIVATE_GIT_REPOSITORY = "git@github.com:hrichardlee/test_repo.git"
 
 
-def manual_test_git_ssh_key_file():
+async def manual_test_git_ssh_key_file():
     r"""
     This is a manual test because it requires out-of-band steps to set up.
 
@@ -129,14 +122,14 @@ def manual_test_git_ssh_key_file():
 
     6. Now run this test
     """
-    _manual_test_git_ssh_key(
+    await _manual_test_git_ssh_key(
         ServerAvailableFile(
             credentials_type=Credentials.Type.SSH_KEY, path=r"C:\temp\key"
         )
     )
 
 
-def manual_test_git_ssh_key_aws_secret():
+async def manual_test_git_ssh_key_aws_secret():
     r"""
     Follow the same steps as in manual_test_git_ssh_key_file but just an additional
     step before 6:
@@ -149,7 +142,7 @@ def manual_test_git_ssh_key_aws_secret():
          within strings. E.g. the "value" in the UI should look like "first line\nsecond
          line\netc."
     """
-    _manual_test_git_ssh_key(
+    await _manual_test_git_ssh_key(
         AwsSecret(
             credentials_type=Credentials.Type.SSH_KEY,
             secret_name=r"meadowdata_test_ssh_key",
@@ -157,27 +150,21 @@ def manual_test_git_ssh_key_aws_secret():
     )
 
 
-def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> None:
-    with (
-        meadowgrid.coordinator_main.main_in_child_process(),
-        meadowgrid.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-        with MeadowGridCoordinatorClientSync() as coordinator_client:
-            coordinator_client.add_credentials(
-                "GIT", "git@github.com", credentials_source
-            )
-            wait_for_agents_sync(coordinator_client, 1)
+async def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> None:
+    # make this a nested function so that it gets pickled as code rather than as a
+    # reference
+    def test_function():
+        import example_package.example  # type: ignore[import]
 
-        # make this a nested function so that it gets pickled as code rather than as a
-        # reference
-        def test_function(x):
-            import example_package.example  # type: ignore[import]
+        return example_package.example.join_strings("hello ", "there")
 
-            return example_package.example.join_strings("hello ", str(x))
-
-        grid_map(
-            test_function,
-            [1, 2, 3],
-            ServerAvailableInterpreter(interpreter_path=MEADOWGRID_INTERPRETER),
-            GitRepoBranch(repo_url=_PRIVATE_GIT_REPOSITORY, branch="main"),
-        )
+    await run_function(
+        test_function,
+        LocalHost(),
+        Deployment(
+            code=GitRepoBranch(repo_url=_PRIVATE_GIT_REPOSITORY, branch="main"),
+            credentials_sources=[
+                CredentialsSourceAndService("GIT", "git@github.com", credentials_source)
+            ],
+        ),
+    )

@@ -256,6 +256,13 @@ message JobToRun {
 }
 
 
+// TODO delete JobToRun and coordinator-based meadowgrid and rename this to JobToRun
+message JobToRun2 {
+    Job job = 1;
+    repeated AddCredentialsRequest credentials_sources = 2;
+}
+
+
 // Represents the state of a process, can apply to a job or a grid task
 message ProcessState {
     enum ProcessStateEnum {

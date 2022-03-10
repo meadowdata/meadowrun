@@ -10,14 +10,14 @@ import google.protobuf.message
 import typing
 import typing_extensions
 
-DESCRIPTOR: google.protobuf.descriptor.FileDescriptor = ...
+DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class StringPair(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     KEY_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int
-    key: typing.Text = ...
-    value: typing.Text = ...
+    key: typing.Text
+    value: typing.Text
     def __init__(
         self,
         *,
@@ -35,7 +35,7 @@ class ServerAvailableFolder(google.protobuf.message.Message):
     access directly
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CODE_PATHS_FIELD_NUMBER: builtins.int
     @property
     def code_paths(
@@ -64,24 +64,25 @@ global___ServerAvailableFolder = ServerAvailableFolder
 class GitRepoCommit(google.protobuf.message.Message):
     """Represents a git repo at a specific commit"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPO_URL_FIELD_NUMBER: builtins.int
     COMMIT_FIELD_NUMBER: builtins.int
     PATH_IN_REPO_FIELD_NUMBER: builtins.int
-    repo_url: typing.Text = ...
+    repo_url: typing.Text
     """specifies the url, will be provided to git clone, see
     https://git-scm.com/docs/git-clone
     """
 
-    commit: typing.Text = ...
+    commit: typing.Text
     """specifies the commit to use, will be provided to git checkout [commit] see
     https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection
     """
 
-    path_in_repo: typing.Text = ...
+    path_in_repo: typing.Text
     """specifies a relative path within the repo to treat as the "root" directory for
     the purposes of this deployment
     """
+
     def __init__(
         self,
         *,
@@ -111,22 +112,23 @@ class GitRepoBranch(google.protobuf.message.Message):
     cannot be resolved to a GitRepoCommit on the client.
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPO_URL_FIELD_NUMBER: builtins.int
     BRANCH_FIELD_NUMBER: builtins.int
     PATH_IN_REPO_FIELD_NUMBER: builtins.int
-    repo_url: typing.Text = ...
+    repo_url: typing.Text
     """specifies the url, will be provided to git clone, see
     https://git-scm.com/docs/git-clone
     """
 
-    branch: typing.Text = ...
+    branch: typing.Text
     """specifies the branch to use"""
 
-    path_in_repo: typing.Text = ...
+    path_in_repo: typing.Text
     """specifies a relative path within the repo to treat as the "root" directory for
     the purposes of this deployment
     """
+
     def __init__(
         self,
         *,
@@ -155,9 +157,9 @@ class ServerAvailableInterpreter(google.protobuf.message.Message):
     meadowgrid, which is only recommended for testing.
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     INTERPRETER_PATH_FIELD_NUMBER: builtins.int
-    interpreter_path: typing.Text = ...
+    interpreter_path: typing.Text
     def __init__(
         self,
         *,
@@ -173,15 +175,15 @@ global___ServerAvailableInterpreter = ServerAvailableInterpreter
 class ContainerAtDigest(google.protobuf.message.Message):
     """Represents a specific version (aka digest) of a container"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPOSITORY_FIELD_NUMBER: builtins.int
     DIGEST_FIELD_NUMBER: builtins.int
-    repository: typing.Text = ...
+    repository: typing.Text
     """Together, repository and digest should be such that `docker pull
     [repository]@[digest]` works
     """
 
-    digest: typing.Text = ...
+    digest: typing.Text
     def __init__(
         self,
         *,
@@ -205,15 +207,15 @@ class ContainerAtTag(google.protobuf.message.Message):
     cannot be resolved to a ContainerAtDigest on the client.
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPOSITORY_FIELD_NUMBER: builtins.int
     TAG_FIELD_NUMBER: builtins.int
-    repository: typing.Text = ...
+    repository: typing.Text
     """Together, repository and tag should be such that `docker pull [repository]:[tag]`
     works
     """
 
-    tag: typing.Text = ...
+    tag: typing.Text
     def __init__(
         self,
         *,
@@ -235,9 +237,9 @@ class ServerAvailableContainer(google.protobuf.message.Message):
     uploaded to a repository and don't have a digest
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     IMAGE_NAME_FIELD_NUMBER: builtins.int
-    image_name: typing.Text = ...
+    image_name: typing.Text
     def __init__(
         self,
         *,
@@ -250,7 +252,7 @@ class ServerAvailableContainer(google.protobuf.message.Message):
 global___ServerAvailableContainer = ServerAvailableContainer
 
 class PyCommandJob(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     COMMAND_LINE_FIELD_NUMBER: builtins.int
     PICKLED_CONTEXT_VARIABLES_FIELD_NUMBER: builtins.int
     @property
@@ -259,7 +261,7 @@ class PyCommandJob(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
         typing.Text
     ]: ...
-    pickled_context_variables: builtins.bytes = ...
+    pickled_context_variables: builtins.bytes
     def __init__(
         self,
         *,
@@ -279,11 +281,11 @@ class PyCommandJob(google.protobuf.message.Message):
 global___PyCommandJob = PyCommandJob
 
 class QualifiedFunctionName(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     MODULE_NAME_FIELD_NUMBER: builtins.int
     FUNCTION_NAME_FIELD_NUMBER: builtins.int
-    module_name: typing.Text = ...
-    function_name: typing.Text = ...
+    module_name: typing.Text
+    function_name: typing.Text
     def __init__(
         self,
         *,
@@ -300,14 +302,14 @@ class QualifiedFunctionName(google.protobuf.message.Message):
 global___QualifiedFunctionName = QualifiedFunctionName
 
 class PyFunctionJob(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     QUALIFIED_FUNCTION_NAME_FIELD_NUMBER: builtins.int
     PICKLED_FUNCTION_FIELD_NUMBER: builtins.int
     PICKLED_FUNCTION_ARGUMENTS_FIELD_NUMBER: builtins.int
     @property
     def qualified_function_name(self) -> global___QualifiedFunctionName: ...
-    pickled_function: builtins.bytes = ...
-    pickled_function_arguments: builtins.bytes = ...
+    pickled_function: builtins.bytes
+    pickled_function_arguments: builtins.bytes
     def __init__(
         self,
         *,
@@ -348,11 +350,11 @@ class PyFunctionJob(google.protobuf.message.Message):
 global___PyFunctionJob = PyFunctionJob
 
 class GridTask(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TASK_ID_FIELD_NUMBER: builtins.int
     PICKLED_FUNCTION_ARGUMENTS_FIELD_NUMBER: builtins.int
-    task_id: builtins.int = ...
-    pickled_function_arguments: builtins.bytes = ...
+    task_id: builtins.int
+    pickled_function_arguments: builtins.bytes
     def __init__(
         self,
         *,
@@ -372,7 +374,7 @@ class GridTask(google.protobuf.message.Message):
 global___GridTask = GridTask
 
 class PyGridJob(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     FUNCTION_FIELD_NUMBER: builtins.int
     TASKS_FIELD_NUMBER: builtins.int
     ALL_TASKS_ADDED_FIELD_NUMBER: builtins.int
@@ -384,7 +386,7 @@ class PyGridJob(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___GridTask
     ]: ...
-    all_tasks_added: builtins.bool = ...
+    all_tasks_added: builtins.bool
     def __init__(
         self,
         *,
@@ -410,18 +412,18 @@ class PyGridJob(google.protobuf.message.Message):
 global___PyGridJob = PyGridJob
 
 class AddTasksToGridJobRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     TASKS_FIELD_NUMBER: builtins.int
     ALL_TASKS_ADDED_FIELD_NUMBER: builtins.int
-    job_id: typing.Text = ...
+    job_id: typing.Text
     @property
     def tasks(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___GridTask
     ]: ...
-    all_tasks_added: builtins.bool = ...
+    all_tasks_added: builtins.bool
     def __init__(
         self,
         *,
@@ -448,11 +450,11 @@ class Resource(google.protobuf.message.Message):
     memory
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     NAME_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int
-    name: typing.Text = ...
-    value: builtins.float = ...
+    name: typing.Text
+    value: builtins.float
     def __init__(
         self,
         *,
@@ -466,7 +468,7 @@ class Resource(google.protobuf.message.Message):
 global___Resource = Resource
 
 class Job(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     JOB_FRIENDLY_NAME_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
@@ -484,15 +486,15 @@ class Job(google.protobuf.message.Message):
     PY_COMMAND_FIELD_NUMBER: builtins.int
     PY_FUNCTION_FIELD_NUMBER: builtins.int
     PY_GRID_FIELD_NUMBER: builtins.int
-    job_id: typing.Text = ...
+    job_id: typing.Text
     """job_id uniquely identifies this request to avoid duplicates and for getting the
     results later. Make sure job_id is unique! Multiple requests with the same job_id
     will be treated as duplicates even if all of the other parameters are different.
     Also, job_id may only use string.ascii_letters, numbers, ., -, and _.
     """
 
-    job_friendly_name: typing.Text = ...
-    priority: builtins.float = ...
+    job_friendly_name: typing.Text
+    priority: builtins.float
     """priority determines which jobs are worked on first. The likelihood that a
     coordinator assigns a particular job to the next available agent is the priority
     of that job relative to the sum of the priorities of all jobs that need to be
@@ -501,8 +503,14 @@ class Job(google.protobuf.message.Message):
     resources will be dedicated to this job.
     """
 
-    interruption_probability_threshold: builtins.float = ...
-    """TODO IMMEDIATE write comment"""
+    interruption_probability_threshold: builtins.float
+    """If we need create job-specific agents for this job, this will sets what
+    probability of interruption is acceptable, which drives which spot instance types
+    if any. This should be a percentage, so 0 means spot instances are not
+    acceptable, and 50 means only spot instances that have <50% chance of being
+    interrupted are acceptable.
+    """
+
     @property
     def server_available_folder(self) -> global___ServerAvailableFolder: ...
     @property
@@ -529,12 +537,13 @@ class Job(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___StringPair
     ]: ...
-    result_highest_pickle_protocol: builtins.int = ...
+    result_highest_pickle_protocol: builtins.int
     """result_highest_pickle_protocol tells the remote code what the highest pickle
     protocol we can read on this end is which will help it determine what pickle
     protocol to use to send back results. This should almost always be set to
     pickle.HIGHEST_PROTOCOL in the calling python process
     """
+
     @property
     def resources_required(
         self,
@@ -683,7 +692,7 @@ class Job(google.protobuf.message.Message):
 global___Job = Job
 
 class AddJobResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     class _AddJobState:
         ValueType = typing.NewType("ValueType", builtins.int)
@@ -691,23 +700,23 @@ class AddJobResponse(google.protobuf.message.Message):
 
     class _AddJobStateEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            _AddJobState.ValueType
+            AddJobResponse._AddJobState.ValueType
         ],
         builtins.type,
     ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT: AddJobResponse.AddJobState.ValueType = ...  # 0
-        ADDED: AddJobResponse.AddJobState.ValueType = ...  # 1
-        IS_DUPLICATE: AddJobResponse.AddJobState.ValueType = ...  # 2
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+        DEFAULT: AddJobResponse._AddJobState.ValueType  # 0
+        ADDED: AddJobResponse._AddJobState.ValueType  # 1
+        IS_DUPLICATE: AddJobResponse._AddJobState.ValueType  # 2
 
     class AddJobState(_AddJobState, metaclass=_AddJobStateEnumTypeWrapper):
         pass
-    DEFAULT: AddJobResponse.AddJobState.ValueType = ...  # 0
-    ADDED: AddJobResponse.AddJobState.ValueType = ...  # 1
-    IS_DUPLICATE: AddJobResponse.AddJobState.ValueType = ...  # 2
+    DEFAULT: AddJobResponse.AddJobState.ValueType  # 0
+    ADDED: AddJobResponse.AddJobState.ValueType  # 1
+    IS_DUPLICATE: AddJobResponse.AddJobState.ValueType  # 2
 
     STATE_FIELD_NUMBER: builtins.int
-    state: global___AddJobResponse.AddJobState.ValueType = ...
+    state: global___AddJobResponse.AddJobState.ValueType
     def __init__(
         self,
         *,
@@ -720,12 +729,13 @@ class AddJobResponse(google.protobuf.message.Message):
 global___AddJobResponse = AddJobResponse
 
 class RegisterAgentRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     AGENT_ID_FIELD_NUMBER: builtins.int
     RESOURCES_FIELD_NUMBER: builtins.int
     JOB_ID_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text = ...
+    agent_id: typing.Text
     """The id of the agent that's registering itself"""
+
     @property
     def resources(
         self,
@@ -734,8 +744,9 @@ class RegisterAgentRequest(google.protobuf.message.Message):
     ]:
         """The resources available on the agent"""
         pass
-    job_id: typing.Text = ...
-    """TODO explain"""
+    job_id: typing.Text
+    """Will be empty for generic agents, populated for job-specific agents"""
+
     def __init__(
         self,
         *,
@@ -753,7 +764,7 @@ class RegisterAgentRequest(google.protobuf.message.Message):
 global___RegisterAgentRequest = RegisterAgentRequest
 
 class RegisterAgentResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     def __init__(
         self,
     ) -> None: ...
@@ -761,12 +772,13 @@ class RegisterAgentResponse(google.protobuf.message.Message):
 global___RegisterAgentResponse = RegisterAgentResponse
 
 class NextJobsRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     AGENT_ID_FIELD_NUMBER: builtins.int
     JOB_ID_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text = ...
-    job_id: typing.Text = ...
-    """TODO explain. Only for job-specific agents"""
+    agent_id: typing.Text
+    job_id: typing.Text
+    """Will be empty for generic agents, populated for job-specific agents"""
+
     def __init__(
         self,
         *,
@@ -783,7 +795,7 @@ class NextJobsRequest(google.protobuf.message.Message):
 global___NextJobsRequest = NextJobsRequest
 
 class NextJobsResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOBS_TO_RUN_FIELD_NUMBER: builtins.int
     @property
     def jobs_to_run(
@@ -803,15 +815,16 @@ class NextJobsResponse(google.protobuf.message.Message):
 global___NextJobsResponse = NextJobsResponse
 
 class JobToRun(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_FIELD_NUMBER: builtins.int
     GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     INTERPRETER_DEPLOYMENT_CREDENTIALS_FIELD_NUMBER: builtins.int
     CODE_DEPLOYMENT_CREDENTIALS_FIELD_NUMBER: builtins.int
     @property
     def job(self) -> global___Job: ...
-    grid_worker_id: typing.Text = ...
+    grid_worker_id: typing.Text
     """will only be populated if job is a GridJob"""
+
     @property
     def interpreter_deployment_credentials(self) -> global___Credentials: ...
     @property
@@ -851,10 +864,42 @@ class JobToRun(google.protobuf.message.Message):
 
 global___JobToRun = JobToRun
 
+class JobToRun2(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+    JOB_FIELD_NUMBER: builtins.int
+    CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
+    @property
+    def job(self) -> global___Job: ...
+    @property
+    def credentials_sources(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___AddCredentialsRequest
+    ]: ...
+    def __init__(
+        self,
+        *,
+        job: typing.Optional[global___Job] = ...,
+        credentials_sources: typing.Optional[
+            typing.Iterable[global___AddCredentialsRequest]
+        ] = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["job", b"job"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "credentials_sources", b"credentials_sources", "job", b"job"
+        ],
+    ) -> None: ...
+
+global___JobToRun2 = JobToRun2
+
 class ProcessState(google.protobuf.message.Message):
     """Represents the state of a process, can apply to a job or a grid task"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     class _ProcessStateEnum:
         ValueType = typing.NewType("ValueType", builtins.int)
@@ -862,40 +907,40 @@ class ProcessState(google.protobuf.message.Message):
 
     class _ProcessStateEnumEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            _ProcessStateEnum.ValueType
+            ProcessState._ProcessStateEnum.ValueType
         ],
         builtins.type,
     ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT: ProcessState.ProcessStateEnum.ValueType = ...  # 0
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+        DEFAULT: ProcessState._ProcessStateEnum.ValueType  # 0
         """Reserved, not used"""
 
-        RUN_REQUESTED: ProcessState.ProcessStateEnum.ValueType = ...  # 1
+        RUN_REQUESTED: ProcessState._ProcessStateEnum.ValueType  # 1
         """These states represent a job that is "in progress"
 
         The meadowgrid coordinator has received the Job
         """
 
-        RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 2
+        RUNNING: ProcessState._ProcessStateEnum.ValueType  # 2
         """The assigned agent has launched the job. pid and log_file_name will be
         populated.
         """
 
-        SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 3
+        SUCCEEDED: ProcessState._ProcessStateEnum.ValueType  # 3
         """These states represent a job that is "done". log_file_name, return_code, and
         one of pid/container_id will be populated unless otherwise noted.
 
         The job has completed normally. pickled_result may be populated.
         """
 
-        RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
+        RUN_REQUEST_FAILED: ProcessState._ProcessStateEnum.ValueType  # 4
         """There was an exception before launching the job process. pid/container_id,
         log_file_name, and return_code will not be populated. pickled_result will be
         populated with a tuple representing the python exception from the agent
         process (see PYTHON_EXCEPTION for the format).
         """
 
-        PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 5
+        PYTHON_EXCEPTION: ProcessState._ProcessStateEnum.ValueType  # 5
         """A python exception was thrown from the job process. pickled_result will be a
         pickled tuple (exception_type, exception_message, exception_traceback). We
         don't pickle the exception itself because it may not be unpicklable on this
@@ -904,26 +949,26 @@ class ProcessState(google.protobuf.message.Message):
         they can be unpickled on the client.
         """
 
-        NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 6
+        NON_ZERO_RETURN_CODE: ProcessState._ProcessStateEnum.ValueType  # 6
         """The process exited with a non-zero return code. This could mean that a
         non-python exception was thrown (e.g. in the interpreter itself, or in a C
         extension), or os.exit was called with a non-zero argument, or there was a
         python exception thrown in the meadowgrid worker code.
         """
 
-        RESOURCES_NOT_AVAILABLE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
+        RESOURCES_NOT_AVAILABLE: ProcessState._ProcessStateEnum.ValueType  # 7
         """We do not have any agents that are capable of running the job given its
         resource requirements. Either reduce the resource requirements of the job or
         launch agents that have enough resources.
         """
 
-        ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 8
+        ERROR_GETTING_STATE: ProcessState._ProcessStateEnum.ValueType  # 8
         """There was an error while reading the outputs of the process. This could mean
         that the child process somehow silently failed to write its outputs correctly
         or there was a python exception thrown in the meadowgrid worker code.
         """
 
-        UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 9
+        UNKNOWN: ProcessState._ProcessStateEnum.ValueType  # 9
         """This state represents a job that is neither "done" nor "in progress"
 
         We do not know the job id
@@ -933,35 +978,35 @@ class ProcessState(google.protobuf.message.Message):
         _ProcessStateEnum, metaclass=_ProcessStateEnumEnumTypeWrapper
     ):
         pass
-    DEFAULT: ProcessState.ProcessStateEnum.ValueType = ...  # 0
+    DEFAULT: ProcessState.ProcessStateEnum.ValueType  # 0
     """Reserved, not used"""
 
-    RUN_REQUESTED: ProcessState.ProcessStateEnum.ValueType = ...  # 1
+    RUN_REQUESTED: ProcessState.ProcessStateEnum.ValueType  # 1
     """These states represent a job that is "in progress"
 
     The meadowgrid coordinator has received the Job
     """
 
-    RUNNING: ProcessState.ProcessStateEnum.ValueType = ...  # 2
+    RUNNING: ProcessState.ProcessStateEnum.ValueType  # 2
     """The assigned agent has launched the job. pid and log_file_name will be
     populated.
     """
 
-    SUCCEEDED: ProcessState.ProcessStateEnum.ValueType = ...  # 3
+    SUCCEEDED: ProcessState.ProcessStateEnum.ValueType  # 3
     """These states represent a job that is "done". log_file_name, return_code, and
     one of pid/container_id will be populated unless otherwise noted.
 
     The job has completed normally. pickled_result may be populated.
     """
 
-    RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType = ...  # 4
+    RUN_REQUEST_FAILED: ProcessState.ProcessStateEnum.ValueType  # 4
     """There was an exception before launching the job process. pid/container_id,
     log_file_name, and return_code will not be populated. pickled_result will be
     populated with a tuple representing the python exception from the agent
     process (see PYTHON_EXCEPTION for the format).
     """
 
-    PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType = ...  # 5
+    PYTHON_EXCEPTION: ProcessState.ProcessStateEnum.ValueType  # 5
     """A python exception was thrown from the job process. pickled_result will be a
     pickled tuple (exception_type, exception_message, exception_traceback). We
     don't pickle the exception itself because it may not be unpicklable on this
@@ -970,26 +1015,26 @@ class ProcessState(google.protobuf.message.Message):
     they can be unpickled on the client.
     """
 
-    NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType = ...  # 6
+    NON_ZERO_RETURN_CODE: ProcessState.ProcessStateEnum.ValueType  # 6
     """The process exited with a non-zero return code. This could mean that a
     non-python exception was thrown (e.g. in the interpreter itself, or in a C
     extension), or os.exit was called with a non-zero argument, or there was a
     python exception thrown in the meadowgrid worker code.
     """
 
-    RESOURCES_NOT_AVAILABLE: ProcessState.ProcessStateEnum.ValueType = ...  # 7
+    RESOURCES_NOT_AVAILABLE: ProcessState.ProcessStateEnum.ValueType  # 7
     """We do not have any agents that are capable of running the job given its
     resource requirements. Either reduce the resource requirements of the job or
     launch agents that have enough resources.
     """
 
-    ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType = ...  # 8
+    ERROR_GETTING_STATE: ProcessState.ProcessStateEnum.ValueType  # 8
     """There was an error while reading the outputs of the process. This could mean
     that the child process somehow silently failed to write its outputs correctly
     or there was a python exception thrown in the meadowgrid worker code.
     """
 
-    UNKNOWN: ProcessState.ProcessStateEnum.ValueType = ...  # 9
+    UNKNOWN: ProcessState.ProcessStateEnum.ValueType  # 9
     """This state represents a job that is neither "done" nor "in progress"
 
     We do not know the job id
@@ -1001,12 +1046,12 @@ class ProcessState(google.protobuf.message.Message):
     LOG_FILE_NAME_FIELD_NUMBER: builtins.int
     PICKLED_RESULT_FIELD_NUMBER: builtins.int
     RETURN_CODE_FIELD_NUMBER: builtins.int
-    state: global___ProcessState.ProcessStateEnum.ValueType = ...
-    pid: builtins.int = ...
-    container_id: typing.Text = ...
-    log_file_name: typing.Text = ...
-    pickled_result: builtins.bytes = ...
-    return_code: builtins.int = ...
+    state: global___ProcessState.ProcessStateEnum.ValueType
+    pid: builtins.int
+    container_id: typing.Text
+    log_file_name: typing.Text
+    pickled_result: builtins.bytes
+    return_code: builtins.int
     def __init__(
         self,
         *,
@@ -1038,7 +1083,7 @@ class ProcessState(google.protobuf.message.Message):
 global___ProcessState = ProcessState
 
 class ProcessStates(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     PROCESS_STATES_FIELD_NUMBER: builtins.int
     @property
     def process_states(
@@ -1066,7 +1111,7 @@ class JobStatesRequest(google.protobuf.message.Message):
     For requesting states of a job
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_IDS_FIELD_NUMBER: builtins.int
     @property
     def job_ids(
@@ -1088,13 +1133,14 @@ global___JobStatesRequest = JobStatesRequest
 class JobStateUpdate(google.protobuf.message.Message):
     """For updating the state of a job"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
-    job_id: typing.Text = ...
-    grid_worker_id: typing.Text = ...
+    job_id: typing.Text
+    grid_worker_id: typing.Text
     """will only be populated if job_id refers to a GridJob"""
+
     @property
     def process_state(self) -> global___ProcessState: ...
     def __init__(
@@ -1124,12 +1170,14 @@ global___JobStateUpdate = JobStateUpdate
 class JobStateUpdates(google.protobuf.message.Message):
     """For updating the states of jobs"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     AGENT_ID_FIELD_NUMBER: builtins.int
     AGENT_JOB_ID_FIELD_NUMBER: builtins.int
     JOB_STATES_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text = ...
-    agent_job_id: typing.Text = ...
+    agent_id: typing.Text
+    agent_job_id: typing.Text
+    """Will be empty for generic agents, populated for job-specific agents"""
+
     @property
     def job_states(
         self,
@@ -1160,10 +1208,10 @@ global___JobStateUpdates = JobStateUpdates
 class GridTaskStatesRequest(google.protobuf.message.Message):
     """For requesting the states of grid tasks"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     TASK_IDS_TO_IGNORE_FIELD_NUMBER: builtins.int
-    job_id: typing.Text = ...
+    job_id: typing.Text
     @property
     def task_ids_to_ignore(
         self,
@@ -1188,10 +1236,10 @@ global___GridTaskStatesRequest = GridTaskStatesRequest
 class GridTaskStateResponse(google.protobuf.message.Message):
     """For getting the state of a grid task"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TASK_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
-    task_id: builtins.int = ...
+    task_id: builtins.int
     @property
     def process_state(self) -> global___ProcessState: ...
     def __init__(
@@ -1215,7 +1263,7 @@ global___GridTaskStateResponse = GridTaskStateResponse
 class GridTaskStatesResponse(google.protobuf.message.Message):
     """For getting the states of grid tasks"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TASK_STATES_FIELD_NUMBER: builtins.int
     @property
     def task_states(
@@ -1239,21 +1287,22 @@ global___GridTaskStatesResponse = GridTaskStatesResponse
 class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
     """For updating the state of a grid task and getting the next task"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     TASK_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
-    job_id: typing.Text = ...
+    job_id: typing.Text
     """required, indicates what grid_job we're (optionally) updating and what grid_job
     the next task should come from
     """
 
-    grid_worker_id: typing.Text = ...
-    task_id: builtins.int = ...
+    grid_worker_id: typing.Text
+    task_id: builtins.int
     """-1 means we don't have a completed task to update. >= 0 means we are updating the
     state on the specified task
     """
+
     @property
     def process_state(self) -> global___ProcessState:
         """the updated state for the specified task if task_id >= 0"""
@@ -1286,7 +1335,7 @@ class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
 global___GridTaskUpdateAndGetNextRequest = GridTaskUpdateAndGetNextRequest
 
 class UpdateStateResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     def __init__(
         self,
     ) -> None: ...
@@ -1296,13 +1345,13 @@ global___UpdateStateResponse = UpdateStateResponse
 class AddCredentialsRequest(google.protobuf.message.Message):
     """This represents a credentials source (see credentials.py)"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     SERVICE_FIELD_NUMBER: builtins.int
     SERVICE_URL_FIELD_NUMBER: builtins.int
     AWS_SECRET_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FILE_FIELD_NUMBER: builtins.int
-    service: global___Credentials.Service.ValueType = ...
-    service_url: typing.Text = ...
+    service: global___Credentials.Service.ValueType
+    service_url: typing.Text
     @property
     def aws_secret(self) -> global___AwsSecret: ...
     @property
@@ -1354,48 +1403,52 @@ global___AddCredentialsRequest = AddCredentialsRequest
 class Credentials(google.protobuf.message.Message):
     """Represents actual credentials"""
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     class _Service:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
 
     class _ServiceEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Service.ValueType],
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            Credentials._Service.ValueType
+        ],
         builtins.type,
     ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT_SERVICE: Credentials.Service.ValueType = ...  # 0
-        DOCKER: Credentials.Service.ValueType = ...  # 1
-        GIT: Credentials.Service.ValueType = ...  # 2
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+        DEFAULT_SERVICE: Credentials._Service.ValueType  # 0
+        DOCKER: Credentials._Service.ValueType  # 1
+        GIT: Credentials._Service.ValueType  # 2
 
     class Service(_Service, metaclass=_ServiceEnumTypeWrapper):
         pass
-    DEFAULT_SERVICE: Credentials.Service.ValueType = ...  # 0
-    DOCKER: Credentials.Service.ValueType = ...  # 1
-    GIT: Credentials.Service.ValueType = ...  # 2
+    DEFAULT_SERVICE: Credentials.Service.ValueType  # 0
+    DOCKER: Credentials.Service.ValueType  # 1
+    GIT: Credentials.Service.ValueType  # 2
 
     class _Type:
         ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
 
     class _TypeEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_Type.ValueType],
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            Credentials._Type.ValueType
+        ],
         builtins.type,
     ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        DEFAULT_TYPE: Credentials.Type.ValueType = ...  # 0
-        USERNAME_PASSWORD: Credentials.Type.ValueType = ...  # 1
-        SSH_KEY: Credentials.Type.ValueType = ...  # 2
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+        DEFAULT_TYPE: Credentials._Type.ValueType  # 0
+        USERNAME_PASSWORD: Credentials._Type.ValueType  # 1
+        SSH_KEY: Credentials._Type.ValueType  # 2
 
     class Type(_Type, metaclass=_TypeEnumTypeWrapper):
         pass
-    DEFAULT_TYPE: Credentials.Type.ValueType = ...  # 0
-    USERNAME_PASSWORD: Credentials.Type.ValueType = ...  # 1
-    SSH_KEY: Credentials.Type.ValueType = ...  # 2
+    DEFAULT_TYPE: Credentials.Type.ValueType  # 0
+    USERNAME_PASSWORD: Credentials.Type.ValueType  # 1
+    SSH_KEY: Credentials.Type.ValueType  # 2
 
     CREDENTIALS_FIELD_NUMBER: builtins.int
-    credentials: builtins.bytes = ...
+    credentials: builtins.bytes
     def __init__(
         self,
         *,
@@ -1416,11 +1469,11 @@ class AwsSecret(google.protobuf.message.Message):
       the contents of the SSH private key file
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
     SECRET_NAME_FIELD_NUMBER: builtins.int
-    credentials_type: global___Credentials.Type.ValueType = ...
-    secret_name: typing.Text = ...
+    credentials_type: global___Credentials.Type.ValueType
+    secret_name: typing.Text
     def __init__(
         self,
         *,
@@ -1443,11 +1496,11 @@ class ServerAvailableFile(google.protobuf.message.Message):
     - For credentials_type = SSH_KEY: The file should be an SSH private key file
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
     PATH_FIELD_NUMBER: builtins.int
-    credentials_type: global___Credentials.Type.ValueType = ...
-    path: typing.Text = ...
+    credentials_type: global___Credentials.Type.ValueType
+    path: typing.Text
     def __init__(
         self,
         *,
@@ -1464,7 +1517,7 @@ class ServerAvailableFile(google.protobuf.message.Message):
 global___ServerAvailableFile = ServerAvailableFile
 
 class AddCredentialsResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     def __init__(
         self,
     ) -> None: ...
@@ -1472,7 +1525,7 @@ class AddCredentialsResponse(google.protobuf.message.Message):
 global___AddCredentialsResponse = AddCredentialsResponse
 
 class AgentStatesRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     def __init__(
         self,
     ) -> None: ...
@@ -1480,7 +1533,7 @@ class AgentStatesRequest(google.protobuf.message.Message):
 global___AgentStatesRequest = AgentStatesRequest
 
 class AgentStatesResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     AGENTS_FIELD_NUMBER: builtins.int
     @property
     def agents(
@@ -1500,11 +1553,11 @@ class AgentStatesResponse(google.protobuf.message.Message):
 global___AgentStatesResponse = AgentStatesResponse
 
 class AgentStateResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     AGENT_ID_FIELD_NUMBER: builtins.int
     TOTAL_RESOURCES_FIELD_NUMBER: builtins.int
     AVAILABLE_RESOURCES_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text = ...
+    agent_id: typing.Text
     @property
     def total_resources(
         self,
@@ -1539,9 +1592,9 @@ class AgentStateResponse(google.protobuf.message.Message):
 global___AgentStateResponse = AgentStateResponse
 
 class HealthCheckRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
     SERVICE_FIELD_NUMBER: builtins.int
-    service: typing.Text = ...
+    service: typing.Text
     def __init__(
         self,
         *,
@@ -1554,7 +1607,7 @@ class HealthCheckRequest(google.protobuf.message.Message):
 global___HealthCheckRequest = HealthCheckRequest
 
 class HealthCheckResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor = ...
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     class _ServingStatus:
         ValueType = typing.NewType("ValueType", builtins.int)
@@ -1562,27 +1615,27 @@ class HealthCheckResponse(google.protobuf.message.Message):
 
     class _ServingStatusEnumTypeWrapper(
         google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            _ServingStatus.ValueType
+            HealthCheckResponse._ServingStatus.ValueType
         ],
         builtins.type,
     ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor = ...
-        UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 0
-        SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 1
-        NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 2
-        SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 3
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+        UNKNOWN: HealthCheckResponse._ServingStatus.ValueType  # 0
+        SERVING: HealthCheckResponse._ServingStatus.ValueType  # 1
+        NOT_SERVING: HealthCheckResponse._ServingStatus.ValueType  # 2
+        SERVICE_UNKNOWN: HealthCheckResponse._ServingStatus.ValueType  # 3
         """Used only by the Watch method."""
 
     class ServingStatus(_ServingStatus, metaclass=_ServingStatusEnumTypeWrapper):
         pass
-    UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 0
-    SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 1
-    NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType = ...  # 2
-    SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType = ...  # 3
+    UNKNOWN: HealthCheckResponse.ServingStatus.ValueType  # 0
+    SERVING: HealthCheckResponse.ServingStatus.ValueType  # 1
+    NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType  # 2
+    SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType  # 3
     """Used only by the Watch method."""
 
     STATUS_FIELD_NUMBER: builtins.int
-    status: global___HealthCheckResponse.ServingStatus.ValueType = ...
+    status: global___HealthCheckResponse.ServingStatus.ValueType
     def __init__(
         self,
         *,

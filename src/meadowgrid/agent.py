@@ -8,6 +8,7 @@ import pathlib
 import pickle
 import shutil
 import sys
+import traceback
 import uuid
 from typing import (
     Any,
@@ -37,7 +38,12 @@ from meadowgrid.config import (
     MEMORY_GB,
 )
 from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersAsync
-from meadowgrid.credentials import RawCredentials
+from meadowgrid.credentials import (
+    CredentialsDict,
+    RawCredentials,
+    get_docker_credentials,
+    get_matching_credentials,
+)
 from meadowgrid.docker_controller import (
     run_container,
     get_image_environment_variables,
@@ -45,9 +51,11 @@ from meadowgrid.docker_controller import (
 )
 from meadowgrid.exclusive_file_lock import exclusive_file_lock
 from meadowgrid.meadowgrid_pb2 import (
+    Credentials,
     Job,
     JobStateUpdate,
     JobToRun,
+    JobToRun2,
     ProcessState,
     PyFunctionJob,
     StringPair,
@@ -117,11 +125,11 @@ def _prepare_py_command(
     result_path = os.path.join(io_folder, job.job_id + ".result")
     if is_container:
         result_path_container = f"{MEADOWGRID_IO_MOUNT_LINUX}/{job.job_id}.result"
+        # we create an empty file here so that we can expose it to the docker container,
+        # docker does not let us bind non-existent files
+        open(result_path, "w").close()
     else:
         result_path_container = result_path
-    # we create an empty file here so that we can expose it to the docker container,
-    # docker does not let us bind non-existent files
-    open(result_path, "w").close()
     io_files.append(job.job_id + ".result")
     environment[meadowflow.context._MEADOWGRID_RESULT_FILE] = result_path_container
     environment[meadowflow.context._MEADOWGRID_RESULT_PICKLE_PROTOCOL] = str(
@@ -224,6 +232,12 @@ def _prepare_py_function(
     child process.
     """
 
+    io_files = [
+        # these line up with __meadowgrid_func_worker
+        os.path.join(job.job_id + ".state"),
+        os.path.join(job.job_id + ".result"),
+    ]
+
     if not is_container:
         func_worker_path = _FUNC_WORKER_PATH
         io_path_container = os.path.join(io_folder, job.job_id)
@@ -232,6 +246,8 @@ def _prepare_py_function(
             f"{MEADOWGRID_CODE_MOUNT_LINUX}{os.path.basename(_FUNC_WORKER_PATH)}"
         )
         io_path_container = f"{MEADOWGRID_IO_MOUNT_LINUX}/{job.job_id}"
+        for io_file in io_files:
+            open(os.path.join(io_folder, io_file), "w").close()
 
     command_line = [
         "python",
@@ -240,12 +256,6 @@ def _prepare_py_function(
         str(job.result_highest_pickle_protocol),
         "--io-path",
         io_path_container,
-    ]
-
-    io_files = [
-        # these line up with __meadowgrid_func_worker
-        os.path.join(job.job_id + ".state"),
-        os.path.join(job.job_id + ".result"),
     ]
 
     command_line_for_function, io_files_for_function = _prepare_function(
@@ -1145,8 +1155,72 @@ def _no_op() -> None:
     pass
 
 
+def _get_credentials_for_job(
+    job_to_run: JobToRun2,
+) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
+    """
+    Gets the credentials for the code_deployment, interpreter_deployment for job_to_run.
+    This is a little silly because we could just have the user specify the
+    code_deployment credentials and the interpreter_deployment credentials explicitly.
+    We should make that change at the same time as we make it possible to register
+    credentials outside of the context of a single job, as we'll need this logic for
+    that use case.
+    """
+
+    # first, get all available credentials sources from the JobToRun
+    credentials_sources: CredentialsDict = {}
+    for credentials_source in job_to_run.credentials_sources:
+        source = credentials_source.WhichOneof("source")
+        if source is None:
+            raise ValueError(
+                "AddCredentialsRequest request should have a source set: "
+                f"{credentials_source}"
+            )
+        credentials_sources.setdefault(credentials_source.service, []).append(
+            (credentials_source.service_url, getattr(credentials_source, source))
+        )
+
+    # now, get any matching credentials sources and turn them into credentials
+    code_deployment_credentials, interpreter_deployment_credentials = None, None
+    job = job_to_run.job
+
+    code_deployment_type = job.WhichOneof("code_deployment")
+    if code_deployment_type in ("git_repo_commit", "git_repo_branch"):
+        if code_deployment_type == "git_repo_commit":
+            repo_url = job.git_repo_commit.repo_url
+        else:
+            repo_url = job.git_repo_branch.repo_url
+
+        try:
+            code_deployment_credentials = get_matching_credentials(
+                Credentials.Service.GIT, repo_url, credentials_sources
+            )
+        except Exception:
+            # TODO ideally this would make it back to an error message for job if it
+            #  eventually fails (and maybe even if it doesn't)
+            print("Error trying to turn credentials source into actual credentials")
+            traceback.print_exc()
+
+    interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
+    if interpreter_deployment_type in ("container_at_digest", "container_at_tag"):
+        if interpreter_deployment_type == "container_at_digest":
+            repository = job.container_at_digest.repository
+        else:
+            repository = job.container_at_tag.repository
+
+        try:
+            interpreter_deployment_credentials = get_docker_credentials(
+                repository, credentials_sources
+            )
+        except Exception:
+            print("Error trying to turn credentials source into actual credentials")
+            traceback.print_exc()
+
+    return code_deployment_credentials, interpreter_deployment_credentials
+
+
 async def run_one_job(
-    job_to_run: JobToRun, working_folder: Optional[str] = None
+    job_to_run: JobToRun2, working_folder: Optional[str] = None
 ) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
     """
     Runs one job using the specified working_folder (or uses the default). Returns a
@@ -1165,12 +1239,12 @@ async def run_one_job(
     (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-    ) = _unpickle_credentials(job_to_run)
+    ) = _get_credentials_for_job(job_to_run)
 
     # run the job and return the results
     return await _launch_job(
         job_to_run.job,
-        job_to_run.grid_worker_id,
+        None,
         io_folder,
         job_logs_folder,
         # we only need a coordinator host for g rid jobs

@@ -10,7 +10,7 @@ import os
 import sys
 
 import meadowgrid.agent
-from meadowgrid.meadowgrid_pb2 import JobToRun, ProcessState
+from meadowgrid.meadowgrid_pb2 import ProcessState, JobToRun2
 
 
 async def main_async(
@@ -26,7 +26,7 @@ async def main_async(
 
     with open(f"{job_io_prefix}.job_to_run", mode="rb") as f:
         bytes_job_to_run = f.read()
-    job_to_run = JobToRun()
+    job_to_run = JobToRun2()
     job_to_run.ParseFromString(bytes_job_to_run)
     first_state, continuation = await meadowgrid.agent.run_one_job(
         job_to_run, working_folder

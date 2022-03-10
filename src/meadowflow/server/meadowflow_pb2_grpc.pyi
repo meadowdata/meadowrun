@@ -11,27 +11,27 @@ class MeadowFlowServerStub:
     add_jobs: grpc.UnaryUnaryMultiCallable[
         meadowflow.server.meadowflow_pb2.AddJobsRequest,
         meadowflow.server.meadowflow_pb2.AddJobsResponse,
-    ] = ...
+    ]
 
     instantiate_scopes: grpc.UnaryUnaryMultiCallable[
         meadowflow.server.meadowflow_pb2.InstantiateScopesRequest,
         meadowflow.server.meadowflow_pb2.InstantiateScopesResponse,
-    ] = ...
+    ]
 
     get_events: grpc.UnaryUnaryMultiCallable[
         meadowflow.server.meadowflow_pb2.EventsRequest,
         meadowflow.server.meadowflow_pb2.Events,
-    ] = ...
+    ]
 
     register_job_runner: grpc.UnaryUnaryMultiCallable[
         meadowflow.server.meadowflow_pb2.RegisterJobRunnerRequest,
         meadowflow.server.meadowflow_pb2.RegisterJobRunnerResponse,
-    ] = ...
+    ]
 
     manual_run: grpc.UnaryUnaryMultiCallable[
         meadowflow.server.meadowflow_pb2.ManualRunRequest,
         meadowflow.server.meadowflow_pb2.ManualRunResponse,
-    ] = ...
+    ]
 
 class MeadowFlowServerServicer(metaclass=abc.ABCMeta):
     @abc.abstractmethod

@@ -31,7 +31,7 @@ from meadowgrid.resource_allocation import Resources
 # A security group that allows SSH, clients' IP addresses get added as needed
 _MEADOWGRID_SSH_SECURITY_GROUP = "meadowgridSshSecurityGroup"
 # An AMI with meadowgrid installed0
-_EC2ALLOC_AWS_AMI = "ami-0e5247221cd9c7ce7"
+_EC2ALLOC_AWS_AMI = "ami-0af512bb2f934c117"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",

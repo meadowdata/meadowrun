@@ -23,7 +23,6 @@ from typing import (
 
 import aiodocker.containers
 
-import meadowflow.context
 from meadowgrid.code_deployment import CodeDeploymentManager
 from meadowgrid.config import (
     MEADOWGRID_AGENT_PID,
@@ -55,6 +54,11 @@ from meadowgrid.meadowgrid_pb2 import (
 from meadowgrid.shared import pickle_exception
 
 ProcessStateEnum = ProcessState.ProcessStateEnum
+
+
+_MEADOWGRID_CONTEXT_VARIABLES = "MEADOWGRID_CONTEXT_VARIABLES"
+_MEADOWGRID_RESULT_FILE = "MEADOWGRID_RESULT_FILE"
+_MEADOWGRID_RESULT_PICKLE_PROTOCOL = "MEADOWGRID_RESULT_PICKLE_PROTOCOL"
 
 
 def _string_pairs_to_dict(pairs: Iterable[StringPair]) -> Dict[str, str]:
@@ -123,8 +127,8 @@ def _prepare_py_command(
     else:
         result_path_container = result_path
     io_files.append(job.job_id + ".result")
-    environment[meadowflow.context._MEADOWGRID_RESULT_FILE] = result_path_container
-    environment[meadowflow.context._MEADOWGRID_RESULT_PICKLE_PROTOCOL] = str(
+    environment[_MEADOWGRID_RESULT_FILE] = result_path_container
+    environment[_MEADOWGRID_RESULT_PICKLE_PROTOCOL] = str(
         job.result_highest_pickle_protocol
     )
 
@@ -144,9 +148,7 @@ def _prepare_py_command(
         io_files.append(job.job_id + ".context_variables")
         # we can't communicate "directly" with the arbitrary command that the
         # user is running so we'll use environment variables
-        environment[
-            meadowflow.context._MEADOWGRID_CONTEXT_VARIABLES
-        ] = context_variables_path_container
+        environment[_MEADOWGRID_CONTEXT_VARIABLES] = context_variables_path_container
 
     # get the command line
     if not job.py_command.command_line:

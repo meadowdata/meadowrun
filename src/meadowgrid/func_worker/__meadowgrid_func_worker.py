@@ -83,19 +83,11 @@ def main():
             #  maybe even on unexpected process quitting?
             pickle.dump((str(type(e)), str(e), tb), f, protocol=result_pickle_protocol)
     else:
-        # get effects, make sure we don't fail if meadowflow is not available
-        try:
-            import meadowflow.effects
-        except ModuleNotFoundError:
-            effects = None
-        else:
-            effects = meadowflow.effects.get_effects()
-
         # send back results
         with open(state_filename, "w", encoding="utf-8") as state_text_writer:
             state_text_writer.write("SUCCEEDED")
         with open(result_filename, "wb") as f:
-            pickle.dump((result, effects), f, protocol=result_pickle_protocol)
+            pickle.dump((result, None), f, protocol=result_pickle_protocol)
 
 
 if __name__ == "__main__":

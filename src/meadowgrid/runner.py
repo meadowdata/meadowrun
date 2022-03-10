@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import dataclasses
+import functools
 import io
 import os.path
 import pickle
@@ -11,6 +12,7 @@ import threading
 import uuid
 from typing import Callable, TypeVar, Union, Any, Dict, Optional, Sequence, cast, Tuple
 
+import cloudpickle
 import fabric
 import paramiko.ssh_exception
 
@@ -33,17 +35,29 @@ from meadowgrid.deployed_function import (
     VersionedInterpreterDeployment,
 )
 from meadowgrid.ec2_alloc import allocate_ec2_instances
-from meadowgrid.grid import _get_id_name_function
+from meadowgrid.grid import _get_id_name_function, _get_friendly_name
+from meadowgrid.grid_task_queue import (
+    get_results,
+    worker_loop,
+    create_queues_and_add_tasks,
+)
 from meadowgrid.meadowgrid_pb2 import (
     Job,
     JobToRun,
     ProcessState,
     PyCommandJob,
+    PyFunctionJob,
     ServerAvailableInterpreter,
 )
 from meadowgrid.resource_allocation import Resources
 
 _T = TypeVar("_T")
+_U = TypeVar("_U")
+
+
+# if num_concurrent_tasks isn't specified, by default, launch total_num_tasks *
+# _DEFAULT_CONCURRENT_TASKS_FACTOR workers
+_DEFAULT_CONCURRENT_TASKS_FACTOR = 0.5
 
 
 async def _retry(
@@ -284,6 +298,21 @@ class EC2AllocHost(Host):
             return await SshHost(host, fabric_kwargs).run_job(job_to_run)
 
 
+@dataclasses.dataclass(frozen=True)
+class EC2AllocHosts:
+    """
+    A placeholder for a set of hosts that will be allocated/created by ec2_alloc.py
+    """
+
+    logical_cpu_required_per_task: int
+    memory_gb_required_per_task: float
+    interruption_probability_threshold: float
+    # defaults to half the number of total tasks
+    num_concurrent_tasks: Optional[int] = None
+    region_name: Optional[str] = None
+    private_key_filename: Optional[str] = None
+
+
 async def run_function(
     function: Callable[..., _T],
     host: Host,
@@ -349,3 +378,95 @@ async def run_command(
     _add_deployments_to_job(job, code, interpreter)
 
     await host.run_job(JobToRun(job=job))
+
+
+async def run_map(
+    function: Callable[[_T], _U],
+    args: Sequence[_T],
+    hosts: EC2AllocHosts,
+    deployment: Optional[Deployment] = None,
+) -> Sequence[_U]:
+    """Equivalent to map(function, args), but runs distributed."""
+
+    if not hosts.num_concurrent_tasks:
+        num_concurrent_tasks = len(args) // 2 + 1
+    else:
+        num_concurrent_tasks = min(hosts.num_concurrent_tasks, len(args))
+
+    region_name = hosts.region_name or await _get_default_region_name()
+
+    # the first stage of preparation, which happens concurrently:
+
+    # 1. get hosts
+    allocated_hosts_future = asyncio.create_task(
+        allocate_ec2_instances(
+            Resources(
+                hosts.memory_gb_required_per_task,
+                hosts.logical_cpu_required_per_task,
+                {},
+            ),
+            num_concurrent_tasks,
+            hosts.interruption_probability_threshold,
+            region_name,
+        )
+    )
+
+    # 2. create SQS queues and add tasks to the request queue
+    queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, args))
+
+    # 3. prepare some variables for constructing the worker jobs
+    friendly_name = _make_valid_job_id(_get_friendly_name(function))
+    interpreter, code, environment_variables = _add_defaults_to_deployment(deployment)
+    environment_variables = _string_pairs_from_dict(environment_variables)
+    pickle_protocol = _pickle_protocol_for_deployed_interpreter()
+    fabric_kwargs: Dict[str, Any] = {"user": "ubuntu"}
+    if hosts.private_key_filename:
+        fabric_kwargs["connect_kwargs"] = {"key_filename": hosts.private_key_filename}
+
+    # now wait for 1 and 2 to complete:
+    request_queue_url, result_queue_url = await queues_future
+    allocated_hosts = await allocated_hosts_future
+
+    # Now we will run worker_loop jobs on the hosts we got:
+
+    pickled_worker_function = cloudpickle.dumps(
+        functools.partial(
+            worker_loop, function, request_queue_url, result_queue_url, region_name
+        ),
+        protocol=pickle_protocol,
+    )
+
+    worker_tasks = []
+    worker_id = 0
+    for public_address, worker_job_ids in allocated_hosts.items():
+        for worker_job_id in worker_job_ids:
+            job = Job(
+                job_id=worker_job_id,
+                job_friendly_name=friendly_name,
+                environment_variables=environment_variables,
+                result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
+                py_function=PyFunctionJob(
+                    pickled_function=pickled_worker_function,
+                    pickled_function_arguments=pickle.dumps(
+                        ([public_address, worker_id], {}), protocol=pickle_protocol
+                    ),
+                ),
+            )
+            _add_deployments_to_job(job, code, interpreter)
+
+            worker_tasks.append(
+                asyncio.create_task(
+                    SshHost(public_address, fabric_kwargs).run_job(JobToRun(job=job))
+                )
+            )
+
+            worker_id += 1
+
+    # finally, wait for results:
+
+    results = await get_results(result_queue_url, region_name, len(args))
+
+    # not really necessary except interpreter will complain...
+    await asyncio.gather(*worker_tasks)
+
+    return results

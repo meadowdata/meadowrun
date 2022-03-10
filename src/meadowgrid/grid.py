@@ -81,13 +81,19 @@ def _get_coordinator_client_sync(address: str) -> MeadowGridCoordinatorClientSyn
     return client
 
 
+def _get_friendly_name(function: Callable[[_T], _U]) -> str:
+    friendly_name = getattr(function, "__name__", "")
+    if not friendly_name:
+        friendly_name = "lambda"
+
+    return friendly_name
+
+
 def _get_id_name_function(function: Callable[[_T], _U]) -> Tuple[str, str, bytes]:
     """Returns job_id, friendly_name, pickled_function"""
     job_id = str(uuid.uuid4())
 
-    friendly_name = getattr(function, "__name__", "")
-    if not friendly_name:
-        friendly_name = "lambda"
+    friendly_name = _get_friendly_name(function)
 
     pickled_function = cloudpickle.dumps(function)
     # TODO larger functions should get copied to S3/filesystem instead of sent directly

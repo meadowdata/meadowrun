@@ -79,6 +79,39 @@ _EC2_TABLE_ACCESS_POLICY_DOCUMENT = """{
 }""".replace(
     "$TABLE_NAME", _EC2_ALLOC_TABLE_NAME
 )
+# a policy that grants read/write to SQS queues starting with meadowgrid*. This is
+# really for grid_task_queue.py functionality
+_MEADOWGRID_SQS_ACCESS_POLICY_NAME = "meadowgrid_sqs_access"
+_MEADOWGRID_SQS_ACCESS_POLICY_DOCUMENT = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "sqs:DeleteMessage",
+                "sqs:GetQueueUrl",
+                "sqs:ListDeadLetterSourceQueues",
+                "sqs:ChangeMessageVisibility",
+                "sqs:PurgeQueue",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteQueue",
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:ListQueueTags",
+                "sqs:CreateQueue",
+                "sqs:SetQueueAttributes"
+            ],
+            "Resource": "arn:aws:sqs:*:*:meadowgrid*"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": "sqs:ListQueues",
+            "Resource": "*"
+        }
+    ]
+}"""
 
 # the name of the lambda that runs adjust_ec2_instances.py
 _EC2_ALLOC_LAMBDA_NAME = "meadowgrid_ec2_alloc_lambda"
@@ -91,6 +124,25 @@ _EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowgrid_ec2_alloc_lambda_schedule_rule"
 def _get_account_number() -> str:
     # weird that we have to do this to get the account number to construct the ARN
     return boto3.client("sts").get_caller_identity().get("Account")
+
+
+def _ensure_meadowgrid_sqs_access_policy(iam_client: Any) -> str:
+    """
+    Creates a policy that gives permission to read/write SQS queues for use with
+    grid_task_queue.py
+    """
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.create_policy
+    ignore_boto3_error_code(
+        lambda: iam_client.create_policy(
+            PolicyName=_MEADOWGRID_SQS_ACCESS_POLICY_NAME,
+            PolicyDocument=_MEADOWGRID_SQS_ACCESS_POLICY_DOCUMENT,
+        ),
+        "EntityAlreadyExists",
+    )
+    return (
+        f"arn:aws:iam::{_get_account_number()}:policy/"
+        f"{_MEADOWGRID_SQS_ACCESS_POLICY_NAME}"
+    )
 
 
 def _ensure_ec2_alloc_table_access_policy(iam_client: Any) -> str:
@@ -138,6 +190,13 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
             RoleName=_EC2_ALLOC_ROLE,
             # TODO should create a policy that only allows what we actually need
             PolicyArn=_ensure_ec2_alloc_table_access_policy(iam),
+        )
+
+        # create the sqs access policy and attach it to the role
+        iam.attach_role_policy(
+            RoleName=_EC2_ALLOC_ROLE,
+            # TODO should create a policy that only allows what we actually need
+            PolicyArn=_ensure_meadowgrid_sqs_access_policy(iam),
         )
 
         # create an instance profile (so that EC2 instances can assume it) and attach
@@ -814,3 +873,55 @@ async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
         lambda_client.update_function_code(
             FunctionName=_EC2_ALLOC_LAMBDA_NAME, ZipFile=_get_zipped_lambda_code()
         )
+
+
+def _detach_all_policies(iam: Any, role_name: str) -> None:
+    """Detach all policies from a role"""
+    success, attached_policies = ignore_boto3_error_code(
+        lambda: iam.list_attached_role_policies(RoleName=role_name), "NoSuchEntity"
+    )
+    if success:
+        assert attached_policies is not None  # just for mypy
+        for attached_policy in attached_policies["AttachedPolicies"]:
+            iam.detach_role_policy(
+                RoleName=role_name, PolicyArn=attached_policy["PolicyArn"]
+            )
+
+
+def delete_meadowgrid_resources(region_name: str) -> None:
+    """Delete all AWS resources that meadowgrid creates"""
+
+    iam = boto3.client("iam", region_name=region_name)
+
+    iam.remove_role_from_instance_profile(
+        RoleName=_EC2_ALLOC_ROLE, InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE
+    )
+    iam.delete_instance_profile(InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE)
+
+    _detach_all_policies(iam, _EC2_ALLOC_ROLE)
+    ignore_boto3_error_code(
+        lambda: iam.delete_role(RoleName=_EC2_ALLOC_ROLE), "NoSuchEntity"
+    )
+
+    _detach_all_policies(iam, _EC2_ALLOC_LAMBDA_ROLE)
+    ignore_boto3_error_code(
+        lambda: iam.delete_role(RoleName=_EC2_ALLOC_LAMBDA_ROLE), "NoSuchEntity"
+    )
+
+    table_access_policy_arn = _ensure_ec2_alloc_table_access_policy(iam)
+    ignore_boto3_error_code(
+        lambda: iam.delete_policy(PolicyArn=table_access_policy_arn), "NoSuchEntity"
+    )
+
+    sqs_access_policy_arn = _ensure_meadowgrid_sqs_access_policy(iam)
+    ignore_boto3_error_code(
+        lambda: iam.delete_policy(PolicyArn=sqs_access_policy_arn), "NoSuchEntity"
+    )
+
+    lambda_client = boto3.client("lambda", region_name=region_name)
+    ignore_boto3_error_code(
+        lambda: lambda_client.delete_function(FunctionName=_EC2_ALLOC_LAMBDA_NAME),
+        "ResourceNotFoundException",
+    )
+
+    # TODO also delete other resources like security groups, dynamodb table, SQS queues

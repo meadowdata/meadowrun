@@ -43,10 +43,10 @@ _MEADOWGRID_SSH_SECURITY_GROUP = "meadowgridSshSecurityGroup"
 _COORDINATOR_AWS_AMI = "ami-0e2b160b07bab8a4b"
 _AGENT_AWS_AMI = "ami-00fefcea9b035e2d6"
 # An AMI with meadowgrid installed0
-_EC2ALLOC_AWS_AMI = "ami-0055710bcca30d82a"
+_EC2ALLOC_AWS_AMI = "ami-011bcf1924ffcf0ca"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
-    "Version": "2012-10-17"
+    "Version": "2012-10-17",
     "Statement": [
         {
             "Action": "sts:AssumeRole",

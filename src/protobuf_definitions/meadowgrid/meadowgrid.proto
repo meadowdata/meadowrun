@@ -126,20 +126,6 @@ message GridTask {
 }
 
 
-message PyGridJob {
-    PyFunctionJob function = 1;
-    repeated GridTask tasks = 2;
-    bool all_tasks_added = 3;
-}
-
-
-message AddTasksToGridJobRequest {
-    string job_id = 1;
-    repeated GridTask tasks = 2;
-    bool all_tasks_added = 3;
-}
-
-
 // Agents have resources, and jobs can use resources. Examples of resources are CPU and
 // memory
 message Resource {
@@ -156,21 +142,6 @@ message Job {
     // Also, job_id may only use string.ascii_letters, numbers, ., -, and _.
     string job_id = 1;
     string job_friendly_name = 2;
-
-    // priority determines which jobs are worked on first. The likelihood that a
-    // coordinator assigns a particular job to the next available agent is the priority
-    // of that job relative to the sum of the priorities of all jobs that need to be
-    // worked on. Roughly, the overall intended effect is that if a particular job has
-    // e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowgrid compute
-    // resources will be dedicated to this job.
-    float priority = 3;
-
-    // If we need create job-specific agents for this job, this will sets what
-    // probability of interruption is acceptable, which drives which spot instance types
-    // if any. This should be a percentage, so 0 means spot instances are not
-    // acceptable, and 50 means only spot instances that have <50% chance of being
-    // interrupted are acceptable.
-    float interruption_probability_threshold = 4;
 
     oneof code_deployment {
         ServerAvailableFolder server_available_folder = 5;
@@ -200,59 +171,11 @@ message Job {
     // pickle.HIGHEST_PROTOCOL in the calling python process
     int32 result_highest_pickle_protocol = 13;
 
-    repeated Resource resources_required = 14;
-
     // determines what kind of job this is
     oneof job_spec {
         PyCommandJob py_command = 15;
         PyFunctionJob py_function = 16;
-        PyGridJob py_grid = 17;
     }
-}
-
-
-message AddJobResponse {
-    enum AddJobState {
-        DEFAULT = 0;
-        ADDED = 1;
-        IS_DUPLICATE = 2;
-    }
-    AddJobState state = 1;
-}
-
-
-message RegisterAgentRequest {
-    // The id of the agent that's registering itself
-    string agent_id = 1;
-    // The resources available on the agent
-    repeated Resource resources = 2;
-    // Will be empty for generic agents, populated for job-specific agents
-    string job_id = 3;
-}
-
-
-message RegisterAgentResponse {
-}
-
-
-message NextJobsRequest {
-    string agent_id = 1;
-    // Will be empty for generic agents, populated for job-specific agents
-    string job_id = 2;
-}
-
-
-message NextJobsResponse {
-    repeated JobToRun jobs_to_run = 1;
-}
-
-
-message JobToRun {
-    Job job = 1;
-    // will only be populated if job is a GridJob
-    string grid_worker_id = 2;
-    Credentials interpreter_deployment_credentials = 3;
-    Credentials code_deployment_credentials = 4;
 }
 
 
@@ -324,45 +247,12 @@ message ProcessState {
 }
 
 
-message ProcessStates {
-    repeated ProcessState process_states = 1;
-}
-
-
-// A general note on terminology below: a StateRequest is when a client requests the
-// state of a Job or GridTask. A plain State is a response to that kind of request. A
-// StateUpdate is when an agent is updating the coordinator that a Job/GridTask has
-// entered a new state.
-
-
-// For requesting states of a job
-message JobStatesRequest {
-    repeated string job_ids = 1;
-}
-
-
 // For updating the state of a job
 message JobStateUpdate {
     string job_id = 1;
     // will only be populated if job_id refers to a GridJob
     string grid_worker_id = 2;
     ProcessState process_state = 3;
-}
-
-
-// For updating the states of jobs
-message JobStateUpdates {
-    string agent_id = 1;
-    // Will be empty for generic agents, populated for job-specific agents
-    string agent_job_id = 2;
-    repeated JobStateUpdate job_states = 3;
-}
-
-
-// For requesting the states of grid tasks
-message GridTaskStatesRequest {
-    string job_id = 1;
-    repeated int32 task_ids_to_ignore = 2;
 }
 
 
@@ -376,27 +266,6 @@ message GridTaskStateResponse {
 // For getting the states of grid tasks
 message GridTaskStatesResponse {
     repeated GridTaskStateResponse task_states = 1;
-}
-
-
-// For updating the state of a grid task and getting the next task
-message GridTaskUpdateAndGetNextRequest {
-    // required, indicates what grid_job we're (optionally) updating and what grid_job
-    // the next task should come from
-    string job_id = 1;
-
-    string grid_worker_id = 2;
-
-    // -1 means we don't have a completed task to update. >= 0 means we are updating the
-    // state on the specified task
-    int32 task_id = 3;
-
-    // the updated state for the specified task if task_id >= 0
-    ProcessState process_state = 4;
-}
-
-
-message UpdateStateResponse {
 }
 
 
@@ -449,71 +318,4 @@ message AwsSecret {
 message ServerAvailableFile {
     Credentials.Type credentials_type = 1;
     string path = 2;
-}
-
-
-message AddCredentialsResponse {
-}
-
-
-message AgentStatesRequest {
-}
-
-
-message AgentStatesResponse {
-    repeated AgentStateResponse agents = 1;
-}
-
-
-message AgentStateResponse {
-    string agent_id = 1;
-    repeated Resource total_resources = 2;
-    repeated Resource available_resources = 3;
-
-    // TODO we will want to include more information eventually
-}
-
-
-message HealthCheckRequest {
-  string service = 1;
-}
-
-
-message HealthCheckResponse {
-  enum ServingStatus {
-    UNKNOWN = 0;
-    SERVING = 1;
-    NOT_SERVING = 2;
-    SERVICE_UNKNOWN = 3;  // Used only by the Watch method.
-  }
-  ServingStatus status = 1;
-}
-
-
-service MeadowGridCoordinator {
-    // client functions
-
-    rpc add_job(Job) returns (AddJobResponse) {};
-    rpc add_tasks_to_grid_job(AddTasksToGridJobRequest) returns (AddJobResponse) {};
-
-    rpc get_simple_job_states(JobStatesRequest) returns (ProcessStates) {};
-    rpc get_grid_task_states(GridTaskStatesRequest) returns (GridTaskStatesResponse) {};
-
-    rpc add_credentials(AddCredentialsRequest) returns (AddCredentialsResponse) {};
-
-    rpc get_agent_states(AgentStatesRequest) returns (AgentStatesResponse) {};
-
-    // agent/worker functions
-
-    rpc register_agent(RegisterAgentRequest) returns (RegisterAgentResponse) {};
-
-    rpc get_next_jobs(NextJobsRequest) returns (NextJobsResponse) {};
-
-    rpc update_job_states(JobStateUpdates) returns (UpdateStateResponse) {};
-
-    // this can only get tasks from the same job
-    rpc update_grid_task_state_and_get_next(GridTaskUpdateAndGetNextRequest) returns (GridTask) {};
-
-    // per convention: https://github.com/grpc/grpc/blob/master/doc/health-checking.md
-    rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
 }

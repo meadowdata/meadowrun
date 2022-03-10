@@ -5,11 +5,9 @@ import itertools
 import os
 import os.path
 import pathlib
-import pickle
 import shutil
 import sys
 import traceback
-import uuid
 from typing import (
     Any,
     Callable,
@@ -20,24 +18,19 @@ from typing import (
     Literal,
     Optional,
     Sequence,
-    Set,
     Tuple,
 )
 
 import aiodocker.containers
-import psutil
 
 import meadowflow.context
 from meadowgrid.code_deployment import CodeDeploymentManager
 from meadowgrid.config import (
-    LOGICAL_CPU,
     MEADOWGRID_AGENT_PID,
     MEADOWGRID_CODE_MOUNT_LINUX,
     MEADOWGRID_INTERPRETER,
     MEADOWGRID_IO_MOUNT_LINUX,
-    MEMORY_GB,
 )
-from meadowgrid.coordinator_client import MeadowGridCoordinatorClientForWorkersAsync
 from meadowgrid.credentials import (
     CredentialsDict,
     RawCredentials,
@@ -54,7 +47,6 @@ from meadowgrid.meadowgrid_pb2 import (
     Credentials,
     Job,
     JobStateUpdate,
-    JobToRun,
     JobToRun2,
     ProcessState,
     PyFunctionJob,
@@ -970,185 +962,6 @@ def _set_up_working_folder(
     deployment_manager = CodeDeploymentManager(git_repos_folder, local_copies_folder)
 
     return io_folder, job_logs_folder, deployment_manager
-
-
-def _unpickle_credentials(
-    job_to_run: JobToRun,
-) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
-    """Returns code_deployment_credentials, interpreter_deployment_credentials"""
-    if job_to_run.code_deployment_credentials.credentials:
-        code_deployment_credentials = pickle.loads(
-            job_to_run.code_deployment_credentials.credentials
-        )
-    else:
-        code_deployment_credentials = None
-
-    if job_to_run.interpreter_deployment_credentials.credentials:
-        interpreter_deployment_credentials = pickle.loads(
-            job_to_run.interpreter_deployment_credentials.credentials
-        )
-    else:
-        interpreter_deployment_credentials = None
-
-    return code_deployment_credentials, interpreter_deployment_credentials
-
-
-async def agent_main_loop(
-    working_folder: Optional[str],
-    available_resources: Dict[str, float],
-    coordinator_address: str,
-    agent_id: Optional[str] = None,
-    job_id: Optional[str] = None,
-) -> None:
-    """
-    The main loop for the agent. Periodically queries the coordinator to pick up new
-    jobs, runs them, and sends JobStateUpdates to the coordinator.
-    """
-
-    # TODO make this restartable if it crashes
-
-    io_folder, job_logs_folder, deployment_manager = _set_up_working_folder(
-        working_folder
-    )
-
-    # represents jobs where we are preparing to launch the child process
-    launching_jobs: Set[
-        asyncio.Task[Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]]
-    ] = set()
-    # represents jobs where the child process has been launched and is running
-    running_jobs: Set[asyncio.Task[JobStateUpdate]] = set()
-
-    # assume we can use the entire machine's resources
-    # TODO we should maybe also keep track of the actual resources available? And
-    #  potentially limit child processes using cgroups etc? Also account for system
-    #  processes/the agent itself using some CPU/memory?
-    if MEMORY_GB not in available_resources:
-        available_resources[MEMORY_GB] = psutil.virtual_memory().total / (
-            1024 * 1024 * 1024
-        )
-    if LOGICAL_CPU not in available_resources:
-        available_resources[LOGICAL_CPU] = psutil.cpu_count(logical=True)
-    available_memory_gb = available_resources[MEMORY_GB]
-    available_logical_cpu = available_resources[LOGICAL_CPU]
-
-    print(f"Available resources: {available_resources}")
-
-    # register ourselves with the coordinator
-
-    if not agent_id:
-        agent_id = str(uuid.uuid4())
-    client = MeadowGridCoordinatorClientForWorkersAsync(coordinator_address)
-    await client.register_agent(agent_id, available_resources, job_id)
-
-    while True:
-        # TODO a lot of try/catches needed here...
-
-        # TODO we should probably add a heartbeat so that the coordinator knows if the
-        #  agent has gone offline
-
-        # first, check if any job launches have completed, get their state update, and
-        # move them from launching_jobs to running_jobs
-
-        job_state_updates: List[JobStateUpdate] = []
-
-        if len(launching_jobs) > 0:
-            # a little subtle that we are reassigning launching_jobs here to just the
-            # ones that are still not complete
-            launched_jobs, launching_jobs = await asyncio.wait(
-                launching_jobs, timeout=0
-            )
-            for launched_job in launched_jobs:
-                # this corresponds to the return type of _launch_job, see docstring
-                job_state_update: Optional[JobStateUpdate]
-                job_state_update, running_job = launched_job.result()
-
-                if running_job is not None:
-                    # if we successfully launched the process, we will add it to
-                    # running_jobs unless it has already completed, in which case we can
-                    # skip that step as we just need to update the coordinator
-                    if running_job.done():
-                        job_state_update = running_job.result()
-                    else:
-                        running_jobs.add(running_job)
-
-                if job_state_update is not None:
-                    job_state_updates.append(job_state_update)
-
-        # next, check if any processes are done. If they are, get their state update,
-        # and remove them from running_jobs
-
-        if len(running_jobs) > 0:
-            # again, subtle reassignment of running_jobs
-            done_jobs, running_jobs = await asyncio.wait(running_jobs, timeout=0)
-            for done_job in done_jobs:
-                job_state_update = done_job.result()
-                if job_state_update is not None:
-                    job_state_updates.append(job_state_update)
-
-        # now update the coordinator with the state updates we collected
-
-        if job_state_updates:
-            await client.update_job_states(agent_id, job_id, job_state_updates)
-
-        # now get more jobs
-
-        # The coordinator has the "official" representation of this agent's resources,
-        # this is just a little performance hack--we don't bother seeing if there are
-        # new jobs for us # unless we have some memory and cpu remaining.
-        if available_memory_gb > 0 and available_logical_cpu > 0:
-            next_jobs_response = await client.get_next_jobs(agent_id, job_id)
-            for job_to_run in next_jobs_response.jobs_to_run:
-                job = job_to_run.job
-                required_memory_gb: float = 0
-                required_logical_cpu: float = 0
-                for resource in job.resources_required:
-                    if resource.name == MEMORY_GB:
-                        required_memory_gb = resource.value
-                        available_memory_gb -= required_memory_gb
-                    elif resource.name == LOGICAL_CPU:
-                        required_logical_cpu = resource.value
-                        available_logical_cpu -= required_logical_cpu
-                    # TODO this should never happen, but consider doing something if the
-                    #  resource does not exist on this agent or if this takes us below
-                    #  zero?
-
-                def free_resources(
-                    required_memory_gb: float = required_memory_gb,
-                    required_logical_cpu: float = required_logical_cpu,
-                ) -> None:
-                    nonlocal available_memory_gb
-                    nonlocal available_logical_cpu
-                    available_memory_gb += required_memory_gb
-                    available_logical_cpu += required_logical_cpu
-
-                # unpickle credentials if necessary
-                (
-                    code_deployment_credentials,
-                    interpreter_deployment_credentials,
-                ) = _unpickle_credentials(job_to_run)
-
-                launching_jobs.add(
-                    asyncio.create_task(
-                        _launch_job(
-                            job,
-                            job_to_run.grid_worker_id,
-                            io_folder,
-                            job_logs_folder,
-                            coordinator_address,
-                            deployment_manager,
-                            free_resources,
-                            code_deployment_credentials,
-                            interpreter_deployment_credentials,
-                        )
-                    )
-                )
-
-        # TODO this should be way more sophisticated. Depending on the last time we
-        #  polled our processes (really should use async.wait to see if anything has
-        #  changed), when we last asked for a job and whether we got one or not, and the
-        #  reason we didn't get one (not enough resources here vs not a enough jobs),
-        #  how many other agents there are, we should retry/wait
-        await asyncio.sleep(0.1)
 
 
 def _no_op() -> None:

@@ -373,78 +373,6 @@ class GridTask(google.protobuf.message.Message):
 
 global___GridTask = GridTask
 
-class PyGridJob(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    FUNCTION_FIELD_NUMBER: builtins.int
-    TASKS_FIELD_NUMBER: builtins.int
-    ALL_TASKS_ADDED_FIELD_NUMBER: builtins.int
-    @property
-    def function(self) -> global___PyFunctionJob: ...
-    @property
-    def tasks(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___GridTask
-    ]: ...
-    all_tasks_added: builtins.bool
-    def __init__(
-        self,
-        *,
-        function: typing.Optional[global___PyFunctionJob] = ...,
-        tasks: typing.Optional[typing.Iterable[global___GridTask]] = ...,
-        all_tasks_added: builtins.bool = ...,
-    ) -> None: ...
-    def HasField(
-        self, field_name: typing_extensions.Literal["function", b"function"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "all_tasks_added",
-            b"all_tasks_added",
-            "function",
-            b"function",
-            "tasks",
-            b"tasks",
-        ],
-    ) -> None: ...
-
-global___PyGridJob = PyGridJob
-
-class AddTasksToGridJobRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    JOB_ID_FIELD_NUMBER: builtins.int
-    TASKS_FIELD_NUMBER: builtins.int
-    ALL_TASKS_ADDED_FIELD_NUMBER: builtins.int
-    job_id: typing.Text
-    @property
-    def tasks(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___GridTask
-    ]: ...
-    all_tasks_added: builtins.bool
-    def __init__(
-        self,
-        *,
-        job_id: typing.Text = ...,
-        tasks: typing.Optional[typing.Iterable[global___GridTask]] = ...,
-        all_tasks_added: builtins.bool = ...,
-    ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "all_tasks_added",
-            b"all_tasks_added",
-            "job_id",
-            b"job_id",
-            "tasks",
-            b"tasks",
-        ],
-    ) -> None: ...
-
-global___AddTasksToGridJobRequest = AddTasksToGridJobRequest
-
 class Resource(google.protobuf.message.Message):
     """Agents have resources, and jobs can use resources. Examples of resources are CPU and
     memory
@@ -471,8 +399,6 @@ class Job(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     JOB_FRIENDLY_NAME_FIELD_NUMBER: builtins.int
-    PRIORITY_FIELD_NUMBER: builtins.int
-    INTERRUPTION_PROBABILITY_THRESHOLD_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FOLDER_FIELD_NUMBER: builtins.int
     GIT_REPO_COMMIT_FIELD_NUMBER: builtins.int
     GIT_REPO_BRANCH_FIELD_NUMBER: builtins.int
@@ -482,10 +408,8 @@ class Job(google.protobuf.message.Message):
     SERVER_AVAILABLE_CONTAINER_FIELD_NUMBER: builtins.int
     ENVIRONMENT_VARIABLES_FIELD_NUMBER: builtins.int
     RESULT_HIGHEST_PICKLE_PROTOCOL_FIELD_NUMBER: builtins.int
-    RESOURCES_REQUIRED_FIELD_NUMBER: builtins.int
     PY_COMMAND_FIELD_NUMBER: builtins.int
     PY_FUNCTION_FIELD_NUMBER: builtins.int
-    PY_GRID_FIELD_NUMBER: builtins.int
     job_id: typing.Text
     """job_id uniquely identifies this request to avoid duplicates and for getting the
     results later. Make sure job_id is unique! Multiple requests with the same job_id
@@ -494,23 +418,6 @@ class Job(google.protobuf.message.Message):
     """
 
     job_friendly_name: typing.Text
-    priority: builtins.float
-    """priority determines which jobs are worked on first. The likelihood that a
-    coordinator assigns a particular job to the next available agent is the priority
-    of that job relative to the sum of the priorities of all jobs that need to be
-    worked on. Roughly, the overall intended effect is that if a particular job has
-    e.g. 1/10th of the sum of all the priorities, 1/10th of the meadowgrid compute
-    resources will be dedicated to this job.
-    """
-
-    interruption_probability_threshold: builtins.float
-    """If we need create job-specific agents for this job, this will sets what
-    probability of interruption is acceptable, which drives which spot instance types
-    if any. This should be a percentage, so 0 means spot instances are not
-    acceptable, and 50 means only spot instances that have <50% chance of being
-    interrupted are acceptable.
-    """
-
     @property
     def server_available_folder(self) -> global___ServerAvailableFolder: ...
     @property
@@ -545,24 +452,14 @@ class Job(google.protobuf.message.Message):
     """
 
     @property
-    def resources_required(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___Resource
-    ]: ...
-    @property
     def py_command(self) -> global___PyCommandJob: ...
     @property
     def py_function(self) -> global___PyFunctionJob: ...
-    @property
-    def py_grid(self) -> global___PyGridJob: ...
     def __init__(
         self,
         *,
         job_id: typing.Text = ...,
         job_friendly_name: typing.Text = ...,
-        priority: builtins.float = ...,
-        interruption_probability_threshold: builtins.float = ...,
         server_available_folder: typing.Optional[global___ServerAvailableFolder] = ...,
         git_repo_commit: typing.Optional[global___GitRepoCommit] = ...,
         git_repo_branch: typing.Optional[global___GitRepoBranch] = ...,
@@ -578,10 +475,8 @@ class Job(google.protobuf.message.Message):
             typing.Iterable[global___StringPair]
         ] = ...,
         result_highest_pickle_protocol: builtins.int = ...,
-        resources_required: typing.Optional[typing.Iterable[global___Resource]] = ...,
         py_command: typing.Optional[global___PyCommandJob] = ...,
         py_function: typing.Optional[global___PyFunctionJob] = ...,
-        py_grid: typing.Optional[global___PyGridJob] = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -604,8 +499,6 @@ class Job(google.protobuf.message.Message):
             b"py_command",
             "py_function",
             b"py_function",
-            "py_grid",
-            b"py_grid",
             "server_available_container",
             b"server_available_container",
             "server_available_folder",
@@ -631,24 +524,16 @@ class Job(google.protobuf.message.Message):
             b"git_repo_commit",
             "interpreter_deployment",
             b"interpreter_deployment",
-            "interruption_probability_threshold",
-            b"interruption_probability_threshold",
             "job_friendly_name",
             b"job_friendly_name",
             "job_id",
             b"job_id",
             "job_spec",
             b"job_spec",
-            "priority",
-            b"priority",
             "py_command",
             b"py_command",
             "py_function",
             b"py_function",
-            "py_grid",
-            b"py_grid",
-            "resources_required",
-            b"resources_required",
             "result_highest_pickle_protocol",
             b"result_highest_pickle_protocol",
             "server_available_container",
@@ -685,186 +570,13 @@ class Job(google.protobuf.message.Message):
     @typing.overload
     def WhichOneof(
         self, oneof_group: typing_extensions.Literal["job_spec", b"job_spec"]
-    ) -> typing.Optional[
-        typing_extensions.Literal["py_command", "py_function", "py_grid"]
-    ]: ...
+    ) -> typing.Optional[typing_extensions.Literal["py_command", "py_function"]]: ...
 
 global___Job = Job
 
-class AddJobResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    class _AddJobState:
-        ValueType = typing.NewType("ValueType", builtins.int)
-        V: typing_extensions.TypeAlias = ValueType
-
-    class _AddJobStateEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            AddJobResponse._AddJobState.ValueType
-        ],
-        builtins.type,
-    ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
-        DEFAULT: AddJobResponse._AddJobState.ValueType  # 0
-        ADDED: AddJobResponse._AddJobState.ValueType  # 1
-        IS_DUPLICATE: AddJobResponse._AddJobState.ValueType  # 2
-
-    class AddJobState(_AddJobState, metaclass=_AddJobStateEnumTypeWrapper):
-        pass
-    DEFAULT: AddJobResponse.AddJobState.ValueType  # 0
-    ADDED: AddJobResponse.AddJobState.ValueType  # 1
-    IS_DUPLICATE: AddJobResponse.AddJobState.ValueType  # 2
-
-    STATE_FIELD_NUMBER: builtins.int
-    state: global___AddJobResponse.AddJobState.ValueType
-    def __init__(
-        self,
-        *,
-        state: global___AddJobResponse.AddJobState.ValueType = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["state", b"state"]
-    ) -> None: ...
-
-global___AddJobResponse = AddJobResponse
-
-class RegisterAgentRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    AGENT_ID_FIELD_NUMBER: builtins.int
-    RESOURCES_FIELD_NUMBER: builtins.int
-    JOB_ID_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text
-    """The id of the agent that's registering itself"""
-
-    @property
-    def resources(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___Resource
-    ]:
-        """The resources available on the agent"""
-        pass
-    job_id: typing.Text
-    """Will be empty for generic agents, populated for job-specific agents"""
-
-    def __init__(
-        self,
-        *,
-        agent_id: typing.Text = ...,
-        resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
-        job_id: typing.Text = ...,
-    ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "agent_id", b"agent_id", "job_id", b"job_id", "resources", b"resources"
-        ],
-    ) -> None: ...
-
-global___RegisterAgentRequest = RegisterAgentRequest
-
-class RegisterAgentResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    def __init__(
-        self,
-    ) -> None: ...
-
-global___RegisterAgentResponse = RegisterAgentResponse
-
-class NextJobsRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    AGENT_ID_FIELD_NUMBER: builtins.int
-    JOB_ID_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text
-    job_id: typing.Text
-    """Will be empty for generic agents, populated for job-specific agents"""
-
-    def __init__(
-        self,
-        *,
-        agent_id: typing.Text = ...,
-        job_id: typing.Text = ...,
-    ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "agent_id", b"agent_id", "job_id", b"job_id"
-        ],
-    ) -> None: ...
-
-global___NextJobsRequest = NextJobsRequest
-
-class NextJobsResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    JOBS_TO_RUN_FIELD_NUMBER: builtins.int
-    @property
-    def jobs_to_run(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___JobToRun
-    ]: ...
-    def __init__(
-        self,
-        *,
-        jobs_to_run: typing.Optional[typing.Iterable[global___JobToRun]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["jobs_to_run", b"jobs_to_run"]
-    ) -> None: ...
-
-global___NextJobsResponse = NextJobsResponse
-
-class JobToRun(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    JOB_FIELD_NUMBER: builtins.int
-    GRID_WORKER_ID_FIELD_NUMBER: builtins.int
-    INTERPRETER_DEPLOYMENT_CREDENTIALS_FIELD_NUMBER: builtins.int
-    CODE_DEPLOYMENT_CREDENTIALS_FIELD_NUMBER: builtins.int
-    @property
-    def job(self) -> global___Job: ...
-    grid_worker_id: typing.Text
-    """will only be populated if job is a GridJob"""
-
-    @property
-    def interpreter_deployment_credentials(self) -> global___Credentials: ...
-    @property
-    def code_deployment_credentials(self) -> global___Credentials: ...
-    def __init__(
-        self,
-        *,
-        job: typing.Optional[global___Job] = ...,
-        grid_worker_id: typing.Text = ...,
-        interpreter_deployment_credentials: typing.Optional[global___Credentials] = ...,
-        code_deployment_credentials: typing.Optional[global___Credentials] = ...,
-    ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing_extensions.Literal[
-            "code_deployment_credentials",
-            b"code_deployment_credentials",
-            "interpreter_deployment_credentials",
-            b"interpreter_deployment_credentials",
-            "job",
-            b"job",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "code_deployment_credentials",
-            b"code_deployment_credentials",
-            "grid_worker_id",
-            b"grid_worker_id",
-            "interpreter_deployment_credentials",
-            b"interpreter_deployment_credentials",
-            "job",
-            b"job",
-        ],
-    ) -> None: ...
-
-global___JobToRun = JobToRun
-
 class JobToRun2(google.protobuf.message.Message):
+    """TODO delete JobToRun and coordinator-based meadowgrid and rename this to JobToRun"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_FIELD_NUMBER: builtins.int
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
@@ -1082,54 +794,6 @@ class ProcessState(google.protobuf.message.Message):
 
 global___ProcessState = ProcessState
 
-class ProcessStates(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    PROCESS_STATES_FIELD_NUMBER: builtins.int
-    @property
-    def process_states(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___ProcessState
-    ]: ...
-    def __init__(
-        self,
-        *,
-        process_states: typing.Optional[typing.Iterable[global___ProcessState]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["process_states", b"process_states"]
-    ) -> None: ...
-
-global___ProcessStates = ProcessStates
-
-class JobStatesRequest(google.protobuf.message.Message):
-    """A general note on terminology below: a StateRequest is when a client requests the
-    state of a Job or GridTask. A plain State is a response to that kind of request. A
-    StateUpdate is when an agent is updating the coordinator that a Job/GridTask has
-    entered a new state.
-
-    For requesting states of a job
-    """
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    JOB_IDS_FIELD_NUMBER: builtins.int
-    @property
-    def job_ids(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
-        typing.Text
-    ]: ...
-    def __init__(
-        self,
-        *,
-        job_ids: typing.Optional[typing.Iterable[typing.Text]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["job_ids", b"job_ids"]
-    ) -> None: ...
-
-global___JobStatesRequest = JobStatesRequest
-
 class JobStateUpdate(google.protobuf.message.Message):
     """For updating the state of a job"""
 
@@ -1166,72 +830,6 @@ class JobStateUpdate(google.protobuf.message.Message):
     ) -> None: ...
 
 global___JobStateUpdate = JobStateUpdate
-
-class JobStateUpdates(google.protobuf.message.Message):
-    """For updating the states of jobs"""
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    AGENT_ID_FIELD_NUMBER: builtins.int
-    AGENT_JOB_ID_FIELD_NUMBER: builtins.int
-    JOB_STATES_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text
-    agent_job_id: typing.Text
-    """Will be empty for generic agents, populated for job-specific agents"""
-
-    @property
-    def job_states(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___JobStateUpdate
-    ]: ...
-    def __init__(
-        self,
-        *,
-        agent_id: typing.Text = ...,
-        agent_job_id: typing.Text = ...,
-        job_states: typing.Optional[typing.Iterable[global___JobStateUpdate]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "agent_id",
-            b"agent_id",
-            "agent_job_id",
-            b"agent_job_id",
-            "job_states",
-            b"job_states",
-        ],
-    ) -> None: ...
-
-global___JobStateUpdates = JobStateUpdates
-
-class GridTaskStatesRequest(google.protobuf.message.Message):
-    """For requesting the states of grid tasks"""
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    JOB_ID_FIELD_NUMBER: builtins.int
-    TASK_IDS_TO_IGNORE_FIELD_NUMBER: builtins.int
-    job_id: typing.Text
-    @property
-    def task_ids_to_ignore(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
-        builtins.int
-    ]: ...
-    def __init__(
-        self,
-        *,
-        job_id: typing.Text = ...,
-        task_ids_to_ignore: typing.Optional[typing.Iterable[builtins.int]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "job_id", b"job_id", "task_ids_to_ignore", b"task_ids_to_ignore"
-        ],
-    ) -> None: ...
-
-global___GridTaskStatesRequest = GridTaskStatesRequest
 
 class GridTaskStateResponse(google.protobuf.message.Message):
     """For getting the state of a grid task"""
@@ -1283,64 +881,6 @@ class GridTaskStatesResponse(google.protobuf.message.Message):
     ) -> None: ...
 
 global___GridTaskStatesResponse = GridTaskStatesResponse
-
-class GridTaskUpdateAndGetNextRequest(google.protobuf.message.Message):
-    """For updating the state of a grid task and getting the next task"""
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    JOB_ID_FIELD_NUMBER: builtins.int
-    GRID_WORKER_ID_FIELD_NUMBER: builtins.int
-    TASK_ID_FIELD_NUMBER: builtins.int
-    PROCESS_STATE_FIELD_NUMBER: builtins.int
-    job_id: typing.Text
-    """required, indicates what grid_job we're (optionally) updating and what grid_job
-    the next task should come from
-    """
-
-    grid_worker_id: typing.Text
-    task_id: builtins.int
-    """-1 means we don't have a completed task to update. >= 0 means we are updating the
-    state on the specified task
-    """
-
-    @property
-    def process_state(self) -> global___ProcessState:
-        """the updated state for the specified task if task_id >= 0"""
-        pass
-    def __init__(
-        self,
-        *,
-        job_id: typing.Text = ...,
-        grid_worker_id: typing.Text = ...,
-        task_id: builtins.int = ...,
-        process_state: typing.Optional[global___ProcessState] = ...,
-    ) -> None: ...
-    def HasField(
-        self, field_name: typing_extensions.Literal["process_state", b"process_state"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "grid_worker_id",
-            b"grid_worker_id",
-            "job_id",
-            b"job_id",
-            "process_state",
-            b"process_state",
-            "task_id",
-            b"task_id",
-        ],
-    ) -> None: ...
-
-global___GridTaskUpdateAndGetNextRequest = GridTaskUpdateAndGetNextRequest
-
-class UpdateStateResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    def __init__(
-        self,
-    ) -> None: ...
-
-global___UpdateStateResponse = UpdateStateResponse
 
 class AddCredentialsRequest(google.protobuf.message.Message):
     """This represents a credentials source (see credentials.py)"""
@@ -1515,134 +1055,3 @@ class ServerAvailableFile(google.protobuf.message.Message):
     ) -> None: ...
 
 global___ServerAvailableFile = ServerAvailableFile
-
-class AddCredentialsResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    def __init__(
-        self,
-    ) -> None: ...
-
-global___AddCredentialsResponse = AddCredentialsResponse
-
-class AgentStatesRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    def __init__(
-        self,
-    ) -> None: ...
-
-global___AgentStatesRequest = AgentStatesRequest
-
-class AgentStatesResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    AGENTS_FIELD_NUMBER: builtins.int
-    @property
-    def agents(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___AgentStateResponse
-    ]: ...
-    def __init__(
-        self,
-        *,
-        agents: typing.Optional[typing.Iterable[global___AgentStateResponse]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["agents", b"agents"]
-    ) -> None: ...
-
-global___AgentStatesResponse = AgentStatesResponse
-
-class AgentStateResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    AGENT_ID_FIELD_NUMBER: builtins.int
-    TOTAL_RESOURCES_FIELD_NUMBER: builtins.int
-    AVAILABLE_RESOURCES_FIELD_NUMBER: builtins.int
-    agent_id: typing.Text
-    @property
-    def total_resources(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___Resource
-    ]: ...
-    @property
-    def available_resources(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___Resource
-    ]: ...
-    def __init__(
-        self,
-        *,
-        agent_id: typing.Text = ...,
-        total_resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
-        available_resources: typing.Optional[typing.Iterable[global___Resource]] = ...,
-    ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "agent_id",
-            b"agent_id",
-            "available_resources",
-            b"available_resources",
-            "total_resources",
-            b"total_resources",
-        ],
-    ) -> None: ...
-
-global___AgentStateResponse = AgentStateResponse
-
-class HealthCheckRequest(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    SERVICE_FIELD_NUMBER: builtins.int
-    service: typing.Text
-    def __init__(
-        self,
-        *,
-        service: typing.Text = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["service", b"service"]
-    ) -> None: ...
-
-global___HealthCheckRequest = HealthCheckRequest
-
-class HealthCheckResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    class _ServingStatus:
-        ValueType = typing.NewType("ValueType", builtins.int)
-        V: typing_extensions.TypeAlias = ValueType
-
-    class _ServingStatusEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            HealthCheckResponse._ServingStatus.ValueType
-        ],
-        builtins.type,
-    ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
-        UNKNOWN: HealthCheckResponse._ServingStatus.ValueType  # 0
-        SERVING: HealthCheckResponse._ServingStatus.ValueType  # 1
-        NOT_SERVING: HealthCheckResponse._ServingStatus.ValueType  # 2
-        SERVICE_UNKNOWN: HealthCheckResponse._ServingStatus.ValueType  # 3
-        """Used only by the Watch method."""
-
-    class ServingStatus(_ServingStatus, metaclass=_ServingStatusEnumTypeWrapper):
-        pass
-    UNKNOWN: HealthCheckResponse.ServingStatus.ValueType  # 0
-    SERVING: HealthCheckResponse.ServingStatus.ValueType  # 1
-    NOT_SERVING: HealthCheckResponse.ServingStatus.ValueType  # 2
-    SERVICE_UNKNOWN: HealthCheckResponse.ServingStatus.ValueType  # 3
-    """Used only by the Watch method."""
-
-    STATUS_FIELD_NUMBER: builtins.int
-    status: global___HealthCheckResponse.ServingStatus.ValueType
-    def __init__(
-        self,
-        *,
-        status: global___HealthCheckResponse.ServingStatus.ValueType = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["status", b"status"]
-    ) -> None: ...
-
-global___HealthCheckResponse = HealthCheckResponse

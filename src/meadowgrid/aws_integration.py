@@ -6,17 +6,13 @@ import dataclasses
 import datetime
 import json
 import threading
-import traceback
-from types import TracebackType
 from typing import (
     Any,
     Dict,
-    Generator,
     Iterable,
     Optional,
     Sequence,
     Tuple,
-    Type,
     TypeVar,
 )
 
@@ -26,24 +22,16 @@ import boto3
 import pandas as pd
 
 from meadowgrid.agent_creator import (
-    AgentCreator,
     OnDemandOrSpotType,
     choose_instance_types_for_job,
 )
-from meadowgrid.config import DEFAULT_COORDINATOR_PORT, EC2_PRICES_UPDATE_SECS
-from meadowgrid.coordinator_client import MeadowGridCoordinatorClientAsync
 from meadowgrid.ec2_alloc_lambda.ec2_alloc_stub import ignore_boto3_error_code
 from meadowgrid.resource_allocation import Resources
 
-_MEADOWGRID_COORDINATOR_ROLE = "meadowgridCoordinatorRole"
-_MEADOWGRID_COORDINATOR_SECURITY_GROUP = "meadowgridCoordinatorSecurityGroup"
-_MEADOWGRID_AGENT_SECURITY_GROUP = "meadowgridAgentSecurityGroup"
 # A security group that allows SSH, clients' IP addresses get added as needed
 _MEADOWGRID_SSH_SECURITY_GROUP = "meadowgridSshSecurityGroup"
-_COORDINATOR_AWS_AMI = "ami-0e2b160b07bab8a4b"
-_AGENT_AWS_AMI = "ami-00fefcea9b035e2d6"
 # An AMI with meadowgrid installed0
-_EC2ALLOC_AWS_AMI = "ami-011bcf1924ffcf0ca"
+_EC2ALLOC_AWS_AMI = "ami-0e5247221cd9c7ce7"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",
@@ -135,41 +123,6 @@ def _iam_role_exists(iam_client: Any, role_name: str) -> bool:
             return False
 
         raise
-
-
-def _ensure_meadowgrid_coordinator_iam_role(region_name: str) -> None:
-    """
-    Creates the meadowgrid coordinator IAM role if it doesn't exist, give it permissions
-    to create EC2 instances and get prices
-
-    TODO does not try to update the role if/when we change the policies below
-    """
-
-    iam = boto3.client("iam", region_name=region_name)
-    if not _iam_role_exists(iam, _MEADOWGRID_COORDINATOR_ROLE):
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.ServiceResource.create_role
-        # TODO look into MaxSessionDuration parameter, roles potentially expiring?
-        iam.create_role(
-            RoleName=_MEADOWGRID_COORDINATOR_ROLE,
-            # allow EC2 instances to assume this role
-            AssumeRolePolicyDocument=_EC2_ASSUME_ROLE_POLICY_DOCUMENT,
-            Description="Enables the meadowgrid coordinator to create EC2 instances and"
-            " get prices",
-        )
-
-        # enable the coordinator to create instances
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.attach_role_policy
-        iam.attach_role_policy(
-            RoleName=_MEADOWGRID_COORDINATOR_ROLE,
-            # TODO should create a policy that only allows what we actually need
-            PolicyArn="arn:aws:iam::aws:policy/AmazonEC2FullAccess",
-        )
-
-        # enable the coordinator to get prices
-        iam.attach_role_policy(
-            RoleName=_MEADOWGRID_COORDINATOR_ROLE,
-            PolicyArn="arn:aws:iam::aws:policy/AWSPriceListServiceFullAccess",
-        )
 
 
 def _get_ec2_security_group(ec2_resource: Any, name: str) -> Any:
@@ -521,230 +474,6 @@ async def launch_ec2_instances(
         for public_dns_name, host_metadata in zip(public_dns_names, host_metadatas)
     ]
 
-
-async def _ensure_meadowgrid_security_groups() -> str:
-    """
-    Creates the meadowgrid coordinator security group and meadowgrid agent security
-    group if they doesn't exist. The coordinator security group allows meadowgrid agents
-    and the current ip to access the coordinator, as well as allowing the current ip to
-    ssh. See also _ensure_meadowgrid_agent_security_group.
-    """
-
-    current_ip_for_ssh = await _get_current_ip_for_ssh()
-
-    # allow meadowgrid traffic from the meadowgrid agent security group
-    agent_security_group_id = ensure_security_group(
-        _MEADOWGRID_AGENT_SECURITY_GROUP, [(22, 22, f"{current_ip_for_ssh}/32")], []
-    )
-
-    return ensure_security_group(
-        _MEADOWGRID_COORDINATOR_SECURITY_GROUP,
-        [
-            (22, 22, f"{current_ip_for_ssh}/32"),
-            (
-                DEFAULT_COORDINATOR_PORT,
-                DEFAULT_COORDINATOR_PORT,
-                f"{current_ip_for_ssh}/32",
-            ),
-        ],
-        [(DEFAULT_COORDINATOR_PORT, DEFAULT_COORDINATOR_PORT, agent_security_group_id)],
-    )
-
-
-async def launch_meadowgrid_coordinator(region_name: Optional[str] = None) -> str:
-    """
-    Launches a meadowgrid coordinator in AWS. Returns the address of the coordinator,
-    e.g. 1.1.1.1:15319
-
-    TODO the coordinator will never get shutdown automatically. Also, there should be a
-    way to share coordinators.
-    """
-    if region_name is None:
-        region_name = await _get_default_region_name()
-
-    _ensure_meadowgrid_coordinator_iam_role(region_name)
-    security_group_id = await _ensure_meadowgrid_security_groups()
-
-    # Create the coordinator instance
-    # TODO we've just hardcoded the instance type for the coordinator for now
-    coordinator_ip = await launch_ec2_instance(
-        region_name,
-        "t2.micro",
-        "on_demand",
-        _COORDINATOR_AWS_AMI,
-        [security_group_id],
-        _MEADOWGRID_COORDINATOR_ROLE,
-    )
-    assert coordinator_ip is not None
-
-    # now wait until check() returns True
-    coordinator_address = f"{coordinator_ip}:{DEFAULT_COORDINATOR_PORT}"
-
-    async with MeadowGridCoordinatorClientAsync(coordinator_address) as client:
-        # TODO add a (configurable) timeout
-        while True:
-            await asyncio.sleep(0.2)
-            try:
-                if await client.check():
-                    break
-            except Exception:
-                # TODO there are probably some exceptions we shouldn't ignore
-                pass
-
-    return coordinator_ip
-
-
-class AwsAgentCreator(AgentCreator):
-    """
-    Allows the coordinator to create agents in AWS. This only works if the coordinator
-    is also running in EC2 with the right IAM role and security group ( see
-    launch_meadowgrid_coordinator).
-    """
-
-    def __init__(self, region_name: Optional[str]) -> None:
-        """
-        Creates instances in the specified region. If no region is specified, we'll use
-        _get_default_region_name.
-        """
-        self._awaited = False
-        self._region_name = region_name
-
-    async def __aenter__(self) -> AwsAgentCreator:
-        if self._awaited:
-            return self
-
-        if self._region_name is None:
-            self._region_name = await _get_default_region_name()
-
-        # describes the available instance types in EC2 including their costs. See
-        # agent_creator:choose_instance_types_for_job for the columns this dataframe has
-        self._ec2_instance_types: Optional[pd.DataFrame] = None
-        # a permanently running task that periodically gets EC2 instance type data. The
-        # things that will change are the prices and interruption probabilities.
-        self._update_ec2_instance_types_task = asyncio.create_task(
-            self._update_ec2_instance_types()
-        )
-        # An event that tells us when we've gotten at least one download of the EC2
-        # instance types. Warning, if there's an issue getting the instance types data,
-        # this event will just never trigger.
-        self._first_update_of_ec2_instance_types = asyncio.Event()
-
-        # get an address that agents we create can use to talk to us (the coordinator)
-        private_ip = await _get_ec2_metadata("local-ipv4")
-        if private_ip is None:
-            raise ValueError(
-                "The AwsAgentCreator can only be used from an EC2 instance."
-            )
-        # TODO add support for running outside of EC2. Usually requires non-trivial
-        # network setup by the user.
-        self._coordinator_host_for_agents = private_ip
-
-        self._awaited = True
-        return self
-
-    async def _update_ec2_instance_types(self) -> None:
-        """Refresh EC2 instance types data (i.e. prices) in a loop"""
-        assert self._region_name is not None  # just for mypy
-
-        first = True
-        while True:
-            try:
-                self._ec2_instance_types = await _get_ec2_instance_types(
-                    self._region_name
-                )
-            except Exception:
-                # TODO this should probably be more prominent somehow
-                print("Error trying to get EC2 prices")
-                traceback.print_exc()
-            finally:
-                if first:
-                    self._first_update_of_ec2_instance_types.set()
-                    first = False
-
-            await asyncio.sleep(EC2_PRICES_UPDATE_SECS)
-
-    async def get_instance_types(self) -> Optional[pd.DataFrame]:
-        # if we haven't gotten anything in 5 minutes, something is probably wrong, and
-        # we should give up on being able to create agents
-        await asyncio.wait_for(self._first_update_of_ec2_instance_types.wait(), 60 * 5)
-        return self._ec2_instance_types
-
-    async def launch_job_specific_agent(
-        self,
-        agent_id: str,
-        job_id: str,
-        instance_type: str,
-        on_demand_or_spot: OnDemandOrSpotType,
-    ) -> None:
-        assert self._region_name is not None  # just for mypy
-
-        await _launch_job_specific_agent(
-            agent_id,
-            job_id,
-            instance_type,
-            self._coordinator_host_for_agents,
-            on_demand_or_spot,
-            self._region_name,
-        )
-
-    async def __aexit__(
-        self,
-        exc_type: Optional[Type[BaseException]],
-        exc_value: Optional[BaseException],
-        tb: Optional[TracebackType],
-    ) -> None:
-        await self.close()
-
-    def __await__(self) -> Generator[Any, None, AwsAgentCreator]:
-        return self.__aenter__().__await__()
-
-    async def close(self) -> None:
-        # cancel and wait until the loop exits.
-        # If we don't wait we get "Task was destroyed but it is pending" warnings.
-        self._update_ec2_instance_types_task.cancel()
-        try:
-            await self._update_ec2_instance_types_task
-        except asyncio.exceptions.CancelledError:
-            pass
-
-
-async def _launch_job_specific_agent(
-    agent_id: str,
-    job_id: str,
-    instance_type: str,
-    coordinator_host: str,
-    on_demand_or_spot: OnDemandOrSpotType,
-    region_name: str,
-) -> None:
-    ec2_resource = boto3.resource("ec2", region_name=region_name)
-
-    security_group = _get_ec2_security_group(
-        ec2_resource, _MEADOWGRID_AGENT_SECURITY_GROUP
-    )
-    if security_group is None:
-        raise ValueError(
-            f"{_MEADOWGRID_AGENT_SECURITY_GROUP} doesn't exist, this should have been "
-            "created along with the coordinator security group"
-        )
-
-    # this file will get picked up by the systemd definition as an EnvironmentFile and
-    # used to populate command line arguments to the agent process (see
-    # build_meadowdata_amis.md)
-    user_data = f"""#!/bin/bash
-echo COORDINATOR_HOST={coordinator_host} > /meadowgrid/agent.conf
-echo AGENT_ID={agent_id} >> /meadowgrid/agent.conf
-echo JOB_ID={job_id} >> /meadowgrid/agent.conf
-"""
-
-    await launch_ec2_instance(
-        region_name,
-        instance_type,
-        on_demand_or_spot,
-        _AGENT_AWS_AMI,
-        [security_group.id],
-        user_data=user_data,
-        wait_for_dns_name=False,
-    )
 
 
 async def _get_ec2_instance_types(region_name: str) -> pd.DataFrame:

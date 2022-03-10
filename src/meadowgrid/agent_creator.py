@@ -1,55 +1,14 @@
 from __future__ import annotations
 
-import abc
 import collections
-from typing import Literal, Optional, Dict
+from typing import Literal, Dict
 
 import numpy as np
 import pandas as pd
 
 import meadowgrid.resource_allocation
 
-AgentCreatorType = Literal["local", "aws", None]
 OnDemandOrSpotType = Literal["on_demand", "spot"]
-
-
-class AgentCreator(abc.ABC):
-    """
-    Implementations of this class are responsible for creating agents for the
-    coordinator. Example implementations are AwsAgentCreator, LocalAgentCreator.
-    """
-
-    @abc.abstractmethod
-    async def get_instance_types(self) -> Optional[pd.DataFrame]:
-        """
-        Gets information about the instance types that this AgentCreator is able to
-        create.
-
-        See choose_instance_types_for_job docstring for the schema of the returned
-        DataFrame
-        """
-        pass
-
-    @abc.abstractmethod
-    async def launch_job_specific_agent(
-        self,
-        agent_id: str,
-        job_id: str,
-        instance_type: str,
-        on_demand_or_spot: OnDemandOrSpotType,
-    ) -> None:
-        """
-        Creates an instance of the specified instance_type with a meadowgrid agent
-        running on it. job_id is passed as a parameter to the agent process.
-        """
-        pass
-
-    @abc.abstractmethod
-    async def close(self) -> None:
-        """Equivalent of __aexit__"""
-        pass
-
-    # TODO we need to have a way to kill agents when we're done with them
 
 
 def choose_instance_types_for_job(

@@ -113,7 +113,7 @@ async def manual_test_allocate_existing_instances():
 
 
 # set this to your private key if needed
-_PRIVATE_KEY_FILENAME = None
+_PRIVATE_KEY_FILENAME = r"C:\Users\hrich\OneDrive\aws-credentials\myfirstkey.pem"
 
 
 async def manual_test_launch_one_instance():

@@ -16,11 +16,11 @@ jobs:
       fail-fast: false # do not cancel all runs in the matrix if one fails.
     defaults:
       run:
-        working-directory: ./meadowdata # this sets the default dir for run steps only.
+        working-directory: ./meadowrun # this sets the default dir for run steps only.
     steps:
     - uses: actions/checkout@v3
       with:
-        path: meadowdata
+        path: meadowrun
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
@@ -33,10 +33,8 @@ jobs:
         poetry install
     - name: Run code generation
       run: |
-        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src --grpc_python_out=src --mypy_grpc_out=src meadowgrid/meadowgrid.proto
-        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src --grpc_python_out=src --mypy_grpc_out=src meadowflow/server/meadowflow.proto
-        poetry run black src/meadowgrid/*pb2*
-        poetry run black src/meadowflow/server/*pb2*
+        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src --grpc_python_out=src --mypy_grpc_out=src meadowrun/meadowrun.proto
+        poetry run black src/meadowrun/*pb2*
     - name: Run Black
       run: |
         poetry run black --check .

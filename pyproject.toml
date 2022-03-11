@@ -3,15 +3,15 @@ name = "meadowrun"
 version = "0.1.0"
 description = "The easiest way to run python code on one or more remote machines"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]
-homepage = "https://github.com/meadowdata/meadowdata"
-repository = "https://github.com/meadowdata/meadowdata"
+homepage = "https://github.com/meadowdata/meadowrun"
+repository = "https://github.com/meadowdata/meadowrun"
 keywords = []
 packages = [
-    { include = "meadowgrid", from = "src" },
+    { include = "meadowrun", from = "src" },
 ]
 
 [tool.poetry.scripts]
-meadowrun = 'meadowgrid.run_one_job_main:command_line_main'
+meadowrun = 'meadowrun.run_one_job_main:command_line_main'
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -67,7 +67,7 @@ allow_redefinition = true
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["meadowgrid.*"]
+module = ["meadowrun.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_untyped_decorators = true

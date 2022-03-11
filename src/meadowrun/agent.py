@@ -75,9 +75,9 @@ def _string_pairs_to_dict(pairs: Iterable[StringPair]) -> Dict[str, str]:
 @dataclasses.dataclass
 class _JobSpecTransformed:
     """
-    To be able to reuse some code, _prepare_py_command, _prepare_py_function, and
-    _prepare_py_grid compile their respective Job.job_specs into a command line that we
-    can run, plus a bit of additional information on how to run the command line.
+    To be able to reuse some code, _prepare_py_command and _prepare_py_function compile
+    their respective Job.job_specs into a command line that we can run, plus a bit of
+    additional information on how to run the command line.
     """
 
     # the command line to run
@@ -274,70 +274,6 @@ def _prepare_py_function(
     )
 
 
-def _prepare_py_grid(
-    job: Job,
-    grid_worker_id: str,
-    io_folder: str,
-    coordinator_address: str,
-    is_container: bool,
-) -> _JobSpecTransformed:
-    """
-    Creates files in io_folder for the child process to use and returns a
-    _JobSpecTransformed. We use grid_worker to get tasks and run them in the child
-    process
-    """
-
-    if not is_container:
-        io_path_container = os.path.join(io_folder, job.job_id)
-    else:
-        io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}"
-        # If the coordinator_address uses localhost, we replace localhost with
-        # host.docker.internal so that things "just work". This is mostly for testing.
-        # See discussion:
-        # https://stackoverflow.com/questions/48546124/what-is-linux-equivalent-of-host-docker-internal/61001152
-        # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
-        if coordinator_address.startswith("localhost"):
-            coordinator_address = (
-                "host.docker.internal" + coordinator_address[len("localhost") :]
-            )
-
-    command_line = [
-        "python",
-        "-m",
-        "meadowrun.grid_worker",
-        "--coordinator-address",
-        coordinator_address,
-        "--job-id",
-        job.job_id,
-        "--grid-worker-id",
-        grid_worker_id,
-        "--io-path",
-        io_path_container,
-    ]
-
-    io_files: List[str] = []
-
-    command_line_for_function, io_files_for_function = _prepare_function(
-        job.job_id, job.py_grid.function, io_folder
-    )
-
-    command_line_for_arguments, io_files_for_arguments = _prepare_function_arguments(
-        job.job_id, job.py_function.pickled_function_arguments, io_folder
-    )
-
-    return _JobSpecTransformed(
-        list(
-            itertools.chain(
-                command_line, command_line_for_function, command_line_for_arguments
-            )
-        ),
-        _io_file_container_binds(
-            io_folder,
-            itertools.chain(io_files, io_files_for_function, io_files_for_arguments),
-        ),
-    )
-
-
 async def _launch_job(
     job: Job,
     grid_worker_id: Optional[str],
@@ -391,14 +327,6 @@ async def _launch_job(
             job_spec_transformed = _prepare_py_command(job, io_folder, is_container)
         elif job_spec_type == "py_function":
             job_spec_transformed = _prepare_py_function(job, io_folder, is_container)
-        elif job_spec_type == "py_grid":
-            if grid_worker_id is None:
-                raise ValueError(
-                    "grid_worker_id cannot be none if job_spec_type is py_grid"
-                )
-            job_spec_transformed = _prepare_py_grid(
-                job, grid_worker_id, io_folder, coordinator_address, is_container
-            )
         else:
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
@@ -516,7 +444,7 @@ async def _launch_job(
 
 
 async def _launch_non_container_job(
-    job_spec_type: Literal["py_command", "py_function", "py_grid"],
+    job_spec_type: Literal["py_command", "py_function"],
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
     log_file_name: str,
@@ -625,7 +553,7 @@ async def _launch_non_container_job(
 
 async def _non_container_job_continuation(
     process: asyncio.subprocess.Process,
-    job_spec_type: Literal["py_command", "py_function", "py_grid"],
+    job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
     grid_worker_id: Optional[str],
     io_folder: str,
@@ -670,7 +598,7 @@ async def _non_container_job_continuation(
 
 
 async def _launch_container_job(
-    job_spec_type: Literal["py_command", "py_function", "py_grid"],
+    job_spec_type: Literal["py_command", "py_function"],
     container_image_name: str,
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
@@ -765,7 +693,7 @@ async def _launch_container_job(
 
 async def _container_job_continuation(
     container: aiodocker.containers.DockerContainer,
-    job_spec_type: Literal["py_command", "py_function", "py_grid"],
+    job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
     grid_worker_id: Optional[str],
     io_folder: str,
@@ -822,7 +750,7 @@ async def _container_job_continuation(
 
 
 def _completed_job_state(
-    job_spec_type: Literal["py_command", "py_function", "py_grid"],
+    job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
     grid_worker_id: Optional[str],
     io_folder: str,
@@ -852,21 +780,6 @@ def _completed_job_state(
         )
 
     # if we returned normally
-
-    # for py_grid, we don't need to get any additional information because task-related
-    # information has already been sent by the grid_worker directly to the coordinator
-    if job_spec_type == "py_grid":
-        return JobStateUpdate(
-            job_id=job_id,
-            grid_worker_id=grid_worker_id or "",
-            process_state=ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pid=pid or 0,
-                container_id=container_id or "",
-                log_file_name=log_file_name,
-                return_code=0,
-            ),
-        )
 
     # for py_funcs, get the state
     if job_spec_type == "py_function":

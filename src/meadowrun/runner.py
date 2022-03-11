@@ -27,7 +27,6 @@ import cloudpickle
 import fabric
 import paramiko.ssh_exception
 
-from meadowrun import ServerAvailableFolder
 from meadowrun.agent import run_one_job
 from meadowrun.aws_integration import _get_default_region_name
 from meadowrun.config import MEADOWRUN_INTERPRETER
@@ -62,6 +61,7 @@ from meadowrun.meadowrun_pb2 import (
     PyCommandJob,
     PyFunctionJob,
     ServerAvailableInterpreter,
+    ServerAvailableFolder,
 )
 from meadowrun.resource_allocation import Resources
 

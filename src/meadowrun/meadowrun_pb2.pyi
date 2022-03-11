@@ -18,22 +18,29 @@ class StringPair(google.protobuf.message.Message):
     VALUE_FIELD_NUMBER: builtins.int
     key: typing.Text
     value: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         key: typing.Text = ...,
         value: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["key",b"key","value",b"value"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["key", b"key", "value", b"value"]
+    ) -> None: ...
+
 global___StringPair = StringPair
 
 class ServerAvailableFolder(google.protobuf.message.Message):
     """Represents a folder (or folders) that contain code that the meadowrun server can
     access directly
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CODE_PATHS_FIELD_NUMBER: builtins.int
     @property
-    def code_paths(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[typing.Text]:
+    def code_paths(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[typing.Text]:
         """code_paths[0] will be set as the working directory, and all code_paths will be
         added to the PYTHONPATH. These code_paths must "make sense" on the machine where
         the meadowrun agent is running. One typical use case for this is that the
@@ -43,15 +50,20 @@ class ServerAvailableFolder(google.protobuf.message.Message):
         interpreter_deployment
         """
         pass
-    def __init__(self,
+    def __init__(
+        self,
         *,
         code_paths: typing.Optional[typing.Iterable[typing.Text]] = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["code_paths",b"code_paths"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["code_paths", b"code_paths"]
+    ) -> None: ...
+
 global___ServerAvailableFolder = ServerAvailableFolder
 
 class GitRepoCommit(google.protobuf.message.Message):
     """Represents a git repo at a specific commit"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPO_URL_FIELD_NUMBER: builtins.int
     COMMIT_FIELD_NUMBER: builtins.int
@@ -71,13 +83,25 @@ class GitRepoCommit(google.protobuf.message.Message):
     the purposes of this deployment
     """
 
-    def __init__(self,
+    def __init__(
+        self,
         *,
         repo_url: typing.Text = ...,
         commit: typing.Text = ...,
         path_in_repo: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["commit",b"commit","path_in_repo",b"path_in_repo","repo_url",b"repo_url"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "commit",
+            b"commit",
+            "path_in_repo",
+            b"path_in_repo",
+            "repo_url",
+            b"repo_url",
+        ],
+    ) -> None: ...
+
 global___GitRepoCommit = GitRepoCommit
 
 class GitRepoBranch(google.protobuf.message.Message):
@@ -87,6 +111,7 @@ class GitRepoBranch(google.protobuf.message.Message):
     the branch that was originally specified. This should only be used when GitRepoBranch
     cannot be resolved to a GitRepoCommit on the client.
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPO_URL_FIELD_NUMBER: builtins.int
     BRANCH_FIELD_NUMBER: builtins.int
@@ -104,13 +129,25 @@ class GitRepoBranch(google.protobuf.message.Message):
     the purposes of this deployment
     """
 
-    def __init__(self,
+    def __init__(
+        self,
         *,
         repo_url: typing.Text = ...,
         branch: typing.Text = ...,
         path_in_repo: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["branch",b"branch","path_in_repo",b"path_in_repo","repo_url",b"repo_url"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "branch",
+            b"branch",
+            "path_in_repo",
+            b"path_in_repo",
+            "repo_url",
+            b"repo_url",
+        ],
+    ) -> None: ...
+
 global___GitRepoBranch = GitRepoBranch
 
 class ServerAvailableInterpreter(google.protobuf.message.Message):
@@ -119,18 +156,25 @@ class ServerAvailableInterpreter(google.protobuf.message.Message):
     that this job should run using the same interpreter that's being used to run
     meadowrun, which is only recommended for testing.
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     INTERPRETER_PATH_FIELD_NUMBER: builtins.int
     interpreter_path: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         interpreter_path: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["interpreter_path",b"interpreter_path"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal["interpreter_path", b"interpreter_path"],
+    ) -> None: ...
+
 global___ServerAvailableInterpreter = ServerAvailableInterpreter
 
 class ContainerAtDigest(google.protobuf.message.Message):
     """Represents a specific version (aka digest) of a container"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPOSITORY_FIELD_NUMBER: builtins.int
     DIGEST_FIELD_NUMBER: builtins.int
@@ -140,12 +184,19 @@ class ContainerAtDigest(google.protobuf.message.Message):
     """
 
     digest: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         repository: typing.Text = ...,
         digest: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["digest",b"digest","repository",b"repository"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "digest", b"digest", "repository", b"repository"
+        ],
+    ) -> None: ...
+
 global___ContainerAtDigest = ContainerAtDigest
 
 class ContainerAtTag(google.protobuf.message.Message):
@@ -155,6 +206,7 @@ class ContainerAtTag(google.protobuf.message.Message):
     tag that was originally specified. This should only be used when ContainerAtTag
     cannot be resolved to a ContainerAtDigest on the client.
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPOSITORY_FIELD_NUMBER: builtins.int
     TAG_FIELD_NUMBER: builtins.int
@@ -164,12 +216,19 @@ class ContainerAtTag(google.protobuf.message.Message):
     """
 
     tag: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         repository: typing.Text = ...,
         tag: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["repository",b"repository","tag",b"tag"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "repository", b"repository", "tag", b"tag"
+        ],
+    ) -> None: ...
+
 global___ContainerAtTag = ContainerAtTag
 
 class ServerAvailableContainer(google.protobuf.message.Message):
@@ -177,14 +236,19 @@ class ServerAvailableContainer(google.protobuf.message.Message):
     meadowrun server. Helpful for testing with locally built images that haven't been
     uploaded to a repository and don't have a digest
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     IMAGE_NAME_FIELD_NUMBER: builtins.int
     image_name: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         image_name: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["image_name",b"image_name"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["image_name", b"image_name"]
+    ) -> None: ...
+
 global___ServerAvailableContainer = ServerAvailableContainer
 
 class PyCommandJob(google.protobuf.message.Message):
@@ -192,14 +256,28 @@ class PyCommandJob(google.protobuf.message.Message):
     COMMAND_LINE_FIELD_NUMBER: builtins.int
     PICKLED_CONTEXT_VARIABLES_FIELD_NUMBER: builtins.int
     @property
-    def command_line(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[typing.Text]: ...
+    def command_line(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
+        typing.Text
+    ]: ...
     pickled_context_variables: builtins.bytes
-    def __init__(self,
+    def __init__(
+        self,
         *,
         command_line: typing.Optional[typing.Iterable[typing.Text]] = ...,
         pickled_context_variables: builtins.bytes = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["command_line",b"command_line","pickled_context_variables",b"pickled_context_variables"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "command_line",
+            b"command_line",
+            "pickled_context_variables",
+            b"pickled_context_variables",
+        ],
+    ) -> None: ...
+
 global___PyCommandJob = PyCommandJob
 
 class QualifiedFunctionName(google.protobuf.message.Message):
@@ -208,12 +286,19 @@ class QualifiedFunctionName(google.protobuf.message.Message):
     FUNCTION_NAME_FIELD_NUMBER: builtins.int
     module_name: typing.Text
     function_name: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         module_name: typing.Text = ...,
         function_name: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["function_name",b"function_name","module_name",b"module_name"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "function_name", b"function_name", "module_name", b"module_name"
+        ],
+    ) -> None: ...
+
 global___QualifiedFunctionName = QualifiedFunctionName
 
 class PyFunctionJob(google.protobuf.message.Message):
@@ -225,15 +310,43 @@ class PyFunctionJob(google.protobuf.message.Message):
     def qualified_function_name(self) -> global___QualifiedFunctionName: ...
     pickled_function: builtins.bytes
     pickled_function_arguments: builtins.bytes
-    def __init__(self,
+    def __init__(
+        self,
         *,
         qualified_function_name: typing.Optional[global___QualifiedFunctionName] = ...,
         pickled_function: builtins.bytes = ...,
         pickled_function_arguments: builtins.bytes = ...,
-        ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["function_spec",b"function_spec","pickled_function",b"pickled_function","qualified_function_name",b"qualified_function_name"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["function_spec",b"function_spec","pickled_function",b"pickled_function","pickled_function_arguments",b"pickled_function_arguments","qualified_function_name",b"qualified_function_name"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["function_spec",b"function_spec"]) -> typing.Optional[typing_extensions.Literal["qualified_function_name","pickled_function"]]: ...
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "function_spec",
+            b"function_spec",
+            "pickled_function",
+            b"pickled_function",
+            "qualified_function_name",
+            b"qualified_function_name",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "function_spec",
+            b"function_spec",
+            "pickled_function",
+            b"pickled_function",
+            "pickled_function_arguments",
+            b"pickled_function_arguments",
+            "qualified_function_name",
+            b"qualified_function_name",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing_extensions.Literal["function_spec", b"function_spec"]
+    ) -> typing.Optional[
+        typing_extensions.Literal["qualified_function_name", "pickled_function"]
+    ]: ...
+
 global___PyFunctionJob = PyFunctionJob
 
 class GridTask(google.protobuf.message.Message):
@@ -242,29 +355,44 @@ class GridTask(google.protobuf.message.Message):
     PICKLED_FUNCTION_ARGUMENTS_FIELD_NUMBER: builtins.int
     task_id: builtins.int
     pickled_function_arguments: builtins.bytes
-    def __init__(self,
+    def __init__(
+        self,
         *,
         task_id: builtins.int = ...,
         pickled_function_arguments: builtins.bytes = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["pickled_function_arguments",b"pickled_function_arguments","task_id",b"task_id"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "pickled_function_arguments",
+            b"pickled_function_arguments",
+            "task_id",
+            b"task_id",
+        ],
+    ) -> None: ...
+
 global___GridTask = GridTask
 
 class Resource(google.protobuf.message.Message):
     """Agents have resources, and jobs can use resources. Examples of resources are CPU and
     memory
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     NAME_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int
     name: typing.Text
     value: builtins.float
-    def __init__(self,
+    def __init__(
+        self,
         *,
         name: typing.Text = ...,
         value: builtins.float = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["name",b"name","value",b"value"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["name", b"name", "value", b"value"]
+    ) -> None: ...
+
 global___Resource = Resource
 
 class Job(google.protobuf.message.Message):
@@ -311,7 +439,11 @@ class Job(google.protobuf.message.Message):
     @property
     def server_available_container(self) -> global___ServerAvailableContainer: ...
     @property
-    def environment_variables(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___StringPair]: ...
+    def environment_variables(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___StringPair
+    ]: ...
     result_highest_pickle_protocol: builtins.int
     """result_highest_pickle_protocol tells the remote code what the highest pickle
     protocol we can read on this end is which will help it determine what pickle
@@ -323,57 +455,174 @@ class Job(google.protobuf.message.Message):
     def py_command(self) -> global___PyCommandJob: ...
     @property
     def py_function(self) -> global___PyFunctionJob: ...
-    def __init__(self,
+    def __init__(
+        self,
         *,
         job_id: typing.Text = ...,
         job_friendly_name: typing.Text = ...,
         server_available_folder: typing.Optional[global___ServerAvailableFolder] = ...,
         git_repo_commit: typing.Optional[global___GitRepoCommit] = ...,
         git_repo_branch: typing.Optional[global___GitRepoBranch] = ...,
-        server_available_interpreter: typing.Optional[global___ServerAvailableInterpreter] = ...,
+        server_available_interpreter: typing.Optional[
+            global___ServerAvailableInterpreter
+        ] = ...,
         container_at_digest: typing.Optional[global___ContainerAtDigest] = ...,
         container_at_tag: typing.Optional[global___ContainerAtTag] = ...,
-        server_available_container: typing.Optional[global___ServerAvailableContainer] = ...,
-        environment_variables: typing.Optional[typing.Iterable[global___StringPair]] = ...,
+        server_available_container: typing.Optional[
+            global___ServerAvailableContainer
+        ] = ...,
+        environment_variables: typing.Optional[
+            typing.Iterable[global___StringPair]
+        ] = ...,
         result_highest_pickle_protocol: builtins.int = ...,
         py_command: typing.Optional[global___PyCommandJob] = ...,
         py_function: typing.Optional[global___PyFunctionJob] = ...,
-        ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["code_deployment",b"code_deployment","container_at_digest",b"container_at_digest","container_at_tag",b"container_at_tag","git_repo_branch",b"git_repo_branch","git_repo_commit",b"git_repo_commit","interpreter_deployment",b"interpreter_deployment","job_spec",b"job_spec","py_command",b"py_command","py_function",b"py_function","server_available_container",b"server_available_container","server_available_folder",b"server_available_folder","server_available_interpreter",b"server_available_interpreter"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["code_deployment",b"code_deployment","container_at_digest",b"container_at_digest","container_at_tag",b"container_at_tag","environment_variables",b"environment_variables","git_repo_branch",b"git_repo_branch","git_repo_commit",b"git_repo_commit","interpreter_deployment",b"interpreter_deployment","job_friendly_name",b"job_friendly_name","job_id",b"job_id","job_spec",b"job_spec","py_command",b"py_command","py_function",b"py_function","result_highest_pickle_protocol",b"result_highest_pickle_protocol","server_available_container",b"server_available_container","server_available_folder",b"server_available_folder","server_available_interpreter",b"server_available_interpreter"]) -> None: ...
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "code_deployment",
+            b"code_deployment",
+            "container_at_digest",
+            b"container_at_digest",
+            "container_at_tag",
+            b"container_at_tag",
+            "git_repo_branch",
+            b"git_repo_branch",
+            "git_repo_commit",
+            b"git_repo_commit",
+            "interpreter_deployment",
+            b"interpreter_deployment",
+            "job_spec",
+            b"job_spec",
+            "py_command",
+            b"py_command",
+            "py_function",
+            b"py_function",
+            "server_available_container",
+            b"server_available_container",
+            "server_available_folder",
+            b"server_available_folder",
+            "server_available_interpreter",
+            b"server_available_interpreter",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "code_deployment",
+            b"code_deployment",
+            "container_at_digest",
+            b"container_at_digest",
+            "container_at_tag",
+            b"container_at_tag",
+            "environment_variables",
+            b"environment_variables",
+            "git_repo_branch",
+            b"git_repo_branch",
+            "git_repo_commit",
+            b"git_repo_commit",
+            "interpreter_deployment",
+            b"interpreter_deployment",
+            "job_friendly_name",
+            b"job_friendly_name",
+            "job_id",
+            b"job_id",
+            "job_spec",
+            b"job_spec",
+            "py_command",
+            b"py_command",
+            "py_function",
+            b"py_function",
+            "result_highest_pickle_protocol",
+            b"result_highest_pickle_protocol",
+            "server_available_container",
+            b"server_available_container",
+            "server_available_folder",
+            b"server_available_folder",
+            "server_available_interpreter",
+            b"server_available_interpreter",
+        ],
+    ) -> None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["code_deployment",b"code_deployment"]) -> typing.Optional[typing_extensions.Literal["server_available_folder","git_repo_commit","git_repo_branch"]]: ...
+    def WhichOneof(
+        self,
+        oneof_group: typing_extensions.Literal["code_deployment", b"code_deployment"],
+    ) -> typing.Optional[
+        typing_extensions.Literal[
+            "server_available_folder", "git_repo_commit", "git_repo_branch"
+        ]
+    ]: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["interpreter_deployment",b"interpreter_deployment"]) -> typing.Optional[typing_extensions.Literal["server_available_interpreter","container_at_digest","container_at_tag","server_available_container"]]: ...
+    def WhichOneof(
+        self,
+        oneof_group: typing_extensions.Literal[
+            "interpreter_deployment", b"interpreter_deployment"
+        ],
+    ) -> typing.Optional[
+        typing_extensions.Literal[
+            "server_available_interpreter",
+            "container_at_digest",
+            "container_at_tag",
+            "server_available_container",
+        ]
+    ]: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["job_spec",b"job_spec"]) -> typing.Optional[typing_extensions.Literal["py_command","py_function"]]: ...
+    def WhichOneof(
+        self, oneof_group: typing_extensions.Literal["job_spec", b"job_spec"]
+    ) -> typing.Optional[typing_extensions.Literal["py_command", "py_function"]]: ...
+
 global___Job = Job
 
 class JobToRun2(google.protobuf.message.Message):
     """TODO delete JobToRun and coordinator-based meadowrun and rename this to JobToRun"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_FIELD_NUMBER: builtins.int
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
     @property
     def job(self) -> global___Job: ...
     @property
-    def credentials_sources(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___AddCredentialsRequest]: ...
-    def __init__(self,
+    def credentials_sources(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___AddCredentialsRequest
+    ]: ...
+    def __init__(
+        self,
         *,
         job: typing.Optional[global___Job] = ...,
-        credentials_sources: typing.Optional[typing.Iterable[global___AddCredentialsRequest]] = ...,
-        ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["job",b"job"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["credentials_sources",b"credentials_sources","job",b"job"]) -> None: ...
+        credentials_sources: typing.Optional[
+            typing.Iterable[global___AddCredentialsRequest]
+        ] = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["job", b"job"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "credentials_sources", b"credentials_sources", "job", b"job"
+        ],
+    ) -> None: ...
+
 global___JobToRun2 = JobToRun2
 
 class ProcessState(google.protobuf.message.Message):
     """Represents the state of a process, can apply to a job or a grid task"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
     class _ProcessStateEnum:
-        ValueType = typing.NewType('ValueType', builtins.int)
+        ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
-    class _ProcessStateEnumEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[ProcessState._ProcessStateEnum.ValueType], builtins.type):
+
+    class _ProcessStateEnumEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            ProcessState._ProcessStateEnum.ValueType
+        ],
+        builtins.type,
+    ):
         DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
         DEFAULT: ProcessState._ProcessStateEnum.ValueType  # 0
         """Reserved, not used"""
@@ -437,9 +686,10 @@ class ProcessState(google.protobuf.message.Message):
         We do not know the job id
         """
 
-    class ProcessStateEnum(_ProcessStateEnum, metaclass=_ProcessStateEnumEnumTypeWrapper):
+    class ProcessStateEnum(
+        _ProcessStateEnum, metaclass=_ProcessStateEnumEnumTypeWrapper
+    ):
         pass
-
     DEFAULT: ProcessState.ProcessStateEnum.ValueType  # 0
     """Reserved, not used"""
 
@@ -502,7 +752,6 @@ class ProcessState(google.protobuf.message.Message):
     We do not know the job id
     """
 
-
     STATE_FIELD_NUMBER: builtins.int
     PID_FIELD_NUMBER: builtins.int
     CONTAINER_ID_FIELD_NUMBER: builtins.int
@@ -515,7 +764,8 @@ class ProcessState(google.protobuf.message.Message):
     log_file_name: typing.Text
     pickled_result: builtins.bytes
     return_code: builtins.int
-    def __init__(self,
+    def __init__(
+        self,
         *,
         state: global___ProcessState.ProcessStateEnum.ValueType = ...,
         pid: builtins.int = ...,
@@ -523,12 +773,30 @@ class ProcessState(google.protobuf.message.Message):
         log_file_name: typing.Text = ...,
         pickled_result: builtins.bytes = ...,
         return_code: builtins.int = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["container_id",b"container_id","log_file_name",b"log_file_name","pickled_result",b"pickled_result","pid",b"pid","return_code",b"return_code","state",b"state"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "container_id",
+            b"container_id",
+            "log_file_name",
+            b"log_file_name",
+            "pickled_result",
+            b"pickled_result",
+            "pid",
+            b"pid",
+            "return_code",
+            b"return_code",
+            "state",
+            b"state",
+        ],
+    ) -> None: ...
+
 global___ProcessState = ProcessState
 
 class JobStateUpdate(google.protobuf.message.Message):
     """For updating the state of a job"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
     GRID_WORKER_ID_FIELD_NUMBER: builtins.int
@@ -539,48 +807,84 @@ class JobStateUpdate(google.protobuf.message.Message):
 
     @property
     def process_state(self) -> global___ProcessState: ...
-    def __init__(self,
+    def __init__(
+        self,
         *,
         job_id: typing.Text = ...,
         grid_worker_id: typing.Text = ...,
         process_state: typing.Optional[global___ProcessState] = ...,
-        ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["process_state",b"process_state"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["grid_worker_id",b"grid_worker_id","job_id",b"job_id","process_state",b"process_state"]) -> None: ...
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["process_state", b"process_state"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "grid_worker_id",
+            b"grid_worker_id",
+            "job_id",
+            b"job_id",
+            "process_state",
+            b"process_state",
+        ],
+    ) -> None: ...
+
 global___JobStateUpdate = JobStateUpdate
 
 class GridTaskStateResponse(google.protobuf.message.Message):
     """For getting the state of a grid task"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TASK_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
     task_id: builtins.int
     @property
     def process_state(self) -> global___ProcessState: ...
-    def __init__(self,
+    def __init__(
+        self,
         *,
         task_id: builtins.int = ...,
         process_state: typing.Optional[global___ProcessState] = ...,
-        ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["process_state",b"process_state"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["process_state",b"process_state","task_id",b"task_id"]) -> None: ...
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["process_state", b"process_state"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "process_state", b"process_state", "task_id", b"task_id"
+        ],
+    ) -> None: ...
+
 global___GridTaskStateResponse = GridTaskStateResponse
 
 class GridTaskStatesResponse(google.protobuf.message.Message):
     """For getting the states of grid tasks"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TASK_STATES_FIELD_NUMBER: builtins.int
     @property
-    def task_states(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___GridTaskStateResponse]: ...
-    def __init__(self,
+    def task_states(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___GridTaskStateResponse
+    ]: ...
+    def __init__(
+        self,
         *,
-        task_states: typing.Optional[typing.Iterable[global___GridTaskStateResponse]] = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["task_states",b"task_states"]) -> None: ...
+        task_states: typing.Optional[
+            typing.Iterable[global___GridTaskStateResponse]
+        ] = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["task_states", b"task_states"]
+    ) -> None: ...
+
 global___GridTaskStatesResponse = GridTaskStatesResponse
 
 class AddCredentialsRequest(google.protobuf.message.Message):
     """This represents a credentials source (see credentials.py)"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     SERVICE_FIELD_NUMBER: builtins.int
     SERVICE_URL_FIELD_NUMBER: builtins.int
@@ -594,58 +898,106 @@ class AddCredentialsRequest(google.protobuf.message.Message):
     def server_available_file(self) -> global___ServerAvailableFile:
         """TODO add e.g. Azure secrets, Hashicorp Vault"""
         pass
-    def __init__(self,
+    def __init__(
+        self,
         *,
         service: global___Credentials.Service.ValueType = ...,
         service_url: typing.Text = ...,
         aws_secret: typing.Optional[global___AwsSecret] = ...,
         server_available_file: typing.Optional[global___ServerAvailableFile] = ...,
-        ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["aws_secret",b"aws_secret","server_available_file",b"server_available_file","source",b"source"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["aws_secret",b"aws_secret","server_available_file",b"server_available_file","service",b"service","service_url",b"service_url","source",b"source"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["source",b"source"]) -> typing.Optional[typing_extensions.Literal["aws_secret","server_available_file"]]: ...
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "aws_secret",
+            b"aws_secret",
+            "server_available_file",
+            b"server_available_file",
+            "source",
+            b"source",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "aws_secret",
+            b"aws_secret",
+            "server_available_file",
+            b"server_available_file",
+            "service",
+            b"service",
+            "service_url",
+            b"service_url",
+            "source",
+            b"source",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing_extensions.Literal["source", b"source"]
+    ) -> typing.Optional[
+        typing_extensions.Literal["aws_secret", "server_available_file"]
+    ]: ...
+
 global___AddCredentialsRequest = AddCredentialsRequest
 
 class Credentials(google.protobuf.message.Message):
     """Represents actual credentials"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
     class _Service:
-        ValueType = typing.NewType('ValueType', builtins.int)
+        ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
-    class _ServiceEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[Credentials._Service.ValueType], builtins.type):
+
+    class _ServiceEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            Credentials._Service.ValueType
+        ],
+        builtins.type,
+    ):
         DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
         DEFAULT_SERVICE: Credentials._Service.ValueType  # 0
         DOCKER: Credentials._Service.ValueType  # 1
         GIT: Credentials._Service.ValueType  # 2
+
     class Service(_Service, metaclass=_ServiceEnumTypeWrapper):
         pass
-
     DEFAULT_SERVICE: Credentials.Service.ValueType  # 0
     DOCKER: Credentials.Service.ValueType  # 1
     GIT: Credentials.Service.ValueType  # 2
 
     class _Type:
-        ValueType = typing.NewType('ValueType', builtins.int)
+        ValueType = typing.NewType("ValueType", builtins.int)
         V: typing_extensions.TypeAlias = ValueType
-    class _TypeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[Credentials._Type.ValueType], builtins.type):
+
+    class _TypeEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            Credentials._Type.ValueType
+        ],
+        builtins.type,
+    ):
         DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
         DEFAULT_TYPE: Credentials._Type.ValueType  # 0
         USERNAME_PASSWORD: Credentials._Type.ValueType  # 1
         SSH_KEY: Credentials._Type.ValueType  # 2
+
     class Type(_Type, metaclass=_TypeEnumTypeWrapper):
         pass
-
     DEFAULT_TYPE: Credentials.Type.ValueType  # 0
     USERNAME_PASSWORD: Credentials.Type.ValueType  # 1
     SSH_KEY: Credentials.Type.ValueType  # 2
 
     CREDENTIALS_FIELD_NUMBER: builtins.int
     credentials: builtins.bytes
-    def __init__(self,
+    def __init__(
+        self,
         *,
         credentials: builtins.bytes = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["credentials",b"credentials"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["credentials", b"credentials"]
+    ) -> None: ...
+
 global___Credentials = Credentials
 
 class AwsSecret(google.protobuf.message.Message):
@@ -656,17 +1008,25 @@ class AwsSecret(google.protobuf.message.Message):
     - For credentials_type = SSH_KEY: Expected key is "private_key", which should contain
       the contents of the SSH private key file
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
     SECRET_NAME_FIELD_NUMBER: builtins.int
     credentials_type: global___Credentials.Type.ValueType
     secret_name: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         credentials_type: global___Credentials.Type.ValueType = ...,
         secret_name: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["credentials_type",b"credentials_type","secret_name",b"secret_name"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "credentials_type", b"credentials_type", "secret_name", b"secret_name"
+        ],
+    ) -> None: ...
+
 global___AwsSecret = AwsSecret
 
 class ServerAvailableFile(google.protobuf.message.Message):
@@ -675,15 +1035,23 @@ class ServerAvailableFile(google.protobuf.message.Message):
       line and password on the second line. Final newline character is optional
     - For credentials_type = SSH_KEY: The file should be an SSH private key file
     """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
     PATH_FIELD_NUMBER: builtins.int
     credentials_type: global___Credentials.Type.ValueType
     path: typing.Text
-    def __init__(self,
+    def __init__(
+        self,
         *,
         credentials_type: global___Credentials.Type.ValueType = ...,
         path: typing.Text = ...,
-        ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["credentials_type",b"credentials_type","path",b"path"]) -> None: ...
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "credentials_type", b"credentials_type", "path", b"path"
+        ],
+    ) -> None: ...
+
 global___ServerAvailableFile = ServerAvailableFile

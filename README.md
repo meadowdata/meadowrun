@@ -1,31 +1,35 @@
-# MeadowData
+# Meadowrun 
 
-MeadowData is a set of libraries and services that provides an integrated environment
-for data scientists and data engineers:
+Meadowrun makes developing, experimenting, and deploying your python code on the cloud
+as easy and frictionless as working locally.
 
-- meadowdb: A columnar database designed to make experimentation effortless
-- meadowflow: A job scheduler that automatically manages your data dependencies
-- meadowgrid: A cluster manager specifically designed to allocate resources batch jobs
-  and distributed compute jobs that run your code in parallel
+```python
+from meadowrun import run_function, EC2AllocHost
+await run_function(
+    lambda: analyze_stuff(a_big_file),
+    EC2AllocHost(
+        logical_cpu_required=4,
+        memory_gb_required=32,
+        interruption_probability_threshold=15))
+```
 
-## Why MeadowData
+`run_function` will launch the cheapest EC2 instance type that has at least 4 CPU and
+32GB of memory, and a <15% chance of being interrupted (you can set this to 0 to exclude
+spot instances and only use on-demand instances).
 
-meadowflow and meadowdb work together to capture what data is read and written by which
-jobs. This effect system of sorts enables powerful scenarios. For example:
+Then, Meadowrun will package up your current libraries and code (not fully implemented),
+copy them onto the newly launched instance, and run your function.
 
-- A job can be scheduled to automatically run whenever its dependencies are updated. In
-  a traditional job scheduler, the job definition's dependencies and the actual code's
-  data dependencies can get out of sync, which can result in jobs running before their
-  dependencies are ready, reading stale data, and thus producing incorrect results.
-- Running a regression test on a job or reviewing it for model changes is almost no
-  extra work. meadowflow/meadowdb can run a test run of a job with local code changes
-  while redirecting all of its outputs to a userspace for comparison.
+Meadowrun will also fully manage the EC2 instances it creates, reusing them for
+subsequent jobs and terminating them after a configurable idle timeout.
 
-## Getting started
-- See [examples/meadowgrid.md](examples/meadowgrid.md) for an introduction to meadowgrid.
-- See [examples/covid](examples/covid/README.md) for an introduction to meadowdb and
-  meadowflow.
-- See [examples/covid/regression_test.md](examples/covid/regression_test.md) for a
-  deeper dive on regression tests/model change reviews.
-- See [readerwriter_shared.py](src/meadowdb/readerwriter_shared.py) for an introduction
-  to the meadowdb data layout.
+Meadowrun also provides a distributed `map`:
+
+```python
+from meadowrun import run_map, EC2AllocHosts
+await run_map(
+    lambda file_name: analyze_stuff(file_name),
+    [file1, file2, ...],
+    EC2AllocHosts(4, 32, 15)
+)
+```

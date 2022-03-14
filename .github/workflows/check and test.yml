@@ -53,9 +53,3 @@ jobs:
     - name: Checkout test repo/test_branch
       run: |
         git -C ../test_repo checkout test_branch
-    - name: Run Pytest
-      env:
-        PYTHONDEVMODE: 1 # see https://docs.python.org/3/library/devmode.html#devmode
-        GRPC_VERBOSITY: debug
-      run: |
-        poetry run pytest tests/test_meadowdb tests/test_meadowflow

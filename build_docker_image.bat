@@ -1,4 +1,4 @@
-REM see docker_images/meadowdata/Dockerfile
+REM see docker_images/meadowrun/Dockerfile
 
 CALL poetry build
-docker build -t meadowdata:latest -f docker_images\meadowdata\Dockerfile dist
+docker build -t meadowrun:latest -f docker_images\meadowrun\Dockerfile dist

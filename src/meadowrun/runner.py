@@ -14,6 +14,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generic,
     List,
     Optional,
     Sequence,
@@ -145,15 +146,33 @@ def _add_defaults_to_deployment(
     )
 
 
+@dataclasses.dataclass
+class JobCompletion(Generic[_T]):
+    """Information about how a job completed"""
+
+    # TODO both JobCompletion and MeadowrunException should be revisited
+
+    result: _T
+    process_state: ProcessState._ProcessStateEnum.ValueType
+    log_file_name: str
+    return_code: int
+
+
+class MeadowrunException(Exception):
+    def __init__(self, process_state: ProcessState) -> None:
+        super().__init__("Failure while running a meadowrun job: " + str(process_state))
+        self.process_state = process_state
+
+
 class Host(abc.ABC):
     @abc.abstractmethod
-    async def run_job(self, job_to_run: JobToRun2) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
         pass
 
 
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
-    async def run_job(self, job_to_run: JobToRun2) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
         initial_update, continuation = await run_one_job(job_to_run)
         if (
             initial_update.process_state.state != ProcessState.ProcessStateEnum.RUNNING
@@ -164,19 +183,34 @@ class LocalHost(Host):
             result = (await continuation).process_state
 
         if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            return pickle.loads(result.pickled_result)
+            job_spec_type = job_to_run.job.WhichOneof("job_spec")
+            # we must have a result from functions, in other cases we can optionally
+            # have a result
+            if job_spec_type == "py_function" or result.pickled_result:
+                unpickled_result = pickle.loads(result.pickled_result)
+            else:
+                unpickled_result = None
+
+            return JobCompletion(
+                unpickled_result, result.state, result.log_file_name, result.return_code
+            )
         else:
-            # TODO make better error messages
-            raise ValueError(f"Error: {result.state}")
+            raise MeadowrunException(result)
 
 
 @dataclasses.dataclass(frozen=True)
 class SshHost(Host):
+    """
+    Tells run_function and related functions to connects to the remote machine over SSH
+    via the fabric library https://www.fabfile.org/ fabric_kwargs are passed directly to
+    fabric.Connection().
+    """
+
     address: str
     # these options are forwarded directly to Fabric
     fabric_kwargs: Optional[Dict[str, Any]] = None
 
-    async def run_job(self, job_to_run: JobToRun2) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
         with fabric.Connection(
             self.address, **(self.fabric_kwargs or {})
         ) as connection:
@@ -269,12 +303,17 @@ class SshHost(Host):
                     # we must have a result from functions, in other cases we can
                     # optionally have a result
                     if job_spec_type == "py_function" or process_state.pickled_result:
-                        return pickle.loads(process_state.pickled_result)
+                        result = pickle.loads(process_state.pickled_result)
                     else:
-                        return None
+                        result = None
+                    return JobCompletion(
+                        result,
+                        process_state.state,
+                        process_state.log_file_name,
+                        process_state.return_code,
+                    )
                 else:
-                    # TODO we should throw a better exception
-                    raise ValueError(f"Running remotely failed: {process_state}")
+                    raise MeadowrunException(process_state)
             finally:
                 if job_io_prefix:
                     remote_paths = " ".join(
@@ -296,7 +335,7 @@ class SshHost(Host):
                             f"{remote_paths} {e}"
                         )
 
-                    # TODO also clean up log file?s
+                    # TODO also clean up log files?
 
 
 @dataclasses.dataclass(frozen=True)
@@ -309,7 +348,7 @@ class EC2AllocHost(Host):
     region_name: Optional[str] = None
     private_key_filename: Optional[str] = None
 
-    async def run_job(self, job_to_run: JobToRun2) -> Any:
+    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
         hosts = await allocate_ec2_instances(
             Resources(self.memory_gb_required, self.logical_cpu_required, {}),
             1,
@@ -325,15 +364,15 @@ class EC2AllocHost(Host):
 
         if len(hosts) != 1:
             raise ValueError(f"Asked for one host, but got back {len(hosts)}")
-        for host, job_ids in hosts.items():
-            if len(job_ids) != 1:
-                raise ValueError(f"Asked for one job allocation but got {len(job_ids)}")
+        host, job_ids = list(hosts.items())[0]
+        if len(job_ids) != 1:
+            raise ValueError(f"Asked for one job allocation but got {len(job_ids)}")
 
-            # Kind of weird that we're changing the job_id here, but okay as long as
-            # job_id remains mostly an internal concept
-            job_to_run.job.job_id = job_ids[0]
+        # Kind of weird that we're changing the job_id here, but okay as long as job_id
+        # remains mostly an internal concept
+        job_to_run.job.job_id = job_ids[0]
 
-            return await SshHost(host, fabric_kwargs).run_job(job_to_run)
+        return await SshHost(host, fabric_kwargs).run_job(job_to_run)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -352,21 +391,43 @@ class EC2AllocHosts:
 
 
 async def run_function(
-    function: Callable[..., _T],
+    function: Union[Callable[..., _T], str],
     host: Host,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
 ) -> _T:
     """
-    Same as run_function_async, but runs on a remote machine, specified by "host".
-    Connects to the remote machine over SSH via the fabric library
-    https://www.fabfile.org/ fabric_kwargs are passed directly to fabric.Connection().
+    Runs function on a remote machine, specified by "host".
+
+    Function can either be a reference to a function, a lambda, or a string like
+    "package.module.function_name" (the last option is useful if the function cannot be
+    referenced in the current environment but can be referenced in the deployed
+    environment)
 
     The remote machine must have meadowrun installed as per build_meadowrun_amis.md
     """
 
-    job_id, friendly_name, pickled_function = _get_id_name_function(function)
+    if isinstance(function, str):
+        job_id = str(uuid.uuid4())
+        friendly_name = function
+        module_name, separator, function_name = function.rpartition(".")
+        if not separator:
+            raise ValueError(
+                f"Function must be in the form module_name.function_name: {function}"
+            )
+        meadowgrid_function = MeadowRunFunction.from_name(
+            module_name, function_name, args, kwargs
+        )
+    else:
+        job_id, friendly_name, pickled_function = _get_id_name_function(function)
+        meadowgrid_function = MeadowRunFunction.from_pickled(
+            pickled_function, args, kwargs
+        )
+
+    py_function = _create_py_function(
+        meadowgrid_function, _pickle_protocol_for_deployed_interpreter()
+    )
 
     (
         interpreter,
@@ -375,30 +436,27 @@ async def run_function(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
-    pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     job = Job(
         job_id=_make_valid_job_id(job_id),
         job_friendly_name=_make_valid_job_id(friendly_name),
         environment_variables=_string_pairs_from_dict(environment_variables),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        py_function=_create_py_function(
-            MeadowRunFunction.from_pickled(pickled_function, args, kwargs),
-            pickle_protocol,
-        ),
+        py_function=py_function,
     )
     _add_deployments_to_job(job, code, interpreter)
 
     # TODO figure out what to do about the [0], which is there for dropping effects
     return (
         await host.run_job(JobToRun2(job=job, credentials_sources=credentials_sources))
-    )[0]
+    ).result[0]
 
 
 async def run_command(
     args: Union[str, Sequence[str]],
     host: Host,
     deployment: Optional[Deployment] = None,
-) -> None:
+    context_variables: Optional[Dict[str, Any]] = None,
+) -> JobCompletion[None]:
     """
     Runs the specified command on a remote machine. See run_function_remote for more
     details on requirements for the remote host.
@@ -418,16 +476,27 @@ async def run_command(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
+    if context_variables:
+        pickled_context_variables = pickle.dumps(
+            context_variables, protocol=_pickle_protocol_for_deployed_interpreter()
+        )
+    else:
+        pickled_context_variables = b""
+
     job = Job(
         job_id=_make_valid_job_id(job_id),
         job_friendly_name=_make_valid_job_id(friendly_name),
         environment_variables=_string_pairs_from_dict(environment_variables),
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        py_command=PyCommandJob(command_line=args),
+        py_command=PyCommandJob(
+            command_line=args, pickled_context_variables=pickled_context_variables
+        ),
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    await host.run_job(JobToRun2(job=job, credentials_sources=credentials_sources))
+    return await host.run_job(
+        JobToRun2(job=job, credentials_sources=credentials_sources)
+    )
 
 
 async def run_map(

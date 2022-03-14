@@ -23,7 +23,7 @@ from typing import (
 
 import aiodocker.containers
 
-from meadowrun.code_deployment import CodeDeploymentManager
+from meadowrun.code_deployment import get_code_paths
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
     MEADOWRUN_CODE_MOUNT_LINUX,
@@ -41,7 +41,6 @@ from meadowrun.docker_controller import (
     get_image_environment_variables,
     pull_image,
 )
-from meadowrun.exclusive_file_lock import exclusive_file_lock
 from meadowrun.meadowrun_pb2 import (
     Credentials,
     Job,
@@ -280,7 +279,8 @@ async def _launch_job(
     io_folder: str,
     job_logs_folder: str,
     coordinator_address: str,
-    deployment_manager: CodeDeploymentManager,
+    git_repos_folder: str,
+    local_copies_folder: str,
     free_resources: Callable[[], None],
     code_deployment_credentials: Optional[RawCredentials],
     interpreter_deployment_credentials: Optional[RawCredentials],
@@ -344,8 +344,8 @@ async def _launch_job(
         job_spec_transformed.environment_variables.update(
             **_string_pairs_to_dict(job.environment_variables)
         )
-        code_paths = await deployment_manager.get_code_paths(
-            job, code_deployment_credentials
+        code_paths = await get_code_paths(
+            git_repos_folder, local_copies_folder, job, code_deployment_credentials
         )
         grid_worker_id_for_filename = f".{grid_worker_id}" if grid_worker_id else ""
         log_file_name = os.path.join(
@@ -836,11 +836,11 @@ def _get_default_working_folder() -> str:
 
 def _set_up_working_folder(
     working_folder: Optional[str],
-) -> Tuple[str, str, CodeDeploymentManager]:
+) -> Tuple[str, str, str, str]:
     """
     Sets the working_folder to a default if it's not set, creates the necessary
     subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
-    job_logs_folder, and CodeDeploymentManager
+    job_logs_folder, git_repos_folder, local_copies_folder
     """
 
     if not working_folder:
@@ -864,19 +864,7 @@ def _set_up_working_folder(
     os.makedirs(git_repos_folder, exist_ok=True)
     os.makedirs(local_copies_folder, exist_ok=True)
 
-    # Next, exit if there's already an instance running with the same working_folder, as
-    # we're assuming we are the only ones managing working_folder Ideally we would
-    # prevent any other instance from running on this machine (regardless of whether it
-    # has the same working_folder or not), because we're also assuming that the entire
-    # machine's resources are ours to manage.
-
-    exclusive_file_lock(lock_file=os.path.join(working_folder, "agent.lock"))
-
-    # initialize some more state
-
-    deployment_manager = CodeDeploymentManager(git_repos_folder, local_copies_folder)
-
-    return io_folder, job_logs_folder, deployment_manager
+    return io_folder, job_logs_folder, git_repos_folder, local_copies_folder
 
 
 def _no_op() -> None:
@@ -958,10 +946,12 @@ async def run_one_job(
     not used
     """
 
-    # TODO the exclusive lock on working_folder here doesn't make sense
-    io_folder, job_logs_folder, deployment_manager = _set_up_working_folder(
-        working_folder
-    )
+    (
+        io_folder,
+        job_logs_folder,
+        git_repos_folder,
+        local_copies_folder,
+    ) = _set_up_working_folder(working_folder)
 
     # unpickle credentials if necessary
     (
@@ -977,7 +967,8 @@ async def run_one_job(
         job_logs_folder,
         # we only need a coordinator host for g rid jobs
         "",
-        deployment_manager,
+        git_repos_folder,
+        local_copies_folder,
         # we're not managing resources because we're only running a single job
         _no_op,
         code_deployment_credentials,

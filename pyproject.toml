@@ -25,6 +25,7 @@ boto3 = "^1.20.17"
 fabric = "^2.6.0"
 types-paramiko = "^2.8.13"
 aiobotocore = "^2.1.2"
+filelock = "^3.6.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0.1"

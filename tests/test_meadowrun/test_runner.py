@@ -1,3 +1,5 @@
+import pytest
+
 from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.meadowrun_pb2 import ServerAvailableInterpreter
 from meadowrun.runner import (
@@ -11,6 +13,7 @@ from meadowrun.runner import (
 from test_meadowrun.test_ec2_alloc import _PRIVATE_KEY_FILENAME
 
 
+@pytest.mark.asyncio
 async def test_run_function_local():
     result = await run_function(
         lambda x: x * 2,

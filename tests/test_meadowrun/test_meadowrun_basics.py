@@ -1,41 +1,26 @@
-import asyncio
 import pathlib
-import pickle
-import time
-from typing import List, Sequence, Union, Optional
+from typing import Union
 
-import meadowrun.coordinator
-import meadowrun.coordinator_main
+import pytest
+
 import meadowrun.docker_controller
-import meadowrun.agent_main
 from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.coordinator_client import (
-    MeadowRunCoordinatorClientAsync,
-    MeadowRunCoordinatorClientSync,
-    ProcessStateEnum,
-)
 from meadowrun.deployed_function import (
     CodeDeployment,
     InterpreterDeployment,
-    MeadowRunCommand,
-    MeadowRunDeployedRunnable,
-    MeadowRunFunction,
-    MeadowRunVersionedDeployedRunnable,
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
     get_latest_interpreter_version,
 )
-from meadowrun.grid import grid_map, grid_map_async
 from meadowrun.meadowrun_pb2 import (
-    ContainerAtDigest,
     ContainerAtTag,
     GitRepoBranch,
     GitRepoCommit,
-    ProcessState,
-    ServerAvailableContainer,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
+    ContainerAtDigest,
 )
+from meadowrun.runner import run_function, LocalHost, Deployment, run_command
 
 EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()
@@ -43,84 +28,27 @@ EXAMPLE_CODE = str(
 MEADOWRUN_CODE = str((pathlib.Path(__file__).parent.parent.parent / "src").resolve())
 
 
-async def wait_for_agents_async(
-    client: MeadowRunCoordinatorClientAsync,
-    num_agents_to_wait_for: int,
-    seconds_to_wait: float = 10,
-) -> None:
-    """
-    Waits up to seconds_to_wait for the coordinator to have exactly
-    num_agents_to_wait_for agents
-    """
-    start = time.time()
-    num_agents = None
-    while time.time() - start < seconds_to_wait:
-        num_agents = len(await client.get_agent_states())
-        if num_agents == num_agents_to_wait_for:
-            break
-
-    _wait_for_agents_helper(num_agents, num_agents_to_wait_for, seconds_to_wait)
-
-
-def wait_for_agents_sync(
-    client: MeadowRunCoordinatorClientSync,
-    num_agents_to_wait_for: int,
-    seconds_to_wait: float = 10,
-) -> None:
-
-    """
-    Waits up to seconds_to_wait for the coordinator to have exactly
-    num_agents_to_wait_for agents
-    """
-    start = time.time()
-    num_agents = None
-    while time.time() - start < seconds_to_wait:
-        num_agents = len(client.get_agent_states())
-        if num_agents == num_agents_to_wait_for:
-            break
-
-    _wait_for_agents_helper(num_agents, num_agents_to_wait_for, seconds_to_wait)
-
-
-def _wait_for_agents_helper(
-    num_agents: Optional[int],
-    num_agents_to_wait_for: int,
-    seconds_to_wait: float = 10,
-) -> None:
-    if num_agents is None:
-        raise ValueError(
-            "This should never happen--test process suffered a very long pause "
-            f"{seconds_to_wait}"
-        )
-
-    if num_agents != num_agents_to_wait_for:
-        raise AssertionError(
-            f"Waited {seconds_to_wait} seconds for {num_agents_to_wait_for} agent(s) to"
-            "be registered with the coordinator, but after waiting, the coordinator "
-            f"only had {num_agents} agent(s)."
-        )
-
-
-def test_meadowrun_server_available_folder():
-    _test_meadowrun(
+@pytest.mark.asyncio
+async def test_meadowrun_server_available_folder():
+    await _test_meadowrun(
         ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
         ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
     )
 
 
-def test_meadowrun_server_available_folder_container_digest():
-    _test_meadowrun(
+@pytest.mark.asyncio
+async def test_meadowrun_server_available_folder_container_digest():
+    await _test_meadowrun(
         ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
-        asyncio.run(
-            get_latest_interpreter_version(
-                ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), {}
-            )
+        await get_latest_interpreter_version(
+            ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), {}
         ),
     )
 
 
-def test_meadowrun_server_available_folder_container_tag():
-    _test_meadowrun(
+@pytest.mark.asyncio
+async def test_meadowrun_server_available_folder_container_tag():
+    await _test_meadowrun(
         ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
         ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
     )
@@ -135,16 +63,13 @@ TEST_WORKING_FOLDER = str(
 )
 
 
-# For all of these processes, to debug the coordinator and agent, just run them
-# separately and the child processes we start in these tests will just silently fail.
-
-
-def test_meadowrun_server_git_repo_commit():
+@pytest.mark.asyncio
+async def test_meadowrun_server_git_repo_commit():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowrun repo.
     """
-    _test_meadowrun(
+    await _test_meadowrun(
         GitRepoCommit(
             repo_url=TEST_REPO, commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6"
         ),
@@ -152,14 +77,16 @@ def test_meadowrun_server_git_repo_commit():
     )
 
 
-def test_meadowrun_server_git_repo_branch():
-    _test_meadowrun(
+@pytest.mark.asyncio
+async def test_meadowrun_server_git_repo_branch():
+    await _test_meadowrun(
         GitRepoBranch(repo_url=TEST_REPO, branch="main"),
         ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
     )
 
 
-def test_meadowrun_server_git_repo_commit_container():
+@pytest.mark.asyncio
+async def test_meadowrun_server_git_repo_commit_container():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowrun repo.
@@ -167,7 +94,7 @@ def test_meadowrun_server_git_repo_commit_container():
     # TODO first make sure the image we're looking for is NOT already cached on this
     #  system, then run it again after it has been cached, as this works different code
     #  paths
-    _test_meadowrun(
+    await _test_meadowrun(
         GitRepoCommit(
             repo_url=TEST_REPO, commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6"
         ),
@@ -175,147 +102,34 @@ def test_meadowrun_server_git_repo_commit_container():
     )
 
 
-async def _wait_for_process(
-    client: MeadowRunCoordinatorClientAsync, job_id: str, seconds_to_wait: float = 10
-) -> Sequence[ProcessState]:
-    """wait (no more than ~10s) for the remote process to finish"""
-    t0 = time.time()
-    i = 0
-    results: Sequence[ProcessState]
-    while (
-        i == 0
-        or results[0].state  # noqa: F821
-        in (
-            ProcessStateEnum.RUN_REQUESTED,
-            ProcessStateEnum.RUNNING,
-        )
-        and (time.time() - t0) < seconds_to_wait
-    ):
-        if i == 0:
-            print("Waiting for remote process to finish")
-        time.sleep(0.1)
-        results = await client.get_simple_job_states([job_id])
-        assert len(results) == 1
-        i += 1
-    return results
-
-
-def assert_successful(state: ProcessState) -> None:
-    """
-    Equivalent to `assert state == ProcessStateEnum.SUCCEEDED but provides a richer
-    error message
-    """
-    if state.state != ProcessStateEnum.SUCCEEDED:
-        if state.state in (
-            ProcessStateEnum.PYTHON_EXCEPTION,
-            ProcessStateEnum.RUN_REQUEST_FAILED,
-        ):
-            exception = pickle.loads(state.pickled_result)[2]
-        else:
-            exception = ""
-        raise AssertionError(
-            f"ProcessState was not SUCCEEDED: {state.state}. {exception}"
-        )
-
-
-def _test_meadowrun(
+async def _test_meadowrun(
     code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
     interpreter_deployment: Union[
         InterpreterDeployment, VersionedInterpreterDeployment
     ],
 ):
-    with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
 
-        async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
-                await wait_for_agents_async(client, 1)
+    results: str = await run_function(
+        "example_package.example.example_runner",
+        LocalHost(),
+        Deployment(interpreter_deployment, code_deployment),
+        args=["foo"],
+    )
+    assert results == "hello foo"
 
-                # run a remote process
-                arguments = ["foo"]
-                request_id = "request1"
-                add_job_state = await client.add_py_runnable_job(
-                    request_id,
-                    "example_runner",
-                    MeadowRunVersionedDeployedRunnable(
-                        code_deployment,
-                        interpreter_deployment,
-                        MeadowRunFunction.from_name(
-                            "example_package.example", "example_runner", arguments
-                        ),
-                    ),
-                )
-                assert add_job_state == "ADDED"
+    job_completion = await run_command(
+        "pip --version",
+        LocalHost(),
+        Deployment(interpreter_deployment, code_deployment),
+    )
 
-                # try running a duplicate
-                duplicate_add_job_state = await client.add_py_runnable_job(
-                    request_id,
-                    "baz",
-                    MeadowRunVersionedDeployedRunnable(
-                        ServerAvailableFolder(code_paths=["foo"]),
-                        interpreter_deployment,
-                        MeadowRunFunction.from_name("foo.bar", "baz", ["foo"]),
-                    ),
-                )
-                assert duplicate_add_job_state == "IS_DUPLICATE"
-
-                # confirm that it's still running
-                results = await client.get_simple_job_states([request_id])
-                assert len(results) == 1
-                assert results[0].state in (
-                    ProcessStateEnum.RUN_REQUESTED,
-                    ProcessStateEnum.RUNNING,
-                )
-
-                # we need to wait longer if we need to pull a container image
-                results = await _wait_for_process(client, request_id, 600)
-
-                # confirm that it completed successfully
-                assert_successful(results[0])
-                assert bool(results[0].pid > 0) ^ bool(results[0].container_id)
-                assert (
-                    pickle.loads(results[0].pickled_result)[0]
-                    == f"hello {arguments[0]}"
-                )
-                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
-                    text = log_file.read()
-                assert f"example_runner called with {arguments[0]}" in text
-
-                # test that requesting a different result works as expected
-                results = await client.get_simple_job_states(["hey"])
-                assert len(results) == 1
-                assert results[0].state == ProcessStateEnum.UNKNOWN
-
-                # test running a command rather than a function. pip should be available
-                # in the Scripts folder of the current python interpreter
-                request_id = "request2"
-                add_job_state = await client.add_py_runnable_job(
-                    request_id,
-                    "pip",
-                    MeadowRunVersionedDeployedRunnable(
-                        code_deployment,
-                        interpreter_deployment,
-                        MeadowRunCommand(["pip", "--version"]),
-                    ),
-                )
-                assert add_job_state == "ADDED"
-
-                results = await _wait_for_process(client, request_id)
-                assert_successful(results[0])
-                assert bool(results[0].pid > 0) ^ bool(results[0].container_id)
-                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
-                    text = log_file.read()
-                # this used to check that pip.__version__ is in text, but the version we
-                # have is not necessarily the same as the version in the container - the
-                # latter depends on the base Docker image we're building from.
-                assert "pip" in text
-
-        asyncio.run(run())
+    with open(job_completion.log_file_name, "r", encoding="utf-8") as log_file:
+        text = log_file.read()
+    assert "pip" in text
 
 
-def test_meadowrun_server_path_in_repo():
+@pytest.mark.asyncio
+async def test_meadowrun_path_in_git_repo():
     """
     Tests GitRepoCommit.path_in_repo
 
@@ -323,189 +137,71 @@ def test_meadowrun_server_path_in_repo():
     meadowrun repo.
     """
 
-    with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-
-        async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
-                await wait_for_agents_async(client, 1)
-
-                # run a remote process
-                arguments = ["foo"]
-                request_id = "request1"
-                await client.add_py_runnable_job(
-                    request_id,
-                    "example_runner",
-                    MeadowRunDeployedRunnable(
-                        GitRepoCommit(
-                            repo_url=TEST_REPO,
-                            commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
-                            path_in_repo="example_package",
-                        ),
-                        ServerAvailableInterpreter(
-                            interpreter_path=MEADOWRUN_INTERPRETER,
-                        ),
-                        MeadowRunFunction.from_name(
-                            "example", "example_runner", arguments
-                        ),
-                    ),
-                )
-
-                results = await _wait_for_process(client, request_id)
-                assert_successful(results[0])
-
-                assert (
-                    pickle.loads(results[0].pickled_result)[0]
-                    == f"hello {arguments[0]}"
-                )
-
-        asyncio.run(run())
+    results: str = await run_function(
+        "example.example_runner",
+        LocalHost(),
+        Deployment(
+            code=GitRepoCommit(
+                repo_url=TEST_REPO,
+                commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
+                path_in_repo="example_package",
+            )
+        ),
+        args=["foo"],
+    )
+    assert results == "hello foo"
 
 
-def test_meadowrun_command_context_variables():
+@pytest.mark.asyncio
+async def test_meadowrun_command_context_variables():
     """
     Runs example_script twice (in parallel), once with no context variables, and once
     with context variables. Makes sure the output is the same in both cases.
     """
+    job_completion1 = await run_command(
+        "python example_script.py",
+        LocalHost(),
+        Deployment(
+            code=ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])
+        ),
+    )
+    job_completion2 = await run_command(
+        "python example_script.py",
+        LocalHost(),
+        Deployment(
+            code=ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])
+        ),
+        {"foo": "bar"},
+    )
 
-    code = ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])
-    interpreter = ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER)
+    with open(job_completion1.log_file_name, "r", encoding="utf-8") as log_file:
+        text = log_file.read()
+    assert "hello there: no_data" in text
 
-    with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-
-        async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
-                await wait_for_agents_async(client, 1)
-
-                request_id3 = "request3"
-                request_id4 = "request4"
-                await client.add_py_runnable_job(
-                    request_id3,
-                    "example_script",
-                    MeadowRunDeployedRunnable(
-                        code,
-                        interpreter,
-                        MeadowRunCommand(["python", "example_script.py"]),
-                    ),
-                )
-                await client.add_py_runnable_job(
-                    request_id4,
-                    "example_script",
-                    MeadowRunDeployedRunnable(
-                        code,
-                        interpreter,
-                        MeadowRunCommand(
-                            ["python", "example_script.py"], {"foo": "bar"}
-                        ),
-                    ),
-                )
-
-                results = await _wait_for_process(client, request_id3)
-                assert_successful(results[0])
-                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
-                    text = log_file.read()
-                assert "hello there: no_data" in text
-
-                results = await _wait_for_process(client, request_id4)
-                assert_successful(results[0])
-                with open(results[0].log_file_name, "r", encoding="utf-8") as log_file:
-                    text = log_file.read()
-                assert "hello there: bar" in text
-
-        asyncio.run(run())
+    with open(job_completion2.log_file_name, "r", encoding="utf-8") as log_file:
+        text = log_file.read()
+    assert "hello there: bar" in text
 
 
-def test_meadowrun_containers():
+@pytest.mark.asyncio
+async def test_meadowrun_containers():
     """
     Basic test on running with containers, checks that different images behave as
     expected
     """
-    with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-
-        async def run():
-            async with MeadowRunCoordinatorClientAsync() as client:
-                await wait_for_agents_async(client, 1)
-
-                for version in ["3.9.8", "3.8.12"]:
-                    digest = await (
-                        meadowrun.docker_controller.get_latest_digest_from_registry(
-                            "python", f"{version}-slim-buster", None
-                        )
-                    )
-
-                    request_id = f"request-{version}"
-                    add_job_state = await client.add_py_runnable_job(
-                        request_id,
-                        f"python_version_check-{version}",
-                        MeadowRunDeployedRunnable(
-                            ServerAvailableFolder(),
-                            ContainerAtDigest(repository="python", digest=digest),
-                            MeadowRunCommand(["python", "--version"]),
-                        ),
-                    )
-                    assert add_job_state == "ADDED"
-                    results = await _wait_for_process(client, request_id, 600)
-                    assert_successful(results[0])
-                    with open(
-                        results[0].log_file_name, "r", encoding="utf-8"
-                    ) as log_file:
-                        text = log_file.read()
-                    assert text.startswith(f"Python {version}")
-
-        asyncio.run(run())
-
-
-def test_meadowrun_grid_job():
-    with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-        with MeadowRunCoordinatorClientSync() as coordinator_client:
-            wait_for_agents_sync(coordinator_client, 1)
-
-        interpreters: List[InterpreterDeployment] = [
-            ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
-            # We need an image that has meadowrun in it. This can be produced by
-            # running build_docker_image.bat
-            ServerAvailableContainer(image_name="meadowrun:latest"),
-        ]
-        for interpreter in interpreters:
-            results = grid_map(
-                lambda s: f"hello {s}",
-                ["abc", "def", "ghi"],
-                interpreter,
-                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE]),
+    for version in ["3.9.8", "3.8.12"]:
+        digest = await (
+            meadowrun.docker_controller.get_latest_digest_from_registry(
+                "python", f"{version}-slim-buster", None
             )
+        )
 
-            assert results == ["hello abc", "hello def", "hello ghi"]
+        result = await run_command(
+            "python --version",
+            LocalHost(),
+            Deployment(ContainerAtDigest(repository="python", digest=digest)),
+        )
 
-
-def test_meadowrun_grid_map_async():
-    with (
-        meadowrun.coordinator_main.main_in_child_process(),
-        meadowrun.agent_main.main_in_child_process(TEST_WORKING_FOLDER),
-    ):
-
-        async def run():
-            async with MeadowRunCoordinatorClientAsync() as coordinator_client:
-                await wait_for_agents_async(coordinator_client, 1)
-
-            tasks = await grid_map_async(
-                lambda s: f"hello {s}",
-                ["abc", "def", "ghi"],
-                ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
-                ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE]),
-            )
-
-            results = await asyncio.gather(*tasks)
-            assert results == ["hello abc", "hello def", "hello ghi"]
-
-        asyncio.run(run())
+        with open(result.log_file_name, "r", encoding="utf-8") as log_file:
+            text = log_file.read()
+        assert text.startswith(f"Python {version}")

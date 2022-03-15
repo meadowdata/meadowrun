@@ -25,8 +25,8 @@ from meadowrun.ec2_alloc_lambda.adjust_ec2_instances import (
     _deregister_ec2_instance,
     adjust,
 )
-from meadowrun.resource_allocation import Resources
-from meadowrun.runner import run_function, EC2AllocHost
+from meadowrun.instance_selection import Resources
+from meadowrun.run_job import run_function, EC2AllocHost
 
 
 async def _clear_ec2_instances_table() -> None:

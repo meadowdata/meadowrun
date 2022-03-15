@@ -1,6 +1,6 @@
 """
-This is a command-line interface for agent.run_one_job. This isn't meant to be used
-standalone, this is designed to be called by the functions functions in runner.py
+Runs a single job locally. Meant to be used on a "server" where the client is calling
+e.g. run_function
 """
 
 import argparse
@@ -9,8 +9,8 @@ import logging
 import os
 import sys
 
-import meadowrun.agent
-from meadowrun.meadowrun_pb2 import ProcessState, JobToRun2
+import meadowrun.run_job_local
+from meadowrun.meadowrun_pb2 import ProcessState, JobToRun
 
 
 async def main_async(
@@ -26,9 +26,9 @@ async def main_async(
 
     with open(f"{job_io_prefix}.job_to_run", mode="rb") as f:
         bytes_job_to_run = f.read()
-    job_to_run = JobToRun2()
+    job_to_run = JobToRun()
     job_to_run.ParseFromString(bytes_job_to_run)
-    first_state, continuation = await meadowrun.agent.run_one_job(
+    first_state, continuation = await meadowrun.run_job_local.run_local(
         job_to_run, working_folder
     )
     with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:

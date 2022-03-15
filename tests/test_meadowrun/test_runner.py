@@ -2,7 +2,7 @@ import pytest
 
 from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.meadowrun_pb2 import ServerAvailableInterpreter
-from meadowrun.runner import (
+from meadowrun.run_job import (
     Deployment,
     EC2AllocHost,
     LocalHost,

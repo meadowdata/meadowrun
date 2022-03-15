@@ -1,8 +1,7 @@
-from meadowrun.agent_creator import choose_instance_types_for_job
 from meadowrun.aws_integration import (
     _get_ec2_instance_types,
 )
-from meadowrun.resource_allocation import Resources
+from meadowrun.instance_selection import Resources, choose_instance_types_for_job
 
 
 async def manual_test_get_ec2_instance_types():

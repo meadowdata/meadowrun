@@ -124,14 +124,6 @@ message GridTask {
 }
 
 
-// Agents have resources, and jobs can use resources. Examples of resources are CPU and
-// memory
-message Resource {
-    string name = 1;
-    float value = 2;
-}
-
-
 message Job {
 
     // job_id uniquely identifies this request to avoid duplicates and for getting the
@@ -177,8 +169,7 @@ message Job {
 }
 
 
-// TODO delete JobToRun and coordinator-based meadowrun and rename this to JobToRun
-message JobToRun2 {
+message JobToRun {
     Job job = 1;
     repeated AddCredentialsRequest credentials_sources = 2;
 }
@@ -248,9 +239,7 @@ message ProcessState {
 // For updating the state of a job
 message JobStateUpdate {
     string job_id = 1;
-    // will only be populated if job_id refers to a GridJob
-    string grid_worker_id = 2;
-    ProcessState process_state = 3;
+    ProcessState process_state = 2;
 }
 
 
@@ -258,12 +247,6 @@ message JobStateUpdate {
 message GridTaskStateResponse {
     int32 task_id = 1;
     ProcessState process_state = 2;
-}
-
-
-// For getting the states of grid tasks
-message GridTaskStatesResponse {
-    repeated GridTaskStateResponse task_states = 1;
 }
 
 

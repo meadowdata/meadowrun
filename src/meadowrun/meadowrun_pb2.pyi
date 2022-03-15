@@ -373,28 +373,6 @@ class GridTask(google.protobuf.message.Message):
 
 global___GridTask = GridTask
 
-class Resource(google.protobuf.message.Message):
-    """Agents have resources, and jobs can use resources. Examples of resources are CPU and
-    memory
-    """
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    NAME_FIELD_NUMBER: builtins.int
-    VALUE_FIELD_NUMBER: builtins.int
-    name: typing.Text
-    value: builtins.float
-    def __init__(
-        self,
-        *,
-        name: typing.Text = ...,
-        value: builtins.float = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["name", b"name", "value", b"value"]
-    ) -> None: ...
-
-global___Resource = Resource
-
 class Job(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
@@ -574,9 +552,7 @@ class Job(google.protobuf.message.Message):
 
 global___Job = Job
 
-class JobToRun2(google.protobuf.message.Message):
-    """TODO delete JobToRun and coordinator-based meadowrun and rename this to JobToRun"""
-
+class JobToRun(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_FIELD_NUMBER: builtins.int
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
@@ -606,7 +582,7 @@ class JobToRun2(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global___JobToRun2 = JobToRun2
+global___JobToRun = JobToRun
 
 class ProcessState(google.protobuf.message.Message):
     """Represents the state of a process, can apply to a job or a grid task"""
@@ -799,19 +775,14 @@ class JobStateUpdate(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
-    GRID_WORKER_ID_FIELD_NUMBER: builtins.int
     PROCESS_STATE_FIELD_NUMBER: builtins.int
     job_id: typing.Text
-    grid_worker_id: typing.Text
-    """will only be populated if job_id refers to a GridJob"""
-
     @property
     def process_state(self) -> global___ProcessState: ...
     def __init__(
         self,
         *,
         job_id: typing.Text = ...,
-        grid_worker_id: typing.Text = ...,
         process_state: typing.Optional[global___ProcessState] = ...,
     ) -> None: ...
     def HasField(
@@ -820,12 +791,7 @@ class JobStateUpdate(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "grid_worker_id",
-            b"grid_worker_id",
-            "job_id",
-            b"job_id",
-            "process_state",
-            b"process_state",
+            "job_id", b"job_id", "process_state", b"process_state"
         ],
     ) -> None: ...
 
@@ -857,30 +823,6 @@ class GridTaskStateResponse(google.protobuf.message.Message):
     ) -> None: ...
 
 global___GridTaskStateResponse = GridTaskStateResponse
-
-class GridTaskStatesResponse(google.protobuf.message.Message):
-    """For getting the states of grid tasks"""
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-    TASK_STATES_FIELD_NUMBER: builtins.int
-    @property
-    def task_states(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___GridTaskStateResponse
-    ]: ...
-    def __init__(
-        self,
-        *,
-        task_states: typing.Optional[
-            typing.Iterable[global___GridTaskStateResponse]
-        ] = ...,
-    ) -> None: ...
-    def ClearField(
-        self, field_name: typing_extensions.Literal["task_states", b"task_states"]
-    ) -> None: ...
-
-global___GridTaskStatesResponse = GridTaskStatesResponse
 
 class AddCredentialsRequest(google.protobuf.message.Message):
     """This represents a credentials source (see credentials.py)"""

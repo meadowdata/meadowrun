@@ -9,7 +9,7 @@ from meadowrun.meadowrun_pb2 import (
     GitRepoBranch,
     ServerAvailableFile,
 )
-from meadowrun.runner import (
+from meadowrun.run_job import (
     CredentialsSourceAndService,
     Deployment,
     LocalHost,

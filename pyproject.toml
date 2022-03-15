@@ -11,7 +11,7 @@ packages = [
 ]
 
 [tool.poetry.scripts]
-meadowrun = 'meadowrun.run_one_job_main:command_line_main'
+meadowrun_local = 'meadowrun.run_job_local_main:command_line_main'
 
 [tool.poetry.dependencies]
 python = "^3.9"

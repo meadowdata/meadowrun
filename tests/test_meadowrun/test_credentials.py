@@ -1,6 +1,6 @@
 import subprocess
 
-from meadowrun.credentials import CredentialsSource
+from meadowrun.credentials import CredentialsSource, CredentialsSourceForService
 from meadowrun.docker_controller import delete_images_from_repository
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
@@ -10,7 +10,6 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFile,
 )
 from meadowrun.run_job import (
-    CredentialsSourceAndService,
     Deployment,
     LocalHost,
     run_function,
@@ -80,7 +79,7 @@ async def _manual_test_docker_credentials(
         Deployment(
             ContainerAtTag(repository=_PRIVATE_DOCKER_REPOSITORY, tag="latest"),
             credentials_sources=[
-                CredentialsSourceAndService(
+                CredentialsSourceForService(
                     "DOCKER", "registry-1.docker.io", credentials_source
                 )
             ],
@@ -164,7 +163,7 @@ async def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> Non
         Deployment(
             code=GitRepoBranch(repo_url=_PRIVATE_GIT_REPOSITORY, branch="main"),
             credentials_sources=[
-                CredentialsSourceAndService("GIT", "git@github.com", credentials_source)
+                CredentialsSourceForService("GIT", "git@github.com", credentials_source)
             ],
         ),
     )

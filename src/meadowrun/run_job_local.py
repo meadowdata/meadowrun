@@ -44,7 +44,6 @@ from meadowrun.meadowrun_pb2 import (
     Credentials,
     Job,
     JobStateUpdate,
-    JobToRun,
     ProcessState,
     PyFunctionJob,
     StringPair,
@@ -674,7 +673,7 @@ def _set_up_working_folder(
 
 
 def _get_credentials_for_job(
-    job_to_run: JobToRun,
+    job: Job,
 ) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
     """
     Gets the credentials for the code_deployment, interpreter_deployment for job_to_run.
@@ -687,7 +686,7 @@ def _get_credentials_for_job(
 
     # first, get all available credentials sources from the JobToRun
     credentials_sources: CredentialsDict = {}
-    for credentials_source in job_to_run.credentials_sources:
+    for credentials_source in job.credentials_sources:
         source = credentials_source.WhichOneof("source")
         if source is None:
             raise ValueError(
@@ -700,7 +699,6 @@ def _get_credentials_for_job(
 
     # now, get any matching credentials sources and turn them into credentials
     code_deployment_credentials, interpreter_deployment_credentials = None, None
-    job = job_to_run.job
 
     code_deployment_type = job.WhichOneof("code_deployment")
     if code_deployment_type in ("git_repo_commit", "git_repo_branch"):
@@ -738,7 +736,7 @@ def _get_credentials_for_job(
 
 
 async def run_local(
-    job_to_run: JobToRun, working_folder: Optional[str] = None
+    job: Job, working_folder: Optional[str] = None
 ) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
     """
     Runs a job locally using the specified working_folder (or uses the default). Meant
@@ -769,9 +767,7 @@ async def run_local(
     (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-    ) = _get_credentials_for_job(job_to_run)
-
-    job = job_to_run.job
+    ) = _get_credentials_for_job(job)
 
     try:
         # first, just get whether we're running in a container or not

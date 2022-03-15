@@ -10,7 +10,7 @@ import os
 import sys
 
 import meadowrun.run_job_local
-from meadowrun.meadowrun_pb2 import ProcessState, JobToRun
+from meadowrun.meadowrun_pb2 import ProcessState, Job
 
 
 async def main_async(
@@ -26,10 +26,10 @@ async def main_async(
 
     with open(f"{job_io_prefix}.job_to_run", mode="rb") as f:
         bytes_job_to_run = f.read()
-    job_to_run = JobToRun()
-    job_to_run.ParseFromString(bytes_job_to_run)
+    job = Job()
+    job.ParseFromString(bytes_job_to_run)
     first_state, continuation = await meadowrun.run_job_local.run_local(
-        job_to_run, working_folder
+        job, working_folder
     )
     with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:
         f.write(first_state.SerializeToString())

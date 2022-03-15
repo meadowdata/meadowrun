@@ -166,12 +166,8 @@ message Job {
         PyCommandJob py_command = 15;
         PyFunctionJob py_function = 16;
     }
-}
 
-
-message JobToRun {
-    Job job = 1;
-    repeated AddCredentialsRequest credentials_sources = 2;
+    repeated CredentialsSourceMessage credentials_sources = 17;
 }
 
 
@@ -251,7 +247,7 @@ message GridTaskStateResponse {
 
 
 // This represents a credentials source (see credentials.py)
-message AddCredentialsRequest {
+message CredentialsSourceMessage {
     Credentials.Service service = 1;
     string service_url = 2;
     oneof source {

@@ -32,7 +32,7 @@ import paramiko.ssh_exception
 from meadowrun.run_job_local import run_local
 from meadowrun.aws_integration import _get_default_region_name
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
-from meadowrun.credentials import CredentialsService, CredentialsSource
+from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
     CodeDeployment,
     InterpreterDeployment,
@@ -46,15 +46,14 @@ from meadowrun.grid_task_queue import (
     create_queues_and_add_tasks,
 )
 from meadowrun.meadowrun_pb2 import (
-    AddCredentialsRequest,
     AwsSecret,
     ContainerAtDigest,
     ContainerAtTag,
     Credentials,
+    CredentialsSourceMessage,
     GitRepoBranch,
     GitRepoCommit,
     Job,
-    JobToRun,
     ProcessState,
     PyCommandJob,
     PyFunctionJob,
@@ -96,37 +95,30 @@ async def _retry(
 
 
 @dataclasses.dataclass(frozen=True)
-class CredentialsSourceAndService:
-    """A CredentialsSource with metadata about what service it should be used for"""
-
-    service: CredentialsService
-    service_url: str
-    source: CredentialsSource
-
-
-@dataclasses.dataclass(frozen=True)
 class Deployment:
     interpreter: Union[
         InterpreterDeployment, VersionedInterpreterDeployment, None
     ] = None
     code: Union[CodeDeployment, VersionedCodeDeployment, None] = None
     environment_variables: Optional[Dict[str, str]] = None
-    credentials_sources: Optional[List[CredentialsSourceAndService]] = None
+    credentials_sources: Optional[List[CredentialsSourceForService]] = None
 
 
-def _add_credentials_request(
-    service: CredentialsService, service_url: str, source: CredentialsSource
-) -> AddCredentialsRequest:
-    result = AddCredentialsRequest(
-        service=Credentials.Service.Value(service),
-        service_url=service_url,
+def _credentials_source_message(
+    credentials_source: CredentialsSourceForService,
+) -> CredentialsSourceMessage:
+    result = CredentialsSourceMessage(
+        service=Credentials.Service.Value(credentials_source.service),
+        service_url=credentials_source.service_url,
     )
-    if isinstance(source, AwsSecret):
-        result.aws_secret.CopyFrom(source)
-    elif isinstance(source, ServerAvailableFile):
-        result.server_available_file.CopyFrom(source)
+    if isinstance(credentials_source.source, AwsSecret):
+        result.aws_secret.CopyFrom(credentials_source.source)
+    elif isinstance(credentials_source.source, ServerAvailableFile):
+        result.server_available_file.CopyFrom(credentials_source.source)
     else:
-        raise ValueError(f"Unknown type of credentials source {type(source)}")
+        raise ValueError(
+            f"Unknown type of credentials source {type(credentials_source.source)}"
+        )
     return result
 
 
@@ -136,7 +128,7 @@ def _add_defaults_to_deployment(
     Union[InterpreterDeployment, VersionedInterpreterDeployment],
     Union[CodeDeployment, VersionedCodeDeployment],
     Iterable[StringPair],
-    List[AddCredentialsRequest],
+    List[CredentialsSourceMessage],
 ]:
     if deployment is None:
         return (
@@ -148,8 +140,7 @@ def _add_defaults_to_deployment(
 
     if deployment.credentials_sources:
         credentials_sources = [
-            _add_credentials_request(c.service, c.service_url, c.source)
-            for c in deployment.credentials_sources
+            _credentials_source_message(c) for c in deployment.credentials_sources
         ]
     else:
         credentials_sources = []
@@ -191,14 +182,14 @@ class MeadowrunException(Exception):
 
 class Host(abc.ABC):
     @abc.abstractmethod
-    async def run_job(self, job_to_run: JobToRun) -> JobCompletion[Any]:
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
         pass
 
 
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
-    async def run_job(self, job_to_run: JobToRun) -> JobCompletion[Any]:
-        initial_update, continuation = await run_local(job_to_run)
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
+        initial_update, continuation = await run_local(job)
         if (
             initial_update.process_state.state != ProcessState.ProcessStateEnum.RUNNING
             or continuation is None
@@ -208,7 +199,7 @@ class LocalHost(Host):
             result = (await continuation).process_state
 
         if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            job_spec_type = job_to_run.job.WhichOneof("job_spec")
+            job_spec_type = job.WhichOneof("job_spec")
             # we must have a result from functions, in other cases we can optionally
             # have a result
             if job_spec_type == "py_function" or result.pickled_result:
@@ -235,7 +226,7 @@ class SshHost(Host):
     # these options are forwarded directly to Fabric
     fabric_kwargs: Optional[Dict[str, Any]] = None
 
-    async def run_job(self, job_to_run: JobToRun) -> JobCompletion[Any]:
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
         with fabric.Connection(
             self.address, **(self.fabric_kwargs or {})
         ) as connection:
@@ -266,12 +257,10 @@ class SshHost(Host):
                         "Error creating meadowrun directory " + mkdir_result.stdout
                     )
 
-                job_io_prefix = f"{remote_working_folder}/io/{job_to_run.job.job_id}"
+                job_io_prefix = f"{remote_working_folder}/io/{job.job_id}"
 
                 # serialize job_to_run and send it to the remote machine
-                with io.BytesIO(
-                    job_to_run.SerializeToString()
-                ) as job_to_run_serialized:
+                with io.BytesIO(job.SerializeToString()) as job_to_run_serialized:
                     connection.put(
                         job_to_run_serialized, remote=f"{job_io_prefix}.job_to_run"
                     )
@@ -293,7 +282,7 @@ class SshHost(Host):
                         # use meadowrun to run the job
                         returned_result = connection.run(
                             "/var/meadowrun/env/bin/meadowrun_local "
-                            f"--job-id {job_to_run.job.job_id} "
+                            f"--job-id {job.job_id} "
                             f"--working-folder {remote_working_folder} "
                             # TODO this flag should only be passed in if we were
                             # originally using an EC2AllocHost
@@ -324,7 +313,7 @@ class SshHost(Host):
                     process_state.ParseFromString(result_buffer.read())
 
                 if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-                    job_spec_type = job_to_run.job.WhichOneof("job_spec")
+                    job_spec_type = job.WhichOneof("job_spec")
                     # we must have a result from functions, in other cases we can
                     # optionally have a result
                     if job_spec_type == "py_function" or process_state.pickled_result:
@@ -373,7 +362,7 @@ class EC2AllocHost(Host):
     region_name: Optional[str] = None
     private_key_filename: Optional[str] = None
 
-    async def run_job(self, job_to_run: JobToRun) -> JobCompletion[Any]:
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
         hosts = await allocate_ec2_instances(
             Resources(self.memory_gb_required, self.logical_cpu_required, {}),
             1,
@@ -395,9 +384,9 @@ class EC2AllocHost(Host):
 
         # Kind of weird that we're changing the job_id here, but okay as long as job_id
         # remains mostly an internal concept
-        job_to_run.job.job_id = job_ids[0]
+        job.job_id = job_ids[0]
 
-        return await SshHost(host, fabric_kwargs).run_job(job_to_run)
+        return await SshHost(host, fabric_kwargs).run_job(job)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -529,13 +518,11 @@ async def run_function(
         environment_variables=environment_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
+        credentials_sources=credentials_sources,
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    # TODO figure out what to do about the [0], which is there for dropping effects
-    return (
-        await host.run_job(JobToRun(job=job, credentials_sources=credentials_sources))
-    ).result[0]
+    return (await host.run_job(job)).result
 
 
 async def run_command(
@@ -578,12 +565,11 @@ async def run_command(
         py_command=PyCommandJob(
             command_line=args, pickled_context_variables=pickled_context_variables
         ),
+        credentials_sources=credentials_sources,
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    return await host.run_job(
-        JobToRun(job=job, credentials_sources=credentials_sources)
-    )
+    return await host.run_job(job)
 
 
 async def run_map(
@@ -661,15 +647,12 @@ async def run_map(
                         ([public_address, worker_id], {}), protocol=pickle_protocol
                     ),
                 ),
+                credentials_sources=credentials_sources,
             )
             _add_deployments_to_job(job, code, interpreter)
 
             worker_tasks.append(
-                asyncio.create_task(
-                    SshHost(public_address, fabric_kwargs).run_job(
-                        JobToRun(job=job, credentials_sources=credentials_sources)
-                    )
-                )
+                asyncio.create_task(SshHost(public_address, fabric_kwargs).run_job(job))
             )
 
             worker_id += 1

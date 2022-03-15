@@ -79,15 +79,13 @@ def main():
         with open(state_filename, "w", encoding="utf-8") as state_text_writer:
             state_text_writer.write("PYTHON_EXCEPTION")
         with open(result_filename, "wb") as f:
-            # TODO we should potentially be returning effects on failures as well. And
-            #  maybe even on unexpected process quitting?
             pickle.dump((str(type(e)), str(e), tb), f, protocol=result_pickle_protocol)
     else:
         # send back results
         with open(state_filename, "w", encoding="utf-8") as state_text_writer:
             state_text_writer.write("SUCCEEDED")
         with open(result_filename, "wb") as f:
-            pickle.dump((result, None), f, protocol=result_pickle_protocol)
+            pickle.dump(result, f, protocol=result_pickle_protocol)
 
 
 if __name__ == "__main__":

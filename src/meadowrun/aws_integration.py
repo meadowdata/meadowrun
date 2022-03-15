@@ -21,17 +21,17 @@ import aiohttp.client_exceptions
 import boto3
 import pandas as pd
 
-from meadowrun.agent_creator import (
+from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import ignore_boto3_error_code
+from meadowrun.instance_selection import (
     OnDemandOrSpotType,
+    Resources,
     choose_instance_types_for_job,
 )
-from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import ignore_boto3_error_code
-from meadowrun.resource_allocation import Resources
 
 # A security group that allows SSH, clients' IP addresses get added as needed
 _MEADOWRUN_SSH_SECURITY_GROUP = "meadowrunSshSecurityGroup"
 # An AMI with meadowrun installed
-_EC2ALLOC_AWS_AMI = "ami-00e8e7932ad2108c9"
+_EC2ALLOC_AWS_AMI = "ami-0877b2a968aa84574"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",
@@ -292,10 +292,16 @@ async def launch_ec2_instance(
             event_loop = asyncio.get_running_loop()
 
             def wait_until_running() -> None:
-                instance.wait_until_running()
-                event_loop.call_soon_threadsafe(
-                    lambda: instance_running_future.set_result(None)
-                )
+                try:
+                    instance.wait_until_running()
+                    event_loop.call_soon_threadsafe(
+                        lambda: instance_running_future.set_result(None)
+                    )
+                except Exception as e:
+                    exception = e
+                    event_loop.call_soon_threadsafe(
+                        lambda: instance_running_future.set_exception(exception)
+                    )
 
             threading.Thread(target=wait_until_running).start()
             await instance_running_future

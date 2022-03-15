@@ -36,10 +36,10 @@ from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import (
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
-from meadowrun.resource_allocation import (
+from meadowrun.instance_selection import (
     Resources,
-    _remaining_resources_sort_key,
-    _assert_is_not_none,
+    assert_is_not_none,
+    remaining_resources_sort_key,
 )
 
 
@@ -524,7 +524,7 @@ async def _choose_existing_ec2_instances(
         ec2_instances = _get_ec2_instances(table)
 
         sort_keys = [
-            _remaining_resources_sort_key(
+            remaining_resources_sort_key(
                 ec2_instance.available_resources, resources_required_per_job
             )
             for ec2_instance in ec2_instances
@@ -553,7 +553,7 @@ async def _choose_existing_ec2_instances(
                 num_jobs_proposed += 1
 
                 # decrease the agent's available_resources
-                chosen_ec2_instance.available_resources = _assert_is_not_none(
+                chosen_ec2_instance.available_resources = assert_is_not_none(
                     (
                         chosen_ec2_instance.available_resources.subtract(
                             resources_required_per_job
@@ -561,7 +561,7 @@ async def _choose_existing_ec2_instances(
                     )
                 )
                 # decrease the sort key for the chosen agent
-                sort_keys[chosen_index] = _remaining_resources_sort_key(
+                sort_keys[chosen_index] = remaining_resources_sort_key(
                     chosen_ec2_instance.available_resources, resources_required_per_job
                 )
 

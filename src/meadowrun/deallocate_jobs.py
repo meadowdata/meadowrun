@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any, ItemsView, Union, Iterable, Tuple
 
 import psutil
 
-from meadowrun.agent import _get_default_working_folder
+from meadowrun.run_job_local import _get_default_working_folder
 from meadowrun.aws_integration import _get_ec2_metadata
 from meadowrun.ec2_alloc import (
     get_jobs_on_ec2_instance,

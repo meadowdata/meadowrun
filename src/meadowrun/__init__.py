@@ -1,4 +1,4 @@
-from meadowrun.runner import (
+from meadowrun.run_job import (
     EC2AllocHost,
     EC2AllocHosts,
     LocalHost,
@@ -6,7 +6,6 @@ from meadowrun.runner import (
     run_command,
     run_function,
     run_map,
-    run_one_job,
 )
 
 from meadowrun.meadowrun_pb2 import (

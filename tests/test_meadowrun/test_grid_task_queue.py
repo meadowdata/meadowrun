@@ -12,7 +12,7 @@ from meadowrun.grid_task_queue import (
     worker_loop,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.runner import run_map, EC2AllocHosts
+from meadowrun.run_job import run_map, EC2AllocHosts
 from test_meadowrun.test_ec2_alloc import _PRIVATE_KEY_FILENAME
 
 

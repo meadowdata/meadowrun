@@ -37,6 +37,16 @@ CredentialsSource = Union[AwsSecret, ServerAvailableFile]
 # Represents a service that credentials can be used for
 CredentialsService = Literal["DOCKER", "GIT"]
 
+
+@dataclasses.dataclass(frozen=True)
+class CredentialsSourceForService:
+    """A CredentialsSource with metadata about what service it should be used for"""
+
+    service: CredentialsService
+    service_url: str
+    source: CredentialsSource
+
+
 # Maps from a Credentials.Service to a list of (service_url, CredentialsSource). This is
 # usually how we'll store a set of CredentialsSources
 CredentialsDict = Dict[
@@ -66,7 +76,7 @@ class SshKey(RawCredentials):
     private_key: str
 
 
-def get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
+def _get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
     if isinstance(source, AwsSecret):
         # TODO not sure if it's better to try to reuse a client/session or just create a
         #  new one each time? This seems related:
@@ -126,7 +136,7 @@ def get_matching_credentials(
         default=None,
     )
     if source is not None:
-        return get_credentials_from_source(source[1])
+        return _get_credentials_from_source(source[1])
     else:
         return None
 

@@ -4,7 +4,7 @@ import pytest
 
 from meadowrun import run_function, LocalHost
 from meadowrun.meadowrun_pb2 import ServerAvailableContainer, ProcessState
-from meadowrun.runner import Deployment, MeadowrunException
+from meadowrun.run_job import Deployment, MeadowrunException
 
 
 @pytest.mark.asyncio

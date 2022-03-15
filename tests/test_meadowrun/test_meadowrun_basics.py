@@ -5,7 +5,7 @@ import pytest
 
 import meadowrun.docker_controller
 from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.deployed_function import (
+from meadowrun.deployment import (
     CodeDeployment,
     InterpreterDeployment,
     VersionedCodeDeployment,
@@ -20,7 +20,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableInterpreter,
     ContainerAtDigest,
 )
-from meadowrun.runner import run_function, LocalHost, Deployment, run_command
+from meadowrun.run_job import run_function, LocalHost, Deployment, run_command
 
 EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()

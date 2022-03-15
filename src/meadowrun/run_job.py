@@ -15,6 +15,7 @@ from typing import (
     Callable,
     Dict,
     Generic,
+    Iterable,
     List,
     Optional,
     Sequence,
@@ -28,43 +29,42 @@ import cloudpickle
 import fabric
 import paramiko.ssh_exception
 
-from meadowrun.agent import run_one_job
+from meadowrun.run_job_local import run_local
 from meadowrun.aws_integration import _get_default_region_name
-from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.coordinator_client import (
-    _add_credentials_request,
-    _add_deployments_to_job,
-    _create_py_function,
-    _make_valid_job_id,
-    _pickle_protocol_for_deployed_interpreter,
-    _string_pairs_from_dict,
-)
-from meadowrun.credentials import CredentialsService, CredentialsSource
-from meadowrun.deployed_function import (
+from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
+from meadowrun.credentials import CredentialsSourceForService
+from meadowrun.deployment import (
     CodeDeployment,
     InterpreterDeployment,
-    MeadowRunFunction,
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
 from meadowrun.ec2_alloc import allocate_ec2_instances
-from meadowrun.grid import _get_id_name_function, _get_friendly_name
 from meadowrun.grid_task_queue import (
     get_results,
     worker_loop,
     create_queues_and_add_tasks,
 )
 from meadowrun.meadowrun_pb2 import (
-    AddCredentialsRequest,
+    AwsSecret,
+    ContainerAtDigest,
+    ContainerAtTag,
+    Credentials,
+    CredentialsSourceMessage,
+    GitRepoBranch,
+    GitRepoCommit,
     Job,
-    JobToRun2,
     ProcessState,
     PyCommandJob,
     PyFunctionJob,
-    ServerAvailableInterpreter,
+    QualifiedFunctionName,
+    ServerAvailableContainer,
+    ServerAvailableFile,
     ServerAvailableFolder,
+    ServerAvailableInterpreter,
+    StringPair,
 )
-from meadowrun.resource_allocation import Resources
+from meadowrun.instance_selection import Resources
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -95,22 +95,31 @@ async def _retry(
 
 
 @dataclasses.dataclass(frozen=True)
-class CredentialsSourceAndService:
-    """A CredentialsSource with metadata about what service it should be used for"""
-
-    service: CredentialsService
-    service_url: str
-    source: CredentialsSource
-
-
-@dataclasses.dataclass(frozen=True)
 class Deployment:
     interpreter: Union[
         InterpreterDeployment, VersionedInterpreterDeployment, None
     ] = None
     code: Union[CodeDeployment, VersionedCodeDeployment, None] = None
     environment_variables: Optional[Dict[str, str]] = None
-    credentials_sources: Optional[List[CredentialsSourceAndService]] = None
+    credentials_sources: Optional[List[CredentialsSourceForService]] = None
+
+
+def _credentials_source_message(
+    credentials_source: CredentialsSourceForService,
+) -> CredentialsSourceMessage:
+    result = CredentialsSourceMessage(
+        service=Credentials.Service.Value(credentials_source.service),
+        service_url=credentials_source.service_url,
+    )
+    if isinstance(credentials_source.source, AwsSecret):
+        result.aws_secret.CopyFrom(credentials_source.source)
+    elif isinstance(credentials_source.source, ServerAvailableFile):
+        result.server_available_file.CopyFrom(credentials_source.source)
+    else:
+        raise ValueError(
+            f"Unknown type of credentials source {type(credentials_source.source)}"
+        )
+    return result
 
 
 def _add_defaults_to_deployment(
@@ -118,8 +127,8 @@ def _add_defaults_to_deployment(
 ) -> Tuple[
     Union[InterpreterDeployment, VersionedInterpreterDeployment],
     Union[CodeDeployment, VersionedCodeDeployment],
-    Dict[str, str],
-    List[AddCredentialsRequest],
+    Iterable[StringPair],
+    List[CredentialsSourceMessage],
 ]:
     if deployment is None:
         return (
@@ -131,17 +140,24 @@ def _add_defaults_to_deployment(
 
     if deployment.credentials_sources:
         credentials_sources = [
-            _add_credentials_request(c.service, c.service_url, c.source)
-            for c in deployment.credentials_sources
+            _credentials_source_message(c) for c in deployment.credentials_sources
         ]
     else:
         credentials_sources = []
+
+    if deployment.environment_variables:
+        environment_variables = [
+            StringPair(key=key, value=value)
+            for key, value in deployment.environment_variables.items()
+        ]
+    else:
+        environment_variables = []
 
     return (
         deployment.interpreter
         or ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
         deployment.code or ServerAvailableFolder(),
-        deployment.environment_variables or {},
+        environment_variables,
         credentials_sources,
     )
 
@@ -166,14 +182,14 @@ class MeadowrunException(Exception):
 
 class Host(abc.ABC):
     @abc.abstractmethod
-    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
         pass
 
 
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
-    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
-        initial_update, continuation = await run_one_job(job_to_run)
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
+        initial_update, continuation = await run_local(job)
         if (
             initial_update.process_state.state != ProcessState.ProcessStateEnum.RUNNING
             or continuation is None
@@ -183,7 +199,7 @@ class LocalHost(Host):
             result = (await continuation).process_state
 
         if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            job_spec_type = job_to_run.job.WhichOneof("job_spec")
+            job_spec_type = job.WhichOneof("job_spec")
             # we must have a result from functions, in other cases we can optionally
             # have a result
             if job_spec_type == "py_function" or result.pickled_result:
@@ -210,7 +226,7 @@ class SshHost(Host):
     # these options are forwarded directly to Fabric
     fabric_kwargs: Optional[Dict[str, Any]] = None
 
-    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
         with fabric.Connection(
             self.address, **(self.fabric_kwargs or {})
         ) as connection:
@@ -241,12 +257,10 @@ class SshHost(Host):
                         "Error creating meadowrun directory " + mkdir_result.stdout
                     )
 
-                job_io_prefix = f"{remote_working_folder}/io/{job_to_run.job.job_id}"
+                job_io_prefix = f"{remote_working_folder}/io/{job.job_id}"
 
                 # serialize job_to_run and send it to the remote machine
-                with io.BytesIO(
-                    job_to_run.SerializeToString()
-                ) as job_to_run_serialized:
+                with io.BytesIO(job.SerializeToString()) as job_to_run_serialized:
                     connection.put(
                         job_to_run_serialized, remote=f"{job_io_prefix}.job_to_run"
                     )
@@ -267,8 +281,8 @@ class SshHost(Host):
                     try:
                         # use meadowrun to run the job
                         returned_result = connection.run(
-                            "/var/meadowrun/env/bin/meadowrun "
-                            f"--job-id {job_to_run.job.job_id} "
+                            "/var/meadowrun/env/bin/meadowrun_local "
+                            f"--job-id {job.job_id} "
                             f"--working-folder {remote_working_folder} "
                             # TODO this flag should only be passed in if we were
                             # originally using an EC2AllocHost
@@ -299,7 +313,7 @@ class SshHost(Host):
                     process_state.ParseFromString(result_buffer.read())
 
                 if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-                    job_spec_type = job_to_run.job.WhichOneof("job_spec")
+                    job_spec_type = job.WhichOneof("job_spec")
                     # we must have a result from functions, in other cases we can
                     # optionally have a result
                     if job_spec_type == "py_function" or process_state.pickled_result:
@@ -348,7 +362,7 @@ class EC2AllocHost(Host):
     region_name: Optional[str] = None
     private_key_filename: Optional[str] = None
 
-    async def run_job(self, job_to_run: JobToRun2) -> JobCompletion[Any]:
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
         hosts = await allocate_ec2_instances(
             Resources(self.memory_gb_required, self.logical_cpu_required, {}),
             1,
@@ -370,9 +384,9 @@ class EC2AllocHost(Host):
 
         # Kind of weird that we're changing the job_id here, but okay as long as job_id
         # remains mostly an internal concept
-        job_to_run.job.job_id = job_ids[0]
+        job.job_id = job_ids[0]
 
-        return await SshHost(host, fabric_kwargs).run_job(job_to_run)
+        return await SshHost(host, fabric_kwargs).run_job(job)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -388,6 +402,44 @@ class EC2AllocHosts:
     num_concurrent_tasks: Optional[int] = None
     region_name: Optional[str] = None
     private_key_filename: Optional[str] = None
+
+
+def _pickle_protocol_for_deployed_interpreter() -> int:
+    """
+    This is a placeholder, the intention is to get the deployed interpreter's version
+    somehow from the Deployment object or something like it and use that to determine
+    what the highest pickle protocol version we can use safely is.
+    """
+
+    # TODO just hard-coding the interpreter version for now, need to actually grab it
+    #  from the deployment somehow
+    interpreter_version = (3, 8, 0)
+
+    # based on documentation in
+    # https://docs.python.org/3/library/pickle.html#data-stream-format
+    if interpreter_version >= (3, 8, 0):
+        protocol = 5
+    elif interpreter_version >= (3, 4, 0):
+        protocol = 4
+    elif interpreter_version >= (3, 0, 0):
+        protocol = 3
+    else:
+        # TODO support for python 2 would require dealing with the string/bytes issue
+        raise NotImplementedError("We currently only support python 3")
+
+    return min(protocol, pickle.HIGHEST_PROTOCOL)
+
+
+def _make_valid_friendly_name(job_id: str) -> str:
+    return "".join(c for c in job_id if c in JOB_ID_VALID_CHARACTERS)
+
+
+def _get_friendly_name(function: Callable[[_T], _U]) -> str:
+    friendly_name = getattr(function, "__name__", "")
+    if not friendly_name:
+        friendly_name = "lambda"
+
+    return _make_valid_friendly_name(friendly_name)
 
 
 async def run_function(
@@ -408,26 +460,50 @@ async def run_function(
     The remote machine must have meadowrun installed as per build_meadowrun_amis.md
     """
 
+    pickle_protocol = _pickle_protocol_for_deployed_interpreter()
+
+    # first pickle the function arguments from job_run_spec
+
+    # TODO add support for compressions, pickletools.optimize, possibly cloudpickle?
+    # TODO also add the ability to write this to a shared location so that we don't need
+    #  to pass it through the server.
+    if args or kwargs:
+        pickled_function_arguments = pickle.dumps(
+            (args, kwargs), protocol=pickle_protocol
+        )
+    else:
+        # according to docs, None is translated to empty anyway
+        pickled_function_arguments = b""
+
+    # now, construct the PyFunctionJob
+
+    job_id = str(uuid.uuid4())
     if isinstance(function, str):
-        job_id = str(uuid.uuid4())
         friendly_name = function
         module_name, separator, function_name = function.rpartition(".")
         if not separator:
             raise ValueError(
                 f"Function must be in the form module_name.function_name: {function}"
             )
-        meadowgrid_function = MeadowRunFunction.from_name(
-            module_name, function_name, args, kwargs
+        py_function = PyFunctionJob(
+            pickled_function_arguments=pickled_function_arguments,
+            qualified_function_name=QualifiedFunctionName(
+                module_name=module_name,
+                function_name=function_name,
+            ),
         )
     else:
-        job_id, friendly_name, pickled_function = _get_id_name_function(function)
-        meadowgrid_function = MeadowRunFunction.from_pickled(
-            pickled_function, args, kwargs
+        friendly_name = _get_friendly_name(function)
+        pickled_function = cloudpickle.dumps(function)
+        # TODO larger functions should get copied to S3/filesystem instead of sent
+        # directly
+        print(f"Size of pickled function is {len(pickled_function)}")
+        py_function = PyFunctionJob(
+            pickled_function_arguments=pickled_function_arguments,
+            pickled_function=pickled_function,
         )
 
-    py_function = _create_py_function(
-        meadowgrid_function, _pickle_protocol_for_deployed_interpreter()
-    )
+    # now create the Job
 
     (
         interpreter,
@@ -437,18 +513,16 @@ async def run_function(
     ) = _add_defaults_to_deployment(deployment)
 
     job = Job(
-        job_id=_make_valid_job_id(job_id),
-        job_friendly_name=_make_valid_job_id(friendly_name),
-        environment_variables=_string_pairs_from_dict(environment_variables),
+        job_id=job_id,
+        job_friendly_name=friendly_name,
+        environment_variables=environment_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
+        credentials_sources=credentials_sources,
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    # TODO figure out what to do about the [0], which is there for dropping effects
-    return (
-        await host.run_job(JobToRun2(job=job, credentials_sources=credentials_sources))
-    ).result[0]
+    return (await host.run_job(job)).result
 
 
 async def run_command(
@@ -484,19 +558,18 @@ async def run_command(
         pickled_context_variables = b""
 
     job = Job(
-        job_id=_make_valid_job_id(job_id),
-        job_friendly_name=_make_valid_job_id(friendly_name),
-        environment_variables=_string_pairs_from_dict(environment_variables),
+        job_id=job_id,
+        job_friendly_name=_make_valid_friendly_name(friendly_name),
+        environment_variables=environment_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_command=PyCommandJob(
             command_line=args, pickled_context_variables=pickled_context_variables
         ),
+        credentials_sources=credentials_sources,
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    return await host.run_job(
-        JobToRun2(job=job, credentials_sources=credentials_sources)
-    )
+    return await host.run_job(job)
 
 
 async def run_map(
@@ -534,14 +607,13 @@ async def run_map(
     queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, args))
 
     # 3. prepare some variables for constructing the worker jobs
-    friendly_name = _make_valid_job_id(_get_friendly_name(function))
+    friendly_name = _get_friendly_name(function)
     (
         interpreter,
         code,
         environment_variables,
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
-    environment_variables = _string_pairs_from_dict(environment_variables)
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     fabric_kwargs: Dict[str, Any] = {"user": "ubuntu"}
     if hosts.private_key_filename:
@@ -575,15 +647,12 @@ async def run_map(
                         ([public_address, worker_id], {}), protocol=pickle_protocol
                     ),
                 ),
+                credentials_sources=credentials_sources,
             )
             _add_deployments_to_job(job, code, interpreter)
 
             worker_tasks.append(
-                asyncio.create_task(
-                    SshHost(public_address, fabric_kwargs).run_job(
-                        JobToRun2(job=job, credentials_sources=credentials_sources)
-                    )
-                )
+                asyncio.create_task(SshHost(public_address, fabric_kwargs).run_job(job))
             )
 
             worker_id += 1
@@ -596,3 +665,37 @@ async def run_map(
     await asyncio.gather(*worker_tasks)
 
     return results
+
+
+def _add_deployments_to_job(
+    job: Job,
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
+) -> None:
+    """
+    Think of this as job.code_deployment = code_deployment; job.interpreter_deployment =
+    interpreter_deployment, but it's complicated because these are protobuf oneofs
+    """
+    if isinstance(code_deployment, ServerAvailableFolder):
+        job.server_available_folder.CopyFrom(code_deployment)
+    elif isinstance(code_deployment, GitRepoCommit):
+        job.git_repo_commit.CopyFrom(code_deployment)
+    elif isinstance(code_deployment, GitRepoBranch):
+        job.git_repo_branch.CopyFrom(code_deployment)
+    else:
+        raise ValueError(f"Unknown code deployment type {type(code_deployment)}")
+
+    if isinstance(interpreter_deployment, ServerAvailableInterpreter):
+        job.server_available_interpreter.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, ContainerAtDigest):
+        job.container_at_digest.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, ServerAvailableContainer):
+        job.server_available_container.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, ContainerAtTag):
+        job.container_at_tag.CopyFrom(interpreter_deployment)
+    else:
+        raise ValueError(
+            f"Unknown interpreter deployment type {type(interpreter_deployment)}"
+        )

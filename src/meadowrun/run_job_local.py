@@ -10,7 +10,6 @@ import sys
 import traceback
 from typing import (
     Any,
-    Callable,
     Coroutine,
     Dict,
     Iterable,
@@ -23,7 +22,7 @@ from typing import (
 
 import aiodocker.containers
 
-from meadowrun.code_deployment import get_code_paths
+from meadowrun.deployment_manager import get_code_paths
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
     MEADOWRUN_CODE_MOUNT_LINUX,
@@ -45,7 +44,6 @@ from meadowrun.meadowrun_pb2 import (
     Credentials,
     Job,
     JobStateUpdate,
-    JobToRun2,
     ProcessState,
     PyFunctionJob,
     StringPair,
@@ -273,185 +271,13 @@ def _prepare_py_function(
     )
 
 
-async def _launch_job(
-    job: Job,
-    grid_worker_id: Optional[str],
-    io_folder: str,
-    job_logs_folder: str,
-    coordinator_address: str,
-    git_repos_folder: str,
-    local_copies_folder: str,
-    free_resources: Callable[[], None],
-    code_deployment_credentials: Optional[RawCredentials],
-    interpreter_deployment_credentials: Optional[RawCredentials],
-) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
-    """
-    Gets the deployment needed and launches a child process to run the specified job.
-
-    Returns a tuple of (initial job state, continuation).
-
-    The initial job state will either be RUNNING or RUN_REQUEST_FAILED. If the initial
-    job state is RUNNING, this should be reported back to the coordinator so that the
-    coordinator/end-user knows the pid and log_file_name of the child process for that
-    job.
-
-    If the initial job state is RUNNING, then continuation will be an asyncio Task that
-    will complete once the child process has completed, and then return another
-    JobStateUpdate that indicates how the job completed, e.g. SUCCEEDED,
-    PYTHON_EXCEPTION, NON_ZERO_RETURN_CODE.
-
-    If the initial job state is RUN_REQUEST_FAILED, the continuation will be None, as
-    there is no need for additional updates on the state of this job.
-
-    free_resources is a function that needs to be called whenever the function "ends",
-    regardless of how it ends
-    """
-
-    try:
-        # first, just get whether we're running in a container or not
-
-        interpreter_deployment = job.WhichOneof("interpreter_deployment")
-        is_container = interpreter_deployment in (
-            "container_at_digest",
-            "container_at_tag",
-            "server_available_container",
-        )
-
-        # next, transform job_spec into _JobSpecTransformed. _JobSpecTransformed can all
-        # be run the same way, i.e. we no longer have to worry about the differences in
-        # the job_specs after this section
-
-        job_spec_type = job.WhichOneof("job_spec")
-
-        if job_spec_type == "py_command":
-            job_spec_transformed = _prepare_py_command(job, io_folder, is_container)
-        elif job_spec_type == "py_function":
-            job_spec_transformed = _prepare_py_function(job, io_folder, is_container)
-        else:
-            raise ValueError(f"Unknown job_spec {job_spec_type}")
-
-        # next, prepare a few other things
-
-        # add the agent pid, but don't modify if it already exists somehow
-        if MEADOWRUN_AGENT_PID not in job_spec_transformed.environment_variables:
-            job_spec_transformed.environment_variables[MEADOWRUN_AGENT_PID] = str(
-                os.getpid()
-            )
-
-        # Merge in the user specified environment, variables, these should always take
-        # precedence. A little sloppy to modify in place, but should be fine
-        # TODO consider warning if we're overwriting any variables that already exist
-        job_spec_transformed.environment_variables.update(
-            **_string_pairs_to_dict(job.environment_variables)
-        )
-        code_paths = await get_code_paths(
-            git_repos_folder, local_copies_folder, job, code_deployment_credentials
-        )
-        grid_worker_id_for_filename = f".{grid_worker_id}" if grid_worker_id else ""
-        log_file_name = os.path.join(
-            job_logs_folder,
-            f"{job.job_friendly_name}.{job.job_id}{grid_worker_id_for_filename}.log",
-        )
-
-        # next we need to launch the job depending on how we've specified the
-        # interpreter
-
-        if interpreter_deployment == "server_available_interpreter":
-            pid, continuation = await _launch_non_container_job(
-                job_spec_type,
-                job_spec_transformed,
-                code_paths,
-                log_file_name,
-                job,
-                grid_worker_id,
-                io_folder,
-                free_resources,
-            )
-            # due to the way protobuf works, this is equivalent to None
-            container_id = ""
-        elif is_container:
-            if interpreter_deployment == "container_at_digest":
-                container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"  # noqa: E501
-                await pull_image(
-                    container_image_name, interpreter_deployment_credentials
-                )
-            elif interpreter_deployment == "container_at_tag":
-                # warning this is not reproducible!!! should ideally be resolved on the
-                # client
-                container_image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"  # noqa: E501
-                await pull_image(
-                    container_image_name, interpreter_deployment_credentials
-                )
-            elif interpreter_deployment == "server_available_container":
-                container_image_name = job.server_available_container.image_name
-                # server_available_container assumes that we do not need to pull, and it
-                # may not be possible to pull it (i.e. it only exists locally)
-            else:
-                raise ValueError(
-                    f"Unexpected interpreter_deployment: {interpreter_deployment}"
-                )
-
-            container_id, continuation = await _launch_container_job(
-                job_spec_type,
-                container_image_name,
-                job_spec_transformed,
-                code_paths,
-                log_file_name,
-                job,
-                grid_worker_id,
-                io_folder,
-                free_resources,
-            )
-            # due to the way protobuf works, this is equivalent to None
-            pid = 0
-        else:
-            raise ValueError(
-                f"Did not recognize interpreter_deployment {interpreter_deployment}"
-            )
-
-        # launching the process succeeded, return the RUNNING state and create the
-        # continuation
-        return (
-            JobStateUpdate(
-                job_id=job.job_id,
-                grid_worker_id=grid_worker_id or "",
-                process_state=ProcessState(
-                    state=ProcessStateEnum.RUNNING,
-                    pid=pid,
-                    container_id=container_id,
-                    log_file_name=log_file_name,
-                ),
-            ),
-            asyncio.create_task(continuation),
-        )
-    except Exception as e:
-        # we failed to launch the process
-        free_resources()
-
-        return (
-            JobStateUpdate(
-                job_id=job.job_id,
-                grid_worker_id=grid_worker_id or "",
-                process_state=ProcessState(
-                    state=ProcessStateEnum.RUN_REQUEST_FAILED,
-                    pickled_result=pickle_exception(
-                        e, job.result_highest_pickle_protocol
-                    ),
-                ),
-            ),
-            None,
-        )
-
-
 async def _launch_non_container_job(
     job_spec_type: Literal["py_command", "py_function"],
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
     log_file_name: str,
     job: Job,
-    grid_worker_id: Optional[str],
     io_folder: str,
-    free_resources: Callable[[], None],
 ) -> Tuple[int, Coroutine[Any, Any, JobStateUpdate]]:
     """
     Contains logic specific to launching jobs that run using
@@ -543,11 +369,9 @@ async def _launch_non_container_job(
         process,
         job_spec_type,
         job.job_id,
-        grid_worker_id,
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
-        free_resources,
     )
 
 
@@ -555,11 +379,9 @@ async def _non_container_job_continuation(
     process: asyncio.subprocess.Process,
     job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
-    grid_worker_id: Optional[str],
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
-    free_resources: Callable[[], None],
 ) -> JobStateUpdate:
     """
     Takes an asyncio.subprocess.Process, waits for it to finish, gets results from
@@ -576,7 +398,6 @@ async def _non_container_job_continuation(
         return _completed_job_state(
             job_spec_type,
             job_id,
-            grid_worker_id,
             io_folder,
             log_file_name,
             returncode,
@@ -587,14 +408,11 @@ async def _non_container_job_continuation(
         # there was an exception while trying to get the final JobStateUpdate
         return JobStateUpdate(
             job_id=job_id,
-            grid_worker_id=grid_worker_id or "",
             process_state=ProcessState(
                 state=ProcessStateEnum.ERROR_GETTING_STATE,
                 pickled_result=pickle_exception(e, result_highest_pickle_protocol),
             ),
         )
-    finally:
-        free_resources()
 
 
 async def _launch_container_job(
@@ -604,9 +422,7 @@ async def _launch_container_job(
     code_paths: Sequence[str],
     log_file_name: str,
     job: Job,
-    grid_worker_id: Optional[str],
     io_folder: str,
-    free_resources: Callable[[], None],
 ) -> Tuple[str, Coroutine[Any, Any, JobStateUpdate]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
@@ -683,11 +499,9 @@ async def _launch_container_job(
         container,
         job_spec_type,
         job.job_id,
-        grid_worker_id,
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
-        free_resources,
     )
 
 
@@ -695,11 +509,9 @@ async def _container_job_continuation(
     container: aiodocker.containers.DockerContainer,
     job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
-    grid_worker_id: Optional[str],
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
-    free_resources: Callable[[], None],
 ) -> JobStateUpdate:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
@@ -724,7 +536,6 @@ async def _container_job_continuation(
         return _completed_job_state(
             job_spec_type,
             job_id,
-            grid_worker_id,
             io_folder,
             log_file_name,
             return_code,
@@ -739,20 +550,16 @@ async def _container_job_continuation(
         # there was an exception while trying to get the final JobStateUpdate
         return JobStateUpdate(
             job_id=job_id,
-            grid_worker_id=grid_worker_id or "",
             process_state=ProcessState(
                 state=ProcessStateEnum.ERROR_GETTING_STATE,
                 pickled_result=pickle_exception(e, result_highest_pickle_protocol),
             ),
         )
-    finally:
-        free_resources()
 
 
 def _completed_job_state(
     job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
-    grid_worker_id: Optional[str],
     io_folder: str,
     log_file_name: str,
     return_code: int,
@@ -768,7 +575,6 @@ def _completed_job_state(
     if return_code != 0:
         return JobStateUpdate(
             job_id=job_id,
-            grid_worker_id=grid_worker_id or "",
             process_state=ProcessState(
                 state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
                 # TODO some other number? we should have either pid or container_id.
@@ -812,7 +618,6 @@ def _completed_job_state(
     # return the JobStateUpdate
     return JobStateUpdate(
         job_id=job_id,
-        grid_worker_id=grid_worker_id or "",
         process_state=ProcessState(
             state=state,
             pid=pid or 0,
@@ -867,12 +672,8 @@ def _set_up_working_folder(
     return io_folder, job_logs_folder, git_repos_folder, local_copies_folder
 
 
-def _no_op() -> None:
-    pass
-
-
 def _get_credentials_for_job(
-    job_to_run: JobToRun2,
+    job: Job,
 ) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
     """
     Gets the credentials for the code_deployment, interpreter_deployment for job_to_run.
@@ -885,7 +686,7 @@ def _get_credentials_for_job(
 
     # first, get all available credentials sources from the JobToRun
     credentials_sources: CredentialsDict = {}
-    for credentials_source in job_to_run.credentials_sources:
+    for credentials_source in job.credentials_sources:
         source = credentials_source.WhichOneof("source")
         if source is None:
             raise ValueError(
@@ -898,7 +699,6 @@ def _get_credentials_for_job(
 
     # now, get any matching credentials sources and turn them into credentials
     code_deployment_credentials, interpreter_deployment_credentials = None, None
-    job = job_to_run.job
 
     code_deployment_type = job.WhichOneof("code_deployment")
     if code_deployment_type in ("git_repo_commit", "git_repo_branch"):
@@ -935,15 +735,25 @@ def _get_credentials_for_job(
     return code_deployment_credentials, interpreter_deployment_credentials
 
 
-async def run_one_job(
-    job_to_run: JobToRun2, working_folder: Optional[str] = None
+async def run_local(
+    job: Job, working_folder: Optional[str] = None
 ) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
     """
-    Runs one job using the specified working_folder (or uses the default). Returns a
-    ProcessState when the job finishes.
+    Runs a job locally using the specified working_folder (or uses the default). Meant
+    to be called on the "server" where the client is calling e.g. run_function.
 
-    job_to_run.grid_worker_id, job.priority, job.interruption_probability_threshold are
-    not used
+    Returns a tuple of (initial job state, continuation).
+
+    The initial job state will either be RUNNING or RUN_REQUEST_FAILED. If the initial
+    job state is RUNNING, this should be reported back to the client so that the user
+    knows the pid and log_file_name of the child process for that job.
+
+    If the initial job state is RUNNING, then continuation will be an asyncio Task that
+    will complete once the child process has completed, and then return another
+    JobStateUpdate that indicates how the job completed, e.g. SUCCEEDED,
+    PYTHON_EXCEPTION, NON_ZERO_RETURN_CODE.
+
+    If the initial job state is RUN_REQUEST_FAILED, the continuation will be None.
     """
 
     (
@@ -957,20 +767,130 @@ async def run_one_job(
     (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-    ) = _get_credentials_for_job(job_to_run)
+    ) = _get_credentials_for_job(job)
 
-    # run the job and return the results
-    return await _launch_job(
-        job_to_run.job,
-        None,
-        io_folder,
-        job_logs_folder,
-        # we only need a coordinator host for g rid jobs
-        "",
-        git_repos_folder,
-        local_copies_folder,
-        # we're not managing resources because we're only running a single job
-        _no_op,
-        code_deployment_credentials,
-        interpreter_deployment_credentials,
-    )
+    try:
+        # first, just get whether we're running in a container or not
+
+        interpreter_deployment = job.WhichOneof("interpreter_deployment")
+        is_container = interpreter_deployment in (
+            "container_at_digest",
+            "container_at_tag",
+            "server_available_container",
+        )
+
+        # next, transform job_spec into _JobSpecTransformed. _JobSpecTransformed can all
+        # be run the same way, i.e. we no longer have to worry about the differences in
+        # the job_specs after this section
+
+        job_spec_type = job.WhichOneof("job_spec")
+
+        if job_spec_type == "py_command":
+            job_spec_transformed = _prepare_py_command(job, io_folder, is_container)
+        elif job_spec_type == "py_function":
+            job_spec_transformed = _prepare_py_function(job, io_folder, is_container)
+        else:
+            raise ValueError(f"Unknown job_spec {job_spec_type}")
+
+        # next, prepare a few other things
+
+        # add the agent pid, but don't modify if it already exists somehow
+        if MEADOWRUN_AGENT_PID not in job_spec_transformed.environment_variables:
+            job_spec_transformed.environment_variables[MEADOWRUN_AGENT_PID] = str(
+                os.getpid()
+            )
+
+        # Merge in the user specified environment, variables, these should always take
+        # precedence. A little sloppy to modify in place, but should be fine
+        # TODO consider warning if we're overwriting any variables that already exist
+        job_spec_transformed.environment_variables.update(
+            **_string_pairs_to_dict(job.environment_variables)
+        )
+        code_paths = await get_code_paths(
+            git_repos_folder, local_copies_folder, job, code_deployment_credentials
+        )
+        log_file_name = os.path.join(
+            job_logs_folder,
+            f"{job.job_friendly_name}.{job.job_id}.log",
+        )
+
+        # next we need to launch the job depending on how we've specified the
+        # interpreter
+
+        if interpreter_deployment == "server_available_interpreter":
+            pid, continuation = await _launch_non_container_job(
+                job_spec_type,
+                job_spec_transformed,
+                code_paths,
+                log_file_name,
+                job,
+                io_folder,
+            )
+            # due to the way protobuf works, this is equivalent to None
+            container_id = ""
+        elif is_container:
+            if interpreter_deployment == "container_at_digest":
+                container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"  # noqa: E501
+                await pull_image(
+                    container_image_name, interpreter_deployment_credentials
+                )
+            elif interpreter_deployment == "container_at_tag":
+                # warning this is not reproducible!!! should ideally be resolved on the
+                # client
+                container_image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"  # noqa: E501
+                await pull_image(
+                    container_image_name, interpreter_deployment_credentials
+                )
+            elif interpreter_deployment == "server_available_container":
+                container_image_name = job.server_available_container.image_name
+                # server_available_container assumes that we do not need to pull, and it
+                # may not be possible to pull it (i.e. it only exists locally)
+            else:
+                raise ValueError(
+                    f"Unexpected interpreter_deployment: {interpreter_deployment}"
+                )
+
+            container_id, continuation = await _launch_container_job(
+                job_spec_type,
+                container_image_name,
+                job_spec_transformed,
+                code_paths,
+                log_file_name,
+                job,
+                io_folder,
+            )
+            # due to the way protobuf works, this is equivalent to None
+            pid = 0
+        else:
+            raise ValueError(
+                f"Did not recognize interpreter_deployment {interpreter_deployment}"
+            )
+
+        # launching the process succeeded, return the RUNNING state and create the
+        # continuation
+        return (
+            JobStateUpdate(
+                job_id=job.job_id,
+                process_state=ProcessState(
+                    state=ProcessStateEnum.RUNNING,
+                    pid=pid,
+                    container_id=container_id,
+                    log_file_name=log_file_name,
+                ),
+            ),
+            asyncio.create_task(continuation),
+        )
+    except Exception as e:
+        # we failed to launch the process
+        return (
+            JobStateUpdate(
+                job_id=job.job_id,
+                process_state=ProcessState(
+                    state=ProcessStateEnum.RUN_REQUEST_FAILED,
+                    pickled_result=pickle_exception(
+                        e, job.result_highest_pickle_protocol
+                    ),
+                ),
+            ),
+            None,
+        )

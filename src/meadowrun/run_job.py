@@ -77,7 +77,7 @@ _DEFAULT_CONCURRENT_TASKS_FACTOR = 0.5
 
 async def _retry(
     function: Callable[[], _T],
-    exception_types: Exception,
+    exception_types: Union[Exception, Tuple[Exception, ...]],
     max_num_attempts: int = 3,
     delay_seconds: float = 1,
 ) -> _T:
@@ -242,7 +242,10 @@ class SshHost(Host):
                 # connect to the remote machine.
                 home_result = await _retry(
                     lambda: connection.run("echo $HOME"),
-                    cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
+                    (
+                        cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
+                        cast(Exception, TimeoutError),
+                    ),
                 )
                 if not home_result.ok:
                     raise ValueError(

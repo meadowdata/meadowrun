@@ -340,10 +340,16 @@ async def launch_ec2_instance(
             waiter = client.get_waiter("spot_instance_request_fulfilled")
 
             def wait_until_running() -> None:
-                waiter.wait(SpotInstanceRequestIds=[spot_instance_request_id])
-                event_loop.call_soon_threadsafe(
-                    lambda: instance_running_future.set_result(None)
-                )
+                try:
+                    waiter.wait(SpotInstanceRequestIds=[spot_instance_request_id])
+                    event_loop.call_soon_threadsafe(
+                        lambda: instance_running_future.set_result(None)
+                    )
+                except Exception as e:
+                    exception = e
+                    event_loop.call_soon_threadsafe(
+                        lambda: instance_running_future.set_exception(exception)
+                    )
 
             threading.Thread(target=wait_until_running).start()
             await instance_running_future

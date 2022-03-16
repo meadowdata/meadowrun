@@ -11,7 +11,7 @@ from typing import Any, List, Dict, Tuple, Callable, TypeVar
 
 import boto3
 
-import meadowrun.ec2_alloc_lambda
+import meadowrun.management_lambdas
 from meadowrun.aws_integration import (
     _EC2ALLOC_AWS_AMI,
     _EC2_ASSUME_ROLE_POLICY_DOCUMENT,
@@ -21,8 +21,9 @@ from meadowrun.aws_integration import (
     ensure_meadowrun_ssh_security_group,
     launch_ec2_instances,
 )
-from meadowrun.ec2_alloc_lambda.adjust_ec2_instances import lambda_handler
-from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import (
+import meadowrun.management_lambdas.adjust_ec2_instances
+import meadowrun.management_lambdas.delete_task_queues
+from meadowrun.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
     _EC2_ALLOC_TABLE_NAME,
     _EC2_ALLOC_TAG,
@@ -115,10 +116,17 @@ _MEADOWRUN_SQS_ACCESS_POLICY_DOCUMENT = """{
 
 # the name of the lambda that runs adjust_ec2_instances.py
 _EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
-# the role that the lambda runs under
-_EC2_ALLOC_LAMBDA_ROLE = "meadowrun_ec2_alloc_lambda_role"
 # the EventBridge rule that triggers the lambda
 _EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowrun_ec2_alloc_lambda_schedule_rule"
+
+# the name of the lambda that runs delete_old_task_queues.py
+_DELETE_TASK_QUEUES_LAMBDA_NAME = "meadowrun_delete_task_queues_lambda"
+_DELETE_TASK_QUEUES_LAMBDA_SCHEDULE_RULE = (
+    "meadowrun_delete_task_queues_lambda_schedule_rule"
+)
+
+# the role that these lambdas run as
+_MANAGEMENT_LAMBDA_ROLE = "meadowrun_management_lambda_role"
 
 
 def _get_account_number() -> str:
@@ -722,9 +730,9 @@ def _get_zipped_lambda_code() -> bytes:
     Warning, this doesn't recurse into any subdirectories (because it is not currently
     needed)
     """
-    lambda_root_path = meadowrun.ec2_alloc_lambda.__path__[0]
+    lambda_root_path = meadowrun.management_lambdas.__path__[0]
     module_names = [name for _, name, _ in pkgutil.iter_modules([lambda_root_path])]
-    path_prefix = meadowrun.ec2_alloc_lambda.__name__.replace(".", os.path.sep)
+    path_prefix = meadowrun.management_lambdas.__name__.replace(".", os.path.sep)
 
     with io.BytesIO() as buffer:
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -739,15 +747,15 @@ def _get_zipped_lambda_code() -> bytes:
         return buffer.read()
 
 
-def _ensure_ec2_alloc_lambda_role(region_name: str) -> None:
+def _ensure_management_lambda_role(region_name: str) -> None:
     """Creates the role for the ec2 alloc lambda to run as"""
     iam = boto3.client("iam", region_name=region_name)
-    if not _iam_role_exists(iam, _EC2_ALLOC_LAMBDA_ROLE):
+    if not _iam_role_exists(iam, _MANAGEMENT_LAMBDA_ROLE):
         # create the role
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.ServiceResource.create_role
         ignore_boto3_error_code(
             lambda: iam.create_role(
-                RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+                RoleName=_MANAGEMENT_LAMBDA_ROLE,
                 # allow EC2 instances to assume this role
                 AssumeRolePolicyDocument=_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
                 Description="Allows reading/writing the EC2 alloc table and "
@@ -759,41 +767,51 @@ def _ensure_ec2_alloc_lambda_role(region_name: str) -> None:
         # allow accessing the EC2 alloc dynamodb table
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.attach_role_policy
         iam.attach_role_policy(
-            RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
             PolicyArn=_ensure_ec2_alloc_table_access_policy(iam),
         )
 
         # allow creating/terminating EC2 instances
         iam.attach_role_policy(
-            RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
             # TODO should create a policy that only allows what we actually need
             PolicyArn="arn:aws:iam::aws:policy/AmazonEC2FullAccess",
+        )
+
+        # allow deleting SQS queues
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            # TODO should create a policy that only allows what we actually need
+            PolicyArn="arn:aws:iam::aws:policy/AmazonSQSFullAccess",
         )
 
         # allow writing CloudWatch logs
         # TODO also configure CloudWatch retention so that we don't keep everything
         # forever
         iam.attach_role_policy(
-            RoleName=_EC2_ALLOC_LAMBDA_ROLE,
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
             PolicyArn="arn:aws:iam::aws:policy/service-role/"
             "AWSLambdaBasicExecutionRole",
         )
 
 
-async def _create_ec2_alloc_lambda(region_name: str, lambda_client: Any) -> None:
+async def _create_management_lambda(
+    lambda_client: Any,
+    lambda_handler: Any,
+    lambda_name: str,
+    schedule_rule_name: str,
+    schedule_expression: str,
+) -> None:
     """Creates the ec2 alloc lambda assuming it does not already exist"""
     account_number = _get_account_number()
-
-    # create the role that the lambda will run as
-    _ensure_ec2_alloc_lambda_role(region_name)
 
     # create the lambda
     def create_function_if_not_exists() -> Tuple[bool, None]:
         ignore_boto3_error_code(
             lambda: lambda_client.create_function(
-                FunctionName=_EC2_ALLOC_LAMBDA_NAME,
+                FunctionName=lambda_name,
                 Runtime="python3.9",
-                Role=f"arn:aws:iam::{account_number}:role/{_EC2_ALLOC_LAMBDA_ROLE}",
+                Role=f"arn:aws:iam::{account_number}:role/{_MANAGEMENT_LAMBDA_ROLE}",
                 Handler=f"{lambda_handler.__module__}.{lambda_handler.__name__}",
                 Code={"ZipFile": _get_zipped_lambda_code()},
                 Timeout=120,
@@ -818,19 +836,18 @@ async def _create_ec2_alloc_lambda(region_name: str, lambda_client: Any) -> None
     events_client = boto3.client("events")
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/events.html#EventBridge.Client.put_rule
     events_client.put_rule(
-        Name=_EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
-        ScheduleExpression="rate(1 minute)",
+        Name=schedule_rule_name, ScheduleExpression=schedule_expression
     )
 
     # add the lambda as a target for that rule
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/events.html#EventBridge.Client.put_targets
     events_client.put_targets(
-        Rule=_EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+        Rule=schedule_rule_name,
         Targets=[
             {
-                "Id": _EC2_ALLOC_LAMBDA_NAME,
+                "Id": lambda_name,
                 "Arn": f"arn:aws:lambda:us-east-2:{account_number}:function:"
-                f"{_EC2_ALLOC_LAMBDA_NAME}",
+                f"{lambda_name}",
             }
         ],
     )
@@ -839,40 +856,76 @@ async def _create_ec2_alloc_lambda(region_name: str, lambda_client: Any) -> None
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/lambda.html#Lambda.Client.add_permission
     ignore_boto3_error_code(
         lambda: lambda_client.add_permission(
-            FunctionName=_EC2_ALLOC_LAMBDA_NAME,
-            StatementId=f"{_EC2_ALLOC_LAMBDA_SCHEDULE_RULE}_invokes_"
-            f"{_EC2_ALLOC_LAMBDA_NAME}",
+            FunctionName=lambda_name,
+            StatementId=f"{schedule_rule_name}_invokes_{lambda_name}",
             Action="lambda:InvokeFunction",
             Principal="events.amazonaws.com",
-            SourceArn=f"arn:aws:events:us-east-2:{account_number}:rule/"
-            f"{_EC2_ALLOC_LAMBDA_SCHEDULE_RULE}",
+            SourceArn=(
+                f"arn:aws:events:us-east-2:{account_number}:rule/{schedule_rule_name}"
+            ),
         ),
         "ResourceConflictException",
     )
 
 
-async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
+async def _ensure_management_lambda(
+    lambda_handler: Any,
+    lambda_name: str,
+    schedule_rule_name: str,
+    schedule_expression: str,
+    update_if_exists: bool,
+) -> None:
     """
-    Create the ec2 alloc lambda if it doesn't exist. If update_if_exists is true,
-    updates the code if the lambda already exists.
+    Create the specified management lambda if it doesn't exist. If update_if_exists is
+    true, updates the code if the lambda already exists.
 
     Even if this is called with update_if_exists, it is not guaranteed to update the
     code if another process creates the lambda after this function starts executing.
     """
+
     region_name = await _get_default_region_name()
     lambda_client = boto3.client("lambda", region_name=region_name)
 
     exists, _ = ignore_boto3_error_code(
-        lambda: lambda_client.get_function(FunctionName=_EC2_ALLOC_LAMBDA_NAME),
+        lambda: lambda_client.get_function(FunctionName=lambda_name),
         "ResourceNotFoundException",
     )
 
     if not exists:
-        await _create_ec2_alloc_lambda(region_name, lambda_client)
+        # create the role that the lambda will run as
+        _ensure_management_lambda_role(region_name)
+
+        await _create_management_lambda(
+            lambda_client,
+            lambda_handler,
+            lambda_name,
+            schedule_rule_name,
+            schedule_expression,
+        )
     elif update_if_exists:
         lambda_client.update_function_code(
-            FunctionName=_EC2_ALLOC_LAMBDA_NAME, ZipFile=_get_zipped_lambda_code()
+            FunctionName=lambda_name, ZipFile=_get_zipped_lambda_code()
         )
+
+
+async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
+    await _ensure_management_lambda(
+        meadowrun.management_lambdas.adjust_ec2_instances.lambda_handler,
+        _EC2_ALLOC_LAMBDA_NAME,
+        _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+        "rate(1 minute)",
+        update_if_exists,
+    )
+
+
+async def ensure_delete_task_queues_lambda(update_if_exists: bool = False) -> None:
+    await _ensure_management_lambda(
+        meadowrun.management_lambdas.adjust_ec2_instances.lambda_handler,
+        _DELETE_TASK_QUEUES_LAMBDA_NAME,
+        _DELETE_TASK_QUEUES_LAMBDA_SCHEDULE_RULE,
+        "rate(3 hours)",
+        update_if_exists,
+    )
 
 
 def _detach_all_policies(iam: Any, role_name: str) -> None:
@@ -889,23 +942,37 @@ def _detach_all_policies(iam: Any, role_name: str) -> None:
 
 
 def delete_meadowrun_resources(region_name: str) -> None:
-    """Delete all AWS resources that meadowrun creates"""
+    """
+    Delete all AWS resources that meadowrun creates
+
+    This needs to contain all old names/types of resources in every published version of
+    this library.
+    """
 
     iam = boto3.client("iam", region_name=region_name)
 
-    iam.remove_role_from_instance_profile(
-        RoleName=_EC2_ALLOC_ROLE, InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE
+    ignore_boto3_error_code(
+        lambda: iam.remove_role_from_instance_profile(
+            RoleName=_EC2_ALLOC_ROLE,
+            InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE,
+        ),
+        "NoSuchEntity",
     )
-    iam.delete_instance_profile(InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE)
+    ignore_boto3_error_code(
+        lambda: iam.delete_instance_profile(
+            InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE
+        ),
+        "NoSuchEntity",
+    )
 
     _detach_all_policies(iam, _EC2_ALLOC_ROLE)
     ignore_boto3_error_code(
         lambda: iam.delete_role(RoleName=_EC2_ALLOC_ROLE), "NoSuchEntity"
     )
 
-    _detach_all_policies(iam, _EC2_ALLOC_LAMBDA_ROLE)
+    _detach_all_policies(iam, _MANAGEMENT_LAMBDA_ROLE)
     ignore_boto3_error_code(
-        lambda: iam.delete_role(RoleName=_EC2_ALLOC_LAMBDA_ROLE), "NoSuchEntity"
+        lambda: iam.delete_role(RoleName=_MANAGEMENT_LAMBDA_ROLE), "NoSuchEntity"
     )
 
     table_access_policy_arn = _ensure_ec2_alloc_table_access_policy(iam)
@@ -923,5 +990,12 @@ def delete_meadowrun_resources(region_name: str) -> None:
         lambda: lambda_client.delete_function(FunctionName=_EC2_ALLOC_LAMBDA_NAME),
         "ResourceNotFoundException",
     )
+    ignore_boto3_error_code(
+        lambda: lambda_client.delete_function(
+            FunctionName=_DELETE_TASK_QUEUES_LAMBDA_NAME
+        ),
+        "ResourceNotFoundException",
+    )
+    # TODO also delete schedule rules?
 
     # TODO also delete other resources like security groups, dynamodb table, SQS queues

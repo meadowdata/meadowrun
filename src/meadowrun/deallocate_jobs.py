@@ -13,7 +13,7 @@ from meadowrun.ec2_alloc import (
     get_jobs_on_ec2_instance,
     deallocate_job_from_ec2_instance,
 )
-from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import _ALLOCATED_TIME
+from meadowrun.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
 
 # If a job is allocated but we never see a pid file for it, we assume after this amount
 # of time that the client process crashed

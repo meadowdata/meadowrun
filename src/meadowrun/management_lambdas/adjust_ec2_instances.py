@@ -8,7 +8,7 @@ from typing import Dict, Tuple, Any
 
 import boto3
 
-from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import (
+from meadowrun.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,

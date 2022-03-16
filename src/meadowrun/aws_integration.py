@@ -21,7 +21,7 @@ import aiohttp.client_exceptions
 import boto3
 import pandas as pd
 
-from meadowrun.ec2_alloc_lambda.ec2_alloc_stub import ignore_boto3_error_code
+from meadowrun.management_lambdas.ec2_alloc_stub import ignore_boto3_error_code
 from meadowrun.instance_selection import (
     OnDemandOrSpotType,
     Resources,

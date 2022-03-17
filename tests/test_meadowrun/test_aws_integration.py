@@ -1,4 +1,4 @@
-from meadowrun.aws_integration import (
+from meadowrun.aws_integration.aws_core import (
     _get_ec2_instance_types,
 )
 from meadowrun.instance_selection import Resources, choose_instance_types_for_job

@@ -11,8 +11,8 @@ from typing import Any, List, Dict, Tuple, Callable, TypeVar
 
 import boto3
 
-import meadowrun.management_lambdas
-from meadowrun.aws_integration import (
+import meadowrun.aws_integration.management_lambdas
+from meadowrun.aws_integration.aws_core import (
     _EC2ALLOC_AWS_AMI,
     _EC2_ASSUME_ROLE_POLICY_DOCUMENT,
     _LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
@@ -21,9 +21,9 @@ from meadowrun.aws_integration import (
     ensure_meadowrun_ssh_security_group,
     launch_ec2_instances,
 )
-import meadowrun.management_lambdas.adjust_ec2_instances
-import meadowrun.management_lambdas.delete_task_queues
-from meadowrun.management_lambdas.ec2_alloc_stub import (
+import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
+import meadowrun.aws_integration.management_lambdas.delete_task_queues
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
     _EC2_ALLOC_TABLE_NAME,
     _EC2_ALLOC_TAG,
@@ -730,9 +730,11 @@ def _get_zipped_lambda_code() -> bytes:
     Warning, this doesn't recurse into any subdirectories (because it is not currently
     needed)
     """
-    lambda_root_path = meadowrun.management_lambdas.__path__[0]
+    lambda_root_path = meadowrun.aws_integration.management_lambdas.__path__[0]
     module_names = [name for _, name, _ in pkgutil.iter_modules([lambda_root_path])]
-    path_prefix = meadowrun.management_lambdas.__name__.replace(".", os.path.sep)
+    path_prefix = meadowrun.aws_integration.management_lambdas.__name__.replace(
+        ".", os.path.sep
+    )
 
     with io.BytesIO() as buffer:
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -910,7 +912,7 @@ async def _ensure_management_lambda(
 
 async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
     await _ensure_management_lambda(
-        meadowrun.management_lambdas.adjust_ec2_instances.lambda_handler,
+        meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.lambda_handler,
         _EC2_ALLOC_LAMBDA_NAME,
         _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
         "rate(1 minute)",
@@ -920,7 +922,7 @@ async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
 
 async def ensure_delete_task_queues_lambda(update_if_exists: bool = False) -> None:
     await _ensure_management_lambda(
-        meadowrun.management_lambdas.adjust_ec2_instances.lambda_handler,
+        meadowrun.aws_integration.management_lambdas.delete_task_queues.lambda_handler,
         _DELETE_TASK_QUEUES_LAMBDA_NAME,
         _DELETE_TASK_QUEUES_LAMBDA_SCHEDULE_RULE,
         "rate(3 hours)",

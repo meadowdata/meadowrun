@@ -9,7 +9,7 @@ import itertools
 
 import aiobotocore.session
 import boto3
-from meadowrun.management_lambdas.ec2_alloc_stub import (
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
 )

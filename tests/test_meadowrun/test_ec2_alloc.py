@@ -7,8 +7,8 @@ from typing import Tuple
 import boto3
 import pytest
 
-from meadowrun.aws_integration import _get_default_region_name
-from meadowrun.ec2_alloc import (
+from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.ec2_alloc import (
     _EC2InstanceState,
     _EC2_ALLOC_LAMBDA_NAME,
     _allocate_job_to_ec2_instance,
@@ -22,7 +22,7 @@ from meadowrun.ec2_alloc import (
     ensure_ec2_alloc_lambda,
     get_jobs_on_ec2_instance,
 )
-from meadowrun.management_lambdas.adjust_ec2_instances import (
+from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
     _deregister_ec2_instance,
     adjust,
 )

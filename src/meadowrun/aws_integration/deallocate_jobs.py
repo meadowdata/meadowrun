@@ -8,12 +8,12 @@ from typing import Optional, Dict, Any, ItemsView, Union, Iterable, Tuple
 import psutil
 
 from meadowrun.run_job_local import _get_default_working_folder
-from meadowrun.aws_integration import _get_ec2_metadata
-from meadowrun.ec2_alloc import (
+from meadowrun.aws_integration.aws_core import _get_ec2_metadata
+from meadowrun.aws_integration.ec2_alloc import (
     get_jobs_on_ec2_instance,
     deallocate_job_from_ec2_instance,
 )
-from meadowrun.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
 
 # If a job is allocated but we never see a pid file for it, we assume after this amount
 # of time that the client process crashed

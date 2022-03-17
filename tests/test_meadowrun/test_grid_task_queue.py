@@ -2,8 +2,8 @@ import asyncio
 import threading
 import uuid
 
-from meadowrun.aws_integration import _get_default_region_name
-from meadowrun.grid_task_queue import (
+from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.grid_tasks_sqs import (
     _add_tasks,
     _complete_task,
     _create_queues_for_job,

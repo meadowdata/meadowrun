@@ -30,7 +30,7 @@ import fabric
 import paramiko.ssh_exception
 
 from meadowrun.run_job_local import run_local
-from meadowrun.aws_integration import _get_default_region_name
+from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
 from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
@@ -39,8 +39,8 @@ from meadowrun.deployment import (
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
-from meadowrun.ec2_alloc import allocate_ec2_instances
-from meadowrun.grid_task_queue import (
+from meadowrun.aws_integration.ec2_alloc import allocate_ec2_instances
+from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results,
     worker_loop,
     create_queues_and_add_tasks,

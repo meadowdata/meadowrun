@@ -53,7 +53,9 @@ async def main_async(
         # Windows (but we don't currently support Windows, so that's okay)
         await asyncio.subprocess.create_subprocess_exec(
             sys.executable,
-            os.path.join(os.path.dirname(__file__), "deallocate_jobs.py"),
+            os.path.join(
+                os.path.dirname(__file__), "aws_integration/deallocate_jobs.py"
+            ),
             "--working-folder",
             working_folder,
             "--job-id",

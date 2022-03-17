@@ -912,7 +912,7 @@ async def _ensure_management_lambda(
 
 async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
     await _ensure_management_lambda(
-        meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.lambda_handler,
+        meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.lambda_handler,  # noqa: E501
         _EC2_ALLOC_LAMBDA_NAME,
         _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
         "rate(1 minute)",

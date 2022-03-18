@@ -21,7 +21,9 @@ import aiohttp.client_exceptions
 import boto3
 import pandas as pd
 
-from meadowrun.management_lambdas.ec2_alloc_stub import ignore_boto3_error_code
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    ignore_boto3_error_code,
+)
 from meadowrun.instance_selection import (
     OnDemandOrSpotType,
     Resources,
@@ -31,7 +33,7 @@ from meadowrun.instance_selection import (
 # A security group that allows SSH, clients' IP addresses get added as needed
 _MEADOWRUN_SSH_SECURITY_GROUP = "meadowrunSshSecurityGroup"
 # An AMI with meadowrun installed
-_EC2ALLOC_AWS_AMI = "ami-0877b2a968aa84574"
+_EC2ALLOC_AWS_AMI = "ami-04667f74f6558daeb"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",

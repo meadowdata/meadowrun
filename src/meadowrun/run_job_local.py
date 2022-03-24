@@ -43,7 +43,6 @@ from meadowrun.docker_controller import (
 from meadowrun.meadowrun_pb2 import (
     Credentials,
     Job,
-    JobStateUpdate,
     ProcessState,
     PyFunctionJob,
     StringPair,
@@ -278,7 +277,7 @@ async def _launch_non_container_job(
     log_file_name: str,
     job: Job,
     io_folder: str,
-) -> Tuple[int, Coroutine[Any, Any, JobStateUpdate]]:
+) -> Tuple[int, Coroutine[Any, Any, ProcessState]]:
     """
     Contains logic specific to launching jobs that run using
     server_available_interpreter. Only separated from _launch_job for readability.
@@ -382,13 +381,11 @@ async def _non_container_job_continuation(
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
-) -> JobStateUpdate:
+) -> ProcessState:
     """
     Takes an asyncio.subprocess.Process, waits for it to finish, gets results from
     io_folder from the child process if necessary, and then returns an appropriate
-    JobStateUpdate indicating how the child process completed. The returned
-    JobStateUpdate could also be None which means that the child process itself already
-    took care of updating the coordinator.
+    ProcessState indicating how the child process completed.
     """
 
     try:
@@ -405,13 +402,10 @@ async def _non_container_job_continuation(
             None,
         )
     except Exception as e:
-        # there was an exception while trying to get the final JobStateUpdate
-        return JobStateUpdate(
-            job_id=job_id,
-            process_state=ProcessState(
-                state=ProcessStateEnum.ERROR_GETTING_STATE,
-                pickled_result=pickle_exception(e, result_highest_pickle_protocol),
-            ),
+        # there was an exception while trying to get the final ProcessState
+        return ProcessState(
+            state=ProcessStateEnum.ERROR_GETTING_STATE,
+            pickled_result=pickle_exception(e, result_highest_pickle_protocol),
         )
 
 
@@ -423,7 +417,7 @@ async def _launch_container_job(
     log_file_name: str,
     job: Job,
     io_folder: str,
-) -> Tuple[str, Coroutine[Any, Any, JobStateUpdate]]:
+) -> Tuple[str, Coroutine[Any, Any, ProcessState]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
     from _launch_job for readability.
@@ -512,10 +506,10 @@ async def _container_job_continuation(
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
-) -> JobStateUpdate:
+) -> ProcessState:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
-    then returns a JobStateUpdate indicating the state of this container when it
+    then returns a ProcessState indicating the state of this container when it
     finished
     """
     try:
@@ -547,13 +541,10 @@ async def _container_job_continuation(
         #  on the critical path
 
     except Exception as e:
-        # there was an exception while trying to get the final JobStateUpdate
-        return JobStateUpdate(
-            job_id=job_id,
-            process_state=ProcessState(
-                state=ProcessStateEnum.ERROR_GETTING_STATE,
-                pickled_result=pickle_exception(e, result_highest_pickle_protocol),
-            ),
+        # there was an exception while trying to get the final ProcessState
+        return ProcessState(
+            state=ProcessStateEnum.ERROR_GETTING_STATE,
+            pickled_result=pickle_exception(e, result_highest_pickle_protocol),
         )
 
 
@@ -565,24 +556,21 @@ def _completed_job_state(
     return_code: int,
     pid: Optional[int],
     container_id: Optional[str],
-) -> JobStateUpdate:
+) -> ProcessState:
     """
-    This creates an appropriate JobStateUpdate for a job that has completed (regardless
-    of whether it ran in a process or container).
+    This creates an appropriate ProcessState for a job that has completed (regardless of
+    whether it ran in a process or container).
     """
 
     # see if we got a normal return code
     if return_code != 0:
-        return JobStateUpdate(
-            job_id=job_id,
-            process_state=ProcessState(
-                state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
-                # TODO some other number? we should have either pid or container_id.
-                pid=pid or 0,
-                container_id=container_id or "",
-                log_file_name=log_file_name,
-                return_code=return_code,
-            ),
+        return ProcessState(
+            state=ProcessStateEnum.NON_ZERO_RETURN_CODE,
+            # TODO some other number? we should have either pid or container_id.
+            pid=pid or 0,
+            container_id=container_id or "",
+            log_file_name=log_file_name,
+            return_code=return_code,
         )
 
     # if we returned normally
@@ -615,17 +603,14 @@ def _completed_job_state(
 
     # TODO clean up files in io_folder for this process
 
-    # return the JobStateUpdate
-    return JobStateUpdate(
-        job_id=job_id,
-        process_state=ProcessState(
-            state=state,
-            pid=pid or 0,
-            container_id=container_id or "",
-            log_file_name=log_file_name,
-            return_code=0,
-            pickled_result=result,
-        ),
+    # return the ProcessState
+    return ProcessState(
+        state=state,
+        pid=pid or 0,
+        container_id=container_id or "",
+        log_file_name=log_file_name,
+        return_code=0,
+        pickled_result=result,
     )
 
 
@@ -737,21 +722,21 @@ def _get_credentials_for_job(
 
 async def run_local(
     job: Job, working_folder: Optional[str] = None
-) -> Tuple[JobStateUpdate, Optional[asyncio.Task[JobStateUpdate]]]:
+) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """
     Runs a job locally using the specified working_folder (or uses the default). Meant
     to be called on the "server" where the client is calling e.g. run_function.
 
     Returns a tuple of (initial job state, continuation).
 
-    The initial job state will either be RUNNING or RUN_REQUEST_FAILED. If the initial
-    job state is RUNNING, this should be reported back to the client so that the user
-    knows the pid and log_file_name of the child process for that job.
+    The initial ProcessState will either be RUNNING or RUN_REQUEST_FAILED. If the
+    initial job state is RUNNING, this should be reported back to the client so that the
+    user knows the pid and log_file_name of the child process for that job.
 
     If the initial job state is RUNNING, then continuation will be an asyncio Task that
     will complete once the child process has completed, and then return another
-    JobStateUpdate that indicates how the job completed, e.g. SUCCEEDED,
-    PYTHON_EXCEPTION, NON_ZERO_RETURN_CODE.
+    ProcessState that indicates how the job completed, e.g. SUCCEEDED, PYTHON_EXCEPTION,
+    NON_ZERO_RETURN_CODE.
 
     If the initial job state is RUN_REQUEST_FAILED, the continuation will be None.
     """
@@ -869,28 +854,20 @@ async def run_local(
         # launching the process succeeded, return the RUNNING state and create the
         # continuation
         return (
-            JobStateUpdate(
-                job_id=job.job_id,
-                process_state=ProcessState(
-                    state=ProcessStateEnum.RUNNING,
-                    pid=pid,
-                    container_id=container_id,
-                    log_file_name=log_file_name,
-                ),
+            ProcessState(
+                state=ProcessStateEnum.RUNNING,
+                pid=pid,
+                container_id=container_id,
+                log_file_name=log_file_name,
             ),
             asyncio.create_task(continuation),
         )
     except Exception as e:
         # we failed to launch the process
         return (
-            JobStateUpdate(
-                job_id=job.job_id,
-                process_state=ProcessState(
-                    state=ProcessStateEnum.RUN_REQUEST_FAILED,
-                    pickled_result=pickle_exception(
-                        e, job.result_highest_pickle_protocol
-                    ),
-                ),
+            ProcessState(
+                state=ProcessStateEnum.RUN_REQUEST_FAILED,
+                pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
             ),
             None,
         )

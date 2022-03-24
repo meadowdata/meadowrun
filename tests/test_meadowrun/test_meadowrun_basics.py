@@ -64,7 +64,7 @@ TEST_WORKING_FOLDER = str(
 
 
 @pytest.mark.asyncio
-async def test_meadowrun_server_git_repo_commit():
+async def test_meadowrun_git_repo_commit():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowrun repo.
@@ -78,7 +78,7 @@ async def test_meadowrun_server_git_repo_commit():
 
 
 @pytest.mark.asyncio
-async def test_meadowrun_server_git_repo_branch():
+async def test_meadowrun_git_repo_branch():
     await _test_meadowrun(
         GitRepoBranch(repo_url=TEST_REPO, branch="main"),
         ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
@@ -86,7 +86,7 @@ async def test_meadowrun_server_git_repo_branch():
 
 
 @pytest.mark.asyncio
-async def test_meadowrun_server_git_repo_commit_container():
+async def test_meadowrun_git_repo_commit_container():
     """
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowrun repo.

@@ -35,13 +35,13 @@ async def main_async(
         f.write(first_state.SerializeToString())
 
     if (
-        first_state.process_state.state != ProcessState.ProcessStateEnum.RUNNING
+        first_state.state != ProcessState.ProcessStateEnum.RUNNING
         or continuation is None
     ):
         with open(f"{job_io_prefix}.process_state", mode="wb") as f:
             f.write(first_state.SerializeToString())
     else:
-        final_process_state = (await continuation).process_state
+        final_process_state = await continuation
         # if the result is large it's a little sad because we're duplicating it into
         # this .process_state file
         with open(f"{job_io_prefix}.process_state", mode="wb") as f:

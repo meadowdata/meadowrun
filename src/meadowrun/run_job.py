@@ -191,12 +191,12 @@ class LocalHost(Host):
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         initial_update, continuation = await run_local(job)
         if (
-            initial_update.process_state.state != ProcessState.ProcessStateEnum.RUNNING
+            initial_update.state != ProcessState.ProcessStateEnum.RUNNING
             or continuation is None
         ):
-            result = initial_update.process_state
+            result = initial_update
         else:
-            result = (await continuation).process_state
+            result = await continuation
 
         if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
             job_spec_type = job.WhichOneof("job_spec")
@@ -280,17 +280,19 @@ class SshHost(Host):
                 result_future: asyncio.Future = asyncio.Future()
                 event_loop = asyncio.get_running_loop()
 
+                command = (
+                    f"/var/meadowrun/env/bin/meadowrun_local --job-id {job.job_id} "
+                    # TODO --needs-deallocation should only be passed in if we were
+                    # originally using an EC2AllocHost
+                    f"--working-folder {remote_working_folder} --needs-deallocation"
+                )
+
+                print(f"Running {command}")
+
                 def run_and_wait() -> None:
                     try:
                         # use meadowrun to run the job
-                        returned_result = connection.run(
-                            "/var/meadowrun/env/bin/meadowrun_local "
-                            f"--job-id {job.job_id} "
-                            f"--working-folder {remote_working_folder} "
-                            # TODO this flag should only be passed in if we were
-                            # originally using an EC2AllocHost
-                            f"--needs-deallocation"
-                        )
+                        returned_result = connection.run(command)
                         event_loop.call_soon_threadsafe(
                             lambda r=returned_result: result_future.set_result(r)
                         )

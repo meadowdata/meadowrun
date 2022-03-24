@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
+import tarfile
 import urllib.parse
 import urllib.request
-from typing import Tuple, Optional, List, Dict
+from typing import Tuple, Optional, List, Dict, Iterable
 
 import aiodocker
 import aiodocker.containers
@@ -312,6 +314,67 @@ async def pull_image(
             )
         else:
             print(f"Successfully pulled docker image {image}")
+
+
+async def build_image(
+    files: Iterable[Tuple[str, str]], tag: str, buildargs: Dict[str, str]
+) -> None:
+    """
+    Builds a docker image locally. files is an iterable of (local file path, path in
+    docker workspace). buildargs is a docker concept. The resulting image will be tagged
+    with tag.
+    """
+    with io.BytesIO() as tar_file_bytes:
+        with tarfile.TarFile(fileobj=tar_file_bytes, mode="w") as tar_file:
+            for local_path, archive_path in files:
+                tar_file.add(local_path, archive_path)
+
+            tar_file_bytes.seek(0)
+
+            async with aiodocker.Docker() as client:
+                async for line in client.images.build(
+                    fileobj=tar_file_bytes,
+                    tag=tag,
+                    buildargs=buildargs,
+                    # aiodocker requires that we provide an encoding, but it doesn't
+                    # seem to actually be necessary
+                    encoding="none",
+                    stream=True,
+                ):
+                    if "stream" in line:
+                        print(line["stream"], end="")
+                    if "errorDetail" in line:
+                        raise ValueError(
+                            f"Error building docker image: f{line['errorDetail']}"
+                        )
+
+
+async def push_image(
+    image: str, credentials: Optional[meadowrun.credentials.RawCredentials]
+) -> None:
+    """Equivalent to calling docker push [image]"""
+    async with aiodocker.Docker() as client:
+        # construct the auth parameter as aiodocker expects it
+        if credentials is None:
+            auth = None
+        elif isinstance(credentials, meadowrun.credentials.UsernamePassword):
+            domain, _ = get_registry_domain(image)
+            auth = {
+                "username": credentials.username,
+                "password": credentials.password,
+                "serveraddress": domain,
+            }
+        else:
+            raise ValueError(f"Unexpected type of credentials {type(credentials)}")
+
+        prev_status = None
+        async for line in client.images.push(image, auth=auth, stream=True):
+            if "status" in line:
+                if line["status"] != prev_status:
+                    print(line["status"])
+                    prev_status = line["status"]
+            if "errorDetail" in line:
+                raise ValueError(f"Error building docker image: f{line['errorDetail']}")
 
 
 async def run_container(

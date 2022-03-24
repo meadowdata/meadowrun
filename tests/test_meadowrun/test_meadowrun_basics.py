@@ -13,14 +13,21 @@ from meadowrun.deployment import (
     get_latest_interpreter_version,
 )
 from meadowrun.meadowrun_pb2 import (
+    ContainerAtDigest,
     ContainerAtTag,
+    EnvironmentSpecInCode,
     GitRepoBranch,
     GitRepoCommit,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
-    ContainerAtDigest,
 )
-from meadowrun.run_job import run_function, LocalHost, Deployment, run_command
+from meadowrun.run_job import (
+    Deployment,
+    EC2AllocHost,
+    LocalHost,
+    run_command,
+    run_function,
+)
 
 EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()
@@ -205,3 +212,63 @@ async def test_meadowrun_containers():
         with open(result.log_file_name, "r", encoding="utf-8") as log_file:
             text = log_file.read()
         assert text.startswith(f"Python {version}")
+
+
+@pytest.mark.asyncio
+async def test_meadowrun_environment_in_spec():
+    """
+    Running this requires cloning https://github.com/meadowdata/test_repo next to the
+    meadowrun repo.
+    """
+
+    def remote_function():
+        import importlib
+        import pandas as pd
+
+        # we could just do import requests, but that messes with mypy
+        requests = importlib.import_module("requests")
+        return requests.__version__, pd.__version__
+
+    results = await run_function(
+        remote_function,
+        LocalHost(),
+        Deployment(
+            EnvironmentSpecInCode(
+                environment_type=EnvironmentSpecInCode.EnvironmentType.CONDA,
+                path_to_spec="myenv.yml",
+            ),
+            GitRepoCommit(repo_url=TEST_REPO, commit="a249fc16"),
+        ),
+    )
+    assert results == ("2.27.1", "1.4.1")
+
+
+@pytest.mark.asyncio
+async def manual_test_meadowrun_environment_in_spec():
+    """
+    Running this requires cloning https://github.com/meadowdata/test_repo next to the
+    meadowrun repo.
+    """
+
+    def remote_function():
+        import importlib
+        import pandas as pd
+
+        # we could just do import requests, but that messes with mypy
+        requests = importlib.import_module("requests")
+        return requests.__version__, pd.__version__
+
+    results = await run_function(
+        remote_function,
+        EC2AllocHost(1, 2, 80),
+        Deployment(
+            EnvironmentSpecInCode(
+                environment_type=EnvironmentSpecInCode.EnvironmentType.CONDA,
+                path_to_spec="myenv.yml",
+            ),
+            GitRepoCommit(
+                repo_url="https://github.com/meadowdata/test_repo", commit="a249fc16"
+            ),
+        ),
+    )
+    assert results == ("2.27.1", "1.4.1")

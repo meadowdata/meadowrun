@@ -231,6 +231,53 @@ class ContainerAtTag(google.protobuf.message.Message):
 
 global___ContainerAtTag = ContainerAtTag
 
+class EnvironmentSpecInCode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class _EnvironmentType:
+        ValueType = typing.NewType("ValueType", builtins.int)
+        V: typing_extensions.TypeAlias = ValueType
+
+    class _EnvironmentTypeEnumTypeWrapper(
+        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+            EnvironmentSpecInCode._EnvironmentType.ValueType
+        ],
+        builtins.type,
+    ):
+        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+        DEFAULT: EnvironmentSpecInCode._EnvironmentType.ValueType  # 0
+        """Reserved, not used"""
+
+        CONDA: EnvironmentSpecInCode._EnvironmentType.ValueType  # 1
+        """TODO add others"""
+
+    class EnvironmentType(_EnvironmentType, metaclass=_EnvironmentTypeEnumTypeWrapper):
+        pass
+    DEFAULT: EnvironmentSpecInCode.EnvironmentType.ValueType  # 0
+    """Reserved, not used"""
+
+    CONDA: EnvironmentSpecInCode.EnvironmentType.ValueType  # 1
+    """TODO add others"""
+
+    ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
+    PATH_TO_SPEC_FIELD_NUMBER: builtins.int
+    environment_type: global___EnvironmentSpecInCode.EnvironmentType.ValueType
+    path_to_spec: typing.Text
+    def __init__(
+        self,
+        *,
+        environment_type: global___EnvironmentSpecInCode.EnvironmentType.ValueType = ...,
+        path_to_spec: typing.Text = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "environment_type", b"environment_type", "path_to_spec", b"path_to_spec"
+        ],
+    ) -> None: ...
+
+global___EnvironmentSpecInCode = EnvironmentSpecInCode
+
 class ServerAvailableContainer(google.protobuf.message.Message):
     """Only recommended for testing. Represents a container image that already exists on the
     meadowrun server. Helpful for testing with locally built images that haven't been
@@ -384,6 +431,7 @@ class Job(google.protobuf.message.Message):
     CONTAINER_AT_DIGEST_FIELD_NUMBER: builtins.int
     CONTAINER_AT_TAG_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_CONTAINER_FIELD_NUMBER: builtins.int
+    ENVIRONMENT_SPEC_IN_CODE_FIELD_NUMBER: builtins.int
     ENVIRONMENT_VARIABLES_FIELD_NUMBER: builtins.int
     RESULT_HIGHEST_PICKLE_PROTOCOL_FIELD_NUMBER: builtins.int
     PY_COMMAND_FIELD_NUMBER: builtins.int
@@ -417,6 +465,8 @@ class Job(google.protobuf.message.Message):
     def container_at_tag(self) -> global___ContainerAtTag: ...
     @property
     def server_available_container(self) -> global___ServerAvailableContainer: ...
+    @property
+    def environment_spec_in_code(self) -> global___EnvironmentSpecInCode: ...
     @property
     def environment_variables(
         self,
@@ -456,6 +506,7 @@ class Job(google.protobuf.message.Message):
         server_available_container: typing.Optional[
             global___ServerAvailableContainer
         ] = ...,
+        environment_spec_in_code: typing.Optional[global___EnvironmentSpecInCode] = ...,
         environment_variables: typing.Optional[
             typing.Iterable[global___StringPair]
         ] = ...,
@@ -475,6 +526,8 @@ class Job(google.protobuf.message.Message):
             b"container_at_digest",
             "container_at_tag",
             b"container_at_tag",
+            "environment_spec_in_code",
+            b"environment_spec_in_code",
             "git_repo_branch",
             b"git_repo_branch",
             "git_repo_commit",
@@ -506,6 +559,8 @@ class Job(google.protobuf.message.Message):
             b"container_at_tag",
             "credentials_sources",
             b"credentials_sources",
+            "environment_spec_in_code",
+            b"environment_spec_in_code",
             "environment_variables",
             b"environment_variables",
             "git_repo_branch",
@@ -555,6 +610,7 @@ class Job(google.protobuf.message.Message):
             "container_at_digest",
             "container_at_tag",
             "server_available_container",
+            "environment_spec_in_code",
         ]
     ]: ...
     @typing.overload

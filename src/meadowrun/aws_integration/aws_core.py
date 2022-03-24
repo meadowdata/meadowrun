@@ -33,7 +33,7 @@ from meadowrun.instance_selection import (
 # A security group that allows SSH, clients' IP addresses get added as needed
 _MEADOWRUN_SSH_SECURITY_GROUP = "meadowrunSshSecurityGroup"
 # An AMI with meadowrun installed
-_EC2ALLOC_AWS_AMI = "ami-04667f74f6558daeb"
+_EC2ALLOC_AWS_AMI = "ami-05d0b1299612dea62"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",

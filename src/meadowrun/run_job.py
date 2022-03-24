@@ -51,6 +51,7 @@ from meadowrun.meadowrun_pb2 import (
     ContainerAtTag,
     Credentials,
     CredentialsSourceMessage,
+    EnvironmentSpecInCode,
     GitRepoBranch,
     GitRepoCommit,
     Job,
@@ -700,6 +701,8 @@ def _add_deployments_to_job(
         job.server_available_container.CopyFrom(interpreter_deployment)
     elif isinstance(interpreter_deployment, ContainerAtTag):
         job.container_at_tag.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, EnvironmentSpecInCode):
+        job.environment_spec_in_code.CopyFrom(interpreter_deployment)
     else:
         raise ValueError(
             f"Unknown interpreter deployment type {type(interpreter_deployment)}"

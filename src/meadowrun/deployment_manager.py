@@ -8,10 +8,30 @@ import shutil
 import tempfile
 from typing import List, Optional, Tuple, Sequence
 
+import aiodocker.exceptions
 import filelock
 
+from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    _MEADOWRUN_GENERATED_DOCKER_REPO,
+)
+from meadowrun.aws_integration.ecr import (
+    does_image_exist,
+    ensure_repository,
+    get_username_password,
+)
 from meadowrun.credentials import RawCredentials, SshKey
-from meadowrun.meadowrun_pb2 import Job
+from meadowrun.docker_controller import (
+    build_image,
+    push_image,
+    pull_image,
+    _does_digest_exist_locally,
+)
+from meadowrun.meadowrun_pb2 import (
+    EnvironmentSpecInCode,
+    Job,
+    ServerAvailableContainer,
+)
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
@@ -190,3 +210,91 @@ async def _get_git_code_paths(
             (pathlib.Path(local_copy_path) / path_in_repo).resolve()
         )
         return [path_in_local_copy]
+
+
+async def compile_environment_spec_to_container(
+    environment_spec_in_code: EnvironmentSpecInCode, code_paths: Sequence[str]
+) -> ServerAvailableContainer:
+    """
+    Turns e.g. a conda_environment.yml file into a docker container which will be
+    available locally (as per the returned ServerAvailableContainer), and also cached in
+    ECR.
+
+    TODO we should also consider creating conda environments locally rather than always
+    making a container for them, that might be more efficient.
+    """
+    if (
+        environment_spec_in_code.environment_type
+        == EnvironmentSpecInCode.EnvironmentType.CONDA
+    ):
+        # TODO theoretically the environment file could be not in the first code path,
+        # but should be a very unlikely scenario for now.
+        path_to_spec = os.path.join(
+            code_paths[0], environment_spec_in_code.path_to_spec
+        )
+        with open(path_to_spec, "rb") as spec:
+            # TODO probably better to exclude the name and prefix in the file as those
+            # are ignored
+            spec_hash = hashlib.blake2b(spec.read(), digest_size=64).hexdigest()
+
+        region_name = await _get_default_region_name()
+        repository_prefix = ensure_repository(
+            _MEADOWRUN_GENERATED_DOCKER_REPO, region_name
+        )
+        image_name = (
+            f"{repository_prefix}/{_MEADOWRUN_GENERATED_DOCKER_REPO}:{spec_hash}"
+        )
+        result = ServerAvailableContainer(image_name=image_name)
+
+        username_password = get_username_password(region_name)
+
+        # if the image already exists locally, just return it
+        if await _does_digest_exist_locally(image_name):
+            return result
+
+        # if the image doesn't exist locally but does exist in ECR, try to pull it
+        if does_image_exist(_MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name):
+            try:
+                await pull_image(image_name, username_password)
+                # TODO we're assuming that once we pull the image it will be available
+                # locally until the job runs, which might not be true if we implement
+                # something to clean unused images.
+                return result
+            except (aiodocker.exceptions.DockerError, ValueError) as e:
+                print(
+                    f"Warning, image {image_name} was supposed to exist, but we were "
+                    "unable to pull, so re-building locally. This could happen if the "
+                    "image was deleted between when we checked for it and when we "
+                    f"pulled, but that should be rare: {e}"
+                )
+
+        # the image doesn't exist locally or in ECR, so build it ourselves and cache it
+        # in ECR
+        spec_filename = os.path.basename(path_to_spec)
+        docker_file_path = os.path.join(
+            os.path.dirname(__file__), "docker_files", "CondaDockerfile"
+        )
+        await build_image(
+            [(docker_file_path, "Dockerfile"), (path_to_spec, spec_filename)],
+            image_name,
+            {"ENV_FILE": spec_filename},
+        )
+
+        # try to push the image so that we can reuse it later
+        # TODO this should really happen asynchronously as it takes a long time and
+        # isn't critical.
+        # TODO we should also somehow avoid multiple processes on the same (or even on
+        # different machines) building the identical image at the same time.
+        try:
+            await push_image(image_name, username_password)
+        except aiodocker.exceptions.DockerError as e:
+            print(
+                f"Warning, image {image_name} couldn't be pushed. Execution can "
+                f"continue, but we won't be able to reuse this image later: {e}"
+            )
+
+        return result
+    else:
+        raise ValueError(
+            f"Unexpected environment_type {environment_spec_in_code.environment_type}"
+        )

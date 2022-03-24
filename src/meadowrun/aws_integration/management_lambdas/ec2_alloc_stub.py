@@ -33,6 +33,8 @@ _JOB_ID = "job_id"
 _EC2_ALLOC_TAG = "meadowrun_ec2_alloc"
 _EC2_ALLOC_TAG_VALUE = "TRUE"
 
+_MEADOWRUN_GENERATED_DOCKER_REPO = "meadowrun_generated"
+
 
 def ignore_boto3_error_code(
     func: Callable[[], _T], error_code: str

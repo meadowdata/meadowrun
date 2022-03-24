@@ -18,7 +18,7 @@ from meadowrun.aws_integration.ec2_alloc import (
     _register_ec2_instance,
     allocate_ec2_instances,
     deallocate_job_from_ec2_instance,
-    ensure_delete_task_queues_lambda,
+    ensure_clean_up_lambda,
     ensure_ec2_alloc_lambda,
     get_jobs_on_ec2_instance,
 )
@@ -114,7 +114,7 @@ async def manual_test_allocate_existing_instances():
 
 
 # set this to your private key if needed
-_PRIVATE_KEY_FILENAME = r"C:\Users\hrich\OneDrive\aws-credentials\myfirstkey.pem"
+_PRIVATE_KEY_FILENAME = r""
 
 
 async def manual_test_launch_one_instance():
@@ -327,4 +327,4 @@ async def very_manual_test_create_management_lambdas():
     # 1. delete the lambda and the ec2_alloc_lambda_role, then run this.
     # 2. make a small change to the lambda code then run this again
     await ensure_ec2_alloc_lambda(True)
-    await ensure_delete_task_queues_lambda(True)
+    await ensure_clean_up_lambda(True)

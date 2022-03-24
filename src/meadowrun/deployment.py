@@ -19,6 +19,7 @@ from meadowrun.docker_controller import get_latest_digest_from_registry
 from meadowrun.meadowrun_pb2 import (
     ContainerAtDigest,
     ContainerAtTag,
+    EnvironmentSpecInCode,
     GitRepoBranch,
     GitRepoCommit,
     ServerAvailableContainer,
@@ -30,7 +31,14 @@ CodeDeploymentTypes: Final = get_args(CodeDeployment)
 
 
 InterpreterDeployment = Union[
-    ServerAvailableInterpreter, ContainerAtDigest, ServerAvailableContainer
+    ServerAvailableInterpreter,
+    ContainerAtDigest,
+    ServerAvailableContainer,
+    # TODO this is kind of a VersionedInterpreterDeployment, but it can't be resolved
+    # without instantiating the CodeDeployment. The whole
+    # InterpreterDeployment/VersionedInterpreterDeployment distinction probably needs
+    # rethinking.
+    EnvironmentSpecInCode,
 ]
 InterpreterDeploymentTypes: Final = get_args(InterpreterDeployment)
 

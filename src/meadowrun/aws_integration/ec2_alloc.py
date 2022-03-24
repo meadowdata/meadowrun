@@ -12,6 +12,8 @@ from typing import Any, List, Dict, Tuple, Callable, TypeVar
 import boto3
 
 import meadowrun.aws_integration.management_lambdas
+import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
+import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_core import (
     _EC2ALLOC_AWS_AMI,
     _EC2_ASSUME_ROLE_POLICY_DOCUMENT,
@@ -21,8 +23,6 @@ from meadowrun.aws_integration.aws_core import (
     ensure_meadowrun_ssh_security_group,
     launch_ec2_instances,
 )
-import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
-import meadowrun.aws_integration.management_lambdas.delete_task_queues
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
     _EC2_ALLOC_TABLE_NAME,
@@ -36,13 +36,13 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _PUBLIC_ADDRESS,
     _RUNNING_JOBS,
     ignore_boto3_error_code,
+    _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
 from meadowrun.instance_selection import (
     Resources,
     assert_is_not_none,
     remaining_resources_sort_key,
 )
-
 
 _T = TypeVar("_T")
 
@@ -114,16 +114,47 @@ _MEADOWRUN_SQS_ACCESS_POLICY_DOCUMENT = """{
     ]
 }"""
 
+_MEADOWRUN_ECR_ACCESS_POLICY_NAME = "meadowrun_ecr_access"
+_MEADOWRUN_ECR_ACCESS_POLICY_DOCUMENT = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:GetRegistryPolicy",
+                "ecr:DescribeRegistry",
+                "ecr:DescribePullThroughCacheRules",
+                "ecr:GetAuthorizationToken",
+                "ecr:PutRegistryScanningConfiguration",
+                "ecr:DeleteRegistryPolicy",
+                "ecr:CreatePullThroughCacheRule",
+                "ecr:DeletePullThroughCacheRule",
+                "ecr:PutRegistryPolicy",
+                "ecr:GetRegistryScanningConfiguration",
+                "ecr:PutReplicationConfiguration"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": "ecr:*",
+            "Resource": "arn:aws:ecr:*:*:repository/$REPO_NAME"
+        }
+    ]
+}""".replace(
+    "$REPO_NAME", _MEADOWRUN_GENERATED_DOCKER_REPO
+)
+
 # the name of the lambda that runs adjust_ec2_instances.py
 _EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
 # the EventBridge rule that triggers the lambda
 _EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowrun_ec2_alloc_lambda_schedule_rule"
 
-# the name of the lambda that runs delete_old_task_queues.py
-_DELETE_TASK_QUEUES_LAMBDA_NAME = "meadowrun_delete_task_queues_lambda"
-_DELETE_TASK_QUEUES_LAMBDA_SCHEDULE_RULE = (
-    "meadowrun_delete_task_queues_lambda_schedule_rule"
-)
+# the name of the lambda that runs clean_up.py
+_CLEAN_UP_LAMBDA_NAME = "meadowrun_clean_up"
+_CLEAN_UP_LAMBDA_SCHEDULE_RULE = "meadowrun_clean_up_lambda_schedule_rule"
 
 # the role that these lambdas run as
 _MANAGEMENT_LAMBDA_ROLE = "meadowrun_management_lambda_role"
@@ -150,6 +181,25 @@ def _ensure_meadowrun_sqs_access_policy(iam_client: Any) -> str:
     return (
         f"arn:aws:iam::{_get_account_number()}:policy/"
         f"{_MEADOWRUN_SQS_ACCESS_POLICY_NAME}"
+    )
+
+
+def _ensure_meadowrun_ecr_access_policy(iam_client: Any) -> str:
+    """
+    Creates a policy that gives permission to read/write ECR repositories for use with
+    deployment_manager.py
+    """
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.create_policy
+    ignore_boto3_error_code(
+        lambda: iam_client.create_policy(
+            PolicyName=_MEADOWRUN_ECR_ACCESS_POLICY_NAME,
+            PolicyDocument=_MEADOWRUN_ECR_ACCESS_POLICY_DOCUMENT,
+        ),
+        "EntityAlreadyExists",
+    )
+    return (
+        f"arn:aws:iam::{_get_account_number()}:policy/"
+        f"{_MEADOWRUN_ECR_ACCESS_POLICY_NAME}"
     )
 
 
@@ -205,6 +255,13 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
             RoleName=_EC2_ALLOC_ROLE,
             # TODO should create a policy that only allows what we actually need
             PolicyArn=_ensure_meadowrun_sqs_access_policy(iam),
+        )
+
+        # create the ecr access policy and attach it to the role
+        iam.attach_role_policy(
+            RoleName=_EC2_ALLOC_ROLE,
+            # TODO should create a policy that only allows what we actually need
+            PolicyArn=_ensure_meadowrun_ecr_access_policy(iam),
         )
 
         # create an instance profile (so that EC2 instances can assume it) and attach
@@ -783,8 +840,13 @@ def _ensure_management_lambda_role(region_name: str) -> None:
         # allow deleting SQS queues
         iam.attach_role_policy(
             RoleName=_MANAGEMENT_LAMBDA_ROLE,
-            # TODO should create a policy that only allows what we actually need
-            PolicyArn="arn:aws:iam::aws:policy/AmazonSQSFullAccess",
+            PolicyArn=_ensure_meadowrun_sqs_access_policy(iam),
+        )
+
+        # allow deleting unused ECR images
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            PolicyArn=_ensure_meadowrun_ecr_access_policy(iam),
         )
 
         # allow writing CloudWatch logs
@@ -920,11 +982,11 @@ async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
     )
 
 
-async def ensure_delete_task_queues_lambda(update_if_exists: bool = False) -> None:
+async def ensure_clean_up_lambda(update_if_exists: bool = False) -> None:
     await _ensure_management_lambda(
-        meadowrun.aws_integration.management_lambdas.delete_task_queues.lambda_handler,
-        _DELETE_TASK_QUEUES_LAMBDA_NAME,
-        _DELETE_TASK_QUEUES_LAMBDA_SCHEDULE_RULE,
+        meadowrun.aws_integration.management_lambdas.clean_up.lambda_handler,
+        _CLEAN_UP_LAMBDA_NAME,
+        _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
         "rate(3 hours)",
         update_if_exists,
     )
@@ -993,9 +1055,7 @@ def delete_meadowrun_resources(region_name: str) -> None:
         "ResourceNotFoundException",
     )
     ignore_boto3_error_code(
-        lambda: lambda_client.delete_function(
-            FunctionName=_DELETE_TASK_QUEUES_LAMBDA_NAME
-        ),
+        lambda: lambda_client.delete_function(FunctionName=_CLEAN_UP_LAMBDA_NAME),
         "ResourceNotFoundException",
     )
     # TODO also delete schedule rules?

@@ -22,7 +22,10 @@ from typing import (
 
 import aiodocker.containers
 
-from meadowrun.deployment_manager import get_code_paths
+from meadowrun.deployment_manager import (
+    compile_environment_spec_to_container,
+    get_code_paths,
+)
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
     MEADOWRUN_CODE_MOUNT_LINUX,
@@ -755,9 +758,25 @@ async def run_local(
     ) = _get_credentials_for_job(job)
 
     try:
-        # first, just get whether we're running in a container or not
+        # first, get the code paths
+        code_paths = await get_code_paths(
+            git_repos_folder, local_copies_folder, job, code_deployment_credentials
+        )
+
+        # next, if we have a environment_spec_in_code, turn into a container
 
         interpreter_deployment = job.WhichOneof("interpreter_deployment")
+
+        if interpreter_deployment == "environment_spec_in_code":
+            job.server_available_container.CopyFrom(
+                await compile_environment_spec_to_container(
+                    job.environment_spec_in_code, code_paths
+                )
+            )
+            interpreter_deployment = "server_available_container"
+
+        # then decide if we're running in a container or not
+
         is_container = interpreter_deployment in (
             "container_at_digest",
             "container_at_tag",
@@ -790,9 +809,6 @@ async def run_local(
         # TODO consider warning if we're overwriting any variables that already exist
         job_spec_transformed.environment_variables.update(
             **_string_pairs_to_dict(job.environment_variables)
-        )
-        code_paths = await get_code_paths(
-            git_repos_folder, local_copies_folder, job, code_deployment_credentials
         )
         log_file_name = os.path.join(
             job_logs_folder,

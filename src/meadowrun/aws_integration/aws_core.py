@@ -8,6 +8,7 @@ import json
 import threading
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterable,
     Optional,
@@ -19,6 +20,7 @@ from typing import (
 import aiohttp
 import aiohttp.client_exceptions
 import boto3
+import botocore.exceptions
 import pandas as pd
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
@@ -230,6 +232,38 @@ def ensure_security_group(
     return security_group.id
 
 
+async def _retry_iam_instance_profile(func: Callable[[], _T]) -> _T:
+    """
+    There is an issue where when you create a new IAM instance profile then launch an
+    EC2 instance with that profile, launching the EC2 instance will fail for the first
+    few seconds. This function will retry func for "Invalid IAM Instance Profile" errors
+    """
+    attempts = 7
+    seconds_to_wait = 2
+
+    for i in range(attempts):
+        try:
+            return func()
+        except botocore.exceptions.ClientError as e:
+            if "Error" in e.response:
+                error = e.response["Error"]
+                if (
+                    "Code" in error
+                    and error["Code"] == "InvalidParameterValue"
+                    and "Invalid IAM Instance Profile" in error["Message"]
+                ):
+                    if i < attempts - 1:
+                        print(
+                            "Retrying because IAM instance profile is not available yet"
+                        )
+                        await asyncio.sleep(seconds_to_wait)
+                        continue
+
+            raise
+
+    raise ValueError("This should never happen")
+
+
 async def launch_ec2_instance(
     region_name: str,
     instance_type: str,
@@ -251,7 +285,19 @@ async def launch_ec2_instance(
     to launch, as there's no way to tag a spot instance before it's running.
     """
 
-    optional_args: Dict[str, Any] = {}
+    optional_args: Dict[str, Any] = {
+        # TODO allow users to specify the size of the EBS they need
+        "BlockDeviceMappings": [
+            {
+                "DeviceName": "/dev/sda1",
+                "Ebs": {
+                    "DeleteOnTermination": True,
+                    "VolumeSize": 16,
+                    "VolumeType": "gp2",
+                },
+            }
+        ]
+    }
     if security_group_ids:
         optional_args["SecurityGroupIds"] = security_group_ids
     if iam_role_name:
@@ -274,12 +320,16 @@ async def launch_ec2_instance(
 
         ec2_resource = boto3.resource("ec2", region_name=region_name)
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
-        instance = ec2_resource.create_instances(
-            ImageId=ami_id,
-            MinCount=1,
-            MaxCount=1,
-            InstanceType=instance_type,
-            **optional_args,
+        instance = (
+            await _retry_iam_instance_profile(
+                lambda: ec2_resource.create_instances(
+                    ImageId=ami_id,
+                    MinCount=1,
+                    MaxCount=1,
+                    InstanceType=instance_type,
+                    **optional_args,
+                )
+            )
         )[0]
 
         if wait_for_dns_name:
@@ -322,13 +372,15 @@ async def launch_ec2_instance(
 
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.request_spot_instances
         client = boto3.client("ec2", region_name=region_name)
-        spot_instance_request = client.request_spot_instances(
-            InstanceCount=1,
-            LaunchSpecification={
-                "ImageId": ami_id,
-                "InstanceType": instance_type,
-                **optional_args,
-            },
+        spot_instance_request = await _retry_iam_instance_profile(
+            lambda: client.request_spot_instances(
+                InstanceCount=1,
+                LaunchSpecification={
+                    "ImageId": ami_id,
+                    "InstanceType": instance_type,
+                    **optional_args,
+                },
+            )
         )
 
         if wait_for_dns_name or tags:

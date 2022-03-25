@@ -147,6 +147,17 @@ _MEADOWRUN_ECR_ACCESS_POLICY_DOCUMENT = """{
     "$REPO_NAME", _MEADOWRUN_GENERATED_DOCKER_REPO
 )
 
+_ACCESS_SECRET_POLICY = """{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "$SECRET_ARN"
+    }
+  ]
+}"""
+
 # the name of the lambda that runs adjust_ec2_instances.py
 _EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
 # the EventBridge rule that triggers the lambda
@@ -279,6 +290,21 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
             ),
             "LimitExceeded",
         )
+
+
+def grant_permission_to_secret(secret_name: str, region_name: str) -> None:
+    """Grants permission to the meadowrun EC2 role to access the specified secret."""
+
+    _ensure_ec2_alloc_role(region_name)
+
+    secrets_client = boto3.client("secretsmanager", region_name=region_name)
+    secret_arn = secrets_client.describe_secret(SecretId=secret_name)["ARN"]
+    iam_client = boto3.client("iam", region_name=region_name)
+    iam_client.put_role_policy(
+        RoleName=_EC2_ALLOC_ROLE,
+        PolicyName=f"AccessSecret_{secret_name}",
+        PolicyDocument=_ACCESS_SECRET_POLICY.replace("$SECRET_ARN", secret_arn),
+    )
 
 
 async def _ensure_ec2_alloc_table() -> Any:
@@ -1003,6 +1029,14 @@ def _detach_all_policies(iam: Any, role_name: str) -> None:
             iam.detach_role_policy(
                 RoleName=role_name, PolicyArn=attached_policy["PolicyArn"]
             )
+
+    success, inline_policies = ignore_boto3_error_code(
+        lambda: iam.list_role_policies(RoleName=role_name), "NoSuchEntity"
+    )
+    if success:
+        assert inline_policies is not None  # just for mypy
+        for inline_policy in inline_policies["PolicyNames"]:
+            iam.delete_role_policy(RoleName=role_name, PolicyName=inline_policy)
 
 
 def delete_meadowrun_resources(region_name: str) -> None:

@@ -35,7 +35,7 @@ from meadowrun.instance_selection import (
 # A security group that allows SSH, clients' IP addresses get added as needed
 _MEADOWRUN_SSH_SECURITY_GROUP = "meadowrunSshSecurityGroup"
 # An AMI with meadowrun installed
-_EC2ALLOC_AWS_AMI = "ami-05d0b1299612dea62"
+_EC2ALLOC_AWS_AMI = "ami-04df04d188d242faf"
 
 _EC2_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",
@@ -96,6 +96,10 @@ async def _get_default_region_name() -> str:
     Tries to get the default region name. E.g. us-east-2. First sees if the AWS CLI is
     set up, and returns the equivalent of `aws configure get region`. Then checks if we
     are running on an EC2 instance in which case we check the AWS metadata endpoint
+
+    TODO this function is overused almost everywhere. Currently, we just always use the
+    default region for everything and don't support multi-region deployments, but region
+    should be a first-class concept.
     """
 
     default_session = boto3._get_default_session()

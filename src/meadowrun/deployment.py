@@ -129,7 +129,9 @@ async def get_latest_interpreter_version(
         return cast(InterpreterDeployment, interpreter)
     elif isinstance(interpreter, ContainerAtTag):
         if credentials is not None and not isinstance(credentials, RawCredentials):
-            credentials = get_docker_credentials(interpreter.repository, credentials)
+            credentials = await get_docker_credentials(
+                interpreter.repository, credentials
+            )
         return ContainerAtDigest(
             repository=interpreter.repository,
             digest=await get_latest_digest_from_registry(

@@ -12,13 +12,13 @@ import aiodocker.exceptions
 import filelock
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _MEADOWRUN_GENERATED_DOCKER_REPO,
-)
 from meadowrun.aws_integration.ecr import (
     does_image_exist,
     ensure_repository,
     get_username_password,
+)
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
@@ -40,12 +40,17 @@ async def _run_git(
     args: List[str], cwd: str, credentials: Optional[RawCredentials]
 ) -> Tuple[str, str]:
     """Runs a git command in an external process. Returns stdout, stderr"""
+    env = os.environ.copy()
+
     if credentials is None:
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=no"
+
         p = await asyncio.create_subprocess_exec(
             # TODO make the location of the git executable configurable
             "git",
             *args,
             cwd=cwd,
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -56,13 +61,13 @@ async def _run_git(
             os.write(fd, credentials.private_key.encode("utf-8"))
             os.close(fd)
 
-            env = os.environ.copy()
             # TODO investigate rules for GIT_SSH_COMMAND escaping on Windows and Linux
             escaped_private_key_file = filename.replace("\\", "\\\\")
             # TODO perhaps warn if GIT_SSH_COMMAND is somehow already populated?
-            env[
-                "GIT_SSH_COMMAND"
-            ] = f"ssh -i {escaped_private_key_file} -o IdentitiesOnly=yes"
+            env["GIT_SSH_COMMAND"] = (
+                f"ssh -i {escaped_private_key_file} -o IdentitiesOnly=yes "
+                f"-o StrictHostKeyChecking=no"
+            )
 
             p = await asyncio.create_subprocess_exec(
                 "git",
@@ -128,7 +133,9 @@ async def get_code_paths(
             git_repos_folder,
             local_copies_folder,
             job.git_repo_branch.repo_url,
-            job.git_repo_branch.branch,
+            # TODO this is a bit of a hack. We don't want to bother pulling/merging e.g.
+            # origin/main into main, so we just always reference origin/main.
+            f"origin/{job.git_repo_branch.branch}",
             job.git_repo_branch.path_in_repo,
             credentials,
         )

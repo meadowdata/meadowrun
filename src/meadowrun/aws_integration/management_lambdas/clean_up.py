@@ -15,13 +15,13 @@ _QUEUE_DELETION_TIMEOUT = datetime.timedelta(days=3)
 _ECR_DELETION_TIMEOUT = datetime.timedelta(days=2)
 
 
-def delete_old_task_queues() -> None:
+def delete_old_task_queues(region_name: str) -> None:
     # TODO this would be better if the job clients could somehow keep their queues alive
     # while they're still being used rather than always having a very long timeout. We
     # could maybe abuse a random attribute which would probably cause the
     # LastModifiedTimestamp to update.
     now = datetime.datetime.utcnow()
-    client = boto3.client("sqs", region_name=os.environ["AWS_REGION"])
+    client = boto3.client("sqs", region_name=region_name)
     for page in client.get_paginator("list_queues").paginate(
         QueueNamePrefix="meadowrunTask"
     ):
@@ -59,7 +59,7 @@ def delete_old_task_queues() -> None:
                     client.delete_queue(QueueUrl=queue_url)
 
 
-def delete_unused_images() -> None:
+def delete_unused_images(region_name: str) -> None:
     """
     Deletes images in the _MEADOWRUN_GENERATED_DOCKER_REPO that haven't been
     pushed/pulled for _ECR_DELETION_TIMEOUT. The last pull time from AWS can be up to 24
@@ -68,7 +68,7 @@ def delete_unused_images() -> None:
     """
     images_to_delete = []
 
-    client = boto3.client("ecr", region_name=os.environ["AWS_REGION"])
+    client = boto3.client("ecr", region_name=region_name)
     cutoff_datetime = (
         datetime.datetime.now(datetime.timezone.utc) - _ECR_DELETION_TIMEOUT
     )
@@ -108,14 +108,16 @@ def delete_unused_images() -> None:
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:
     """The handler for AWS lambda"""
+    region_name = os.environ["AWS_REGION"]
+
     exceptions = []
     try:
-        delete_old_task_queues()
+        delete_old_task_queues(region_name)
     except Exception as e1:
         exceptions.append(e1)
 
     try:
-        delete_unused_images()
+        delete_unused_images(region_name)
     except Exception as e2:
         exceptions.append(e2)
 

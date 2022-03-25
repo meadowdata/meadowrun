@@ -660,7 +660,7 @@ def _set_up_working_folder(
     return io_folder, job_logs_folder, git_repos_folder, local_copies_folder
 
 
-def _get_credentials_for_job(
+async def _get_credentials_for_job(
     job: Job,
 ) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
     """
@@ -696,7 +696,7 @@ def _get_credentials_for_job(
             repo_url = job.git_repo_branch.repo_url
 
         try:
-            code_deployment_credentials = get_matching_credentials(
+            code_deployment_credentials = await get_matching_credentials(
                 Credentials.Service.GIT, repo_url, credentials_sources
             )
         except Exception:
@@ -713,7 +713,7 @@ def _get_credentials_for_job(
             repository = job.container_at_tag.repository
 
         try:
-            interpreter_deployment_credentials = get_docker_credentials(
+            interpreter_deployment_credentials = await get_docker_credentials(
                 repository, credentials_sources
             )
         except Exception:
@@ -755,7 +755,7 @@ async def run_local(
     (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-    ) = _get_credentials_for_job(job)
+    ) = await _get_credentials_for_job(job)
 
     try:
         # first, get the code paths

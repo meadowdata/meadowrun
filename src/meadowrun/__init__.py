@@ -1,4 +1,5 @@
 from meadowrun.run_job import (
+    Deployment,
     EC2AllocHost,
     EC2AllocHosts,
     LocalHost,

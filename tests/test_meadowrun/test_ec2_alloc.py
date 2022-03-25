@@ -32,12 +32,13 @@ from meadowrun.run_job import run_function, EC2AllocHost
 
 async def _clear_ec2_instances_table() -> None:
     # pretend that we're running in a lambda for _deregister_ec2_instance
-    os.environ["AWS_REGION"] = await _get_default_region_name()
 
     table = await _ensure_ec2_alloc_table()
     instances = _get_ec2_instances(table)
     for instance in instances:
-        _deregister_ec2_instance(instance.public_address, False)
+        _deregister_ec2_instance(
+            instance.public_address, False, await _get_default_region_name()
+        )
 
 
 async def manual_test_allocate_deallocate_mechanics():
@@ -240,18 +241,20 @@ async def manual_test_deregister():
         "testhost-2", 4, 32, [("worker-1", Resources(1, 2, {}))]
     )
 
-    assert _deregister_ec2_instance("testhost-1", True)
+    region_name = await _get_default_region_name()
+
+    assert _deregister_ec2_instance("testhost-1", True, region_name)
     # with require_no_running_jobs=True, testhost-2 should fail to deregister
-    assert not _deregister_ec2_instance("testhost-2", True)
-    assert _deregister_ec2_instance("testhost-2", False)
+    assert not _deregister_ec2_instance("testhost-2", True, region_name)
+    assert _deregister_ec2_instance("testhost-2", False, region_name)
 
 
-def _run_adjust(use_lambda: bool) -> None:
+async def _run_adjust(use_lambda: bool) -> None:
     if use_lambda:
         lambda_client = boto3.client("lambda")
         lambda_client.invoke(FunctionName=_EC2_ALLOC_LAMBDA_NAME)
     else:
-        adjust()
+        adjust(await _get_default_region_name())
 
 
 async def very_manual_test_adjust_ec2_instances(use_lambda: bool):
@@ -275,7 +278,7 @@ async def very_manual_test_adjust_ec2_instances(use_lambda: bool):
 
     # adjust should deregister the instance (even if there are "jobs" supposedly running
     # on it) because there's no actual instance running
-    _run_adjust(use_lambda)
+    await _run_adjust(use_lambda)
     assert len(_get_ec2_instances(table)) == 0
 
     # now, launch two instances (which should get registered automatically)
@@ -296,8 +299,8 @@ async def very_manual_test_adjust_ec2_instances(use_lambda: bool):
 
     # deregister one without turning off the instance then adjust should terminate it
     # automatically
-    _deregister_ec2_instance(public_address1, False)
-    _run_adjust(use_lambda)
+    _deregister_ec2_instance(public_address1, False, await _get_default_region_name())
+    await _run_adjust(use_lambda)
     assert len(_get_ec2_instances(table)) == 1
     print(
         f"Now manually check that {public_address1} is being terminated but "
@@ -311,13 +314,13 @@ async def very_manual_test_adjust_ec2_instances(use_lambda: bool):
 
     # adjust should NOT deregister/terminate the instance because the timeout has not
     # happened yet.
-    _run_adjust(use_lambda)
+    await _run_adjust(use_lambda)
     assert len(_get_ec2_instances(table)) == 1
 
     # after 30 seconds, run adjust again, now that instance should get
     # deregistered/terminated
     time.sleep(31)
-    _run_adjust(use_lambda)
+    await _run_adjust(use_lambda)
     assert len(_get_ec2_instances(table)) == 0
     print(f"Now manually check that {public_address2} is also being terminated")
 

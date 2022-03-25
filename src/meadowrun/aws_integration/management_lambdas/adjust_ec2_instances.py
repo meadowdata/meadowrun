@@ -28,25 +28,25 @@ _TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=30)
 _LAUNCH_REGISTER_DELAY = datetime.timedelta(seconds=30)
 
 
-def _get_ec2_alloc_table() -> Any:
+def _get_ec2_alloc_table(region_name: str) -> Any:
     """
     Very similar to _ensure_ec2_alloc_table, but assumes the table already exists and
     assumes we're running in an AWS lambda
     """
 
     # the AWS_REGION environment variable should be populated for lambdas
-    db = boto3.resource("dynamodb", region_name=os.environ["AWS_REGION"])
+    db = boto3.resource("dynamodb", region_name=region_name)
     return db.Table(_EC2_ALLOC_TABLE_NAME)
 
 
-def _get_ec2_instances() -> Dict[str, Tuple[datetime.datetime, int]]:
+def _get_ec2_instances(region_name: str) -> Dict[str, Tuple[datetime.datetime, int]]:
     """
     Similar to _get_ec2_instances in ec2_alloc, but instead of getting the available
     resources, returns {public_address: (last time a job was allocated or deallocated on
     this instance, number of currently running jobs)}
     """
 
-    response = _get_ec2_alloc_table().scan(
+    response = _get_ec2_alloc_table(region_name).scan(
         Select="SPECIFIC_ATTRIBUTES",
         ProjectionExpression=",".join(
             [_PUBLIC_ADDRESS, _LAST_UPDATE_TIME, _RUNNING_JOBS]
@@ -69,7 +69,7 @@ def _get_ec2_instances() -> Dict[str, Tuple[datetime.datetime, int]]:
 
 
 def _deregister_ec2_instance(
-    public_address: str, require_no_running_jobs: bool
+    public_address: str, require_no_running_jobs: bool, region_name: str
 ) -> bool:
     """
     Deregisters an EC2 instance. If require_no_running_jobs is true, then only
@@ -84,7 +84,7 @@ def _deregister_ec2_instance(
         optional_args["ExpressionAttributeValues"] = {":zero": 0}
 
     success, result = ignore_boto3_error_code(
-        lambda: _get_ec2_alloc_table().delete_item(
+        lambda: _get_ec2_alloc_table(region_name).delete_item(
             Key={_PUBLIC_ADDRESS: public_address}, **optional_args
         ),
         "ConditionalCheckFailedException",
@@ -101,12 +101,22 @@ _NON_TERMINATED_EC2_STATES = [
 ]
 
 
-def adjust() -> None:
+def deregister_all_inactive_instances(region_name: str) -> None:
+    _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
+
+
+def adjust(region_name: str) -> None:
+    _deregister_and_terminate_instances(region_name, _TERMINATE_INSTANCES_IF_IDLE_FOR)
+    # TODO this should also launch instances based on pre-provisioning policy
+
+
+def _deregister_and_terminate_instances(
+    region_name: str, terminate_instances_if_idle_for: datetime.timedelta
+) -> None:
     """
     1. Compares running vs registered instances and terminates/deregisters instances
     to get running/registered instances back in sync
     2. Terminates and deregisters idle instances
-    TODO 3. Launches instances based on pre-provisioning policy
     """
     ec2 = boto3.resource("ec2")
 
@@ -121,7 +131,7 @@ def adjust() -> None:
         instance.public_dns_name: instance for instance in running_instances
     }
 
-    registered_instances = _get_ec2_instances()
+    registered_instances = _get_ec2_instances(region_name)
 
     now = datetime.datetime.utcnow()
     now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
@@ -132,9 +142,9 @@ def adjust() -> None:
                 f"{public_address} is registered but does not seem to be running, so we"
                 f" will deregister it"
             )
-            _deregister_ec2_instance(public_address, False)
-        elif num_jobs == 0 and (now - last_updated) > _TERMINATE_INSTANCES_IF_IDLE_FOR:
-            success = _deregister_ec2_instance(public_address, True)
+            _deregister_ec2_instance(public_address, False, region_name)
+        elif num_jobs == 0 and (now - last_updated) > terminate_instances_if_idle_for:
+            success = _deregister_ec2_instance(public_address, True, region_name)
             if success:
                 print(
                     f"{public_address} is not running any jobs and has not run anything"
@@ -153,5 +163,5 @@ def adjust() -> None:
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:
     """The handler for AWS lambda"""
-    adjust()
+    adjust(os.environ["AWS_REGION"])
     return {"statusCode": 200, "body": ""}

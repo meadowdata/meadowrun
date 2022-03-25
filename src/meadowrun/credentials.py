@@ -30,6 +30,7 @@ from typing import Union, Literal, Optional, Dict, List, Tuple
 import boto3
 
 import meadowrun.docker_controller
+from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.meadowrun_pb2 import ServerAvailableFile, AwsSecret, Credentials
 
 # Represents a way to get credentials
@@ -76,15 +77,16 @@ class SshKey(RawCredentials):
     private_key: str
 
 
-def _get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
+async def _get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
     if isinstance(source, AwsSecret):
         # TODO not sure if it's better to try to reuse a client/session or just create a
         #  new one each time? This seems related:
         #  https://github.com/boto/botocore/issues/619
         secret = json.loads(
-            boto3.client(service_name="secretsmanager").get_secret_value(
-                SecretId=source.secret_name
-            )["SecretString"]
+            boto3.client(
+                service_name="secretsmanager",
+                region_name=await _get_default_region_name(),
+            ).get_secret_value(SecretId=source.secret_name)["SecretString"]
         )
         if source.credentials_type == Credentials.Type.USERNAME_PASSWORD:
             return UsernamePassword(secret["username"], secret["password"])
@@ -114,7 +116,7 @@ def _get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
         raise ValueError(f"Unknown type of credentials source {type(source)}")
 
 
-def get_matching_credentials(
+async def get_matching_credentials(
     service: Credentials.Service.ValueType,
     service_url_to_match: str,
     credentials_dict: CredentialsDict,
@@ -136,12 +138,12 @@ def get_matching_credentials(
         default=None,
     )
     if source is not None:
-        return _get_credentials_from_source(source[1])
+        return await _get_credentials_from_source(source[1])
     else:
         return None
 
 
-def get_docker_credentials(
+async def get_docker_credentials(
     repository: str, credentials_dict: CredentialsDict
 ) -> Optional[RawCredentials]:
     """Get credentials for a docker repository"""
@@ -149,7 +151,7 @@ def get_docker_credentials(
     registry_domain, repository_name = meadowrun.docker_controller.get_registry_domain(
         repository
     )
-    return get_matching_credentials(
+    return await get_matching_credentials(
         Credentials.Service.DOCKER,
         f"{registry_domain}/{repository_name}",
         credentials_dict,

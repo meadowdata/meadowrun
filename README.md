@@ -12,6 +12,10 @@ First, install meadowrun, e.g.
 > conda install meadowrun
 ```
 
+And make sure you've [configured the AWS
+CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html).
+
+
 Now you can run:
 
 ```python

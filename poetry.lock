@@ -1394,15 +1394,15 @@ python-versions = ">=3.6"
 name = "types-cryptography"
 version = "3.3.18"
 description = "Typing stubs for cryptography"
-category = "main"
+category = "dev"
 optional = false
 python-versions = "*"
 
 [[package]]
 name = "types-paramiko"
-version = "2.8.16"
+version = "2.8.17"
 description = "Typing stubs for paramiko"
-category = "main"
+category = "dev"
 optional = false
 python-versions = "*"
 
@@ -1477,7 +1477,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "026e9adea8e1309fe63f0137aa705fe08762a750bc3dae8bfa6809ed48232457"
+content-hash = "f0f2661d0df8d2b25c054b4016e4ee1e6130e50fc2d514627f011e196acd9d89"
 
 [metadata.files]
 aiobotocore = [
@@ -2231,8 +2231,8 @@ types-cryptography = [
     {file = "types_cryptography-3.3.18-py3-none-any.whl", hash = "sha256:d745cba4b1d0ec0a141b8b7693f887a02c332d8f6036c100db3cac98443e2ddb"},
 ]
 types-paramiko = [
-    {file = "types-paramiko-2.8.16.tar.gz", hash = "sha256:1d69025a86b9e74f46d8e1f23c58a36f945539102f135b501202fb9b2c4fd122"},
-    {file = "types_paramiko-2.8.16-py3-none-any.whl", hash = "sha256:510691d7a34bdef59416232d8603bca7020db28eb4a955d661a0dcaa74fd0a80"},
+    {file = "types-paramiko-2.8.17.tar.gz", hash = "sha256:d6da053e46aef5c629bc4ea5bdab5667086535eae0fcfd8de8406943b834d2e6"},
+    {file = "types_paramiko-2.8.17-py3-none-any.whl", hash = "sha256:62264abeedd59d2cde6af663c73bb759c56b433eefae977685cc081d9babce1e"},
 ]
 types-protobuf = [
     {file = "types-protobuf-3.19.12.tar.gz", hash = "sha256:b022247347471219acbe2fe68d2f3623d788252e99e9b97358b7ab904d268a78"},

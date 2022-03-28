@@ -15,7 +15,6 @@ import meadowrun.aws_integration.management_lambdas
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_core import (
-    _EC2ALLOC_AWS_AMI,
     _EC2_ASSUME_ROLE_POLICY_DOCUMENT,
     _LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
     _get_default_region_name,
@@ -49,6 +48,20 @@ _T = TypeVar("_T")
 # AWS resources needed for the serverless coordinator to function
 
 # SEE ALSO ec2_alloc_stub.py
+
+# AMIs that have meadowrun pre-installed. These are all identical, we just need to
+# replicate into each region.
+_EC2_ALLOC_AMIS = {
+    "us-east-2": "ami-04df04d188d242faf",
+    "us-east-1": "ami-03b9bbce36ad0d194",
+    "us-west-1": "ami-0734acfa2dd46c826",
+    "us-west-2": "ami-0caebd7f631dac668",
+    "eu-central-1": "ami-042a0801e032b87f6",
+    "eu-west-1": "ami-040f3f47c326fcd3d",
+    "eu-west-2": "ami-0d733518a2c8ceff7",
+    "eu-west-3": "ami-0b76f13a7c8e01ebe",
+    "eu-north-1": "ami-0edfacd5516225a97",
+}
 
 # an IAM role/an associated policy that grants permission to read/write the EC2 alloc
 # dynamodb table
@@ -696,15 +709,23 @@ async def _launch_new_ec2_instances(
     Returns {public_address: [job_ids]}
     """
 
+    if region_name not in _EC2_ALLOC_AMIS:
+        raise ValueError(
+            f"The meadowrun AMI is not available in {region_name}. Please ask the "
+            "meadowrun maintainers to add support for this region: "
+            "https://github.com/meadowdata/meadowrun/issues"
+        )
+    ami = _EC2_ALLOC_AMIS[region_name]
+
     meadowrun_ssh_security_group_id = await ensure_meadowrun_ssh_security_group()
-    _ensure_ec2_alloc_role(await _get_default_region_name())
+    _ensure_ec2_alloc_role(region_name)
 
     ec2_instances = await launch_ec2_instances(
         resources_required_per_job.logical_cpu,
         resources_required_per_job.memory_gb,
         num_jobs,
         interruption_probability_threshold,
-        _EC2ALLOC_AWS_AMI,
+        ami,
         region_name=region_name,
         # TODO we should let users add their own security groups
         security_group_ids=[meadowrun_ssh_security_group_id],

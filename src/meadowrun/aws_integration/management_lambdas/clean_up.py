@@ -6,6 +6,7 @@ import boto3
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
+    ignore_boto3_error_code,
 )
 
 # queues will automatically be deleted 3 days after being created
@@ -69,6 +70,20 @@ def delete_unused_images(region_name: str) -> None:
     images_to_delete = []
 
     client = boto3.client("ecr", region_name=region_name)
+
+    success, result = ignore_boto3_error_code(
+        lambda: client.describe_repositories(
+            repositoryNames=[_MEADOWRUN_GENERATED_DOCKER_REPO]
+        ),
+        "RepositoryNotFoundException",
+    )
+    if not success:
+        print(
+            f"Repository {_MEADOWRUN_GENERATED_DOCKER_REPO} has not been created yet, "
+            "so no images to clean up."
+        )
+        return
+
     cutoff_datetime = (
         datetime.datetime.now(datetime.timezone.utc) - _ECR_DELETION_TIMEOUT
     )

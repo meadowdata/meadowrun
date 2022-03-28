@@ -7,7 +7,7 @@ should not refer to any outside code
 """
 from __future__ import annotations
 
-from typing import Callable, Tuple, Optional, TypeVar
+from typing import Callable, Tuple, Optional, TypeVar, Union, Set
 
 import botocore.exceptions
 
@@ -37,7 +37,7 @@ _MEADOWRUN_GENERATED_DOCKER_REPO = "meadowrun_generated"
 
 
 def ignore_boto3_error_code(
-    func: Callable[[], _T], error_code: str
+    func: Callable[[], _T], error_code: Union[str, Set[str]]
 ) -> Tuple[bool, Optional[_T]]:
     """
     Calls func. If func succeeds, return (True, result of func). If func raises a boto3
@@ -45,12 +45,15 @@ def ignore_boto3_error_code(
     exception (i.e. a boto3 error with a different code or a different type of error
     altogether), then the exception is raised normally.
     """
+    if isinstance(error_code, str):
+        error_code = {error_code}
+
     try:
         return True, func()
     except botocore.exceptions.ClientError as e:
         if "Error" in e.response:
             error = e.response["Error"]
-            if "Code" in error and error["Code"] == error_code:
+            if "Code" in error and error["Code"] in error_code:
                 return False, None
 
         raise

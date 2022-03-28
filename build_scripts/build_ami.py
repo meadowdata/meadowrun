@@ -115,9 +115,9 @@ async def build_meadowrun_ami():
 
         # set deallocate_jobs to run from crontab
         crontab_line = (
-            "* * * * * /meadowrun/env/bin/python "
-            "/meadowrun/env/lib/python3.9/site-packages/meadowrun/aws_integration/deallocate_jobs.py "  # noqa E501
-            ">> /meadowrun/deallocate_jobs.log 2>&1\n"
+            "* * * * * /var/meadowrun/env/bin/python "
+            "/var/meadowrun/env/lib/python3.9/site-packages/meadowrun/aws_integration/deallocate_jobs.py "  # noqa E501
+            ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
         )
         with io.StringIO(crontab_line) as sio:
             connection.put(sio, "/var/meadowrun/meadowrun_crontab")

@@ -45,7 +45,11 @@ def _try_read_pid_file(working_folder: str, job_id: str) -> Optional[int]:
         f.close()
 
 
-async def async_main(working_folder: Optional[str], job_id: Optional[str]) -> None:
+async def async_main(
+    working_folder: Optional[str],
+    job_id: Optional[str],
+    allocated_but_not_running_timeout: datetime.timedelta,
+) -> None:
     """
     Deallocates job(s) from the EC2 alloc table. public_address needs to correspond to
     the machine that we're currently running on. If job_id is not specified, we check
@@ -93,7 +97,7 @@ async def async_main(working_folder: Optional[str], job_id: Optional[str]) -> No
                 )
         else:
             job_allocated_time = datetime.datetime.fromisoformat(job[_ALLOCATED_TIME])
-            if now - job_allocated_time > _ALLOCATED_BUT_NOT_RUNNING_TIMEOUT:
+            if now - job_allocated_time > allocated_but_not_running_timeout:
                 print(
                     f"Warning: deallocating job that looks like it never ran {job_id} "
                     f"was allocated at {job_allocated_time}"
@@ -106,8 +110,12 @@ async def async_main(working_folder: Optional[str], job_id: Optional[str]) -> No
                 )
 
 
-def main(working_folder: Optional[str], job_id: Optional[str]) -> None:
-    asyncio.run(async_main(working_folder, job_id))
+def main(
+    working_folder: Optional[str],
+    job_id: Optional[str],
+    allocated_but_not_running_timeout: datetime.timedelta,
+) -> None:
+    asyncio.run(async_main(working_folder, job_id, allocated_but_not_running_timeout))
 
 
 def command_line_main() -> None:
@@ -116,9 +124,17 @@ def command_line_main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--working-folder")
     parser.add_argument("--job-id")
+    parser.add_argument("--allocated-but-not-running-timeout-seconds", type=int)
     args = parser.parse_args()
 
-    main(args.working_folder, args.job_id)
+    if args.allocated_but_not_running_timeout_seconds is not None:
+        allocated_but_not_running_timeout = datetime.timedelta(
+            seconds=args.allocated_but_not_running_timeout_seconds
+        )
+    else:
+        allocated_but_not_running_timeout = _ALLOCATED_BUT_NOT_RUNNING_TIMEOUT
+
+    main(args.working_folder, args.job_id, allocated_but_not_running_timeout)
 
 
 if __name__ == "__main__":

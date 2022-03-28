@@ -415,6 +415,8 @@ async def launch_ec2_instance(
             )["SpotInstanceRequests"][0]["InstanceId"]
 
             # now that we have an instance id, we can add our tags
+            # TODO if we don't manage to tag our instance before the process crashes, we
+            # need to keep track of that
             if tags:
                 client.create_tags(
                     Resources=[instance_id],

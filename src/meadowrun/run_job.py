@@ -79,7 +79,7 @@ _DEFAULT_CONCURRENT_TASKS_FACTOR = 0.5
 async def _retry(
     function: Callable[[], _T],
     exception_types: Union[Exception, Tuple[Exception, ...]],
-    max_num_attempts: int = 3,
+    max_num_attempts: int = 5,
     delay_seconds: float = 1,
 ) -> _T:
     i = 0

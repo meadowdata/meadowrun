@@ -114,10 +114,6 @@ async def manual_test_allocate_existing_instances():
     assert len(results["testhost-4"]) == 1
 
 
-# set this to your private key if needed
-_PRIVATE_KEY_FILENAME = r""
-
-
 async def manual_test_launch_one_instance():
     """Launches instances that must be cleaned up manually"""
     await _clear_ec2_instances_table()
@@ -125,20 +121,11 @@ async def manual_test_launch_one_instance():
     def remote_function():
         return os.getpid(), platform.node()
 
-    pid1, host1 = await run_function(
-        remote_function,
-        EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-    )
+    pid1, host1 = await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
     time.sleep(1)
-    pid2, host2 = await run_function(
-        remote_function,
-        EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-    )
+    pid2, host2 = await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
     time.sleep(1)
-    pid3, host3 = await run_function(
-        remote_function,
-        EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-    )
+    pid3, host3 = await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
 
     # these should have all run on the same host, but in different processes
     assert pid1 != pid2 and pid2 != pid3
@@ -159,24 +146,9 @@ async def manual_test_launch_multiple_instances():
     def remote_function():
         return os.getpid(), platform.node()
 
-    task1 = asyncio.create_task(
-        run_function(
-            remote_function,
-            EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-        )
-    )
-    task2 = asyncio.create_task(
-        run_function(
-            remote_function,
-            EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-        )
-    )
-    task3 = asyncio.create_task(
-        run_function(
-            remote_function,
-            EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-        )
-    )
+    task1 = asyncio.create_task(run_function(remote_function, EC2AllocHost(1, 0.5, 15)))
+    task2 = asyncio.create_task(run_function(remote_function, EC2AllocHost(1, 0.5, 15)))
+    task3 = asyncio.create_task(run_function(remote_function, EC2AllocHost(1, 0.5, 15)))
 
     results = await asyncio.gather(task1, task2, task3)
     ((pid1, host1), (pid2, host2), (pid3, host3)) = results
@@ -199,10 +171,7 @@ async def very_manual_test_deallocate_after_running():
     def remote_function():
         time.sleep(60 * 10)
 
-    await run_function(
-        remote_function,
-        EC2AllocHost(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-    )
+    await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
 
     # 1. now get the address of the EC2 instance and the job id and SSH into the remote
     # server and run:

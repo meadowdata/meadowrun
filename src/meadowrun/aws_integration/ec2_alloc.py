@@ -37,6 +37,10 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
+from meadowrun.aws_integration.ssh_keys import (
+    MEADOWRUN_KEY_PAIR_NAME,
+    _MEADOWRUN_KEY_PAIR_SECRET_NAME,
+)
 from meadowrun.instance_selection import (
     Resources,
     assert_is_not_none,
@@ -707,6 +711,8 @@ async def _launch_new_ec2_instances(
     them.
 
     Returns {public_address: [job_ids]}
+
+    Warning, ensure_meadowrun_key_pair must be called before calling this function
     """
 
     if region_name not in _EC2_ALLOC_AMIS:
@@ -732,6 +738,8 @@ async def _launch_new_ec2_instances(
         # TODO we should let users set their own IAM role as long as it grants access to
         # the dynamodb table we need for deallocation
         iam_role_name=_EC2_ALLOC_ROLE_INSTANCE_PROFILE,
+        # assumes that we've already called ensure_meadowrun_key_pair!
+        key_name=MEADOWRUN_KEY_PAIR_NAME,
         tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
     )
 
@@ -1113,6 +1121,13 @@ def delete_meadowrun_resources(region_name: str) -> None:
         lambda: lambda_client.delete_function(FunctionName=_CLEAN_UP_LAMBDA_NAME),
         "ResourceNotFoundException",
     )
+
+    ec2_client = boto3.client("ec2", region_name=region_name)
+    ec2_client.delete_key_pair(KeyName=MEADOWRUN_KEY_PAIR_NAME)
+
+    secrets_client = boto3.client("secretsmanager", region_name=region_name)
+    secrets_client.delete_secret(SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME)
+
     # TODO also delete schedule rules?
 
     # TODO also delete other resources like security groups, dynamodb table, SQS queues

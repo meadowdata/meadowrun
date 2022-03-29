@@ -29,6 +29,7 @@ import cloudpickle
 import fabric
 import paramiko.ssh_exception
 
+from meadowrun.aws_integration.ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.run_job_local import run_local
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
@@ -438,21 +439,22 @@ class EC2AllocHost(Host):
     memory_gb_required: float
     interruption_probability_threshold: float
     region_name: Optional[str] = None
-    private_key_filename: Optional[str] = None
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
+        region_name = self.region_name or await _get_default_region_name()
+        pkey = ensure_meadowrun_key_pair(region_name)
+
         hosts = await allocate_ec2_instances(
             Resources(self.memory_gb_required, self.logical_cpu_required, {}),
             1,
             self.interruption_probability_threshold,
-            self.region_name or await _get_default_region_name(),
+            region_name,
         )
 
-        fabric_kwargs: Dict[str, Any] = {"user": "ubuntu"}
-        if self.private_key_filename:
-            fabric_kwargs["connect_kwargs"] = {
-                "key_filename": self.private_key_filename
-            }
+        fabric_kwargs: Dict[str, Any] = {
+            "user": "ubuntu",
+            "connect_kwargs": {"pkey": pkey},
+        }
 
         if len(hosts) != 1:
             raise ValueError(f"Asked for one host, but got back {len(hosts)}")
@@ -479,7 +481,6 @@ class EC2AllocHosts:
     # defaults to half the number of total tasks
     num_concurrent_tasks: Optional[int] = None
     region_name: Optional[str] = None
-    private_key_filename: Optional[str] = None
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:
@@ -664,6 +665,7 @@ async def run_map(
         num_concurrent_tasks = min(hosts.num_concurrent_tasks, len(args))
 
     region_name = hosts.region_name or await _get_default_region_name()
+    pkey = ensure_meadowrun_key_pair(region_name)
 
     # the first stage of preparation, which happens concurrently:
 
@@ -693,9 +695,7 @@ async def run_map(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
-    fabric_kwargs: Dict[str, Any] = {"user": "ubuntu"}
-    if hosts.private_key_filename:
-        fabric_kwargs["connect_kwargs"] = {"key_filename": hosts.private_key_filename}
+    fabric_kwargs: Dict[str, Any] = {"user": "ubuntu", "connect_kwargs": {"pkey": pkey}}
 
     # now wait for 1 and 2 to complete:
     request_queue_url, result_queue_url = await queues_future

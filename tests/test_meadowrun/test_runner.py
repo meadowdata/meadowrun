@@ -10,7 +10,6 @@ from meadowrun.run_job import (
     run_command,
     run_function,
 )
-from test_meadowrun.test_ec2_alloc import _PRIVATE_KEY_FILENAME
 
 
 @pytest.mark.asyncio
@@ -51,10 +50,6 @@ async def manual_test_run_command_remote():
 
 
 async def manual_test_run_function_allocated_ec2_host():
-    result = await run_function(
-        lambda x: x * 2,
-        EC2AllocHost(1, 1, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-        args=[5],
-    )
+    result = await run_function(lambda x: x * 2, EC2AllocHost(1, 1, 15), args=[5])
 
     assert result == 10

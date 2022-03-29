@@ -13,7 +13,6 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
 )
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job import run_map, EC2AllocHosts
-from test_meadowrun.test_ec2_alloc import _PRIVATE_KEY_FILENAME
 
 
 def manual_test_grid_task_queue():
@@ -159,10 +158,6 @@ def manual_test_worker():
 
 async def manual_test_run_map():
     """Runs a "real" run_map"""
-    results = await run_map(
-        lambda x: x**x,
-        [1, 2, 3, 4],
-        EC2AllocHosts(1, 0.5, 15, private_key_filename=_PRIVATE_KEY_FILENAME),
-    )
+    results = await run_map(lambda x: x**x, [1, 2, 3, 4], EC2AllocHosts(1, 0.5, 15))
 
     assert results == [1, 4, 27, 256]

@@ -41,8 +41,9 @@ on-demand instances).
 Then, based on the options specified in `Deployment.git_repo`, `run_function` will grab
 code from the `main` branch of the `test_repo` git repo, and then create a conda
 environment (in a container) using the `myenv.yml` file in the git repo as the
-environment specification. Creating the conda environment takes a while, but once it has
-been created, it gets cached and reused using AWS ECR.
+environment specification (assumes that `myenv.yml` was created using
+`conda env export > myenv.yml`). Creating the conda environment takes a while, but once
+it has been created, it gets cached and reused using AWS ECR.
 
 Finally, meadowrun will run `analyze_stuff(a_big_file)` (or whatever code you specify)
 in that environment on the remote machine.

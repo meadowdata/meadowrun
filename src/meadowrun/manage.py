@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os.path
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_alloc import (
@@ -16,6 +17,7 @@ from meadowrun.aws_integration.management_lambdas.clean_up import (
     delete_old_task_queues,
     delete_unused_images,
 )
+from meadowrun.aws_integration.ssh_keys import download_ssh_key
 
 
 async def async_main() -> None:
@@ -37,8 +39,8 @@ async def async_main() -> None:
 
     subparsers.add_parser(
         "clean",
-        help="Cleans up all temporary"
-        " resources, runs the same code as the lambdas created by install",
+        help="Cleans up all temporary resources, runs the same code as the lambdas "
+        "created by install",
     )
 
     parser_grant_permission_to_secret = subparsers.add_parser(
@@ -47,6 +49,17 @@ async def async_main() -> None:
     )
     parser_grant_permission_to_secret.add_argument(
         "secret_name", help="The name of the AWS secret to give permissions to"
+    )
+
+    get_ssh_key_parser = subparsers.add_parser(
+        "get-ssh-key",
+        help="Downloads the SSH key used to connect meadowrun-launched EC2 instances.",
+    )
+    get_ssh_key_parser.add_argument(
+        "--output",
+        help="The path to write the SSH key to. If it is not provided, the default is "
+        "~/.ssh/meadowrun_id_rsa. This can be used with e.g. `ssh -i "
+        "~/.ssh/meadowrun_id_rsa ubuntu@<ec2-address>`",
     )
 
     args = parser.parse_args()
@@ -73,6 +86,14 @@ async def async_main() -> None:
     elif args.command == "grant-permission-to-secret":
         print(f"Granting access to the meadowrun EC2 role to access {args.secret_name}")
         grant_permission_to_secret(args.secret_name, region_name)
+    elif args.command == "get-ssh-key":
+        print("Downloading SSH key")
+        if not args.output:
+            output = os.path.expanduser(os.path.join("~", ".ssh", "meadowrun_id_rsa"))
+        else:
+            output = args.output
+        print(f"Writing ssh key to {output}")
+        download_ssh_key(output, region_name)
     else:
         ValueError(f"Unrecognized command: {args.command}")
 

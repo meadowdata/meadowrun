@@ -5,7 +5,7 @@ import types
 
 import aiohttp
 
-from aiodocker.utils import _DecodeHelper
+from .utils import _DecodeHelper
 
 from . import constants
 

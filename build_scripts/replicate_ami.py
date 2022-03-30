@@ -7,7 +7,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 )
 
 _SOURCE_REGION = "us-east-2"  # the region that you ran build_ami.py under
-_SOURCE_AMI = "ami-04df04d188d242faf"  # the original AMI id in that region
+_SOURCE_AMI = "ami-074049d9b7ca1605a"  # the original AMI id in that region
 _SUPPORTED_REGIONS = [
     "us-east-1",
     "us-east-2",

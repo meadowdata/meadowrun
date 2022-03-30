@@ -42,8 +42,10 @@ Then, based on the options specified in `Deployment.git_repo`, `run_function` wi
 code from the `main` branch of the `test_repo` git repo, and then create a conda
 environment (in a container) using the `myenv.yml` file in the git repo as the
 environment specification (assumes that `myenv.yml` was created using
-`conda env export > myenv.yml`). Creating the conda environment takes a while, but once
-it has been created, it gets cached and reused using AWS ECR.
+`conda env export > myenv.yml`). Creating the conda environment takes some time (and
+memory), but once it has been created, it gets cached and reused using AWS ECR.
+Meadowrun can be used from Windows or Linux, but only Linux is supported for the remote
+environment, so myenv.yml must describe a Linux-compatible conda environment.
 
 Finally, meadowrun will run `analyze_stuff(a_big_file)` (or whatever code you specify)
 in that environment on the remote machine.
@@ -76,6 +78,10 @@ await run_map(
 
 This has roughly the same semantics as the python built-in function `map(analyze_stuff,
 [file1, file2, ...])` but it runs distributed.
+
+Unlike for `run_function`, the conda enviornment (`myenv.yml`) for `run_map` must have
+meadowrun installed, as the remote process needs to communicate results back to the
+local process.
 
 ### Private git repos
 

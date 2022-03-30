@@ -56,15 +56,15 @@ _T = TypeVar("_T")
 # AMIs that have meadowrun pre-installed. These are all identical, we just need to
 # replicate into each region.
 _EC2_ALLOC_AMIS = {
-    "us-east-2": "ami-04df04d188d242faf",
-    "us-east-1": "ami-03b9bbce36ad0d194",
-    "us-west-1": "ami-0734acfa2dd46c826",
-    "us-west-2": "ami-0caebd7f631dac668",
-    "eu-central-1": "ami-042a0801e032b87f6",
-    "eu-west-1": "ami-040f3f47c326fcd3d",
-    "eu-west-2": "ami-0d733518a2c8ceff7",
-    "eu-west-3": "ami-0b76f13a7c8e01ebe",
-    "eu-north-1": "ami-0edfacd5516225a97",
+    "us-east-2": "ami-074049d9b7ca1605a",
+    "us-east-1": "ami-010c7e9529abd0751",
+    "us-west-1": "ami-032bd336fa00d6558",
+    "us-west-2": "ami-0bb35e39c5e8602e1",
+    "eu-central-1": "ami-054e77a987b171de6",
+    "eu-west-1": "ami-094d4266c0549d3ca",
+    "eu-west-2": "ami-00ab34b6972a5faaf",
+    "eu-west-3": "ami-084ed19e6cc9d2220",
+    "eu-north-1": "ami-0d12a9348097f1fe1",
 }
 
 # an IAM role/an associated policy that grants permission to read/write the EC2 alloc

@@ -79,3 +79,12 @@ def ensure_meadowrun_key_pair(region_name: str) -> paramiko.PKey:
 
     with io.StringIO(private_key_text) as s:
         return paramiko.RSAKey(file_obj=s)
+
+
+def download_ssh_key(output_path: str, region_name: str) -> None:
+    secrets_client = boto3.client("secretsmanager", region_name=region_name)
+    key = secrets_client.get_secret_value(SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME)[
+        "SecretString"
+    ]
+    with open(output_path, "w") as output_file:
+        output_file.write(key)

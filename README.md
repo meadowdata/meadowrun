@@ -9,7 +9,7 @@ and frictionless as working locally.
 First, install meadowrun, e.g.
 
 ```
-> conda install meadowrun
+> conda install -c defaults -c conda-forge -c hrichardlee meadowrun
 ```
 
 And make sure you've [configured the AWS

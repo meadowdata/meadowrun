@@ -20,7 +20,7 @@ from typing import (
     Tuple,
 )
 
-import aiodocker.containers
+from meadowrun._vendor.aiodocker import containers as aiodocker_containers
 
 from meadowrun.deployment_manager import (
     compile_environment_spec_to_container,
@@ -503,7 +503,7 @@ async def _launch_container_job(
 
 
 async def _container_job_continuation(
-    container: aiodocker.containers.DockerContainer,
+    container: aiodocker_containers.DockerContainer,
     job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
     io_folder: str,

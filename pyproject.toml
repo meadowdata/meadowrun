@@ -19,13 +19,13 @@ python = "^3.9"
 pandas = "^1.3.1"
 protobuf = "^3.18.1"
 cloudpickle = "^2.0.0"
-aiodocker = "^0.21.0"
+aiobotocore = "^2.1.2"
 aiohttp = "^3.8.0"
 psutil = "^5.8.0"
 boto3 = "1.21.21"
 fabric = "^2.6.0"
-aiobotocore = "^2.1.2"
 filelock = "^3.6.0"
+typing-extensions = "^4.1.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0.1"
@@ -67,6 +67,9 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 allow_redefinition = true
 check_untyped_defs = true
+
+exclude = ["meadowrun/_vendor"]  # really meant to just exclude meadowrun._vendor.*
+
 
 [[tool.mypy.overrides]]
 module = ["meadowrun.*"]

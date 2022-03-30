@@ -31,10 +31,9 @@ import urllib.parse
 import urllib.request
 from typing import Tuple, Optional, List, Dict, Iterable
 
-import aiodocker
-import aiodocker.containers
+from meadowrun._vendor import aiodocker
+from meadowrun._vendor.aiodocker import containers as aiodocker_containers
 import aiohttp
-from aiodocker import DockerError
 
 import meadowrun.credentials
 
@@ -382,7 +381,7 @@ async def run_container(
     cmd: List[str],
     environment_variables: Dict[str, str],
     binds: List[Tuple[str, str]],
-) -> aiodocker.containers.DockerContainer:
+) -> aiodocker_containers.DockerContainer:
     """
     Runs a docker container. Examples of parameters:
     - image: python:latest
@@ -447,7 +446,7 @@ async def delete_image(image: str) -> None:
     try:
         async with aiodocker.Docker() as client:
             await client.images.delete(image, force=True)
-    except DockerError as e:
+    except aiodocker.DockerError as e:
         # ignore failures saying the image doesn't exist
         if e.status != 404:
             raise

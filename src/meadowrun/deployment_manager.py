@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from typing import List, Optional, Tuple, Sequence
 
-import aiodocker.exceptions
+from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
 import filelock
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
@@ -267,7 +267,7 @@ async def compile_environment_spec_to_container(
                 # locally until the job runs, which might not be true if we implement
                 # something to clean unused images.
                 return result
-            except (aiodocker.exceptions.DockerError, ValueError) as e:
+            except (aiodocker_exceptions.DockerError, ValueError) as e:
                 print(
                     f"Warning, image {image_name} was supposed to exist, but we were "
                     "unable to pull, so re-building locally. This could happen if the "
@@ -294,7 +294,7 @@ async def compile_environment_spec_to_container(
         # different machines) building the identical image at the same time.
         try:
             await push_image(image_name, username_password)
-        except aiodocker.exceptions.DockerError as e:
+        except aiodocker_exceptions.DockerError as e:
             print(
                 f"Warning, image {image_name} couldn't be pushed. Execution can "
                 f"continue, but we won't be able to reuse this image later: {e}"

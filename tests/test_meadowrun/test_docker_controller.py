@@ -11,7 +11,7 @@ automated tests.
 
 import asyncio
 
-import aiodocker
+from meadowrun._vendor import aiodocker
 
 from meadowrun.docker_controller import (
     get_latest_digest_from_registry,

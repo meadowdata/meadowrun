@@ -138,7 +138,7 @@ class DockerImages(object):
         self,
         name: str,
         *,
-        auth: Union[MutableMapping, str, bytes] = None,
+        auth: Union[MutableMapping, str, bytes, None] = None,
         tag: str = None,
         stream: Literal[False] = False,
     ) -> Dict[str, Any]:
@@ -149,7 +149,7 @@ class DockerImages(object):
         self,
         name: str,
         *,
-        auth: Union[MutableMapping, str, bytes] = None,
+        auth: Union[MutableMapping, str, bytes, None] = None,
         tag: str = None,
         stream: Literal[True],
     ) -> AsyncIterator[Dict[str, Any]]:
@@ -159,7 +159,7 @@ class DockerImages(object):
         self,
         name: str,
         *,
-        auth: Union[MutableMapping, str, bytes] = None,
+        auth: Union[MutableMapping, str, bytes, None] = None,
         tag: str = None,
         stream: bool = False,
     ) -> Any:

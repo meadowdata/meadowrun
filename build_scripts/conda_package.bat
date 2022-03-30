@@ -12,3 +12,6 @@ echo Now add open meadowrun/meta.yaml and add "poetry" under requirements: host:
 pause
 
 call conda build -c defaults -c conda-forge --python 3.9 meadowrun
+
+@REM replace the version number here as appropriate
+call anaconda upload C:\bin\Miniconda\conda-bld\win-64\meadowrun-0.1.2-py39_0.tar.bz2

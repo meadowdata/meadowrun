@@ -128,7 +128,7 @@ class Deployment:
         - environment_variables: see class variable
         - ssh_key_aws_secret: The name of an AWS secret that has the
         """
-        if bool(branch) ^ bool(commit):
+        if branch and commit:
             raise ValueError("Only one of branch and commit can be specified")
 
         if not branch and not commit:

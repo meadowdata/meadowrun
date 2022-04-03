@@ -920,6 +920,7 @@ async def _create_management_lambda(
     lambda_name: str,
     schedule_rule_name: str,
     schedule_expression: str,
+    region_name: str,
 ) -> None:
     """Creates the ec2 alloc lambda assuming it does not already exist"""
     account_number = _get_account_number()
@@ -965,7 +966,7 @@ async def _create_management_lambda(
         Targets=[
             {
                 "Id": lambda_name,
-                "Arn": f"arn:aws:lambda:us-east-2:{account_number}:function:"
+                "Arn": f"arn:aws:lambda:{region_name}:{account_number}:function:"
                 f"{lambda_name}",
             }
         ],
@@ -980,7 +981,8 @@ async def _create_management_lambda(
             Action="lambda:InvokeFunction",
             Principal="events.amazonaws.com",
             SourceArn=(
-                f"arn:aws:events:us-east-2:{account_number}:rule/{schedule_rule_name}"
+                f"arn:aws:events:{region_name}:{account_number}:rule/"
+                f"{schedule_rule_name}"
             ),
         ),
         "ResourceConflictException",
@@ -1020,6 +1022,7 @@ async def _ensure_management_lambda(
             lambda_name,
             schedule_rule_name,
             schedule_expression,
+            region_name,
         )
     elif update_if_exists:
         lambda_client.update_function_code(
@@ -1126,7 +1129,10 @@ def delete_meadowrun_resources(region_name: str) -> None:
     ec2_client.delete_key_pair(KeyName=MEADOWRUN_KEY_PAIR_NAME)
 
     secrets_client = boto3.client("secretsmanager", region_name=region_name)
-    secrets_client.delete_secret(SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME)
+    ignore_boto3_error_code(
+        lambda: secrets_client.delete_secret(SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME),
+        "ResourceNotFoundException",
+    )
 
     # TODO also delete schedule rules?
 

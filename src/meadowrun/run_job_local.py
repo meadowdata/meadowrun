@@ -21,6 +21,7 @@ from typing import (
 )
 
 from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+from meadowrun._vendor import aiodocker
 
 from meadowrun.deployment_manager import (
     compile_environment_spec_to_container,
@@ -485,7 +486,7 @@ async def _launch_container_job(
         f"log_file_name={log_file_name}"
     )
 
-    container = await run_container(
+    container, docker_client = await run_container(
         container_image_name,
         # json serializer needs a real list, not a protobuf fake list
         job_spec_transformed.command_line,
@@ -494,6 +495,7 @@ async def _launch_container_job(
     )
     return container.id, _container_job_continuation(
         container,
+        docker_client,
         job_spec_type,
         job.job_id,
         io_folder,
@@ -504,6 +506,7 @@ async def _launch_container_job(
 
 async def _container_job_continuation(
     container: aiodocker_containers.DockerContainer,
+    docker_client: aiodocker.Docker,
     job_spec_type: Literal["py_command", "py_function"],
     job_id: str,
     io_folder: str,
@@ -513,7 +516,9 @@ async def _container_job_continuation(
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
     then returns a ProcessState indicating the state of this container when it
-    finished
+    finished.
+
+    docker_client just needs to be closed when the container process has completed.
     """
     try:
         # Docker appears to have an objection to having a log driver that can produce
@@ -549,6 +554,8 @@ async def _container_job_continuation(
             state=ProcessStateEnum.ERROR_GETTING_STATE,
             pickled_result=pickle_exception(e, result_highest_pickle_protocol),
         )
+    finally:
+        await docker_client.__aexit__(None, None, None)
 
 
 def _completed_job_state(

@@ -381,23 +381,27 @@ async def run_container(
     cmd: List[str],
     environment_variables: Dict[str, str],
     binds: List[Tuple[str, str]],
-) -> aiodocker_containers.DockerContainer:
+) -> Tuple[aiodocker_containers.DockerContainer, aiodocker.Docker]:
     """
     Runs a docker container. Examples of parameters:
     - image: python:latest
     - cmd: ["python", "/path/to/test.py"]
     - environment_variables: {"PYTHONHASHSEED": 25}
-    - docker_registry_username_password: ("myusername", "mypassword")
     - binds: [("/path/on/host1", "/path/in/container1"), ...]
-    - log_file_name: "/path/on/host/container.log"
 
     Returns when the container has successfully been launched. Returns a DockerContainer
-    which has a wait method for waiting until the container completes.
+    which has a wait method for waiting until the container completes, and a Docker
+    client which needs to be closed.
 
-    container = await run(...)
-    # the container has been launched
-    await container.wait()
-    # now the container has finished running
+    Usage example:
+
+    container, client = await run(...)
+    try:
+        # the container has been launched
+        await container.wait()
+        # now the container has finished running
+    finally:
+        await client.__aexit__(None, None, None)
     """
 
     # Now actually run the container. For documentation on the config object:
@@ -426,10 +430,7 @@ async def run_container(
         }
     )
 
-    return container
-
-    # TODO container captures a reference to client and needs to keep using it, we
-    # should eventually call container.docker.__aexit__ somewhere
+    return container, client
 
 
 async def get_image_environment_variables(image: str) -> Optional[List[str]]:

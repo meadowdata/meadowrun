@@ -67,7 +67,7 @@ class GitRepoCommit(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPO_URL_FIELD_NUMBER: builtins.int
     COMMIT_FIELD_NUMBER: builtins.int
-    PATH_IN_REPO_FIELD_NUMBER: builtins.int
+    PATH_TO_SOURCE_FIELD_NUMBER: builtins.int
     repo_url: typing.Text
     """specifies the url, will be provided to git clone, see
     https://git-scm.com/docs/git-clone
@@ -78,7 +78,7 @@ class GitRepoCommit(google.protobuf.message.Message):
     https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection
     """
 
-    path_in_repo: typing.Text
+    path_to_source: typing.Text
     """specifies a relative path within the repo to treat as the "root" directory for
     the purposes of this deployment
     """
@@ -88,15 +88,15 @@ class GitRepoCommit(google.protobuf.message.Message):
         *,
         repo_url: typing.Text = ...,
         commit: typing.Text = ...,
-        path_in_repo: typing.Text = ...,
+        path_to_source: typing.Text = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "commit",
             b"commit",
-            "path_in_repo",
-            b"path_in_repo",
+            "path_to_source",
+            b"path_to_source",
             "repo_url",
             b"repo_url",
         ],
@@ -115,7 +115,7 @@ class GitRepoBranch(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     REPO_URL_FIELD_NUMBER: builtins.int
     BRANCH_FIELD_NUMBER: builtins.int
-    PATH_IN_REPO_FIELD_NUMBER: builtins.int
+    PATH_TO_SOURCE_FIELD_NUMBER: builtins.int
     repo_url: typing.Text
     """specifies the url, will be provided to git clone, see
     https://git-scm.com/docs/git-clone
@@ -124,7 +124,7 @@ class GitRepoBranch(google.protobuf.message.Message):
     branch: typing.Text
     """specifies the branch to use"""
 
-    path_in_repo: typing.Text
+    path_to_source: typing.Text
     """specifies a relative path within the repo to treat as the "root" directory for
     the purposes of this deployment
     """
@@ -134,15 +134,15 @@ class GitRepoBranch(google.protobuf.message.Message):
         *,
         repo_url: typing.Text = ...,
         branch: typing.Text = ...,
-        path_in_repo: typing.Text = ...,
+        path_to_source: typing.Text = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "branch",
             b"branch",
-            "path_in_repo",
-            b"path_in_repo",
+            "path_to_source",
+            b"path_to_source",
             "repo_url",
             b"repo_url",
         ],

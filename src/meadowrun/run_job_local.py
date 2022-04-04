@@ -759,7 +759,7 @@ async def run_local(
 
     try:
         # first, get the code paths
-        code_paths = await get_code_paths(
+        code_paths, interpreter_spec_path = await get_code_paths(
             git_repos_folder, local_copies_folder, job, code_deployment_credentials
         )
 
@@ -768,9 +768,14 @@ async def run_local(
         interpreter_deployment = job.WhichOneof("interpreter_deployment")
 
         if interpreter_deployment == "environment_spec_in_code":
+            if interpreter_spec_path is None:
+                raise ValueError(
+                    "Cannot specify environment_spec_in_code and not provide any code "
+                    "paths"
+                )
             job.server_available_container.CopyFrom(
                 await compile_environment_spec_to_container(
-                    job.environment_spec_in_code, code_paths
+                    job.environment_spec_in_code, interpreter_spec_path
                 )
             )
             interpreter_deployment = "server_available_container"

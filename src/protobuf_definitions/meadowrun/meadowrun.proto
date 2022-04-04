@@ -35,7 +35,7 @@ message GitRepoCommit {
 
     // specifies a relative path within the repo to treat as the "root" directory for
     // the purposes of this deployment
-    string path_in_repo = 3;
+    string path_to_source = 3;
 }
 
 
@@ -54,7 +54,7 @@ message GitRepoBranch {
 
     // specifies a relative path within the repo to treat as the "root" directory for
     // the purposes of this deployment
-    string path_in_repo = 3;
+    string path_to_source = 3;
 }
 
 

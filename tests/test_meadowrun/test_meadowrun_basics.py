@@ -138,7 +138,7 @@ async def _test_meadowrun(
 @pytest.mark.asyncio
 async def test_meadowrun_path_in_git_repo():
     """
-    Tests GitRepoCommit.path_in_repo
+    Tests GitRepoCommit.path_to_source
 
     Running this requires cloning https://github.com/meadowdata/test_repo next to the
     meadowrun repo.
@@ -151,7 +151,7 @@ async def test_meadowrun_path_in_git_repo():
             code=GitRepoCommit(
                 repo_url=TEST_REPO,
                 commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
-                path_in_repo="example_package",
+                path_to_source="example_package",
             )
         ),
         args=["foo"],
@@ -226,8 +226,9 @@ async def test_meadowrun_environment_in_spec():
         import pandas as pd
 
         # we could just do import requests, but that messes with mypy
-        requests = importlib.import_module("requests")
-        return requests.__version__, pd.__version__
+        requests = importlib.import_module("requests")  # from myenv.yml
+        example = importlib.import_module("example")  # from example_package
+        return requests.__version__, pd.__version__, example.join_strings("a", "b")
 
     results = await run_function(
         remote_function,
@@ -237,10 +238,12 @@ async def test_meadowrun_environment_in_spec():
                 environment_type=EnvironmentSpecInCode.EnvironmentType.CONDA,
                 path_to_spec="myenv.yml",
             ),
-            GitRepoCommit(repo_url=TEST_REPO, commit="a249fc16"),
+            GitRepoCommit(
+                repo_url=TEST_REPO, commit="a249fc16", path_to_source="example_package"
+            ),
         ),
     )
-    assert results == ("2.27.1", "1.4.1")
+    assert results == ("2.27.1", "1.4.1", "a, b")
 
 
 @pytest.mark.asyncio
@@ -255,8 +258,9 @@ async def manual_test_meadowrun_environment_in_spec():
         import pandas as pd
 
         # we could just do import requests, but that messes with mypy
-        requests = importlib.import_module("requests")
-        return requests.__version__, pd.__version__
+        requests = importlib.import_module("requests")  # from myenv.yml
+        example = importlib.import_module("example")  # from example_package
+        return requests.__version__, pd.__version__, example.join_strings("a", "b")
 
     results = await run_function(
         remote_function,
@@ -267,8 +271,10 @@ async def manual_test_meadowrun_environment_in_spec():
                 path_to_spec="myenv.yml",
             ),
             GitRepoCommit(
-                repo_url="https://github.com/meadowdata/test_repo", commit="a249fc16"
+                repo_url="https://github.com/meadowdata/test_repo",
+                commit="a249fc16",
+                path_to_source="example_package",
             ),
         ),
     )
-    assert results == ("2.27.1", "1.4.1")
+    assert results == ("2.27.1", "1.4.1", "a, b")

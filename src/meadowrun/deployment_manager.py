@@ -3,14 +3,13 @@
 import asyncio.subprocess
 import hashlib
 import os
-import pathlib
 import shutil
 import tempfile
 from typing import List, Optional, Tuple, Sequence
 
-from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
 import filelock
 
+from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ecr import (
     does_image_exist,
@@ -102,11 +101,12 @@ async def get_code_paths(
     local_copies_folder: str,
     job: Job,
     credentials: Optional[RawCredentials],
-) -> Sequence[str]:
+) -> Tuple[Sequence[str], Optional[str]]:
     """
-    Returns code_paths based on Job.code_deployment. code_paths will have paths to
-    folders that are available on this machine that contain "the user's code". Code
-    paths can be empty, which would mean that we don't need any user code.
+    Returns [code_paths, interpreter_spec_path] based on Job.code_deployment. code_paths
+    will have paths to folders that are available on this machine that contain "the
+    user's code". interpreter_spec_path will be a path where we can find e.g. an
+    environment.yml file that can be used to build a conda environment.
 
     For ServerAvailableFolder, this function will effectively use code_paths as
     specified.
@@ -116,14 +116,23 @@ async def get_code_paths(
     """
     case = job.WhichOneof("code_deployment")
     if case == "server_available_folder":
-        return job.server_available_folder.code_paths
+        if job.server_available_folder.code_paths:
+            interpreter_spec_path = job.server_available_folder.code_paths[0]
+        else:
+            interpreter_spec_path = None
+        return (
+            job.server_available_folder.code_paths,
+            # TODO theoretically the environment file could be not in the first code
+            # path, but should be a very unlikely scenario for now.
+            interpreter_spec_path,
+        )
     elif case == "git_repo_commit":
         return await _get_git_code_paths(
             git_repos_folder,
             local_copies_folder,
             job.git_repo_commit.repo_url,
             job.git_repo_commit.commit,
-            job.git_repo_commit.path_in_repo,
+            job.git_repo_commit.path_to_source,
             credentials,
         )
     elif case == "git_repo_branch":
@@ -136,7 +145,7 @@ async def get_code_paths(
             # TODO this is a bit of a hack. We don't want to bother pulling/merging e.g.
             # origin/main into main, so we just always reference origin/main.
             f"origin/{job.git_repo_branch.branch}",
-            job.git_repo_branch.path_in_repo,
+            job.git_repo_branch.path_to_source,
             credentials,
         )
     else:
@@ -167,9 +176,9 @@ async def _get_git_code_paths(
     local_copies_folder: str,
     repo_url: str,
     revision_spec: str,
-    path_in_repo: str,
+    path_to_source: str,
     credentials: Optional[RawCredentials],
-) -> Sequence[str]:
+) -> Tuple[Sequence[str], str]:
     """Returns code_paths for GitRepoCommit"""
 
     local_clone_name = _get_git_repo_local_clone_name(repo_url)
@@ -213,14 +222,11 @@ async def _get_git_code_paths(
             shutil.copytree(local_path, local_copy_path)
 
         # TODO raise a friendlier exception if this path doesn't exist
-        path_in_local_copy = str(
-            (pathlib.Path(local_copy_path) / path_in_repo).resolve()
-        )
-        return [path_in_local_copy]
+        return [os.path.join(local_copy_path, path_to_source)], local_copy_path
 
 
 async def compile_environment_spec_to_container(
-    environment_spec_in_code: EnvironmentSpecInCode, code_paths: Sequence[str]
+    environment_spec_in_code: EnvironmentSpecInCode, interpreter_spec_path: str
 ) -> ServerAvailableContainer:
     """
     Turns e.g. a conda_environment.yml file into a docker container which will be
@@ -234,10 +240,8 @@ async def compile_environment_spec_to_container(
         environment_spec_in_code.environment_type
         == EnvironmentSpecInCode.EnvironmentType.CONDA
     ):
-        # TODO theoretically the environment file could be not in the first code path,
-        # but should be a very unlikely scenario for now.
         path_to_spec = os.path.join(
-            code_paths[0], environment_spec_in_code.path_to_spec
+            interpreter_spec_path, environment_spec_in_code.path_to_spec
         )
         with open(path_to_spec, "rb") as spec:
             # TODO probably better to exclude the name and prefix in the file as those

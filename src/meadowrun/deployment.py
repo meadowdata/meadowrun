@@ -97,7 +97,7 @@ async def get_latest_code_version(
         return GitRepoCommit(
             repo_url=code.repo_url,
             commit="origin/" + code.branch,
-            path_in_repo=code.path_in_repo,
+            path_to_source=code.path_to_source,
         )
     else:
         raise ValueError(

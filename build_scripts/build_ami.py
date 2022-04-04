@@ -64,34 +64,61 @@ from meadowrun.aws_integration.aws_core import (
     ensure_meadowrun_ssh_security_group,
     launch_ec2_instance,
 )
+from meadowrun.aws_integration.ssh_keys import (
+    MEADOWRUN_KEY_PAIR_NAME,
+    ensure_meadowrun_key_pair,
+)
 from meadowrun.run_job import _retry
 
 _BASE_AMI = "ami-01344892e448f48c2"
-_PRIVATE_KEY_FILENAME = "FILL IN"
-_NEW_AMI_NAME = "meadowrun-ec2alloc-0.1.0-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
+_NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
 
 
 async def build_meadowrun_ami():
+    client = boto3.client("ec2")
+
+    # get version
+
+    # this only works if we're running in the directory with pyproject.toml
     package_root_dir = os.path.dirname(os.path.dirname(__file__))
+    result = subprocess.run(
+        "poetry version --short", capture_output=True, cwd=package_root_dir
+    )
+    version = result.stdout.strip().decode("utf-8")
+    new_ami_name = _NEW_AMI_NAME.format(version)
+    print(f"New AMI name is: {new_ami_name}")
+
+    # deregister existing image with the same name:
+    existing_images = client.describe_images(
+        Filters=[{"Name": "name", "Values": [new_ami_name]}]
+    )["Images"]
+    if existing_images:
+        input(
+            f"There's already an image with the name {new_ami_name}, press enter to "
+            "delete it"
+        )
+        client.deregister_image(ImageId=existing_images[0]["ImageId"])
 
     # build a package locally
     subprocess.run(["poetry", "build"], cwd=package_root_dir)
 
     # launch an EC2 instance that we'll use to create the AMI
     print("Launching EC2 instance:")
+    pkey = ensure_meadowrun_key_pair(await _get_default_region_name())
     public_address = await launch_ec2_instance(
         await _get_default_region_name(),
         "t2.micro",
         "on_demand",
         _BASE_AMI,
         [await ensure_meadowrun_ssh_security_group()],
+        key_name=MEADOWRUN_KEY_PAIR_NAME,
     )
     print(f"Launched EC2 instance {public_address}")
 
     with fabric.Connection(
         public_address,
         user="ubuntu",
-        connect_kwargs={"key_filename": _PRIVATE_KEY_FILENAME},
+        connect_kwargs={"pkey": pkey},
     ) as connection:
         # retry with a no-op until we've established a connection
         await _retry(
@@ -104,14 +131,16 @@ async def build_meadowrun_ami():
 
         # install the meadowrun package
         connection.put(
-            os.path.join(package_root_dir, "dist", "meadowrun-0.1.0-py3-none-any.whl"),
+            os.path.join(
+                package_root_dir, "dist", f"meadowrun-{version}-py3-none-any.whl"
+            ),
             "/var/meadowrun/",
         )
         connection.run(
             "source /var/meadowrun/env/bin/activate "
-            "&& pip install /var/meadowrun/meadowrun-0.1.0-py3-none-any.whl"
+            f"&& pip install /var/meadowrun/meadowrun-{version}-py3-none-any.whl"
         )
-        connection.run("rm /var/meadowrun/meadowrun-0.1.0-py3-none-any.whl")
+        connection.run(f"rm /var/meadowrun/meadowrun-{version}-py3-none-any.whl")
 
         # set deallocate_jobs to run from crontab
         crontab_line = (
@@ -125,14 +154,13 @@ async def build_meadowrun_ami():
         connection.run("rm /var/meadowrun/meadowrun_crontab")
 
     # get the instance id of our EC2 instance
-    client = boto3.client("ec2")
     instances = client.describe_instances(
         Filters=[{"Name": "dns-name", "Values": [public_address]}]
     )
     instance_id = instances["Reservations"][0]["Instances"][0]["InstanceId"]
 
     # create an image, and wait for it to become available
-    result = client.create_image(InstanceId=instance_id, Name=_NEW_AMI_NAME)
+    result = client.create_image(InstanceId=instance_id, Name=new_ami_name)
     image_id = result["ImageId"]
     print(f"New image id: {image_id}")
     while True:

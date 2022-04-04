@@ -447,6 +447,7 @@ class EC2Instance:
     # TODO this should always use the latest data rather than always using the number
     # from when the instance was launched
     interruption_probability: float
+    price_per_hour: float
     max_jobs: int
 
 
@@ -496,6 +497,7 @@ async def launch_ec2_instances(
         memory_gb,
         logical_cpu,
         interruption_probability,
+        price_per_hour,
         max_jobs,
     ) in chosen_instance_types[
         [
@@ -505,6 +507,7 @@ async def launch_ec2_instances(
             "memory_gb",
             "logical_cpu",
             "interruption_probability",
+            "price",
             "workers_per_instance",
         ]
     ].itertuples(
@@ -533,6 +536,7 @@ async def launch_ec2_instances(
                     memory_gb,
                     logical_cpu,
                     interruption_probability,
+                    price_per_hour,
                     max_jobs,
                 )
             )

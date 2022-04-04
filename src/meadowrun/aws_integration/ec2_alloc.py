@@ -691,10 +691,22 @@ async def _choose_existing_ec2_instances(
 
         i += 1
 
-    print(
-        f"For {num_jobs}, allocated {num_jobs_allocated} tasks to existing EC2 "
-        f"instances: {' '.join(allocated_jobs.keys())}"
-    )
+    if num_jobs == 1:
+        if num_jobs_allocated == 0:
+            print(
+                "Job was not allocated to any existing EC2 instances, will launch a new"
+                " EC2 instance"
+            )
+        else:
+            print(
+                "Job was allocated to an existing EC2 instance: "
+                f"{' '.join(allocated_jobs.keys())}"
+            )
+    else:
+        print(
+            f"{num_jobs_allocated}/{num_jobs} workers allocated to existing EC2 "
+            f"instances: {' '.join(allocated_jobs.keys())}"
+        )
 
     return allocated_jobs
 
@@ -703,6 +715,7 @@ async def _launch_new_ec2_instances(
     resources_required_per_job: Resources,
     interruption_probability_threshold: float,
     num_jobs: int,
+    original_num_jobs: int,
     region_name: str,
 ) -> Dict[str, List[str]]:
     """
@@ -713,6 +726,8 @@ async def _launch_new_ec2_instances(
     Returns {public_address: [job_ids]}
 
     Warning, ensure_meadowrun_key_pair must be called before calling this function
+
+    original_num_jobs is just to produce more coherent logging.
     """
 
     if region_name not in _EC2_ALLOC_AMIS:
@@ -745,6 +760,7 @@ async def _launch_new_ec2_instances(
 
     description_strings = []
     total_num_allocated_jobs = 0
+    total_cost_per_hour: float = 0
     allocated_jobs = {}
 
     for ec2_instance in ec2_instances:
@@ -766,16 +782,26 @@ async def _launch_new_ec2_instances(
 
         allocated_jobs[ec2_instance.public_dns_name] = job_ids
         description_strings.append(
-            f"\t{ec2_instance.public_dns_name}: {ec2_instance.instance_type} "
+            f"{ec2_instance.public_dns_name}: {ec2_instance.instance_type} "
             f"({ec2_instance.logical_cpus} CPU/{ec2_instance.memory_gb} GB), "
             f"{ec2_instance.on_demand_or_spot} "
-            f"({ec2_instance.interruption_probability}% chance of interruption), "
-            f"will run {num_allocated_jobs} tasks"
+            f"(${ec2_instance.price_per_hour}/hr, "
+            f"{ec2_instance.interruption_probability}% chance of interruption), "
+            f"will run {num_allocated_jobs} job/worker"
         )
+        total_cost_per_hour += ec2_instance.price_per_hour
 
-    print(
-        f"For {num_jobs}, created new EC2 instances:\n" + "\n".join(description_strings)
-    )
+    if original_num_jobs == 1:
+        # there should only ever be one description_strings
+        print(
+            f"Launched a new EC2 instance for the job: {' '.join(description_strings)}"
+        )
+    else:
+        print(
+            f"Launched {len(description_strings)} new EC2 instances (total "
+            f"${total_cost_per_hour}/hr) for the remaining {num_jobs} workers:\n"
+            + "\n".join(["\t" + s for s in description_strings])
+        )
 
     return allocated_jobs
 
@@ -808,6 +834,7 @@ async def allocate_ec2_instances(
                 resources_required_per_job,
                 interruption_probability_threshold,
                 num_jobs_remaining,
+                num_jobs,
                 region_name,
             )
         )

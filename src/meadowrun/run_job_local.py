@@ -358,14 +358,13 @@ async def _launch_non_container_job(
         f"PYTHONPATH={env_vars['PYTHONPATH']}; log_file_name={log_file_name}"
     )
 
-    with open(log_file_name, "w", encoding="utf-8") as log_file:
-        process = await asyncio.subprocess.create_subprocess_exec(
-            *job_spec_transformed.command_line,
-            stdout=log_file,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=working_directory,
-            env=env_vars,
-        )
+    process = await asyncio.subprocess.create_subprocess_exec(
+        *job_spec_transformed.command_line,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=working_directory,
+        env=env_vars,
+    )
 
     # (5) return the pid and continuation
     return process.pid, _non_container_job_continuation(
@@ -395,6 +394,11 @@ async def _non_container_job_continuation(
     try:
         # wait for the process to finish
         # TODO add an optional timeout
+
+        with open(log_file_name, "wb") as log_file:
+            async for line in process.stdout:  # type: ignore
+                log_file.write(line)
+                sys.stdout.buffer.write(line)
         returncode = await process.wait()
         return _completed_job_state(
             job_spec_type,
@@ -528,6 +532,7 @@ async def _container_job_continuation(
         #  own plain text/whatever log driver for docker.
         with open(log_file_name, "w", encoding="utf-8") as f:
             async for line in container.log(stdout=True, stderr=True, follow=True):
+                print(line, end="")
                 f.write(line)
 
         wait_result = await container.wait()
@@ -815,6 +820,10 @@ async def run_local(
             job_spec_transformed.environment_variables[MEADOWRUN_AGENT_PID] = str(
                 os.getpid()
             )
+
+        # add PYTHONUNBUFFERED=1, but don't modify if it already exists
+        if "PYTHONUNBUFFERED" not in job_spec_transformed.environment_variables:
+            job_spec_transformed.environment_variables["PYTHONUNBUFFERED"] = "1"
 
         # Merge in the user specified environment, variables, these should always take
         # precedence. A little sloppy to modify in place, but should be fine

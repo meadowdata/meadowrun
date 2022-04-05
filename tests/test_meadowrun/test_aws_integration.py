@@ -17,3 +17,8 @@ async def manual_test_get_ec2_instance_types():
         Resources(5, 3, {}), 52, 10, instance_types
     )
     pprint.pprint(chosen_instance_types)
+
+    chosen_instance_types = choose_instance_types_for_job(
+        Resources(24000, 1000, {}), 1, 10, instance_types
+    )
+    assert len(chosen_instance_types) == 0

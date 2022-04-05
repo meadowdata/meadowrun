@@ -197,6 +197,10 @@ def choose_instance_types_for_job(
                     )
                 )
 
+    # no instance types can run even one worker
+    if len(instance_types) == 0:
+        return []
+
     while num_workers_to_allocate > 0:
         # for larger instances, there might not be enough num_workers_to_allocate to
         # make it "worth it" to use that larger instance because we won't need enough

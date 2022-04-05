@@ -22,6 +22,7 @@ import aiohttp.client_exceptions
 import boto3
 import botocore.exceptions
 import pandas as pd
+from pkg_resources import resource_filename
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
@@ -591,6 +592,23 @@ async def _get_ec2_instance_types(region_name: str) -> pd.DataFrame:
     return prices
 
 
+def _get_region_description_for_pricing(region_code: str) -> str:
+    """
+    Mostly copy/pasted from
+    https://stackoverflow.com/questions/51673667/use-boto3-to-get-current-price-for-given-ec2-instance-type
+
+    Converts something like us-east-2 to US East (Ohio). Almost all APIs use
+    region_code, but the pricing API weirdly uses description.
+    """
+    endpoint_file = resource_filename("botocore", "data/endpoints.json")
+    with open(endpoint_file, "r") as f:
+        data = json.load(f)
+    # Botocore is using Europe while Pricing API using EU...sigh...
+    return data["partitions"][0]["regions"][region_code]["description"].replace(
+        "Europe", "EU"
+    )
+
+
 def _get_ec2_on_demand_prices(region_name: str) -> pd.DataFrame:
     """
     Returns a dataframe with columns instance_type, memory_gb, logical_cpu, and price
@@ -608,8 +626,8 @@ def _get_ec2_on_demand_prices(region_name: str) -> pd.DataFrame:
         # only get prices for the specified region
         {
             "Type": "TERM_MATCH",
-            "Field": "regionCode",
-            "Value": region_name,
+            "Field": "location",
+            "Value": _get_region_description_for_pricing(region_name),
         },
         # filter out instance types that come with SQL Server pre-installed
         {

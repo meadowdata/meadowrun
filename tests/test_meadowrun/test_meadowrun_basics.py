@@ -223,9 +223,9 @@ async def test_meadowrun_environment_in_spec():
 
     def remote_function():
         import importlib
-        import pandas as pd
 
         # we could just do import requests, but that messes with mypy
+        pd = importlib.import_module("pandas")  # from myenv.yml
         requests = importlib.import_module("requests")  # from myenv.yml
         example = importlib.import_module("example")  # from example_package
         return requests.__version__, pd.__version__, example.join_strings("a", "b")
@@ -255,9 +255,9 @@ async def manual_test_meadowrun_environment_in_spec():
 
     def remote_function():
         import importlib
-        import pandas as pd
 
         # we could just do import requests, but that messes with mypy
+        pd = importlib.import_module("pandas")  # from myenv.yml
         requests = importlib.import_module("requests")  # from myenv.yml
         example = importlib.import_module("example")  # from example_package
         return requests.__version__, pd.__version__, example.join_strings("a", "b")

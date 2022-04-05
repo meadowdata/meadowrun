@@ -314,6 +314,7 @@ class SshHost(Host):
 
                 # try the first command 3 times, as this is when we actually try to
                 # connect to the remote machine.
+                connection.config["run"]["hide"] = True
                 home_result = await _retry(
                     lambda: connection.run("echo $HOME"),
                     (
@@ -326,6 +327,7 @@ class SshHost(Host):
                         "Error getting home directory on remote machine "
                         + home_result.stdout
                     )
+                connection.config["run"]["hide"] = False
 
                 remote_working_folder = f"{home_result.stdout.strip()}/meadowrun"
                 mkdir_result = connection.run(f"mkdir -p {remote_working_folder}/io")

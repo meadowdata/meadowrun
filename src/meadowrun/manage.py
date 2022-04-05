@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os.path
+import time
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_alloc import (
@@ -66,34 +67,48 @@ async def async_main() -> None:
 
     region_name = await _get_default_region_name()
 
+    t0 = time.time()
     if args.command == "install":
         print("Creating lambdas for cleaning up meadowrun resources")
         await ensure_ec2_alloc_lambda(True)
         await ensure_clean_up_lambda(True)
         _ensure_ec2_alloc_role(region_name)
+        print(f"Created lambdas in {time.time() - t0:.2f} seconds")
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")
         delete_meadowrun_resources(region_name)
+        print(f"Deleted all meadowrun resources in {time.time() - t0:.2f} seconds")
     elif args.command == "clean":
-        print("Adjusting EC2 instances")
+        print("Terminating all inactive EC2 instances")
         deregister_all_inactive_instances(region_name)
+        print(
+            f"Terminated all inactive EC2 instances in {time.time() - t0:.2f} seconds"
+        )
+        t0 = time.time()
 
         print("Deleting unused grid task queues")
         delete_old_task_queues(region_name)
+        print(f"Deleted unused grid task queues in {time.time() - t0:.2f} seconds")
+        t0 = time.time()
 
         print("Deleting unused meadowrun-generated ECR images")
         delete_unused_images(region_name)
+        print(
+            f"Deleted unused meadowrun-generated ECR images {time.time() - t0:.2f} "
+            "seconds"
+        )
     elif args.command == "grant-permission-to-secret":
         print(f"Granting access to the meadowrun EC2 role to access {args.secret_name}")
         grant_permission_to_secret(args.secret_name, region_name)
+        print(f"Granted access in {time.time() - t0:.2f} seconds")
     elif args.command == "get-ssh-key":
-        print("Downloading SSH key")
         if not args.output:
             output = os.path.expanduser(os.path.join("~", ".ssh", "meadowrun_id_rsa"))
         else:
             output = args.output
-        print(f"Writing ssh key to {output}")
+        print(f"Writing meadowrun ssh key to {output}")
         download_ssh_key(output, region_name)
+        print(f"Wrote meadowrun ssh key in {time.time() - t0:.2f} seconds")
     else:
         ValueError(f"Unrecognized command: {args.command}")
 

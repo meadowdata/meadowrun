@@ -846,6 +846,7 @@ async def _retry(
     function: Callable[[], Tuple[bool, _T]],
     max_num_attempts: int = 3,
     delay_seconds: float = 1,
+    retry_message: str = "Retrying on error",
 ) -> _T:
     i = 0
     while True:
@@ -857,7 +858,7 @@ async def _retry(
             if i >= max_num_attempts:
                 raise ValueError(f"Failed after {i} attempts")
             else:
-                print("Retrying on error")
+                print(retry_message)
                 await asyncio.sleep(delay_seconds)
 
 
@@ -977,6 +978,7 @@ async def _create_management_lambda(
         ),
         10,
         2,
+        "Waiting for newly created AWS IAM role to become available...",
     )
 
     # now create an EventBridge rule that triggers every 1 minute

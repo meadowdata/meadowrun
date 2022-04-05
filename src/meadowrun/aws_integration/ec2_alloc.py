@@ -764,32 +764,35 @@ async def _launch_new_ec2_instances(
     allocated_jobs = {}
 
     for ec2_instance in ec2_instances:
+        # just to make the code more readable
+        instance_info = ec2_instance.instance_type.ec2_instance_type
+
         # the number of jobs to allocate to this EC2 instance
         num_allocated_jobs = min(
-            num_jobs - total_num_allocated_jobs, ec2_instance.max_jobs
+            num_jobs - total_num_allocated_jobs,
+            ec2_instance.instance_type.workers_per_instance_full,
         )
         total_num_allocated_jobs += num_allocated_jobs
         job_ids = [str(uuid.uuid4()) for _ in range(num_allocated_jobs)]
 
         await _register_ec2_instance(
             ec2_instance.public_dns_name,
-            ec2_instance.logical_cpus
+            instance_info.logical_cpu
             - (num_allocated_jobs * resources_required_per_job.logical_cpu),
-            ec2_instance.memory_gb
+            instance_info.memory_gb
             - (num_allocated_jobs * resources_required_per_job.memory_gb),
             [(job_id, resources_required_per_job) for job_id in job_ids],
         )
 
         allocated_jobs[ec2_instance.public_dns_name] = job_ids
         description_strings.append(
-            f"{ec2_instance.public_dns_name}: {ec2_instance.instance_type} "
-            f"({ec2_instance.logical_cpus} CPU/{ec2_instance.memory_gb} GB), "
-            f"{ec2_instance.on_demand_or_spot} "
-            f"(${ec2_instance.price_per_hour}/hr, "
-            f"{ec2_instance.interruption_probability}% chance of interruption), "
+            f"{ec2_instance.public_dns_name}: {instance_info.name} "
+            f"({instance_info.logical_cpu} CPU/{instance_info.memory_gb} GB), "
+            f"{instance_info.on_demand_or_spot} (${instance_info.price}/hr, "
+            f"{instance_info.interruption_probability}% chance of interruption), "
             f"will run {num_allocated_jobs} job/worker"
         )
-        total_cost_per_hour += ec2_instance.price_per_hour
+        total_cost_per_hour += instance_info.price
 
     if original_num_jobs == 1:
         # there should only ever be one description_strings

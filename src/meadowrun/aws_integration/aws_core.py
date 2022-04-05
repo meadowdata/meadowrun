@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Dict,
     Iterable,
+    List,
     Optional,
     Sequence,
     Tuple,
@@ -21,13 +22,14 @@ import aiohttp
 import aiohttp.client_exceptions
 import boto3
 import botocore.exceptions
-import pandas as pd
 from pkg_resources import resource_filename
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 from meadowrun.instance_selection import (
+    ChosenEC2InstanceType,
+    EC2InstanceType,
     OnDemandOrSpotType,
     Resources,
     choose_instance_types_for_job,
@@ -441,15 +443,10 @@ class EC2Instance:
     """
 
     public_dns_name: str
-    instance_type: str
-    on_demand_or_spot: OnDemandOrSpotType
-    memory_gb: float
-    logical_cpus: int
-    # TODO this should always use the latest data rather than always using the number
-    # from when the instance was launched
-    interruption_probability: float
-    price_per_hour: float
-    max_jobs: int
+
+    # TODO instance_type.interruption_probability should always use the latest data
+    # rather than always using the number from when the instance was launched
+    instance_type: ChosenEC2InstanceType
 
 
 async def launch_ec2_instances(
@@ -489,38 +486,16 @@ async def launch_ec2_instances(
         )
 
     public_dns_name_tasks = []
-    host_metadatas = []
+    chosen_instance_types_repeated = []
 
-    for (
-        instance_type,
-        on_demand_or_spot,
-        num_instances,
-        memory_gb,
-        logical_cpu,
-        interruption_probability,
-        price_per_hour,
-        max_jobs,
-    ) in chosen_instance_types[
-        [
-            "instance_type",
-            "on_demand_or_spot",
-            "num_instances",
-            "memory_gb",
-            "logical_cpu",
-            "interruption_probability",
-            "price",
-            "workers_per_instance",
-        ]
-    ].itertuples(
-        index=False
-    ):
-        for _ in range(num_instances):
+    for instance_type in chosen_instance_types:
+        for _ in range(instance_type.num_instances):
             # should really launch these with a single API call
             public_dns_name_tasks.append(
                 launch_ec2_instance(
                     region_name,
-                    instance_type,
-                    on_demand_or_spot,
+                    instance_type.ec2_instance_type.name,
+                    instance_type.ec2_instance_type.on_demand_or_spot,
                     ami_id=ami_id,
                     security_group_ids=security_group_ids,
                     iam_role_name=iam_role_name,
@@ -530,27 +505,19 @@ async def launch_ec2_instances(
                     wait_for_dns_name=True,
                 )
             )
-            host_metadatas.append(
-                (
-                    instance_type,
-                    on_demand_or_spot,
-                    memory_gb,
-                    logical_cpu,
-                    interruption_probability,
-                    price_per_hour,
-                    max_jobs,
-                )
-            )
+            chosen_instance_types_repeated.append(instance_type)
 
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)
 
     return [
-        EC2Instance(public_dns_name, *host_metadata)
-        for public_dns_name, host_metadata in zip(public_dns_names, host_metadatas)
+        EC2Instance(public_dns_name, instance_type)
+        for public_dns_name, instance_type in zip(
+            public_dns_names, chosen_instance_types_repeated
+        )
     ]
 
 
-async def _get_ec2_instance_types(region_name: str) -> pd.DataFrame:
+async def _get_ec2_instance_types(region_name: str) -> List[EC2InstanceType]:
     """
     Gets a dataframe describing EC2 instance types and their prices in the format
     expected by agent_creator:choose_instance_types_for_job
@@ -558,38 +525,12 @@ async def _get_ec2_instance_types(region_name: str) -> pd.DataFrame:
 
     # TODO at some point add cross-region optimization
 
-    # the on_demand_prices dataframe also contains e.g. CPU/memory information
-    on_demand_prices = _get_ec2_on_demand_prices(region_name)
-    spot_prices = _get_ec2_spot_prices(region_name)
-    interruption_probabilities = await _get_ec2_interruption_probability(region_name)
-
-    # Enrich the spot_prices data with CPU/memory information from on_demand_prices
-    # and interruption_probabilities
-    # TODO we should consider warning if we get spot prices or interruption
-    # probabilities where we don't have on_demand_prices or spot_prices respectively,
-    # right now we just drop that data
-    spot_prices = (
-        on_demand_prices.drop(["price"], axis=1)
-        .merge(spot_prices, on="instance_type", how="inner")
-        .merge(interruption_probabilities, on="instance_type", how="left")
-    )
-
-    # If we have spot instances that don't have interruption probabilities, just assume
-    # a relatively high interruption_probability.
-    spot_prices["interruption_probability"] = spot_prices[
-        "interruption_probability"
-    ].fillna(80)
-
-    # combine on_demand and spot data and return
-    prices = pd.concat(
-        [
-            spot_prices.assign(on_demand_or_spot="spot"),
-            on_demand_prices.assign(
-                on_demand_or_spot="on_demand", interruption_probability=0
-            ),
-        ]
-    )
-    return prices
+    result = list(_get_ec2_on_demand_prices(region_name))
+    on_demand_instance_types = {
+        instance_type.name: instance_type for instance_type in result
+    }
+    result.extend(await _get_ec2_spot_prices(region_name, on_demand_instance_types))
+    return result
 
 
 def _get_region_description_for_pricing(region_code: str) -> str:
@@ -609,7 +550,7 @@ def _get_region_description_for_pricing(region_code: str) -> str:
     )
 
 
-def _get_ec2_on_demand_prices(region_name: str) -> pd.DataFrame:
+def _get_ec2_on_demand_prices(region_name: str) -> Iterable[EC2InstanceType]:
     """
     Returns a dataframe with columns instance_type, memory_gb, logical_cpu, and price
     where price is the on-demand price
@@ -649,7 +590,6 @@ def _get_ec2_on_demand_prices(region_name: str) -> pd.DataFrame:
         {"Type": "TERM_MATCH", "Field": "capacitystatus", "Value": "Used"},
     ]
 
-    records = []
     for product_json in _boto3_paginate(
         pricing_client.get_products,
         Filters=filters,
@@ -753,14 +693,14 @@ def _get_ec2_on_demand_prices(region_name: str) -> pd.DataFrame:
             )
             continue
 
-        records.append((instance_type, memory_gb_float, vcpu_int, usd_price_float))
-
-    return pd.DataFrame.from_records(
-        records, columns=["instance_type", "memory_gb", "logical_cpu", "price"]
-    )
+        yield EC2InstanceType(
+            instance_type, memory_gb_float, vcpu_int, usd_price_float, 0, "on_demand"
+        )
 
 
-def _get_ec2_spot_prices(region_name: str) -> pd.DataFrame:
+async def _get_ec2_spot_prices(
+    region_name: str, on_demand_instance_types: Dict[str, EC2InstanceType]
+) -> List[EC2InstanceType]:
     """
     Returns a dataframe with columns instance_type and price, where price is the latest
     spot price
@@ -772,36 +712,59 @@ def _get_ec2_spot_prices(region_name: str) -> pd.DataFrame:
     # for the last hour, assuming that all the instances we care about will have prices
     # within that last hour (no way to know whether that's actually true or not).
     start_time = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
-    column_names = None
-    values = []
-    for price in _boto3_paginate(
+    # For each instance type, maps to the price, and the timestamp for that price. We're
+    # going to always keep just the latest price. If we have multiple prices at the same
+    # timestamp, we'll just take the largest one (this could happen because we get
+    # different prices for different availability zones, e.g. us-east-2b vs us-east-2c).
+    # TODO eventually account for AvailabilityZone?
+    spot_prices: Dict[str, Tuple[float, datetime.datetime]] = {}
+    for spot_price_record in _boto3_paginate(
         ec2_client.describe_spot_price_history,
         ProductDescriptions=["Linux/UNIX"],
         StartTime=start_time,
         MaxResults=10000,
     ):
-        if column_names is None:
-            column_names = list(price.keys())
-        values.append(list(price.values()))
-    # The columns at this point are AvailabilityZone, InstanceType, ProductDescription,
-    # SpotPrice, Timestamp
-    spot_prices = pd.DataFrame(values, columns=column_names)
-    spot_prices["SpotPrice"] = spot_prices["SpotPrice"].astype(float)
+        instance_type = spot_price_record["InstanceType"]
+        timestamp = spot_price_record["Timestamp"]
+        price = float(spot_price_record["SpotPrice"])
+        prev_value = spot_prices.get(instance_type)
 
-    # We just want one spot price per instance type, so take the latest spot price for
-    # each instance type, and if there are multiple spot prices for the same instance
-    # type at the same timestamp, just take the largest one. We ignore AvailabilityZone
-    # (e.g. the same instance type could have different prices in us-east-2b and
-    # us-east-2c) because we assume the differences are small there.
-    # TODO eventually account for AvailabilityZone?
-    return (
-        spot_prices.sort_values(["Timestamp", "SpotPrice"], ascending=False)
-        .drop_duplicates(["InstanceType"], keep="first")[["InstanceType", "SpotPrice"]]
-        .rename(columns={"InstanceType": "instance_type", "SpotPrice": "price"})
-    )
+        if (
+            prev_value is None
+            or prev_value[1] < timestamp
+            or (prev_value[1] == timestamp and prev_value[0] < price)
+        ):
+            spot_prices[instance_type] = price, timestamp
+
+    # get interruption probabilities
+    interruption_probabilities = await _get_ec2_interruption_probabilities(region_name)
+
+    # TODO we should consider warning if we get spot prices or interruption
+    # probabilities where we don't have on_demand_prices or spot_prices respectively,
+    # right now we just drop that data
+
+    results = []
+    for instance_type, (price, timestamp) in spot_prices.items():
+        # drop rows where we don't have the corresponding on_demand instance type
+        # information
+        if instance_type in on_demand_instance_types:
+            on_demand_instance_type = on_demand_instance_types[instance_type]
+            results.append(
+                dataclasses.replace(
+                    on_demand_instance_type,
+                    price=price,
+                    # if interruption_probability is missing, just default to 80%
+                    interruption_probability=interruption_probabilities.get(
+                        instance_type, 80
+                    ),
+                    on_demand_or_spot="spot",
+                )
+            )
+
+    return results
 
 
-async def _get_ec2_interruption_probability(region_name: str) -> pd.DataFrame:
+async def _get_ec2_interruption_probabilities(region_name: str) -> Dict[str, float]:
     """
     Returns a dataframe with columns instance_type, interruption_probability.
     interruption_probability is a percent, so values range from 0 to 100
@@ -823,28 +786,25 @@ async def _get_ec2_interruption_probability(region_name: str) -> pd.DataFrame:
     # on the range implied by the maxes.
 
     # Get the average interruption probability for each range
-    r_to_interruption_probability = (
-        pd.DataFrame.from_records(
-            [(r["index"], r["max"]) for r in data["ranges"]], columns=["index", "max"]
+    range_maxes = {r["index"]: r["max"] for r in data["ranges"]}
+    range_keys_sorted = list(sorted(range_maxes.keys()))
+    if range_keys_sorted != list(range(max(range_maxes.keys()) + 1)):
+        raise ValueError(
+            "Unexpected: ranges are not indexed contiguously from 0: "
+            + ", ".join(str(key) for key in range_maxes.keys())
         )
-        .sort_values("index")
-        .set_index("index")
-    )
-    r_to_interruption_probability["min"] = (
-        r_to_interruption_probability["max"].shift().fillna(0)
-    )
-    r_to_interruption_probability["average"] = (
-        r_to_interruption_probability["min"] + r_to_interruption_probability["max"]
-    ) / 2
+
+    range_averages = {}
+    for key in range_keys_sorted:
+        if key == 0:
+            range_min = 0
+        else:
+            range_min = range_maxes[key - 1]
+        range_averages[key] = (range_maxes[key] + range_min) / 2
 
     # Get the average interruption probability for Linux instance_types in the specified
     # region
-    return pd.DataFrame.from_records(
-        [
-            (instance_type, r_to_interruption_probability["average"][values["r"]])
-            for instance_type, values in data["spot_advisor"][region_name][
-                "Linux"
-            ].items()
-        ],
-        columns=["instance_type", "interruption_probability"],
-    )
+    return {
+        instance_type: range_averages[values["r"]]
+        for instance_type, values in data["spot_advisor"][region_name]["Linux"].items()
+    }

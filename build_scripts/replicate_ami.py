@@ -47,6 +47,11 @@ def replicate_images() -> None:
             destination_image_id = result["ImageId"]
             created_images.append((destination_region, destination_image_id))
 
+    print("Copy this into ec2_alloc.py:_EC2_ALLOC_AMIS")
+    print(f'"{_SOURCE_REGION}": "{_SOURCE_AMI}",')
+    for destination_region, destination_image_id in created_images:
+        print(f'"{destination_region}": "{destination_image_id}",')
+
     # now make those images public (this API requires waiting until the AMI has been
     # fully created)
     for destination_region, destination_image_id in created_images:
@@ -69,6 +74,8 @@ def replicate_images() -> None:
                 print(f"Made AMI {destination_image_id} in {destination_region} public")
                 break
 
+    # repeating this from before, as it's sometimes hard to find the first one if there
+    # are a lot of "waiting" messages in between
     print("Copy this into ec2_alloc.py:_EC2_ALLOC_AMIS")
     print(f'"{_SOURCE_REGION}": "{_SOURCE_AMI}",')
     for destination_region, destination_image_id in created_images:
@@ -84,7 +91,7 @@ def list_all_images() -> None:
             print(f"{region}, {image['ImageId']}, {image['Name']}")
 
 
-def delete_replicated_images(dry_run: bool) -> None:
+def delete_replicated_images(image_starts_with: str, dry_run: bool) -> None:
     """
     Deletes all images in _SUPPORTED_REGIONS (excluding _SOURCE_REGION) that start with
     "meadowrun"
@@ -97,7 +104,7 @@ def delete_replicated_images(dry_run: bool) -> None:
             client = boto3.client("ec2", region_name=region)
             response = client.describe_images(Owners=["self"])
             for image in response.get("Images", ()):
-                if image["Name"].startswith("meadowrun"):
+                if image["Name"].startswith(image_starts_with):
                     print(f"Will delete: {region}, {image['ImageId']}, {image['Name']}")
                     if len(image["BlockDeviceMappings"]) != 1:
                         print("Warning skipping, because len(BlockDeviceMappings) != 1")

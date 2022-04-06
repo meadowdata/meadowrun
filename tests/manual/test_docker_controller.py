@@ -1,4 +1,3 @@
-# type: ignore
 """
 These functions are hard to test because they need to test authentication and interact
 with arbitrary Docker Registry HTTP API servers that may have slightly different
@@ -11,7 +10,7 @@ automated tests.
 
 import asyncio
 
-from meadowrun._vendor import aiodocker
+from meadowrun.credentials import UsernamePassword
 
 from meadowrun.docker_controller import (
     get_latest_digest_from_registry,
@@ -47,7 +46,7 @@ def manual_test_get_latest_digest():
             await get_latest_digest_from_registry(
                 "[your username]/test1",
                 "latest",
-                ("[your username]", "[your password]"),
+                UsernamePassword("[your username]", "[your password]"),
             )
         )
         # private, requires basic auth. Requires uploading an image to AWS ECR called
@@ -56,7 +55,9 @@ def manual_test_get_latest_digest():
             await get_latest_digest_from_registry(
                 "012345678910.dkr.ecr.us-east-2.amazonaws.com/test1",
                 "latest",
-                ("AWS", "`aws ecr get-login-password --region [region]`"),
+                UsernamePassword(
+                    "AWS", "`aws ecr get-login-password --region [region]`"
+                ),
             )
         )
 
@@ -65,31 +66,24 @@ def manual_test_get_latest_digest():
 
 def manual_test_does_digest_exist_locally():
     async def run():
-        async with aiodocker.Docker() as client:
-            # test a digest that exists
-            print(
-                await _does_digest_exist_locally(
-                    client,
-                    "python",
-                    "sha256:76eaa9e5bd357d6983a88ddc9c4545ef4ad64c50f84f081ba952c7ed08e3bdd6",  # noqa: E501
-                )
+        # test a digest that exists
+        print(
+            await _does_digest_exist_locally(
+                "python@sha256:76eaa9e5bd357d6983a88ddc9c4545ef4ad64c50f84f081ba952c7ed08e3bdd6",  # noqa: E501
             )
-            # and a digest that does not exist for a repository that does exist
-            print(
-                await _does_digest_exist_locally(
-                    client,
-                    "python",
-                    "sha256:4157d139faf3ec4c3742c2980d3fd3675608dbf75384a756f8dc0e825e54d492",  # noqa: E501
-                )
+        )
+        # and a digest that does not exist for a repository that does exist
+        print(
+            await _does_digest_exist_locally(
+                "python@sha256:4157d139faf3ec4c3742c2980d3fd3675608dbf75384a756f8dc0e825e54d492",  # noqa: E501
             )
-            # test a digest that is no longer associated with any tags
-            print(
-                await _does_digest_exist_locally(
-                    client,
-                    "gcr.io/kaniko-project/executor",
-                    "sha256:8504bde9a9a8c9c4e9a4fe659703d265697a36ff13607b7669a4caa4407baa52",  # noqa: E501
-                )
+        )
+        # test a digest that is no longer associated with any tags
+        print(
+            await _does_digest_exist_locally(
+                "gcr.io/kaniko-project/executor@sha256:8504bde9a9a8c9c4e9a4fe659703d265697a36ff13607b7669a4caa4407baa52",  # noqa: E501
             )
+        )
 
     asyncio.run(run())
 
@@ -111,12 +105,12 @@ def manual_test_pull_digest():
         # with authentication at DockerHub
         await pull_image(
             "[your username]/test1@sha256:4157d139faf3ec4c3742c2980d3fd3675608dbf75384a756f8dc0e825e54d492",  # noqa: E501
-            ("[your username]", "[your password]"),
+            UsernamePassword("[your username]", "[your password]"),
         )
         # with authentication at AWS ECR
         await pull_image(
             "012345678910.dkr.ecr.us-east-2.amazonaws.com/test1@sha256:9c5098aa89084bfe4a22c690e045c34b03618e6560a890872fae2305a6f49da3",  # noqa: E501
-            ("AWS", "`aws ecr get-login-password --region [region]`"),
+            UsernamePassword("AWS", "`aws ecr get-login-password --region [region]`"),
         )
 
     asyncio.run(run())

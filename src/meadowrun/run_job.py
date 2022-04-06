@@ -246,6 +246,7 @@ class JobCompletion(Generic[_T]):
     process_state: ProcessState._ProcessStateEnum.ValueType
     log_file_name: str
     return_code: int
+    public_address: str
 
 
 class MeadowrunException(Exception):
@@ -282,7 +283,11 @@ class LocalHost(Host):
                 unpickled_result = None
 
             return JobCompletion(
-                unpickled_result, result.state, result.log_file_name, result.return_code
+                unpickled_result,
+                result.state,
+                result.log_file_name,
+                result.return_code,
+                "localhost",
             )
         else:
             raise MeadowrunException(result)
@@ -314,9 +319,8 @@ class SshHost(Host):
 
                 # try the first command 3 times, as this is when we actually try to
                 # connect to the remote machine.
-                connection.config["run"]["hide"] = True
                 home_result = await _retry(
-                    lambda: connection.run("echo $HOME"),
+                    lambda: connection.run("echo $HOME", hide=True, in_stream=False),
                     (
                         cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
                         cast(Exception, TimeoutError),
@@ -327,10 +331,13 @@ class SshHost(Host):
                         "Error getting home directory on remote machine "
                         + home_result.stdout
                     )
-                connection.config["run"]["hide"] = False
 
+                # in_stream is needed otherwise invoke listens to stdin, which pytest
+                # doesn't like
                 remote_working_folder = f"{home_result.stdout.strip()}/meadowrun"
-                mkdir_result = connection.run(f"mkdir -p {remote_working_folder}/io")
+                mkdir_result = connection.run(
+                    f"mkdir -p {remote_working_folder}/io", in_stream=False
+                )
                 if not mkdir_result.ok:
                     raise ValueError(
                         "Error creating meadowrun directory " + mkdir_result.stdout
@@ -368,7 +375,7 @@ class SshHost(Host):
                 def run_and_wait() -> None:
                     try:
                         # use meadowrun to run the job
-                        returned_result = connection.run(command)
+                        returned_result = connection.run(command, in_stream=False)
                         event_loop.call_soon_threadsafe(
                             lambda r=returned_result: result_future.set_result(r)
                         )
@@ -406,6 +413,7 @@ class SshHost(Host):
                         process_state.state,
                         process_state.log_file_name,
                         process_state.return_code,
+                        self.address,
                     )
                 else:
                     raise MeadowrunException(process_state)
@@ -423,7 +431,7 @@ class SshHost(Host):
                     try:
                         # -f so that we don't throw an error on files that don't
                         # exist
-                        connection.run(f"rm -f {remote_paths}")
+                        connection.run(f"rm -f {remote_paths}", in_stream=False)
                     except Exception as e:
                         print(
                             f"Error cleaning up files on remote machine: "

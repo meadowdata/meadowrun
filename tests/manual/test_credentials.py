@@ -1,3 +1,8 @@
+"""
+These tests require extensive manual setup, e.g. creating a DockerHub account and
+uploading an image to it.
+"""
+
 import subprocess
 
 from meadowrun.credentials import CredentialsSource, CredentialsSourceForService

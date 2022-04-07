@@ -1,3 +1,4 @@
+import argparse
 import time
 
 import boto3
@@ -7,7 +8,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 )
 
 _SOURCE_REGION = "us-east-2"  # the region that you ran build_ami.py under
-_SOURCE_AMI = "ami-01beff5e097467c68"  # the original AMI id in that region
 _SUPPORTED_REGIONS = [
     "us-east-1",
     "us-east-2",
@@ -21,19 +21,24 @@ _SUPPORTED_REGIONS = [
 ]
 
 
-def replicate_images() -> None:
+def replicate_images(source_ami: str) -> None:
     """
     After building an AMI (using build_ami.py), we need to make it available in all the
     regions we want to support. This function copies the AMI specified by _SOURCE_AMI to
     all of the _SUPPORTED_REGIONS.
     """
     source_client = boto3.client("ec2", region_name=_SOURCE_REGION)
-    image_name = source_client.describe_images(ImageIds=[_SOURCE_AMI])["Images"][0][
+    image_name = source_client.describe_images(ImageIds=[source_ami])["Images"][0][
         "Name"
     ]
+    print(
+        f"Will replicate {image_name} from {_SOURCE_REGION} to "
+        + ", ".join(_SUPPORTED_REGIONS)
+    )
+
     # first, make sure the source image is public
     source_client.modify_image_attribute(
-        ImageId=_SOURCE_AMI, LaunchPermission={"Add": [{"Group": "all"}]}
+        ImageId=source_ami, LaunchPermission={"Add": [{"Group": "all"}]}
     )
 
     # then copy the image
@@ -42,13 +47,13 @@ def replicate_images() -> None:
         if destination_region != _SOURCE_REGION:
             client = boto3.client("ec2", region_name=destination_region)
             result = client.copy_image(
-                Name=image_name, SourceImageId=_SOURCE_AMI, SourceRegion=_SOURCE_REGION
+                Name=image_name, SourceImageId=source_ami, SourceRegion=_SOURCE_REGION
             )
             destination_image_id = result["ImageId"]
             created_images.append((destination_region, destination_image_id))
 
     print("Copy this into ec2_alloc.py:_EC2_ALLOC_AMIS")
-    print(f'"{_SOURCE_REGION}": "{_SOURCE_AMI}",')
+    print(f'"{_SOURCE_REGION}": "{source_ami}",')
     for destination_region, destination_image_id in created_images:
         print(f'"{destination_region}": "{destination_image_id}",')
 
@@ -77,7 +82,7 @@ def replicate_images() -> None:
     # repeating this from before, as it's sometimes hard to find the first one if there
     # are a lot of "waiting" messages in between
     print("Copy this into ec2_alloc.py:_EC2_ALLOC_AMIS")
-    print(f'"{_SOURCE_REGION}": "{_SOURCE_AMI}",')
+    print(f'"{_SOURCE_REGION}": "{source_ami}",')
     for destination_region, destination_image_id in created_images:
         print(f'"{destination_region}": "{destination_image_id}",')
 
@@ -117,3 +122,38 @@ def delete_replicated_images(image_starts_with: str, dry_run: bool) -> None:
                         print(f"Deleting related snapshot: {snapshot_id}")
                         if not dry_run:
                             client.delete_snapshot(SnapshotId=snapshot_id)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+
+    parser_replicate = subparsers.add_parser(
+        "replicate",
+        help="Replicates the specified AMI to the regions configured in this file",
+    )
+    parser_replicate.add_argument("source_ami_id")
+
+    subparsers.add_parser("list", help="List all of your AMIs in all regions")
+
+    parser_delete = subparsers.add_parser(
+        "delete",
+        help="Delete AMIs across all regions that start with the specified string",
+    )
+    parser_delete.add_argument("starts_with")
+    parser_delete.add_argument("--dry-run", action="store_true")
+
+    args = parser.parse_args()
+
+    if args.command == "replicate":
+        replicate_images(args.source_ami_id)
+    elif args.command == "list":
+        list_all_images()
+    elif args.command == "delete":
+        delete_replicated_images(args.starts_with, args.dry_run)
+    else:
+        ValueError(f"Unrecognized command: {args.command}")
+
+
+if __name__ == "__main__":
+    main()

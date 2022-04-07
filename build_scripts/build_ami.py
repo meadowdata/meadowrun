@@ -174,6 +174,8 @@ async def build_meadowrun_ami():
 
     # now terminate the instance as we don't need it anymore
     client.terminate_instances(InstanceIds=[instance_id])
+
+    print(f"New image id: {image_id}")
     print("Remember to delete old AMIs and snapshots!")
 
 

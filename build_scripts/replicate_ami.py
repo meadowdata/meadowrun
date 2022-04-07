@@ -7,7 +7,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 )
 
 _SOURCE_REGION = "us-east-2"  # the region that you ran build_ami.py under
-_SOURCE_AMI = "ami-0a4cc9d1cc418d8ee"  # the original AMI id in that region
+_SOURCE_AMI = "ami-01beff5e097467c68"  # the original AMI id in that region
 _SUPPORTED_REGIONS = [
     "us-east-1",
     "us-east-2",
@@ -104,7 +104,7 @@ def delete_replicated_images(image_starts_with: str, dry_run: bool) -> None:
             client = boto3.client("ec2", region_name=region)
             response = client.describe_images(Owners=["self"])
             for image in response.get("Images", ()):
-                if image["Name"].startswith(image_starts_with):
+                if "Name" in image and image["Name"].startswith(image_starts_with):
                     print(f"Will delete: {region}, {image['ImageId']}, {image['Name']}")
                     if len(image["BlockDeviceMappings"]) != 1:
                         print("Warning skipping, because len(BlockDeviceMappings) != 1")

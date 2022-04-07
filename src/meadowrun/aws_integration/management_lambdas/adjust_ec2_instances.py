@@ -25,7 +25,7 @@ _TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=30)
 # and they need to be terminated. However, it's possible that we happen to query between
 # when an instance is launched and when it's registered. So for the first 30 seconds
 # after an instance is launched, we don't terminate it even if it's not registered.
-_LAUNCH_REGISTER_DELAY = datetime.timedelta(seconds=30)
+_LAUNCH_REGISTER_DELAY = datetime.timedelta(minutes=5)
 
 
 def _get_ec2_alloc_table(region_name: str) -> Any:
@@ -118,7 +118,7 @@ def _deregister_and_terminate_instances(
     to get running/registered instances back in sync
     2. Terminates and deregisters idle instances
     """
-    ec2 = boto3.resource("ec2")
+    ec2 = boto3.resource("ec2", region_name=region_name)
 
     # by "running" here we mean anything that's not terminated
     running_instances = ec2.instances.filter(
@@ -157,7 +157,10 @@ def _deregister_and_terminate_instances(
             public_address not in registered_instances
             and (now_with_timezone - instance.launch_time) > _LAUNCH_REGISTER_DELAY
         ):
-            print(f"{public_address} is running but is not registered, will terminate")
+            print(
+                f"{public_address} is running but is not registered, will terminate. "
+                f"Was launched at {instance.launch_time}."
+            )
             instance.terminate()
 
 

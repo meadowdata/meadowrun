@@ -80,6 +80,7 @@ class AwsHostProvider(HostProvider):
 class TestBasicsAws(AwsHostProvider, BasicsSuite):
     pass
 
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map(self):
         """Runs a "real" run_map"""
@@ -366,6 +367,7 @@ class TestEC2Alloc:
         assert len(results["testhost-3"]) == 2
         assert len(results["testhost-4"]) == 1
 
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_launch_one_instance(self):
         """Launches instances that must be cleaned up manually"""
@@ -391,6 +393,7 @@ class TestEC2Alloc:
 
         # remember to kill the instance when you're done!
 
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_launch_multiple_instances(self):
         """Launches instances that must be cleaned up manually"""

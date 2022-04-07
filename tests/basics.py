@@ -143,6 +143,10 @@ class BasicsSuite(HostProvider, abc.ABC):
 
             assert self.get_log_file_text(result).startswith(f"Python {version}")
 
+    # there's a cloudpickle issue that prevents lambdas serialized on 3.7 running on
+    # 3.8. Assuming here that this extends to all lambdas serialized on <=3.7 running on
+    # >=3.8
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_meadowrun_environment_in_spec(self):
         def remote_function():
@@ -187,6 +191,7 @@ class ErrorsSuite(HostProvider, abc.ABC):
             == ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED
         )
 
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_non_zero_return_code(self):
         def exit_immediately():

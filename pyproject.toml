@@ -15,7 +15,7 @@ meadowrun-local = 'meadowrun.run_job_local_main:command_line_main'
 meadowrun-manage = "meadowrun.manage:main"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.7"
 protobuf = "^3.18.1"
 cloudpickle = "^2.0.0"
 aiobotocore = "^2.1.2"

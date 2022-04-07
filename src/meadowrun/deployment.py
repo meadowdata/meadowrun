@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-from typing import (
-    Final,
-    Union,
-    cast,
-    get_args,
-    overload,
-)
+from typing import Union, cast, overload
+from typing_extensions import Final, get_args
 
 from meadowrun.credentials import (
     CredentialsDict,

@@ -25,7 +25,8 @@ from __future__ import annotations
 import abc
 import dataclasses
 import json
-from typing import Union, Literal, Optional, Dict, List, Tuple
+from typing import Union, Optional, Dict, List, Tuple
+from typing_extensions import Literal
 
 import boto3
 

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import Dict, Optional, Tuple, Literal, List
+from typing import Dict, Optional, Tuple, List
+from typing_extensions import Literal
 
 OnDemandOrSpotType = Literal["on_demand", "spot"]
 

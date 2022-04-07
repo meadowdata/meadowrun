@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import asyncio.subprocess
 import dataclasses
@@ -14,11 +16,11 @@ from typing import (
     Dict,
     Iterable,
     List,
-    Literal,
     Optional,
     Sequence,
     Tuple,
 )
+from typing_extensions import Literal
 
 from meadowrun._vendor.aiodocker import containers as aiodocker_containers
 from meadowrun._vendor import aiodocker

@@ -1,6 +1,7 @@
 import os
 import pickle
-from typing import Any, Dict, Final, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
+from typing_extensions import Literal, Final
 
 _UNINITIALIZED: Final = "__UNINITIALIZED__"
 

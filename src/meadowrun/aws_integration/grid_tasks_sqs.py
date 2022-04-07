@@ -96,7 +96,10 @@ async def _create_queues_for_job(job_id: str, region_name: str) -> Tuple[str, st
 def _chunker(it: Iterable[_T], size: int) -> Iterable[List[_T]]:
     """E.g. _chunker([1, 2, 3, 4, 5], 2) -> [1, 2], [3, 4], [5]"""
     iterator = iter(it)
-    while chunk := list(itertools.islice(iterator, size)):
+    while True:
+        chunk = list(itertools.islice(iterator, size))
+        if not chunk:
+            break
         yield chunk
 
 
@@ -258,9 +261,18 @@ def worker_loop(
     """
     pid = os.getpid()
 
-    while task := _get_task(
-        request_queue_url, result_queue_url, region_name, 1, public_address, worker_id
-    ):
+    while True:
+        task = _get_task(
+            request_queue_url,
+            result_queue_url,
+            region_name,
+            1,
+            public_address,
+            worker_id,
+        )
+        if not task:
+            break
+
         try:
             result = function(pickle.loads(task.pickled_function_arguments))
         except Exception as e:

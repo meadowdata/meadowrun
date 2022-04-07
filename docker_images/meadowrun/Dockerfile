@@ -10,6 +10,6 @@ FROM python:3.9-slim-buster
 
 WORKDIR /meadowrun
 
-COPY meadowrun-0.1.4-py3-none-any.whl meadowrun-0.1.4-py3-none-any.whl
+COPY meadowrun-0.1.6-py3-none-any.whl meadowrun-0.1.6-py3-none-any.whl
 
-RUN pip install meadowrun-0.1.4-py3-none-any.whl
+RUN pip install meadowrun-0.1.6-py3-none-any.whl

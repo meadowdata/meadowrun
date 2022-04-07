@@ -16,4 +16,5 @@ pause
 call conda build -c defaults -c conda-forge --python 3.9 meadowrun
 
 @REM replace the version number here as appropriate
-call anaconda upload C:\bin\Miniconda\conda-bld\noarch\meadowrun-0.1.4-py_0.tar.bz2
+call conda activate base
+call anaconda upload C:\bin\Miniconda\conda-bld\noarch\meadowrun-0.1.6-py_0.tar.bz2

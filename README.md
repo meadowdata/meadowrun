@@ -1,10 +1,13 @@
 # Meadowrun 
 
-Meadowrun makes developing and experimenting with your python code on the cloud as easy
-and frictionless as working locally.
+Meadowrun automates the tedious details of running your python code on AWS. Meadowrun
+- chooses the optimal set of EC2 on-demand or spot instances and turns them off when
+  they're no longer needed
+- deploys your code and libraries to the EC2 instances, so you don't have to worry about
+  creating packages and building Docker images
+- scales from a single function to thousands of parallel tasks
 
-
-## Getting started (`run_function`)
+## Getting started
 
 First, install meadowrun, e.g.
 

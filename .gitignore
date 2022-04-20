@@ -12,3 +12,6 @@ __pycache__
 
 # test data
 /test_data/
+
+# sphinx outputs
+/docs/_build

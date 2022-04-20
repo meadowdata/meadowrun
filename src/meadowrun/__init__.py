@@ -31,3 +31,24 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFolder,
     ServerAvailableInterpreter,
 )
+
+
+__all__ = [
+    "Deployment",
+    "EC2AllocHost",
+    "EC2AllocHosts",
+    "LocalHost",
+    "SshHost",
+    "run_command",
+    "run_function",
+    "run_map",
+    "AwsSecret",
+    "ContainerAtDigest",
+    "ContainerAtTag",
+    "GitRepoBranch",
+    "GitRepoCommit",
+    "ServerAvailableContainer",
+    "ServerAvailableFile",
+    "ServerAvailableFolder",
+    "ServerAvailableInterpreter",
+]

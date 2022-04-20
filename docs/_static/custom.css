@@ -1,0 +1,6 @@
+// This can be removed if https://github.com/bitprophet/alabaster/pull/114 gets merged
+
+div.sphinxsidebar {
+    max-height: 100%;
+    overflow-y: auto;
+}

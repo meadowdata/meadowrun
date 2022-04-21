@@ -12,7 +12,6 @@ will
 
 .. toctree::
    :maxdepth: 1
-   :hidden:
    :caption: Tutorials
 
    install.rst
@@ -21,7 +20,6 @@ will
 
 .. toctree::
    :maxdepth: 1
-   :hidden:
    :caption: How to
 
    private_git_repo.rst
@@ -29,7 +27,6 @@ will
 
 .. toctree::
    :maxdepth: 2
-   :hidden:
    :caption: Reference
 
    apis.rst

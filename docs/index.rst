@@ -10,6 +10,8 @@ will
   creating packages and building Docker images
 - scale from a single function to thousands of parallel tasks
 
+For more context, see the `project homepage <https://meadowrun.io>`_.
+
 .. toctree::
    :maxdepth: 1
    :caption: Tutorials

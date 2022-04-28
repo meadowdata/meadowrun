@@ -1,4 +1,4 @@
-# Meadowrun 
+# ![Meadowrun](docs/_static/meadowrun-logo-full.svg)
 
 Meadowrun automates the tedious details of running your python code on AWS. Meadowrun
 will
@@ -9,7 +9,8 @@ will
 - scale from a single function to thousands of parallel tasks
 
 For more information see Meadowrun's
-[documentation](https://docs.meadowrun.io/en/latest/)
+[documentation](https://docs.meadowrun.io/en/latest/), or the [project
+homepage](https://meadowrun.io).
 
 ## When would I use Meadowrun?
 

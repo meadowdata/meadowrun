@@ -54,4 +54,11 @@ html_theme = "alabaster"
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
-html_theme_options = {"show_powered_by": False, "fixed_sidebar": True}
+html_theme_options = {
+    "show_powered_by": False,
+    "fixed_sidebar": True,
+    "logo": "meadowrun-logo-full.svg",
+    "github_button": True,
+    "github_user": "meadowdata",
+    "github_repo": "meadowrun",
+}

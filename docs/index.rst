@@ -16,19 +16,19 @@ For more context, see the `project homepage <https://meadowrun.io>`_.
    :maxdepth: 1
    :caption: Tutorials
 
-   install.rst
-   run_function.rst
-   run_map.rst
+   tutorial/install.rst
+   tutorial/run_function.rst
+   tutorial/run_map.rst
 
 .. toctree::
    :maxdepth: 1
    :caption: How to
 
-   private_git_repo.rst
+   howto/private_git_repo.rst
 
 
 .. toctree::
    :maxdepth: 2
    :caption: Reference
 
-   apis.rst
+   reference/apis.rst

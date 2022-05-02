@@ -4,7 +4,7 @@ code outside this folder.
 """
 import datetime
 import os
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Iterable
 
 import boto3
 
@@ -39,7 +39,9 @@ def _get_ec2_alloc_table(region_name: str) -> Any:
     return db.Table(_EC2_ALLOC_TABLE_NAME)
 
 
-def _get_ec2_instances(region_name: str) -> Dict[str, Tuple[datetime.datetime, int]]:
+def _get_registered_ec2_instances(
+    region_name: str,
+) -> Dict[str, Tuple[datetime.datetime, int]]:
     """
     Similar to _get_ec2_instances in ec2_alloc, but instead of getting the available
     resources, returns {public_address: (last time a job was allocated or deallocated on
@@ -110,6 +112,16 @@ def adjust(region_name: str) -> None:
     # TODO this should also launch instances based on pre-provisioning policy
 
 
+def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
+    """Gets all meadowrun-launched EC2 instances that aren't terminated"""
+    return ec2_resource.instances.filter(
+        Filters=[
+            {"Name": f"tag:{_EC2_ALLOC_TAG}", "Values": [_EC2_ALLOC_TAG_VALUE]},
+            {"Name": "instance-state-name", "Values": _NON_TERMINATED_EC2_STATES},
+        ]
+    )
+
+
 def _deregister_and_terminate_instances(
     region_name: str, terminate_instances_if_idle_for: datetime.timedelta
 ) -> None:
@@ -118,26 +130,22 @@ def _deregister_and_terminate_instances(
     to get running/registered instances back in sync
     2. Terminates and deregisters idle instances
     """
-    ec2 = boto3.resource("ec2", region_name=region_name)
 
     # by "running" here we mean anything that's not terminated
-    running_instances = ec2.instances.filter(
-        Filters=[
-            {"Name": f"tag:{_EC2_ALLOC_TAG}", "Values": [_EC2_ALLOC_TAG_VALUE]},
-            {"Name": "instance-state-name", "Values": _NON_TERMINATED_EC2_STATES},
-        ]
-    )
-    running_instances_dict = {
-        instance.public_dns_name: instance for instance in running_instances
+    running_instances = {
+        instance.public_dns_name: instance
+        for instance in _get_running_instances(
+            boto3.resource("ec2", region_name=region_name)
+        )
     }
 
-    registered_instances = _get_ec2_instances(region_name)
+    registered_instances = _get_registered_ec2_instances(region_name)
 
     now = datetime.datetime.utcnow()
     now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
 
     for public_address, (last_updated, num_jobs) in registered_instances.items():
-        if public_address not in running_instances_dict:
+        if public_address not in running_instances:
             print(
                 f"{public_address} is registered but does not seem to be running, so we"
                 f" will deregister it"
@@ -150,9 +158,9 @@ def _deregister_and_terminate_instances(
                     f"{public_address} is not running any jobs and has not run anything"
                     f" since {last_updated} so we will deregister and terminate it"
                 )
-                running_instances_dict[public_address].terminate()
+                running_instances[public_address].terminate()
 
-    for public_address, instance in running_instances_dict.items():
+    for public_address, instance in running_instances.items():
         if (
             public_address not in registered_instances
             and (now_with_timezone - instance.launch_time) > _LAUNCH_REGISTER_DELAY
@@ -162,6 +170,17 @@ def _deregister_and_terminate_instances(
                 f"Was launched at {instance.launch_time}."
             )
             instance.terminate()
+
+
+def terminate_all_instances(region_name: str) -> None:
+    """
+    Terminates all instances, regardless of whether they are registered or not. WARNING
+    this will kill running jobs.
+    """
+    for instance in _get_running_instances(
+        boto3.resource("ec2", region_name=region_name)
+    ):
+        instance.terminate()
 
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:

@@ -17,6 +17,7 @@ import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_core import (
     _EC2_ASSUME_ROLE_POLICY_DOCUMENT,
     _LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
+    _MEADOWRUN_SSH_SECURITY_GROUP,
     _get_default_region_name,
     _iam_role_exists,
     ensure_meadowrun_ssh_security_group,
@@ -1021,6 +1022,22 @@ async def _create_management_lambda(
     )
 
 
+def _set_retention_policy_lambda_logs(lambda_name: str, region_name: str) -> None:
+    """
+    Cloudwatch log groups are automatically created for lambdas when they are first run
+    with an infinite retention period. This function preemptively creates the log group
+    so that we can set the retention period.
+    """
+    logs_client = boto3.client("logs", region_name=region_name)
+    ignore_boto3_error_code(
+        lambda: logs_client.create_log_group(logGroupName=f"/aws/lambda/{lambda_name}"),
+        "ResourceAlreadyExistsException",
+    )
+    logs_client.put_retention_policy(
+        logGroupName=f"/aws/lambda/{lambda_name}", retentionInDays=3
+    )
+
+
 async def _ensure_management_lambda(
     lambda_handler: Any,
     lambda_name: str,
@@ -1056,10 +1073,12 @@ async def _ensure_management_lambda(
             schedule_expression,
             region_name,
         )
+        _set_retention_policy_lambda_logs(lambda_name, region_name)
     elif update_if_exists:
         lambda_client.update_function_code(
             FunctionName=lambda_name, ZipFile=_get_zipped_lambda_code()
         )
+        _set_retention_policy_lambda_logs(lambda_name, region_name)
 
 
 async def ensure_ec2_alloc_lambda(update_if_exists: bool = False) -> None:
@@ -1082,8 +1101,8 @@ async def ensure_clean_up_lambda(update_if_exists: bool = False) -> None:
     )
 
 
-def _detach_all_policies(iam: Any, role_name: str) -> None:
-    """Detach all policies from a role"""
+def _delete_iam_role(iam: Any, role_name: str) -> None:
+    """Deletes an IAM role, requires detaching all policies first"""
     success, attached_policies = ignore_boto3_error_code(
         lambda: iam.list_attached_role_policies(RoleName=role_name), "NoSuchEntity"
     )
@@ -1102,6 +1121,22 @@ def _detach_all_policies(iam: Any, role_name: str) -> None:
         for inline_policy in inline_policies["PolicyNames"]:
             iam.delete_role_policy(RoleName=role_name, PolicyName=inline_policy)
 
+    ignore_boto3_error_code(lambda: iam.delete_role(RoleName=role_name), "NoSuchEntity")
+
+
+def _delete_event_rule(events_client: Any, rule_name: str) -> None:
+    """Deletes an EventBridge rule, requires deleting targets first"""
+    success, target_ids = ignore_boto3_error_code(
+        lambda: [
+            target["Id"]
+            for target in events_client.list_targets_by_rule(Rule=rule_name)["Targets"]
+        ],
+        "ResourceNotFoundException",
+    )
+    if success and target_ids:
+        events_client.remove_targets(Rule=rule_name, Ids=target_ids)
+    events_client.delete_rule(Name=rule_name)
+
 
 def delete_meadowrun_resources(region_name: str) -> None:
     """
@@ -1110,6 +1145,14 @@ def delete_meadowrun_resources(region_name: str) -> None:
     This needs to contain all old names/types of resources in every published version of
     this library.
     """
+
+    meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.terminate_all_instances(  # noqa: E501
+        region_name
+    )
+
+    meadowrun.aws_integration.management_lambdas.clean_up.delete_all_task_queues(
+        region_name
+    )
 
     iam = boto3.client("iam", region_name=region_name)
 
@@ -1127,15 +1170,8 @@ def delete_meadowrun_resources(region_name: str) -> None:
         "NoSuchEntity",
     )
 
-    _detach_all_policies(iam, _EC2_ALLOC_ROLE)
-    ignore_boto3_error_code(
-        lambda: iam.delete_role(RoleName=_EC2_ALLOC_ROLE), "NoSuchEntity"
-    )
-
-    _detach_all_policies(iam, _MANAGEMENT_LAMBDA_ROLE)
-    ignore_boto3_error_code(
-        lambda: iam.delete_role(RoleName=_MANAGEMENT_LAMBDA_ROLE), "NoSuchEntity"
-    )
+    _delete_iam_role(iam, _EC2_ALLOC_ROLE)
+    _delete_iam_role(iam, _MANAGEMENT_LAMBDA_ROLE)
 
     table_access_policy_arn = _ensure_ec2_alloc_table_access_policy(iam)
     ignore_boto3_error_code(
@@ -1145,6 +1181,11 @@ def delete_meadowrun_resources(region_name: str) -> None:
     sqs_access_policy_arn = _ensure_meadowrun_sqs_access_policy(iam)
     ignore_boto3_error_code(
         lambda: iam.delete_policy(PolicyArn=sqs_access_policy_arn), "NoSuchEntity"
+    )
+
+    ecr_access_policy_arn = _ensure_meadowrun_ecr_access_policy(iam)
+    ignore_boto3_error_code(
+        lambda: iam.delete_policy(PolicyArn=ecr_access_policy_arn), "NoSuchEntity"
     )
 
     lambda_client = boto3.client("lambda", region_name=region_name)
@@ -1157,8 +1198,35 @@ def delete_meadowrun_resources(region_name: str) -> None:
         "ResourceNotFoundException",
     )
 
+    logs_client = boto3.client("logs", region_name=region_name)
+    ignore_boto3_error_code(
+        lambda: logs_client.delete_log_group(
+            logGroupName=f"/aws/lambda/{_EC2_ALLOC_LAMBDA_NAME}"
+        ),
+        "ResourceNotFoundException",
+    )
+    ignore_boto3_error_code(
+        lambda: logs_client.delete_log_group(
+            logGroupName=f"/aws/lambda/{_CLEAN_UP_LAMBDA_NAME}"
+        ),
+        "ResourceNotFoundException",
+    )
+
+    events_client = boto3.client("events", region_name=region_name)
+    _delete_event_rule(events_client, _EC2_ALLOC_LAMBDA_SCHEDULE_RULE)
+    _delete_event_rule(events_client, _CLEAN_UP_LAMBDA_SCHEDULE_RULE)
+
     ec2_client = boto3.client("ec2", region_name=region_name)
     ec2_client.delete_key_pair(KeyName=MEADOWRUN_KEY_PAIR_NAME)
+    # TODO this will fail if there are unterminated instances using this security group.
+    # We terminate all instances at the beginning of this function, but it takes time to
+    # terminate them.
+    ignore_boto3_error_code(
+        lambda: ec2_client.delete_security_group(
+            GroupName=_MEADOWRUN_SSH_SECURITY_GROUP
+        ),
+        "InvalidGroup.NotFound",
+    )
 
     secrets_client = boto3.client("secretsmanager", region_name=region_name)
     ignore_boto3_error_code(
@@ -1166,6 +1234,16 @@ def delete_meadowrun_resources(region_name: str) -> None:
         "ResourceNotFoundException",
     )
 
-    # TODO also delete schedule rules?
+    dynamodb_client = boto3.client("dynamodb", region_name=region_name)
+    ignore_boto3_error_code(
+        lambda: dynamodb_client.delete_table(TableName=_EC2_ALLOC_TABLE_NAME),
+        "ResourceNotFoundException",
+    )
 
-    # TODO also delete other resources like security groups, dynamodb table, SQS queues
+    ecr_client = boto3.client("ecr", region_name=region_name)
+    ignore_boto3_error_code(
+        lambda: ecr_client.delete_repository(
+            repositoryName=_MEADOWRUN_GENERATED_DOCKER_REPO
+        ),
+        "RepositoryNotFoundException",
+    )

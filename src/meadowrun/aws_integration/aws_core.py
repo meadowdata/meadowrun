@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import dataclasses
 import datetime
 import json
@@ -309,130 +308,69 @@ async def launch_ec2_instance(
         optional_args["IamInstanceProfile"] = {"Name": iam_role_name}
     if key_name:
         optional_args["KeyName"] = key_name
+    if user_data:
+        optional_args["UserData"] = user_data
+    if tags:
+        optional_args["TagSpecifications"] = [
+            {
+                "ResourceType": "instance",
+                "Tags": [{"Key": key, "Value": value} for key, value in tags.items()],
+            }
+        ]
 
     if on_demand_or_spot == "on_demand":
-        if user_data:
-            optional_args["UserData"] = user_data
-        if tags:
-            optional_args["TagSpecifications"] = [
-                {
-                    "ResourceType": "instance",
-                    "Tags": [
-                        {"Key": key, "Value": value} for key, value in tags.items()
-                    ],
-                }
-            ]
-
-        ec2_resource = boto3.resource("ec2", region_name=region_name)
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
-        instance = (
-            await _retry_iam_instance_profile(
-                lambda: ec2_resource.create_instances(
-                    ImageId=ami_id,
-                    MinCount=1,
-                    MaxCount=1,
-                    InstanceType=instance_type,
-                    **optional_args,
-                )
-            )
-        )[0]
-
-        if wait_for_dns_name:
-            # boto3 doesn't have any async APIs, which means that in order to run more
-            # than one launch_ec2_instance at the same time, we need to have a thread
-            # that waits. We use an asyncio.Future here to make the API async, so from
-            # the user perspective, it feels like this function is async
-
-            # boto3 should be threadsafe:
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html#multithreading-or-multiprocessing-with-clients
-            instance_running_future: asyncio.Future = asyncio.Future()
-            event_loop = asyncio.get_running_loop()
-
-            def wait_until_running() -> None:
-                try:
-                    instance.wait_until_running()
-                    event_loop.call_soon_threadsafe(
-                        lambda: instance_running_future.set_result(None)
-                    )
-                except Exception as e:
-                    exception = e
-                    event_loop.call_soon_threadsafe(
-                        lambda: instance_running_future.set_exception(exception)
-                    )
-
-            threading.Thread(target=wait_until_running).start()
-            await instance_running_future
-
-            instance.load()
-            if not instance.public_dns_name:
-                raise ValueError("Waited until running, but still no IP address!")
-            return instance.public_dns_name
-        else:
-            return None
+        pass
     elif on_demand_or_spot == "spot":
-        if user_data:
-            optional_args["UserData"] = base64.b64encode(
-                user_data.encode("utf-8")
-            ).decode("utf-8")
-
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.request_spot_instances
-        client = boto3.client("ec2", region_name=region_name)
-        spot_instance_request = await _retry_iam_instance_profile(
-            lambda: client.request_spot_instances(
-                InstanceCount=1,
-                LaunchSpecification={
-                    "ImageId": ami_id,
-                    "InstanceType": instance_type,
-                    **optional_args,
-                },
-            )
-        )
-
-        if wait_for_dns_name or tags:
-            # see above for comment about boto3 async/threads
-            spot_instance_request_id = spot_instance_request["SpotInstanceRequests"][0][
-                "SpotInstanceRequestId"
-            ]
-
-            instance_running_future = asyncio.Future()
-            event_loop = asyncio.get_running_loop()
-            waiter = client.get_waiter("spot_instance_request_fulfilled")
-
-            def wait_until_running() -> None:
-                try:
-                    waiter.wait(SpotInstanceRequestIds=[spot_instance_request_id])
-                    event_loop.call_soon_threadsafe(
-                        lambda: instance_running_future.set_result(None)
-                    )
-                except Exception as e:
-                    exception = e
-                    event_loop.call_soon_threadsafe(
-                        lambda: instance_running_future.set_exception(exception)
-                    )
-
-            threading.Thread(target=wait_until_running).start()
-            await instance_running_future
-
-            instance_id = client.describe_spot_instance_requests(
-                SpotInstanceRequestIds=[spot_instance_request_id]
-            )["SpotInstanceRequests"][0]["InstanceId"]
-
-            # now that we have an instance id, we can add our tags
-            # TODO if we don't manage to tag our instance before the process crashes, we
-            # need to keep track of that
-            if tags:
-                client.create_tags(
-                    Resources=[instance_id],
-                    Tags=[{"Key": key, "Value": value} for key, value in tags.items()],
-                )
-
-            return client.describe_instances(InstanceIds=[instance_id])["Reservations"][
-                0
-            ]["Instances"][0]["PublicDnsName"]
-        else:
-            return None
+        optional_args["InstanceMarketOptions"] = {"MarketType": "spot"}
     else:
         raise ValueError(f"Unexpected value for on_demand_or_spot {on_demand_or_spot}")
+
+    ec2_resource = boto3.resource("ec2", region_name=region_name)
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
+    instance = (
+        await _retry_iam_instance_profile(
+            lambda: ec2_resource.create_instances(
+                ImageId=ami_id,
+                MinCount=1,
+                MaxCount=1,
+                InstanceType=instance_type,
+                **optional_args,
+            )
+        )
+    )[0]
+
+    if wait_for_dns_name:
+        # boto3 doesn't have any async APIs, which means that in order to run more than
+        # one launch_ec2_instance at the same time, we need to have a thread that waits.
+        # We use an asyncio.Future here to make the API async, so from the user
+        # perspective, it feels like this function is async
+
+        # boto3 should be threadsafe:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html#multithreading-or-multiprocessing-with-clients
+        instance_running_future: asyncio.Future = asyncio.Future()
+        event_loop = asyncio.get_running_loop()
+
+        def wait_until_running() -> None:
+            try:
+                instance.wait_until_running()
+                event_loop.call_soon_threadsafe(
+                    lambda: instance_running_future.set_result(None)
+                )
+            except Exception as e:
+                exception = e
+                event_loop.call_soon_threadsafe(
+                    lambda: instance_running_future.set_exception(exception)
+                )
+
+        threading.Thread(target=wait_until_running).start()
+        await instance_running_future
+
+        instance.load()
+        if not instance.public_dns_name:
+            raise ValueError("Waited until running, but still no IP address!")
+        return instance.public_dns_name
+    else:
+        return None
 
 
 @dataclasses.dataclass(frozen=True)

@@ -133,7 +133,7 @@ class Deployment:
             environment variables will be set in the remote environment
         :param ssh_key_aws_secret: The name of an AWS secret that contains the contents
             of a private SSH key that has read access to :code:`repo_url`,
-            e.g. :code:`"my_ssh_key"`. See :doc:`private_git_repo`
+            e.g. :code:`"my_ssh_key"`. See :doc:`../howto/private_git_repo`
         """
         if branch and commit:
             raise ValueError("Only one of branch and commit can be specified")

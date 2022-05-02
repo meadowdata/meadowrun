@@ -1,8 +1,10 @@
 Installing Meadowrun
 ====================
 
-.. note::
-   Meadowrun requires python 3.7 or above
+Prerequisites
+-------------
+
+Meadowrun requires python 3.7 or above.
 
 Install
 -------
@@ -29,7 +31,10 @@ used:
 
 .. code-block:: shell
 
-   meadowrun-manage install
+   > meadowrun-manage install
+   Creating lambdas for cleaning up meadowrun resources
+   Waiting for newly created AWS IAM role to become available...
+   Created lambdas in 17.63 seconds
 
 Skipping this step won't prevent you from using meadowrun, but it does mean that once
 you start using meadowrun your EC2 instances will run forever.
@@ -39,4 +44,6 @@ easily:
 
 .. code-block:: shell
 
-   meadowrun-manage uninstall
+   > meadowrun-manage uninstall
+   Deleting all meadowrun resources
+   Deleted all meadowrun resources in 6.61 seconds

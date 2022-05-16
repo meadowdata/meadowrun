@@ -32,3 +32,4 @@ For more context, see the `project homepage <https://meadowrun.io>`_.
    :caption: Reference
 
    reference/apis.rst
+   reference/aws_resources.rst

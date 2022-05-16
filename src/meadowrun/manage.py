@@ -4,13 +4,15 @@ import os.path
 import time
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.ec2_alloc import (
+from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
     ensure_ec2_alloc_lambda,
     ensure_clean_up_lambda,
-    delete_meadowrun_resources,
+)
+from meadowrun.aws_integration.ec2_alloc import (
     grant_permission_to_secret,
     _ensure_ec2_alloc_role,
 )
+from meadowrun.aws_integration.aws_uninstall import delete_meadowrun_resources
 from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
     deregister_all_inactive_instances,
 )
@@ -18,7 +20,7 @@ from meadowrun.aws_integration.management_lambdas.clean_up import (
     delete_old_task_queues,
     delete_unused_images,
 )
-from meadowrun.aws_integration.ssh_keys import download_ssh_key
+from meadowrun.aws_integration.ec2_ssh_keys import download_ssh_key
 
 
 async def async_main() -> None:

@@ -21,8 +21,8 @@ import pytest
 from basics import BasicsSuite, HostProvider, ErrorsSuite
 from meadowrun.aws_integration.aws_core import (
     _get_default_region_name,
-    _get_ec2_instance_types,
 )
+from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_alloc import (
     _EC2InstanceState,
     _allocate_job_to_ec2_instance,
@@ -44,7 +44,7 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
 from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
     _deregister_ec2_instance,
 )
-from meadowrun.aws_integration.ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.instance_selection import choose_instance_types_for_job, Resources
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job import (

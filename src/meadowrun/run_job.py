@@ -29,7 +29,7 @@ import cloudpickle
 import fabric
 import paramiko.ssh_exception
 
-from meadowrun.aws_integration.ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.run_job_local import run_local
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS

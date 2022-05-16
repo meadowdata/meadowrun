@@ -1243,7 +1243,8 @@ def delete_meadowrun_resources(region_name: str) -> None:
     ecr_client = boto3.client("ecr", region_name=region_name)
     ignore_boto3_error_code(
         lambda: ecr_client.delete_repository(
-            repositoryName=_MEADOWRUN_GENERATED_DOCKER_REPO
+            repositoryName=_MEADOWRUN_GENERATED_DOCKER_REPO,
+            force=True,  # If a repository contains images, forces the deletion.
         ),
         "RepositoryNotFoundException",
     )

@@ -9,6 +9,10 @@ import boto3
 
 from automated.test_aws_automated import _clear_ec2_instances_table
 from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
+    ensure_clean_up_lambda,
+    ensure_ec2_alloc_lambda,
+)
 from meadowrun.aws_integration.ec2_alloc import (
     _EC2_ALLOC_LAMBDA_NAME,
     _ensure_ec2_alloc_table,
@@ -16,8 +20,6 @@ from meadowrun.aws_integration.ec2_alloc import (
     _register_ec2_instance,
     allocate_ec2_instances,
     deallocate_job_from_ec2_instance,
-    ensure_clean_up_lambda,
-    ensure_ec2_alloc_lambda,
     get_jobs_on_ec2_instance,
 )
 from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (

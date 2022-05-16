@@ -2,7 +2,7 @@ import base64
 
 import boto3
 
-from meadowrun.aws_integration.ec2_alloc import _get_account_number
+from meadowrun.aws_integration.aws_core import _get_account_number
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )

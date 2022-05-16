@@ -59,12 +59,12 @@ import boto3
 import fabric
 import paramiko.ssh_exception
 
-from meadowrun.aws_integration.aws_core import (
-    _get_default_region_name,
+from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.ec2 import (
     ensure_meadowrun_ssh_security_group,
     launch_ec2_instance,
 )
-from meadowrun.aws_integration.ssh_keys import (
+from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     ensure_meadowrun_key_pair,
 )

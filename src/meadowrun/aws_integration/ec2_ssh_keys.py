@@ -28,6 +28,8 @@ def ensure_meadowrun_key_pair(region_name: str) -> paramiko.PKey:
 
     private_key_text = None
 
+    # first figure out the state of the secret, and if it has been deleted, restore it
+
     success1, inner_result = ignore_boto3_error_code(
         lambda: ignore_boto3_error_code(
             lambda: secrets_client.get_secret_value(
@@ -54,13 +56,14 @@ def ensure_meadowrun_key_pair(region_name: str) -> paramiko.PKey:
             assert secret_value_result is not None  # just for mypy
             private_key_text = secret_value_result["SecretString"]
 
-    if secret_state in ("restored", "does not exist"):
-        # TODO this doesn't cover the scenario where the key pair was deleted or changed
-        # but the secret still exists. Relatedly, we could have weird behavior if two
-        # machines are running this code at the same time.
+    # next figure out the state of the key pair
 
-        # this shouldn't really be necessary, but it's possible that just the secret
-        # was deleted and the key pair still exists
+    key_pair_exists, _ = ignore_boto3_error_code(
+        lambda: ec2_client.describe_key_pairs(KeyNames=[MEADOWRUN_KEY_PAIR_NAME]),
+        "InvalidKeyPair.NotFound",
+    )
+
+    if secret_state in ("restored", "does not exist") or not key_pair_exists:
         ec2_client.delete_key_pair(KeyName=MEADOWRUN_KEY_PAIR_NAME)
         create_key_pair_result = ec2_client.create_key_pair(
             KeyName=MEADOWRUN_KEY_PAIR_NAME, KeyType="rsa"
@@ -70,7 +73,7 @@ def ensure_meadowrun_key_pair(region_name: str) -> paramiko.PKey:
             secrets_client.create_secret(
                 Name=_MEADOWRUN_KEY_PAIR_SECRET_NAME, SecretString=private_key_text
             )
-        else:  # restored:
+        else:  # restored or exists
             secrets_client.put_secret_value(
                 SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME, SecretString=private_key_text
             )

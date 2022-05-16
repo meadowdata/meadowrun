@@ -2,7 +2,8 @@ from typing import Any
 
 import boto3
 
-import meadowrun.aws_integration
+import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
+import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.ec2 import _MEADOWRUN_SSH_SECURITY_GROUP
 from meadowrun.aws_integration.ec2_alloc import (
     _CLEAN_UP_LAMBDA_NAME,

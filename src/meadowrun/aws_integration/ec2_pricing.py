@@ -10,10 +10,10 @@ import boto3
 from pkg_resources import resource_filename
 
 from meadowrun.aws_integration.aws_core import _boto3_paginate
-from meadowrun.instance_selection import EC2InstanceType
+from meadowrun.instance_selection import CloudInstanceType
 
 
-async def _get_ec2_instance_types(region_name: str) -> List[EC2InstanceType]:
+async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
     """
     Gets a dataframe describing EC2 instance types and their prices in the format
     expected by agent_creator:choose_instance_types_for_job
@@ -46,7 +46,7 @@ def _get_region_description_for_pricing(region_code: str) -> str:
     )
 
 
-def _get_ec2_on_demand_prices(region_name: str) -> Iterable[EC2InstanceType]:
+def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
     """
     Returns a dataframe with columns instance_type, memory_gb, logical_cpu, and price
     where price is the on-demand price
@@ -189,14 +189,14 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[EC2InstanceType]:
             )
             continue
 
-        yield EC2InstanceType(
+        yield CloudInstanceType(
             instance_type, memory_gb_float, vcpu_int, usd_price_float, 0, "on_demand"
         )
 
 
 async def _get_ec2_spot_prices(
-    region_name: str, on_demand_instance_types: Dict[str, EC2InstanceType]
-) -> List[EC2InstanceType]:
+    region_name: str, on_demand_instance_types: Dict[str, CloudInstanceType]
+) -> List[CloudInstanceType]:
     """
     Returns a dataframe with columns instance_type and price, where price is the latest
     spot price

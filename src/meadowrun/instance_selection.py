@@ -5,6 +5,7 @@ import math
 from typing import Dict, Optional, Tuple, List
 from typing_extensions import Literal
 
+ON_DEMAND_OR_SPOT_VALUES = "on_demand", "spot"
 OnDemandOrSpotType = Literal["on_demand", "spot"]
 
 
@@ -109,11 +110,8 @@ def remaining_resources_sort_key(
         return 1, None
 
 
-# TODO if this is really EC2-specific this should be moved into aws_integration and we
-# can operate on an abstract class. Or maybe this can just be renamed and used for e.g.
-# Azure instance types as well.
 @dataclasses.dataclass(frozen=True)
-class EC2InstanceType:
+class CloudInstanceType:
     name: str  # e.g. t2.micro
     memory_gb: float  # e.g. 4 means 4 GiB
     logical_cpu: int  # e.g. 2 means 2 logical (aka virtual) cpus
@@ -121,12 +119,12 @@ class EC2InstanceType:
     # e.g. 0 for on-demand instances, >0 for spot instances, as a percentage, so values
     # range from 0 to 100.
     interruption_probability: float
-    on_demand_or_spot: Literal["on_demand", "spot"]
+    on_demand_or_spot: OnDemandOrSpotType
 
 
 @dataclasses.dataclass
-class ChosenEC2InstanceType:
-    ec2_instance_type: EC2InstanceType
+class ChosenCloudInstanceType:
+    instance_type: CloudInstanceType
     # e.g. 5 means we should allocate 5 of these instances. Will always be >1
     num_instances: int
 
@@ -140,12 +138,23 @@ class ChosenEC2InstanceType:
     price_per_worker_current: float
 
 
+@dataclasses.dataclass(frozen=True)
+class CloudInstance:
+    """Represents an instance launched by an InstanceRegistrar"""
+
+    public_dns_name: str
+
+    # TODO instance_type.interruption_probability should always use the latest data
+    # rather than always using the number from when the instance was launched
+    instance_type: ChosenCloudInstanceType
+
+
 def choose_instance_types_for_job(
     resources_required: Resources,
     num_workers_to_allocate: int,
     interruption_probability_threshold: float,
-    original_instance_types: List[EC2InstanceType],
-) -> List[ChosenEC2InstanceType]:
+    original_instance_types: List[CloudInstanceType],
+) -> List[ChosenCloudInstanceType]:
     """
     This chooses how many of which instance types we should launch for a job with 1 or
     more tasks where each task requires resources_required so that
@@ -188,7 +197,7 @@ def choose_instance_types_for_job(
                 )
 
                 instance_types.append(
-                    ChosenEC2InstanceType(
+                    ChosenCloudInstanceType(
                         orig_instance_type,
                         0,
                         workers_per_instance_full,
@@ -207,12 +216,12 @@ def choose_instance_types_for_job(
         # make it "worth it" to use that larger instance because we won't need enough
         # workers to fully pack the instance. So we recompute price_per_worker for those
         # instances assuming we only get to put num_workers_to_allocate on that
-        # instance. We use ChosenEC2InstanceType.workers_per_instance_current and
+        # instance. We use ChosenCloudInstanceType.workers_per_instance_current and
         # price_per_worker_current to keep track of this.
         for instance_type in instance_types:
             if instance_type.workers_per_instance_full > num_workers_to_allocate:
                 instance_type.price_per_worker_current = (
-                    instance_type.ec2_instance_type.price / num_workers_to_allocate
+                    instance_type.instance_type.price / num_workers_to_allocate
                 )
                 instance_type.workers_per_instance_current = num_workers_to_allocate
             # as long as num_workers_to_allocate decreases on every iteration, we should
@@ -233,13 +242,13 @@ def choose_instance_types_for_job(
             if instance_type.price_per_worker_current - best_price_per_worker < 0.005
         ]
         best_interruption_probability = min(
-            instance_type.ec2_instance_type.interruption_probability
+            instance_type.instance_type.interruption_probability
             for instance_type in best
         )
         best = [
             instance_type
             for instance_type in best
-            if instance_type.ec2_instance_type.interruption_probability
+            if instance_type.instance_type.interruption_probability
             - best_interruption_probability
             < 1
         ]

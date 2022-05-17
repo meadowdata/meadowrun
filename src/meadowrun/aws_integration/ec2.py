@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import threading
 from typing import Sequence, Tuple, Callable, Optional, Dict, Any, TypeVar
 
@@ -17,7 +16,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 from meadowrun.instance_selection import (
-    ChosenEC2InstanceType,
+    CloudInstance,
     OnDemandOrSpotType,
     Resources,
     choose_instance_types_for_job,
@@ -232,20 +231,6 @@ async def launch_ec2_instance(
         return None
 
 
-@dataclasses.dataclass(frozen=True)
-class EC2Instance:
-    """
-    Represents an EC2 instance launched by launch_ec2_instances, see that function for
-    details
-    """
-
-    public_dns_name: str
-
-    # TODO instance_type.interruption_probability should always use the latest data
-    # rather than always using the number from when the instance was launched
-    instance_type: ChosenEC2InstanceType
-
-
 async def launch_ec2_instances(
     logical_cpu_required_per_job: int,
     memory_gb_required_per_job: float,
@@ -258,12 +243,13 @@ async def launch_ec2_instances(
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
-) -> Sequence[EC2Instance]:
+) -> Sequence[CloudInstance]:
     """
     Launches enough EC2 instances to run num_jobs jobs that each require the specified
-    amount of CPU/memory. Returns a sequence of EC2Instances. EC2Instance.max_jobs
-    indicates the maximum number of jobs that can run on that instance. The sum of all
-    of the EC2Instance.max_jobs will be greater than or equal to the original num_jobs
+    amount of CPU/memory. Returns a sequence of CloudInstance.
+    CloudInstance.instance_type.workers_per_instance_full indicates the maximum number
+    of jobs that can run on that instance. The sum of all of the
+    workers_per_instance_full will be greater than or equal to the original num_jobs
     parameter.
     """
 
@@ -291,8 +277,8 @@ async def launch_ec2_instances(
             public_dns_name_tasks.append(
                 launch_ec2_instance(
                     region_name,
-                    instance_type.ec2_instance_type.name,
-                    instance_type.ec2_instance_type.on_demand_or_spot,
+                    instance_type.instance_type.name,
+                    instance_type.instance_type.on_demand_or_spot,
                     ami_id=ami_id,
                     security_group_ids=security_group_ids,
                     iam_role_name=iam_role_name,
@@ -307,7 +293,7 @@ async def launch_ec2_instances(
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)
 
     return [
-        EC2Instance(public_dns_name, instance_type)
+        CloudInstance(public_dns_name, instance_type)
         for public_dns_name, instance_type in zip(
             public_dns_names, chosen_instance_types_repeated
         )

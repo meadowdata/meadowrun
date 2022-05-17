@@ -35,13 +35,15 @@ CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart
 Now you can run:
 
 ```python
-from meadowrun import run_function, EC2AllocHost, Deployment
+from meadowrun import run_function, AllocCloudInstance, Deployment
 await run_function(
     lambda: sum(range(1000)) / 1000,
-    EC2AllocHost(
+    AllocCloudInstance(
         logical_cpu_required=4,
         memory_gb_required=32,
-        interruption_probability_threshold=15),
+        interruption_probability_threshold=15,
+        cloud_provider="EC2"
+    ),
     Deployment.git_repo(
         "https://github.com/meadowdata/test_repo",
         conda_yml_file="myenv.yml"

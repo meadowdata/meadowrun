@@ -16,7 +16,8 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFolder,
     ServerAvailableInterpreter,
 )
-from meadowrun.run_job import Host, LocalHost, JobCompletion, run_command, Deployment
+from meadowrun.run_job import run_command, Deployment
+from meadowrun.run_job_core import Host, JobCompletion, LocalHost
 
 EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()
@@ -36,7 +37,7 @@ class LocalHostProvider(HostProvider):
             (pathlib.Path(__file__).parent.parent.parent.parent / "test_repo").resolve()
         )
 
-    def get_log_file_text(self, job_completion: JobCompletion) -> str:
+    async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         with open(job_completion.log_file_name, "r", encoding="utf-8") as log_file:
             return log_file.read()
 
@@ -92,8 +93,8 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
             {"foo": "bar"},
         )
 
-        assert "hello there: no_data" in self.get_log_file_text(job_completion1)
-        assert "hello there: bar" in self.get_log_file_text(job_completion2)
+        assert "hello there: no_data" in await self.get_log_file_text(job_completion1)
+        assert "hello there: bar" in await self.get_log_file_text(job_completion2)
 
 
 class TestErrorsLocal(LocalHostProvider, ErrorsSuite):

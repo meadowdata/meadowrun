@@ -104,15 +104,19 @@ _NON_TERMINATED_EC2_STATES = [
 
 
 def deregister_all_inactive_instances(region_name: str) -> None:
-    _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
+    _deregister_and_terminate_instances(
+        region_name, datetime.timedelta.min, _LAUNCH_REGISTER_DELAY
+    )
 
 
 def adjust(region_name: str) -> None:
-    _deregister_and_terminate_instances(region_name, _TERMINATE_INSTANCES_IF_IDLE_FOR)
+    _deregister_and_terminate_instances(
+        region_name, _TERMINATE_INSTANCES_IF_IDLE_FOR, _LAUNCH_REGISTER_DELAY
+    )
     # TODO this should also launch instances based on pre-provisioning policy
 
 
-def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
+def _get_non_terminated_instances(ec2_resource: Any) -> Iterable[Any]:
     """Gets all meadowrun-launched EC2 instances that aren't terminated"""
     return ec2_resource.instances.filter(
         Filters=[
@@ -122,8 +126,19 @@ def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
     )
 
 
+def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
+    return ec2_resource.instances.filter(
+        Filters=[
+            {"Name": f"tag:{_EC2_ALLOC_TAG}", "Values": [_EC2_ALLOC_TAG_VALUE]},
+            {"Name": "instance-state-name", "Values": ["running"]},
+        ]
+    )
+
+
 def _deregister_and_terminate_instances(
-    region_name: str, terminate_instances_if_idle_for: datetime.timedelta
+    region_name: str,
+    terminate_instances_if_idle_for: datetime.timedelta,
+    launch_register_delay: datetime.timedelta,
 ) -> None:
     """
     1. Compares running vs registered instances and terminates/deregisters instances
@@ -134,7 +149,7 @@ def _deregister_and_terminate_instances(
     # by "running" here we mean anything that's not terminated
     running_instances = {
         instance.public_dns_name: instance
-        for instance in _get_running_instances(
+        for instance in _get_non_terminated_instances(
             boto3.resource("ec2", region_name=region_name)
         )
     }
@@ -163,7 +178,7 @@ def _deregister_and_terminate_instances(
     for public_address, instance in running_instances.items():
         if (
             public_address not in registered_instances
-            and (now_with_timezone - instance.launch_time) > _LAUNCH_REGISTER_DELAY
+            and (now_with_timezone - instance.launch_time) > launch_register_delay
         ):
             print(
                 f"{public_address} is running but is not registered, will terminate. "
@@ -177,7 +192,7 @@ def terminate_all_instances(region_name: str) -> None:
     Terminates all instances, regardless of whether they are registered or not. WARNING
     this will kill running jobs.
     """
-    for instance in _get_running_instances(
+    for instance in _get_non_terminated_instances(
         boto3.resource("ec2", region_name=region_name)
     ):
         instance.terminate()

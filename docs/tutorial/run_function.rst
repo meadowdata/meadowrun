@@ -35,17 +35,19 @@ Here is an example template - add it to a file in a local checkout of the test r
 .. code-block:: python
 
     import asyncio
-    from meadowrun import run_function, EC2AllocHost, Deployment
+    from meadowrun import run_function, AllocCloudInstance, Deployment
 
     async def main():
         result = await run_function(
             # this is where the function to run goes
             lambda: sum(range(1000)) / 1000,
             # requirements to choose an appropriate EC2 instance
-            EC2AllocHost(
+            AllocCloudInstance(
                 logical_cpu_required=1,
                 memory_gb_required=4,
-                interruption_probability_threshold=15),
+                interruption_probability_threshold=15,
+                cloud_provider="EC2"
+            ),
             Deployment.git_repo(
                 # URL to the repo
                 "https://github.com/meadowdata/test_repo",
@@ -73,7 +75,7 @@ Assuming you saved the file above as mdr.py:
 
 The output will walk you through what Meadowrun's :code:`run_function` is doing:
 
-1. Allocate a new EC2 instance. Based on the options specified in :code:`EC2AllocHost`, :code:`run_function` will launch
+1. Allocate a new EC2 instance. Based on the options specified in :code:`AllocCloudInstance`, :code:`run_function` will launch
 the cheapest EC2 instance type that has at least 1 CPU and 4GB of memory, and a <15%
 chance of being interrupted. You can set this to 0 to exclude spot instances and only
 use on-demand instances. The exact instance type chosen depends on current EC2 prices.
@@ -84,7 +86,7 @@ use on-demand instances. The exact instance type chosen depends on current EC2 p
 the :code:`myenv.yml` file in the git repo as the environment specification. Creating
 the conda environment takes some time, but once it has been created, it gets cached and
 reused using AWS ECR. Creating the container happens on the EC2 instance,
-so make sure to size your :code:`EC2AllocHost` appropriately.
+so make sure to size your :code:`AllocCloudInstance` appropriately.
 
 3. Meadowrun runs the specified function in that environment on the remote
 machine and returns the result:

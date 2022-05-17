@@ -68,7 +68,7 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     ensure_meadowrun_key_pair,
 )
-from meadowrun.run_job import _retry
+from meadowrun.run_job_core import _retry
 
 _BASE_AMI = "ami-01344892e448f48c2"
 _NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
@@ -145,7 +145,9 @@ async def build_meadowrun_ami():
         # set deallocate_jobs to run from crontab
         crontab_line = (
             "* * * * * /var/meadowrun/env/bin/python "
-            "/var/meadowrun/env/lib/python3.9/site-packages/meadowrun/aws_integration/deallocate_jobs.py "  # noqa E501
+            "/var/meadowrun/env/lib/python3.9/site-packages/meadowrun"
+            "/deallocate_jobs.py "
+            "--cloud-provider EC2 --instance-registrar-region-name default "
             ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
         )
         with io.StringIO(crontab_line) as sio:

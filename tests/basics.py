@@ -24,8 +24,7 @@ from meadowrun.deployment import (
 )
 from meadowrun.meadowrun_pb2 import EnvironmentSpecInCode
 from meadowrun.meadowrun_pb2 import ServerAvailableContainer, ProcessState
-from meadowrun.run_job import Host, JobCompletion
-from meadowrun.run_job import MeadowrunException
+from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
 
 
 class HostProvider(abc.ABC):
@@ -46,7 +45,7 @@ class HostProvider(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_log_file_text(self, job_completion: JobCompletion) -> str:
+    async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         pass
 
 
@@ -102,7 +101,7 @@ class BasicsSuite(HostProvider, abc.ABC):
             Deployment(interpreter_deployment, code_deployment),
         )
 
-        assert "pip" in self.get_log_file_text(job_completion)
+        assert "pip" in await self.get_log_file_text(job_completion)
 
     @pytest.mark.asyncio
     async def test_meadowrun_path_in_git_repo(self):
@@ -141,7 +140,9 @@ class BasicsSuite(HostProvider, abc.ABC):
                 Deployment(ContainerAtDigest(repository="python", digest=digest)),
             )
 
-            assert self.get_log_file_text(result).startswith(f"Python {version}")
+            assert (await self.get_log_file_text(result)).startswith(
+                f"Python" f" {version}"
+            )
 
     # there's a cloudpickle issue that prevents lambdas serialized on 3.7 running on
     # 3.8. Assuming here that this extends to all lambdas serialized on <=3.7 running on

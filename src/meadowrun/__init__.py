@@ -10,15 +10,14 @@ if sys.platform == "win32":
 
 
 from meadowrun.run_job import (
+    AllocCloudInstance,
+    AllocCloudInstances,
     Deployment,
-    EC2AllocHost,
-    EC2AllocHosts,
-    LocalHost,
-    SshHost,
     run_command,
     run_function,
     run_map,
 )
+from meadowrun.run_job_core import LocalHost, SshHost
 
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
@@ -34,14 +33,14 @@ from meadowrun.meadowrun_pb2 import (
 
 
 __all__ = [
+    "AllocCloudInstance",
+    "AllocCloudInstances",
     "Deployment",
-    "EC2AllocHost",
-    "EC2AllocHosts",
-    "LocalHost",
-    "SshHost",
     "run_command",
     "run_function",
     "run_map",
+    "LocalHost",
+    "SshHost",
     "AwsSecret",
     "ContainerAtDigest",
     "ContainerAtTag",

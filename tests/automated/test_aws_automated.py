@@ -6,33 +6,24 @@ clean` needs to be run periodically
 """
 
 import asyncio
+import datetime
 import io
-import os
-import platform
 import pprint
 import threading
-import time
 import uuid
-from typing import Tuple
 
+import boto3
 import fabric
 import pytest
 
+import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
 from basics import BasicsSuite, HostProvider, ErrorsSuite
-from meadowrun.aws_integration.aws_core import (
-    _get_default_region_name,
-)
+from instance_registrar_suite import InstanceRegistrarProvider, InstanceRegistrarSuite
+from meadowrun import AllocCloudInstances
+from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
-from meadowrun.aws_integration.ec2_alloc import (
-    _EC2InstanceState,
-    _allocate_job_to_ec2_instance,
-    _choose_existing_ec2_instances,
-    _ensure_ec2_alloc_table,
-    _get_ec2_instances,
-    _register_ec2_instance,
-    deallocate_job_from_ec2_instance,
-    get_jobs_on_ec2_instance,
-)
+from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.aws_integration.grid_tasks_sqs import (
     _add_tasks,
     _complete_task,
@@ -41,32 +32,23 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results,
     worker_loop,
 )
-from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
-    _deregister_ec2_instance,
-)
-from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import choose_instance_types_for_job, Resources
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job import (
-    Host,
-    EC2AllocHost,
-    JobCompletion,
-    run_map,
-    EC2AllocHosts,
-    run_function,
-)
+from meadowrun.run_job import run_map, AllocCloudInstance
+from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
 
 
 class AwsHostProvider(HostProvider):
     # TODO don't always run tests in us-east-2
 
     def get_host(self) -> Host:
-        return EC2AllocHost(1, 2, 80, "us-east-2")
+        return AllocCloudInstance(1, 2, 80, "EC2", "us-east-2")
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"
 
-    def get_log_file_text(self, job_completion: JobCompletion) -> str:
+    async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         with fabric.Connection(
             job_completion.public_address,
             user="ubuntu",
@@ -78,20 +60,73 @@ class AwsHostProvider(HostProvider):
 
 
 class TestBasicsAws(AwsHostProvider, BasicsSuite):
-    pass
-
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map(self):
         """Runs a "real" run_map"""
         results = await run_map(
-            lambda x: x**x, [1, 2, 3, 4], EC2AllocHosts(1, 0.5, 15)
+            lambda x: x**x, [1, 2, 3, 4], AllocCloudInstances(1, 0.5, 15)
         )
 
         assert results == [1, 4, 27, 256]
 
 
 class TestErrorsAws(AwsHostProvider, ErrorsSuite):
+    pass
+
+
+class EC2InstanceRegistrarProvider(InstanceRegistrarProvider):
+    async def get_instance_registrar(self) -> InstanceRegistrar:
+        return EC2InstanceRegistrar(await _get_default_region_name(), "create")
+
+    async def clear_instance_registrar(
+        self, instance_registrar: InstanceRegistrar
+    ) -> None:
+        # pretend that we're running in a lambda for _deregister_ec2_instance
+        for instance in await instance_registrar.get_registered_instances():
+            adjust_ec2_instances._deregister_ec2_instance(
+                instance.public_address,
+                False,
+                instance_registrar.get_region_name(),
+            )
+
+    def deregister_instance(
+        self,
+        instance_registrar: InstanceRegistrar,
+        public_address: str,
+        require_no_running_jobs: bool,
+    ) -> bool:
+        return adjust_ec2_instances._deregister_ec2_instance(
+            public_address,
+            require_no_running_jobs,
+            instance_registrar.get_region_name(),
+        )
+
+    async def num_currently_running_instances(
+        self, instance_registrar: InstanceRegistrar
+    ) -> int:
+        ec2 = boto3.resource("ec2", region_name=instance_registrar.get_region_name())
+        return sum(1 for _ in adjust_ec2_instances._get_running_instances(ec2))
+
+    async def run_adjust(self, instance_registrar: InstanceRegistrar) -> None:
+        adjust_ec2_instances._deregister_and_terminate_instances(
+            instance_registrar.get_region_name(),
+            datetime.timedelta(seconds=10),
+            datetime.timedelta.min,
+        )
+
+    async def terminate_all_instances(
+        self, instance_registrar: InstanceRegistrar
+    ) -> None:
+        adjust_ec2_instances.terminate_all_instances(
+            instance_registrar.get_region_name()
+        )
+
+    def cloud_provider(self) -> CloudProviderType:
+        return "EC2"
+
+
+class TestEC2InstanceRegistrar(EC2InstanceRegistrarProvider, InstanceRegistrarSuite):
     pass
 
 
@@ -108,17 +143,17 @@ async def test_get_ec2_instance_types():
         Resources(5, 3, {}), 52, 10, instance_types
     )
     total_cpu = sum(
-        instance_type.ec2_instance_type.logical_cpu * instance_type.num_instances
+        instance_type.instance_type.logical_cpu * instance_type.num_instances
         for instance_type in chosen_instance_types
     )
     assert total_cpu >= 3 * 52
     total_memory_gb = sum(
-        instance_type.ec2_instance_type.memory_gb * instance_type.num_instances
+        instance_type.instance_type.memory_gb * instance_type.num_instances
         for instance_type in chosen_instance_types
     )
     assert total_memory_gb >= 5 * 52
     assert all(
-        instance_type.ec2_instance_type.interruption_probability <= 10
+        instance_type.instance_type.interruption_probability <= 10
         for instance_type in chosen_instance_types
     )
     pprint.pprint(chosen_instance_types)
@@ -283,172 +318,3 @@ class TestGridTaskQueue:
         results_thread.join()
         worker_thread.join()
         assert results == [1, 4, 27, 256]
-
-
-class TestEC2Alloc:
-    @pytest.mark.asyncio
-    async def test_allocate_deallocate_mechanics(self):
-        """Tests allocating and deallocating, does not involve real machines"""
-        await _clear_ec2_instances_table()
-
-        await _register_ec2_instance("testhost-1", 8, 64, [])
-        await _register_ec2_instance(
-            "testhost-2", 4, 32, [("worker-1", Resources(1, 2, {}))]
-        )
-
-        # Can't create the same table twice
-        with pytest.raises(ValueError):
-            await _register_ec2_instance("testhost-2", 4, 32, [])
-
-        worker1_job = (await get_jobs_on_ec2_instance("testhost-2"))["worker-1"]
-        assert await deallocate_job_from_ec2_instance(
-            "testhost-2", "worker-1", worker1_job
-        )
-        # Can't deallocate the same worker twice
-        assert not await deallocate_job_from_ec2_instance(
-            "testhost-2", "worker-1", worker1_job
-        )
-
-        table = await _ensure_ec2_alloc_table()
-
-        def get_instances() -> Tuple[_EC2InstanceState, _EC2InstanceState]:
-            instances = _get_ec2_instances(table)
-            return [i for i in instances if i.public_address == "testhost-1"][0], [
-                i for i in instances if i.public_address == "testhost-2"
-            ][0]
-
-        testhost1, testhost2 = get_instances()
-        assert testhost2.available_resources.logical_cpu == 6
-        assert testhost2.available_resources.memory_gb == 33
-
-        assert _allocate_job_to_ec2_instance(
-            table,
-            testhost1.public_address,
-            Resources(4, 2, {}),
-            ["worker-2", "worker-3"],
-        )
-        assert _allocate_job_to_ec2_instance(
-            table, testhost1.public_address, Resources(3, 1, {}), ["worker-4"]
-        )
-        # cannot allocate if the worker id already is in use
-        assert not _allocate_job_to_ec2_instance(
-            table, testhost1.public_address, Resources(4, 2, {}), ["worker-2"]
-        )
-
-        # make sure our resources available is correct
-        testhost1, _ = get_instances()
-        assert testhost1.available_resources.logical_cpu == 3
-        assert testhost1.available_resources.memory_gb == 53
-
-        # we've kind of already tested deallocation, but just for good measure
-        worker4_job = (await get_jobs_on_ec2_instance("testhost-1"))["worker-4"]
-        assert await deallocate_job_from_ec2_instance(
-            "testhost-1", "worker-4", worker4_job
-        )
-        testhost1, _ = get_instances()
-        assert testhost1.available_resources.logical_cpu == 4
-        assert testhost1.available_resources.memory_gb == 56
-
-    @pytest.mark.asyncio
-    async def test_allocate_existing_instances(self):
-        """
-        Tests logic for allocating existing EC2 instances, does not involve actual
-        instances
-        """
-        await _clear_ec2_instances_table()
-
-        await _register_ec2_instance("testhost-3", 2, 16, [])
-        await _register_ec2_instance("testhost-4", 4, 32, [])
-
-        resources_required = Resources(2, 1, {})
-        results = await _choose_existing_ec2_instances(resources_required, 3)
-
-        # we should put 2 tasks on testhost-3 because that's more "compact"
-        assert len(results["testhost-3"]) == 2
-        assert len(results["testhost-4"]) == 1
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_launch_one_instance(self):
-        """Launches instances that must be cleaned up manually"""
-        await _clear_ec2_instances_table()
-
-        def remote_function():
-            return os.getpid(), platform.node()
-
-        pid1, host1 = await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
-        time.sleep(1)
-        pid2, host2 = await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
-        time.sleep(1)
-        pid3, host3 = await run_function(remote_function, EC2AllocHost(1, 0.5, 15))
-
-        # these should have all run on the same host, but in different processes
-        assert pid1 != pid2 and pid2 != pid3
-        assert host1 == host2 and host2 == host3
-
-        instances = _get_ec2_instances(await _ensure_ec2_alloc_table())
-        assert len(instances) == 1
-        assert instances[0].available_resources.logical_cpu >= 1
-        assert instances[0].available_resources.memory_gb >= 0.5
-
-        # remember to kill the instance when you're done!
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_launch_multiple_instances(self):
-        """Launches instances that must be cleaned up manually"""
-        await _clear_ec2_instances_table()
-
-        def remote_function():
-            return os.getpid(), platform.node()
-
-        task1 = asyncio.create_task(
-            run_function(remote_function, EC2AllocHost(1, 0.5, 15))
-        )
-        task2 = asyncio.create_task(
-            run_function(remote_function, EC2AllocHost(1, 0.5, 15))
-        )
-        task3 = asyncio.create_task(
-            run_function(remote_function, EC2AllocHost(1, 0.5, 15))
-        )
-
-        results = await asyncio.gather(task1, task2, task3)
-        ((pid1, host1), (pid2, host2), (pid3, host3)) = results
-
-        # These should all have ended up on different hosts
-        assert host1 != host2 and host2 != host3
-        instances = _get_ec2_instances(await _ensure_ec2_alloc_table())
-        assert len(instances) == 3
-        assert all(
-            instance.available_resources.logical_cpu >= 1
-            and instance.available_resources.memory_gb >= 0.5
-            for instance in instances
-        )
-
-    @pytest.mark.asyncio
-    async def test_deregister(self):
-        """Tests registering and deregistering, does not involve real machines"""
-        await _clear_ec2_instances_table()
-
-        await _register_ec2_instance("testhost-1", 8, 64, [])
-        await _register_ec2_instance(
-            "testhost-2", 4, 32, [("worker-1", Resources(1, 2, {}))]
-        )
-
-        region_name = await _get_default_region_name()
-
-        assert _deregister_ec2_instance("testhost-1", True, region_name)
-        # with require_no_running_jobs=True, testhost-2 should fail to deregister
-        assert not _deregister_ec2_instance("testhost-2", True, region_name)
-        assert _deregister_ec2_instance("testhost-2", False, region_name)
-
-
-async def _clear_ec2_instances_table() -> None:
-    # pretend that we're running in a lambda for _deregister_ec2_instance
-
-    table = await _ensure_ec2_alloc_table()
-    instances = _get_ec2_instances(table)
-    for instance in instances:
-        _deregister_ec2_instance(
-            instance.public_address, False, await _get_default_region_name()
-        )

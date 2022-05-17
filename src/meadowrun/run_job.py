@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import abc
 import asyncio
 import dataclasses
 import functools
-import io
 import os.path
 import pickle
 import shlex
-import threading
 import uuid
 from typing import (
     Any,
     Callable,
     Dict,
-    Generic,
     Iterable,
     List,
     Optional,
@@ -26,12 +22,18 @@ from typing import (
 )
 
 import cloudpickle
-import fabric
-import paramiko.ssh_exception
 
-from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.run_job_local import run_local
 from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.ec2_instance_allocation import (
+    EC2InstanceRegistrar,
+    run_job_ec2_instance_registrar,
+)
+from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.aws_integration.grid_tasks_sqs import (
+    create_queues_and_add_tasks,
+    get_results,
+    worker_loop,
+)
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
 from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
@@ -40,12 +42,7 @@ from meadowrun.deployment import (
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
-from meadowrun.aws_integration.ec2_alloc import allocate_ec2_instances
-from meadowrun.aws_integration.grid_tasks_sqs import (
-    get_results,
-    worker_loop,
-    create_queues_and_add_tasks,
-)
+from meadowrun.instance_allocation import allocate_jobs_to_instances
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
     ContainerAtDigest,
@@ -56,7 +53,6 @@ from meadowrun.meadowrun_pb2 import (
     GitRepoBranch,
     GitRepoCommit,
     Job,
-    ProcessState,
     PyCommandJob,
     PyFunctionJob,
     QualifiedFunctionName,
@@ -66,7 +62,13 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableInterpreter,
     StringPair,
 )
-from meadowrun.instance_selection import Resources
+from meadowrun.run_job_core import (
+    Host,
+    AllocCloudInstancesInternal,
+    JobCompletion,
+    CloudProviderType,
+)
+from meadowrun.run_job_core import SshHost
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -75,25 +77,6 @@ _U = TypeVar("_U")
 # if num_concurrent_tasks isn't specified, by default, launch total_num_tasks *
 # _DEFAULT_CONCURRENT_TASKS_FACTOR workers
 _DEFAULT_CONCURRENT_TASKS_FACTOR = 0.5
-
-
-async def _retry(
-    function: Callable[[], _T],
-    exception_types: Union[Exception, Tuple[Exception, ...]],
-    max_num_attempts: int = 5,
-    delay_seconds: float = 1,
-) -> _T:
-    i = 0
-    while True:
-        try:
-            return function()
-        except exception_types as e:  # type: ignore
-            i += 1
-            if i >= max_num_attempts:
-                raise
-            else:
-                print(f"Retrying on error: {e}")
-                await asyncio.sleep(delay_seconds)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -243,215 +226,10 @@ def _add_defaults_to_deployment(
     )
 
 
-@dataclasses.dataclass
-class JobCompletion(Generic[_T]):
-    """Information about how a job completed"""
-
-    # TODO both JobCompletion and MeadowrunException should be revisited
-
-    result: _T
-    process_state: ProcessState._ProcessStateEnum.ValueType
-    log_file_name: str
-    return_code: int
-    public_address: str
-
-
-class MeadowrunException(Exception):
-    def __init__(self, process_state: ProcessState) -> None:
-        super().__init__("Failure while running a meadowrun job: " + str(process_state))
-        self.process_state = process_state
-
-
-class Host(abc.ABC):
-    @abc.abstractmethod
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
-        pass
-
-
 @dataclasses.dataclass(frozen=True)
-class LocalHost(Host):
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
-        initial_update, continuation = await run_local(job)
-        if (
-            initial_update.state != ProcessState.ProcessStateEnum.RUNNING
-            or continuation is None
-        ):
-            result = initial_update
-        else:
-            result = await continuation
-
-        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            job_spec_type = job.WhichOneof("job_spec")
-            # we must have a result from functions, in other cases we can optionally
-            # have a result
-            if job_spec_type == "py_function" or result.pickled_result:
-                unpickled_result = pickle.loads(result.pickled_result)
-            else:
-                unpickled_result = None
-
-            return JobCompletion(
-                unpickled_result,
-                result.state,
-                result.log_file_name,
-                result.return_code,
-                "localhost",
-            )
-        else:
-            raise MeadowrunException(result)
-
-
-@dataclasses.dataclass(frozen=True)
-class SshHost(Host):
+class AllocCloudInstance(Host):
     """
-    Tells run_function and related functions to connects to the remote machine over SSH
-    via the fabric library https://www.fabfile.org/ fabric_kwargs are passed directly to
-    fabric.Connection().
-    """
-
-    address: str
-    # these options are forwarded directly to Fabric
-    fabric_kwargs: Optional[Dict[str, Any]] = None
-
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
-        with fabric.Connection(
-            self.address, **(self.fabric_kwargs or {})
-        ) as connection:
-            job_io_prefix = ""
-
-            try:
-                # assumes that meadowrun is installed in /var/meadowrun/env as per
-                # build_meadowrun_amis.md. Also uses the default working_folder, which
-                # should (but doesn't strictly need to) correspond to
-                # agent._set_up_working_folder
-
-                # try the first command 3 times, as this is when we actually try to
-                # connect to the remote machine.
-                home_result = await _retry(
-                    lambda: connection.run("echo $HOME", hide=True, in_stream=False),
-                    (
-                        cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
-                        cast(Exception, TimeoutError),
-                    ),
-                )
-                if not home_result.ok:
-                    raise ValueError(
-                        "Error getting home directory on remote machine "
-                        + home_result.stdout
-                    )
-
-                # in_stream is needed otherwise invoke listens to stdin, which pytest
-                # doesn't like
-                remote_working_folder = f"{home_result.stdout.strip()}/meadowrun"
-                mkdir_result = connection.run(
-                    f"mkdir -p {remote_working_folder}/io", in_stream=False
-                )
-                if not mkdir_result.ok:
-                    raise ValueError(
-                        "Error creating meadowrun directory " + mkdir_result.stdout
-                    )
-
-                job_io_prefix = f"{remote_working_folder}/io/{job.job_id}"
-
-                # serialize job_to_run and send it to the remote machine
-                with io.BytesIO(job.SerializeToString()) as job_to_run_serialized:
-                    connection.put(
-                        job_to_run_serialized, remote=f"{job_io_prefix}.job_to_run"
-                    )
-
-                # fabric doesn't have any async APIs, which means that in order to run
-                # more than one fabric command at the same time, we need to have a
-                # thread per fabric command. We use an asyncio.Future here to make the
-                # API async, so from the user perspective, it feels like this function
-                # is async
-
-                # fabric is supposedly not threadsafe, but it seems to work as long as
-                # more than one connection is not being opened at the same time:
-                # https://github.com/fabric/fabric/pull/2010/files
-                result_future: asyncio.Future = asyncio.Future()
-                event_loop = asyncio.get_running_loop()
-
-                command = (
-                    f"/var/meadowrun/env/bin/meadowrun-local --job-id {job.job_id} "
-                    # TODO --needs-deallocation should only be passed in if we were
-                    # originally using an EC2AllocHost
-                    f"--working-folder {remote_working_folder} --needs-deallocation"
-                )
-
-                print(f"Running {command}")
-
-                def run_and_wait() -> None:
-                    try:
-                        # use meadowrun to run the job
-                        returned_result = connection.run(command, in_stream=False)
-                        event_loop.call_soon_threadsafe(
-                            lambda r=returned_result: result_future.set_result(r)
-                        )
-                    except Exception as e2:
-                        event_loop.call_soon_threadsafe(
-                            lambda e2=e2: result_future.set_exception(e2)
-                        )
-
-                threading.Thread(target=run_and_wait).start()
-
-                result = await result_future
-
-                # TODO consider using result.tail, result.stdout
-
-                # see if we got a normal return code
-                if result.return_code != 0:
-                    raise ValueError(f"Process exited {result.return_code}")
-
-                with io.BytesIO() as result_buffer:
-                    connection.get(f"{job_io_prefix}.process_state", result_buffer)
-                    result_buffer.seek(0)
-                    process_state = ProcessState()
-                    process_state.ParseFromString(result_buffer.read())
-
-                if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-                    job_spec_type = job.WhichOneof("job_spec")
-                    # we must have a result from functions, in other cases we can
-                    # optionally have a result
-                    if job_spec_type == "py_function" or process_state.pickled_result:
-                        result = pickle.loads(process_state.pickled_result)
-                    else:
-                        result = None
-                    return JobCompletion(
-                        result,
-                        process_state.state,
-                        process_state.log_file_name,
-                        process_state.return_code,
-                        self.address,
-                    )
-                else:
-                    raise MeadowrunException(process_state)
-            finally:
-                if job_io_prefix:
-                    remote_paths = " ".join(
-                        [
-                            f"{job_io_prefix}.job_to_run",
-                            f"{job_io_prefix}.state",
-                            f"{job_io_prefix}.result",
-                            f"{job_io_prefix}.process_state",
-                            f"{job_io_prefix}.initial_process_state",
-                        ]
-                    )
-                    try:
-                        # -f so that we don't throw an error on files that don't
-                        # exist
-                        connection.run(f"rm -f {remote_paths}", in_stream=False)
-                    except Exception as e:
-                        print(
-                            f"Error cleaning up files on remote machine: "
-                            f"{remote_paths} {e}"
-                        )
-
-                    # TODO also clean up log files?
-
-
-@dataclasses.dataclass(frozen=True)
-class EC2AllocHost(Host):
-    """
-    Specifies the requirements for an EC2 host.
+    Specifies the requirements for a cloud instance (e.g. an EC2 instance or Azure VM).
 
     :param logical_cpu_required:
     :param memory_gb_required:
@@ -459,48 +237,36 @@ class EC2AllocHost(Host):
         percent is acceptable. E.g. :code:`80` means that any instance type with an
         interruption probability less than 80% can be used. Use :code:`0` to indicate
         that only on-demand instance are acceptable (i.e. do not use spot instances)
+    :param cloud_provider:
     :param region_name:
     """
 
     logical_cpu_required: int
     memory_gb_required: float
     interruption_probability_threshold: float
+    cloud_provider: CloudProviderType
     region_name: Optional[str] = None
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
-        region_name = self.region_name or await _get_default_region_name()
-        pkey = ensure_meadowrun_key_pair(region_name)
-
-        hosts = await allocate_ec2_instances(
-            Resources(self.memory_gb_required, self.logical_cpu_required, {}),
-            1,
-            self.interruption_probability_threshold,
-            region_name,
-        )
-
-        fabric_kwargs: Dict[str, Any] = {
-            "user": "ubuntu",
-            "connect_kwargs": {"pkey": pkey},
-        }
-
-        if len(hosts) != 1:
-            raise ValueError(f"Asked for one host, but got back {len(hosts)}")
-        host, job_ids = list(hosts.items())[0]
-        if len(job_ids) != 1:
-            raise ValueError(f"Asked for one job allocation but got {len(job_ids)}")
-
-        # Kind of weird that we're changing the job_id here, but okay as long as job_id
-        # remains mostly an internal concept
-        job.job_id = job_ids[0]
-
-        return await SshHost(host, fabric_kwargs).run_job(job)
+        if self.cloud_provider == "EC2":
+            return await run_job_ec2_instance_registrar(
+                job,
+                self.logical_cpu_required,
+                self.memory_gb_required,
+                self.interruption_probability_threshold,
+                self.region_name,
+            )
+        else:
+            raise ValueError(
+                f"Unexpected value for cloud_provider {self.cloud_provider}"
+            )
 
 
 @dataclasses.dataclass(frozen=True)
-class EC2AllocHosts:
+class AllocCloudInstances:
     """
-    Specifies the requirements for a set of EC2 hosts for running multiple workers. Also
-    see :class:`~meadowrun.EC2AllocHost`
+    Specifies the requirements for a set of cloud instances (e.g. EC2 instances or Azure
+    VMs) for running multiple workers. Also see :class:`~meadowrun.AllocCloudInstance`
 
     :param logical_cpu_required:
     :param memory_gb_required:
@@ -572,8 +338,8 @@ async def run_function(
         :code:`"package.module.function_name"` (which is useful if the function cannot
         be referenced in the current environment but can be referenced in the deployed
         environment)
-    :param host: See :class:`~meadowrun.EC2AllocHost`. Specifies what resources are
-        needed to run this function
+    :param host: See :class:`~meadowrun.AllocCloudInstance`. Specifies what resources
+        are needed to run this function
     :param deployment: See :func:`~meadowrun.Deployment.git_repo`. Specifies the
         environment (code and libraries) that are needed to run this function
     :param args: Passed to the function like :code:`function(*args)`
@@ -657,8 +423,8 @@ async def run_command(
     :param args: Specifies the command to run, can be a string (e.g. :code:`"jupyter
         nbconvert --to html analysis.ipynb"`) or a list of strings (e.g.
         :code:`["jupyter", "nbconvert", "--to", "html", "analysis.ipynb"]`)
-    :param host: See :class:`~meadowrun.EC2AllocHost`. Specifies what resources are
-        needed to run this command
+    :param host: See :class:`~meadowrun.AllocCloudInstance`. Specifies what resources
+        are needed to run this command
     :param deployment: See :func:`~meadowrun.Deployment.git_repo`. Specifies the
         environment (code and libraries) that are needed to run this command
     :param context_variables: Experimental feature
@@ -703,7 +469,7 @@ async def run_command(
 async def run_map(
     function: Callable[[_T], _U],
     args: Sequence[_T],
-    hosts: EC2AllocHosts,
+    hosts: AllocCloudInstances,
     deployment: Optional[Deployment] = None,
 ) -> Sequence[_U]:
     """
@@ -713,8 +479,8 @@ async def run_map(
         :code:`package.module.function_name`) or a lambda
     :param args: A list of objects, each item in the list represents a "task",
         where each "task" is an invocation of :code:`function` on the item in the list
-    :param hosts: See :class:`~meadowrun.EC2AllocHosts`. Specifies how many workers
-        to provision and what resources are needed for each worker.
+    :param hosts: See :class:`~meadowrun.AllocCloudInstances`. Specifies how many
+        workers to provision and what resources are needed for each worker.
     :param deployment: See :func:`~meadowrun.Deployment.git_repo`. Specifies the
         environment (code and libraries) that are needed to run the function
     """
@@ -727,24 +493,24 @@ async def run_map(
     region_name = hosts.region_name or await _get_default_region_name()
     pkey = ensure_meadowrun_key_pair(region_name)
 
-    # the first stage of preparation, which happens concurrently:
-
-    # 1. get hosts
-    allocated_hosts_future = asyncio.create_task(
-        allocate_ec2_instances(
-            Resources(
-                hosts.memory_gb_required_per_task,
-                hosts.logical_cpu_required_per_task,
-                {},
-            ),
-            num_concurrent_tasks,
-            hosts.interruption_probability_threshold,
-            region_name,
-        )
+    alloc_cloud_instances = AllocCloudInstancesInternal(
+        hosts.logical_cpu_required_per_task,
+        hosts.memory_gb_required_per_task,
+        hosts.interruption_probability_threshold,
+        num_concurrent_tasks,
+        region_name,
     )
 
-    # 2. create SQS queues and add tasks to the request queue
+    # the first stage of preparation, which happens concurrently:
+
+    # 1. create SQS queues and add tasks to the request queue
     queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, args))
+
+    # 2. get hosts
+    async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
+        allocated_hosts = await allocate_jobs_to_instances(
+            instance_registrar, alloc_cloud_instances
+        )
 
     # 3. prepare some variables for constructing the worker jobs
     friendly_name = _get_friendly_name(function)
@@ -757,9 +523,8 @@ async def run_map(
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
     fabric_kwargs: Dict[str, Any] = {"user": "ubuntu", "connect_kwargs": {"pkey": pkey}}
 
-    # now wait for 1 and 2 to complete:
+    # now wait for 1 to complete:
     request_queue_url, result_queue_url = await queues_future
-    allocated_hosts = await allocated_hosts_future
 
     # Now we will run worker_loop jobs on the hosts we got:
 

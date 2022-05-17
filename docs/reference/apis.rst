@@ -19,11 +19,11 @@ Main entry points
 Specifying EC2 hosts
 --------------------
 
-.. autoclass:: meadowrun.EC2AllocHost
+.. autoclass:: meadowrun.AllocCloudInstance
 
 |
 
-.. autoclass:: meadowrun.EC2AllocHosts
+.. autoclass:: meadowrun.AllocCloudInstances
 
 
 Specifying deployments

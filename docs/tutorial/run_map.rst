@@ -37,13 +37,13 @@ Here is an example template - add it to a file in a local checkout of the test r
 .. code-block:: python
 
     import asyncio
-    from meadowrun import run_map, EC2AllocHosts, Deployment
+    from meadowrun import run_map, AllocCloudInstances, Deployment
 
     async def main():
         await run_map(
             lambda n: n ** n,
             [1, 2, 3, 4],
-            EC2AllocHosts(
+            AllocCloudInstances(
                 logical_cpu_required_per_task=4,
                 memory_gb_required_per_task=32,
                 interruption_probability_threshold=15
@@ -74,11 +74,11 @@ Assuming you saved the file above as mdr.py:
 
 The output will walk you through what Meadowrun's :code:`run_map` is doing:
 
-1. Based on the options specified in :code:`EC2AllocHost`, :code:`run_map` launches the
-cheapest combination of EC2 instances such that we can run 3 workers that each are
-allocated at least 4 CPU and 32GB of memory. The instances will have <15% chance of
-being interrupted. You can set this to 0 to exclude spot instances and only use
-on-demand instances.. The exact instance types chosen depends on current EC2 prices.
+1. Based on the options specified in :code:`AllocCloudInstances`, :code:`run_map`
+launches the cheapest combination of EC2 instances such that we can run 3 workers that
+each are allocated at least 4 CPU and 32GB of memory. The instances will have <15%
+chance of being interrupted. You can set this to 0 to exclude spot instances and only
+use on-demand instances.. The exact instance types chosen depends on current EC2 prices.
 
 2. Based on the options specified in :code:`Deployment.git_repo`,
 :code:`run_map` grabs code from the :code:`main` branch of the

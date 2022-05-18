@@ -4,14 +4,14 @@ import abc
 import dataclasses
 import uuid
 from types import TracebackType
-from typing import List, Tuple, Dict, Any, Optional, Sequence, Type
+from typing import List, Tuple, Dict, Any, Optional, Sequence, Type, TypeVar, Generic
 
 from meadowrun.instance_selection import (
     CloudInstance,
     Resources,
-    assert_is_not_none,
     remaining_resources_sort_key,
 )
+from meadowrun.shared import assert_is_not_none
 from meadowrun.run_job_core import AllocCloudInstancesInternal
 
 
@@ -59,7 +59,10 @@ class _InstanceState:
         return self.running_jobs
 
 
-class InstanceRegistrar(abc.ABC):
+_TInstanceState = TypeVar("_TInstanceState", bound=_InstanceState)
+
+
+class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
     """
     An implementation of InstanceRegistrar provides a way to register "instances" (e.g.
     EC2 instances or Azure VMs) as they're created, and then allocate/deallocate jobs to
@@ -95,7 +98,7 @@ class InstanceRegistrar(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get_registered_instances(self) -> List[_InstanceState]:
+    async def get_registered_instances(self) -> List[_TInstanceState]:
         """
         Gets all registered instances. Must have available_resources populated.
         running_jobs is optional depending on whether the corresponding implementation
@@ -104,7 +107,7 @@ class InstanceRegistrar(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get_registered_instance(self, public_address: str) -> _InstanceState:
+    async def get_registered_instance(self, public_address: str) -> _TInstanceState:
         """
         Gets the InstanceRegistrar's representation of the specified instance.
 
@@ -116,7 +119,7 @@ class InstanceRegistrar(abc.ABC):
     @abc.abstractmethod
     async def allocate_jobs_to_instance(
         self,
-        instance: _InstanceState,
+        instance: _TInstanceState,
         resources_allocated_per_job: Resources,
         new_job_ids: List[str],
     ) -> bool:
@@ -136,7 +139,7 @@ class InstanceRegistrar(abc.ABC):
 
     @abc.abstractmethod
     async def deallocate_job_from_instance(
-        self, instance: _InstanceState, job_id: str
+        self, instance: _TInstanceState, job_id: str
     ) -> bool:
         """
         Removes the specified job from the specified instance and restores the resources

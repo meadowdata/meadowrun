@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import pickle
 import traceback
+from typing import Optional, TypeVar
 
 from meadowrun.meadowrun_pb2 import ProcessState
 
@@ -24,3 +27,12 @@ COMPLETED_PROCESS_STATES = {
     ProcessState.ProcessStateEnum.RESOURCES_NOT_AVAILABLE,
     ProcessState.ProcessStateEnum.ERROR_GETTING_STATE,
 }
+
+
+_T = TypeVar("_T")
+
+
+def assert_is_not_none(resources: Optional[_T]) -> _T:
+    """A helper for mypy"""
+    assert resources is not None
+    return resources

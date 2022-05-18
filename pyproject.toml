@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meadowrun"
-version = "0.1.6"
+version = "0.1.7"
 description = "The easiest way to run python code on one or more remote machines"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]
 homepage = "https://github.com/meadowdata/meadowrun"
@@ -25,6 +25,18 @@ boto3 = "1.21.21"
 fabric = "^2.6.0"
 filelock = "^3.6.0"
 typing-extensions = "^4.1.1"
+azure-mgmt-compute = "^26.1.0"
+azure-identity = "^1.10.0"
+azure-mgmt-resource = "^21.0.0"
+azure-mgmt-network = "^19.3.0"
+azure-mgmt-subscription = "^3.0.0"
+azure-mgmt-keyvault = "^9.3.0"
+msgraph-core = "^0.2.2"
+azure-mgmt-authorization = "^2.0.0"
+azure-keyvault-secrets = "^4.4.0"
+azure-mgmt-storage = "^20.0.0"
+azure-data-tables = "^12.3.0"
+azure-mgmt-msi = "^6.0.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0.1"
@@ -80,5 +92,5 @@ no_implicit_optional = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["boto3", "cloudpickle", "fabric"]
+module = ["boto3", "cloudpickle", "fabric", "azure.mgmt.resource", "azure.mgmt.resource.subscriptions.aio", "msgraph.core", "azure.mgmt.compute.aio", "azure.mgmt.authorization.aio", "azure.mgmt.keyvault.aio", "azure.mgmt.storage.aio", "azure.mgmt.network.aio", "azure.mgmt.compute.models", "azure.mgmt.msi.aio"]
 ignore_missing_imports = true

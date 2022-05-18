@@ -16,6 +16,7 @@ from meadowrun.aws_integration.ec2_alloc_role import (
     _ensure_ec2_alloc_table_access_policy,
     _ensure_meadowrun_ecr_access_policy,
     _ensure_meadowrun_sqs_access_policy,
+    _ensure_s3_access_policy,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
@@ -26,6 +27,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     ignore_boto3_error_code,
 )
+import meadowrun.aws_integration.s3
 
 
 def _delete_iam_role(iam: Any, role_name: str) -> None:
@@ -81,6 +83,8 @@ def delete_meadowrun_resources(region_name: str) -> None:
         region_name
     )
 
+    meadowrun.aws_integration.s3.delete_all_buckets(region_name)
+
     iam = boto3.client("iam", region_name=region_name)
 
     ignore_boto3_error_code(
@@ -113,6 +117,11 @@ def delete_meadowrun_resources(region_name: str) -> None:
     ecr_access_policy_arn = _ensure_meadowrun_ecr_access_policy(iam)
     ignore_boto3_error_code(
         lambda: iam.delete_policy(PolicyArn=ecr_access_policy_arn), "NoSuchEntity"
+    )
+
+    s3_access_policy_arn = _ensure_s3_access_policy(iam)
+    ignore_boto3_error_code(
+        lambda: iam.delete_policy(PolicyArn=s3_access_policy_arn), "NoSuchEntity"
     )
 
     lambda_client = boto3.client("lambda", region_name=region_name)

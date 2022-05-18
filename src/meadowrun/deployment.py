@@ -12,8 +12,10 @@ from meadowrun.credentials import (
 )
 from meadowrun.docker_controller import get_latest_digest_from_registry
 from meadowrun.meadowrun_pb2 import (
+    CodeZipFile,
     ContainerAtDigest,
     ContainerAtTag,
+    EnvironmentSpec,
     EnvironmentSpecInCode,
     GitRepoBranch,
     GitRepoCommit,
@@ -21,7 +23,7 @@ from meadowrun.meadowrun_pb2 import (
 )
 from meadowrun.meadowrun_pb2 import ServerAvailableFolder, ServerAvailableInterpreter
 
-CodeDeployment = Union[ServerAvailableFolder, GitRepoCommit]
+CodeDeployment = Union[ServerAvailableFolder, GitRepoCommit, CodeZipFile]
 CodeDeploymentTypes: Final = get_args(CodeDeployment)
 
 
@@ -34,6 +36,7 @@ InterpreterDeployment = Union[
     # InterpreterDeployment/VersionedInterpreterDeployment distinction probably needs
     # rethinking.
     EnvironmentSpecInCode,
+    EnvironmentSpec,
 ]
 InterpreterDeploymentTypes: Final = get_args(InterpreterDeployment)
 

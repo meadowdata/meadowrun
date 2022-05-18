@@ -12,6 +12,34 @@ import typing_extensions
 
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
+class _EnvironmentType:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _EnvironmentTypeEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+        _EnvironmentType.ValueType
+    ],
+    builtins.type,
+):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    DEFAULT: _EnvironmentType.ValueType  # 0
+    """Reserved, not used"""
+
+    CONDA: _EnvironmentType.ValueType  # 1
+    """TODO add others"""
+
+class EnvironmentType(_EnvironmentType, metaclass=_EnvironmentTypeEnumTypeWrapper):
+    pass
+
+DEFAULT: EnvironmentType.ValueType  # 0
+"""Reserved, not used"""
+
+CONDA: EnvironmentType.ValueType  # 1
+"""TODO add others"""
+
+global___EnvironmentType = EnvironmentType
+
 class StringPair(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     KEY_FIELD_NUMBER: builtins.int
@@ -60,6 +88,40 @@ class ServerAvailableFolder(google.protobuf.message.Message):
     ) -> None: ...
 
 global___ServerAvailableFolder = ServerAvailableFolder
+
+class CodeZipFile(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+    URL_FIELD_NUMBER: builtins.int
+    CODE_PATHS_FIELD_NUMBER: builtins.int
+    url: typing.Text
+    """A single zip file that contains code which will be unzipped and made available.
+    All code_paths are relative to the zip file's root, and will be added to the
+    PYTHONPATH. Order matters as usual for PYTHONPATH.
+    The zip file is located by URL.
+    For s3 this is s3://bucket-name/key-name
+    For files this is file://path/to/file
+    """
+
+    @property
+    def code_paths(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
+        typing.Text
+    ]: ...
+    def __init__(
+        self,
+        *,
+        url: typing.Text = ...,
+        code_paths: typing.Optional[typing.Iterable[typing.Text]] = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "code_paths", b"code_paths", "url", b"url"
+        ],
+    ) -> None: ...
+
+global___CodeZipFile = CodeZipFile
 
 class GitRepoCommit(google.protobuf.message.Message):
     """Represents a git repo at a specific commit"""
@@ -232,41 +294,23 @@ class ContainerAtTag(google.protobuf.message.Message):
 global___ContainerAtTag = ContainerAtTag
 
 class EnvironmentSpecInCode(google.protobuf.message.Message):
+    """Represents the path to an environment spec in the code deployment.
+    An environment spec is a list of packages to install, in a format that
+    the package manager can understand.
+    It is not necessarily reproducible, e.g.
+    if it doesn't contain all transitive dependencies or full version numbers.
+    It is also not necessarily cross-platform.
+    """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    class _EnvironmentType:
-        ValueType = typing.NewType("ValueType", builtins.int)
-        V: typing_extensions.TypeAlias = ValueType
-
-    class _EnvironmentTypeEnumTypeWrapper(
-        google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
-            EnvironmentSpecInCode._EnvironmentType.ValueType
-        ],
-        builtins.type,
-    ):
-        DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
-        DEFAULT: EnvironmentSpecInCode._EnvironmentType.ValueType  # 0
-        """Reserved, not used"""
-
-        CONDA: EnvironmentSpecInCode._EnvironmentType.ValueType  # 1
-        """TODO add others"""
-
-    class EnvironmentType(_EnvironmentType, metaclass=_EnvironmentTypeEnumTypeWrapper):
-        pass
-    DEFAULT: EnvironmentSpecInCode.EnvironmentType.ValueType  # 0
-    """Reserved, not used"""
-
-    CONDA: EnvironmentSpecInCode.EnvironmentType.ValueType  # 1
-    """TODO add others"""
-
     ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
     PATH_TO_SPEC_FIELD_NUMBER: builtins.int
-    environment_type: global___EnvironmentSpecInCode.EnvironmentType.ValueType
+    environment_type: global___EnvironmentType.ValueType
     path_to_spec: typing.Text
     def __init__(
         self,
         *,
-        environment_type: global___EnvironmentSpecInCode.EnvironmentType.ValueType = ...,
+        environment_type: global___EnvironmentType.ValueType = ...,
         path_to_spec: typing.Text = ...,
     ) -> None: ...
     def ClearField(
@@ -277,6 +321,33 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
     ) -> None: ...
 
 global___EnvironmentSpecInCode = EnvironmentSpecInCode
+
+class EnvironmentSpec(google.protobuf.message.Message):
+    """Represents an environment spec represented as a string.
+    An environment spec is a list of packages to install, in a format that
+    the package manager can understand.
+    e.g. output of "conda env export"
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+    ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
+    SPEC_FIELD_NUMBER: builtins.int
+    environment_type: global___EnvironmentType.ValueType
+    spec: typing.Text
+    def __init__(
+        self,
+        *,
+        environment_type: global___EnvironmentType.ValueType = ...,
+        spec: typing.Text = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "environment_type", b"environment_type", "spec", b"spec"
+        ],
+    ) -> None: ...
+
+global___EnvironmentSpec = EnvironmentSpec
 
 class ServerAvailableContainer(google.protobuf.message.Message):
     """Only recommended for testing. Represents a container image that already exists on the
@@ -427,11 +498,13 @@ class Job(google.protobuf.message.Message):
     SERVER_AVAILABLE_FOLDER_FIELD_NUMBER: builtins.int
     GIT_REPO_COMMIT_FIELD_NUMBER: builtins.int
     GIT_REPO_BRANCH_FIELD_NUMBER: builtins.int
+    CODE_ZIP_FILE_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_INTERPRETER_FIELD_NUMBER: builtins.int
     CONTAINER_AT_DIGEST_FIELD_NUMBER: builtins.int
     CONTAINER_AT_TAG_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_CONTAINER_FIELD_NUMBER: builtins.int
     ENVIRONMENT_SPEC_IN_CODE_FIELD_NUMBER: builtins.int
+    ENVIRONMENT_SPEC_FIELD_NUMBER: builtins.int
     ENVIRONMENT_VARIABLES_FIELD_NUMBER: builtins.int
     RESULT_HIGHEST_PICKLE_PROTOCOL_FIELD_NUMBER: builtins.int
     PY_COMMAND_FIELD_NUMBER: builtins.int
@@ -452,6 +525,8 @@ class Job(google.protobuf.message.Message):
     @property
     def git_repo_branch(self) -> global___GitRepoBranch: ...
     @property
+    def code_zip_file(self) -> global___CodeZipFile: ...
+    @property
     def server_available_interpreter(self) -> global___ServerAvailableInterpreter: ...
     @property
     def container_at_digest(self) -> global___ContainerAtDigest:
@@ -467,6 +542,8 @@ class Job(google.protobuf.message.Message):
     def server_available_container(self) -> global___ServerAvailableContainer: ...
     @property
     def environment_spec_in_code(self) -> global___EnvironmentSpecInCode: ...
+    @property
+    def environment_spec(self) -> global___EnvironmentSpec: ...
     @property
     def environment_variables(
         self,
@@ -498,6 +575,7 @@ class Job(google.protobuf.message.Message):
         server_available_folder: typing.Optional[global___ServerAvailableFolder] = ...,
         git_repo_commit: typing.Optional[global___GitRepoCommit] = ...,
         git_repo_branch: typing.Optional[global___GitRepoBranch] = ...,
+        code_zip_file: typing.Optional[global___CodeZipFile] = ...,
         server_available_interpreter: typing.Optional[
             global___ServerAvailableInterpreter
         ] = ...,
@@ -507,6 +585,7 @@ class Job(google.protobuf.message.Message):
             global___ServerAvailableContainer
         ] = ...,
         environment_spec_in_code: typing.Optional[global___EnvironmentSpecInCode] = ...,
+        environment_spec: typing.Optional[global___EnvironmentSpec] = ...,
         environment_variables: typing.Optional[
             typing.Iterable[global___StringPair]
         ] = ...,
@@ -522,10 +601,14 @@ class Job(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "code_deployment",
             b"code_deployment",
+            "code_zip_file",
+            b"code_zip_file",
             "container_at_digest",
             b"container_at_digest",
             "container_at_tag",
             b"container_at_tag",
+            "environment_spec",
+            b"environment_spec",
             "environment_spec_in_code",
             b"environment_spec_in_code",
             "git_repo_branch",
@@ -553,12 +636,16 @@ class Job(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "code_deployment",
             b"code_deployment",
+            "code_zip_file",
+            b"code_zip_file",
             "container_at_digest",
             b"container_at_digest",
             "container_at_tag",
             b"container_at_tag",
             "credentials_sources",
             b"credentials_sources",
+            "environment_spec",
+            b"environment_spec",
             "environment_spec_in_code",
             b"environment_spec_in_code",
             "environment_variables",
@@ -595,7 +682,10 @@ class Job(google.protobuf.message.Message):
         oneof_group: typing_extensions.Literal["code_deployment", b"code_deployment"],
     ) -> typing.Optional[
         typing_extensions.Literal[
-            "server_available_folder", "git_repo_commit", "git_repo_branch"
+            "server_available_folder",
+            "git_repo_commit",
+            "git_repo_branch",
+            "code_zip_file",
         ]
     ]: ...
     @typing.overload
@@ -611,6 +701,7 @@ class Job(google.protobuf.message.Message):
             "container_at_tag",
             "server_available_container",
             "environment_spec_in_code",
+            "environment_spec",
         ]
     ]: ...
     @typing.overload
@@ -1014,7 +1105,12 @@ class AwsSecret(google.protobuf.message.Message):
 global___AwsSecret = AwsSecret
 
 class AzureSecret(google.protobuf.message.Message):
-    """Represents credentials stored in Azure. See AwsSecret"""
+    """Represents credentials stored in Azure
+    - For credentials_type = USERNAME_PASSWORD, expects a json like '{"username":
+      "my_username", "password": "my_pasword}'
+    - For credentials_type = SSH_KEY, expects a plain-text value containing the contents
+      of the SSH private key file
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int

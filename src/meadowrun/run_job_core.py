@@ -66,7 +66,7 @@ class Host(abc.ABC):
 @dataclasses.dataclass(frozen=True)
 class SshHost(Host):
     """
-    Tells run_function and related functions to connects to the remote machine over SSH
+    Tells run_function and related functions to connect to the remote machine over SSH
     via the fabric library https://www.fabfile.org/ fabric_kwargs are passed directly to
     fabric.Connection().
     """

@@ -5,25 +5,32 @@ import hashlib
 import os
 import shutil
 import tempfile
-from typing import List, Optional, Tuple, Sequence
+import urllib.parse
+import zipfile
+from typing import List, Optional, Sequence, Tuple, Union
 
 import filelock
 
 from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
-from meadowrun.aws_integration.ecr import get_ecr_helper
+from meadowrun.aws_integration import s3
+from meadowrun.aws_integration.ecr import (
+    get_ecr_helper,
+)
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
 from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
-    build_image,
-    push_image,
-    pull_image,
     _does_digest_exist_locally,
+    build_image,
+    pull_image,
+    push_image,
 )
 from meadowrun.meadowrun_pb2 import (
+    EnvironmentSpec,
     EnvironmentSpecInCode,
+    EnvironmentType,
     Job,
     ServerAvailableContainer,
 )
@@ -145,6 +152,13 @@ async def get_code_paths(
             job.git_repo_branch.path_to_source,
             credentials,
         )
+    elif case == "code_zip_file":
+        return (
+            await _get_zip_file_code_paths(
+                local_copies_folder, job.code_zip_file.url, job.code_zip_file.code_paths
+            ),
+            None,
+        )
     else:
         raise ValueError(f"Unrecognized code_deployment {case}")
 
@@ -222,8 +236,32 @@ async def _get_git_code_paths(
         return [os.path.join(local_copy_path, path_to_source)], local_copy_path
 
 
+async def _get_zip_file_code_paths(
+    local_copies_folder: str, zip_file_url: str, code_paths: Sequence[str]
+) -> List[str]:
+    decoded_url = urllib.parse.urlparse(zip_file_url)
+    if decoded_url.scheme == "file":
+        with zipfile.ZipFile(decoded_url.path) as zip_file:
+            folder = os.path.splitext(os.path.basename(decoded_url.path))[0]
+            zip_file.extractall(os.path.join(local_copies_folder, folder))
+            return [
+                os.path.join(local_copies_folder, folder, zip_path)
+                for zip_path in code_paths
+            ]
+    if decoded_url.scheme == "s3":
+        bucket_name = decoded_url.netloc
+        object_name = decoded_url.path.lstrip("/")
+        zip_file_path = os.path.join(local_copies_folder, object_name + ".zip")
+        await s3.download_file(bucket_name, object_name, zip_file_path)
+        with zipfile.ZipFile(zip_file_path) as zip_file:
+            folder = os.path.join(local_copies_folder, object_name)
+            zip_file.extractall(os.path.join(local_copies_folder, folder))
+            return [os.path.join(folder, zip_path) for zip_path in code_paths]
+    raise ValueError(f"Unknown URL scheme in {zip_file_url}")
+
+
 async def compile_environment_spec_to_container(
-    environment_spec_in_code: EnvironmentSpecInCode,
+    environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
     interpreter_spec_path: str,
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> ServerAvailableContainer:
@@ -235,17 +273,10 @@ async def compile_environment_spec_to_container(
     TODO we should also consider creating conda environments locally rather than always
     making a container for them, that might be more efficient.
     """
-    if (
-        environment_spec_in_code.environment_type
-        == EnvironmentSpecInCode.EnvironmentType.CONDA
-    ):
-        path_to_spec = os.path.join(
-            interpreter_spec_path, environment_spec_in_code.path_to_spec
+    if environment_spec.environment_type == EnvironmentType.CONDA:
+        path_to_spec, spec_hash = _get_path_and_hash(
+            environment_spec, interpreter_spec_path
         )
-        with open(path_to_spec, "rb") as spec:
-            # TODO probably better to exclude the name and prefix in the file as those
-            # are ignored
-            spec_hash = hashlib.blake2b(spec.read(), digest_size=64).hexdigest()
 
         if cloud is None:
             helper = ContainerRegistryHelper(
@@ -315,5 +346,36 @@ async def compile_environment_spec_to_container(
         return result
     else:
         raise ValueError(
-            f"Unexpected environment_type {environment_spec_in_code.environment_type}"
+            f"Unexpected environment_type {environment_spec.environment_type}"
         )
+
+
+def _get_path_and_hash(
+    environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
+    interpreter_spec_path: str,
+) -> Tuple[str, str]:
+    def hash_spec(it: bytes) -> str:
+        # TODO probably better to exclude the name and prefix in the file as those
+        # are ignored
+        return hashlib.blake2b(it, digest_size=64).hexdigest()
+
+    if isinstance(environment_spec, EnvironmentSpecInCode):
+        # in this case, interpreter_spec_path is a path to the root of the place where
+        # the spec lives.
+        path_to_spec = os.path.join(
+            interpreter_spec_path, environment_spec.path_to_spec
+        )
+        with open(path_to_spec, "rb") as spec:
+            spec_hash = hash_spec(spec.read())
+        return path_to_spec, spec_hash
+    elif isinstance(environment_spec, EnvironmentSpec):
+        # in this case, interpreter_spec_path is a path to where we save the spec for
+        # later processing.
+        spec_hash = hash_spec(environment_spec.spec.encode("UTF-8"))
+        path_to_spec = os.path.join(
+            interpreter_spec_path, f"conda_env_spec_{spec_hash}.yml"
+        )
+        with open(path_to_spec, "w") as env_spec:
+            env_spec.write(environment_spec.spec)
+
+        return path_to_spec, spec_hash

@@ -1,4 +1,5 @@
 import abc
+import os
 import sys
 from typing import Union
 
@@ -24,7 +25,10 @@ from meadowrun.deployment import (
     InterpreterDeployment,
     VersionedInterpreterDeployment,
 )
-from meadowrun.meadowrun_pb2 import EnvironmentSpecInCode
+from meadowrun.meadowrun_pb2 import (
+    EnvironmentSpecInCode,
+    EnvironmentType,
+)
 from meadowrun.meadowrun_pb2 import ServerAvailableContainer, ProcessState
 from meadowrun.run_job_core import (
     CloudProviderType,
@@ -151,10 +155,12 @@ class BasicsSuite(HostProvider, abc.ABC):
                 f"Python" f" {version}"
             )
 
-    # there's a cloudpickle issue that prevents lambdas serialized on 3.7 running on
-    # 3.8. Assuming here that this extends to all lambdas serialized on <=3.7 running on
-    # >=3.8
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.skipif(
+        "sys.version_info < (3, 8)",
+        reason="cloudpickle issue that prevents lambdas serialized on 3.7 running on "
+        "3.8. Assuming here that this extends to all lambdas serialized on <=3.7 "
+        "running on >=3.8",
+    )
     @pytest.mark.asyncio
     async def test_meadowrun_environment_in_spec(self):
         def remote_function():
@@ -171,7 +177,7 @@ class BasicsSuite(HostProvider, abc.ABC):
             self.get_host(),
             Deployment(
                 EnvironmentSpecInCode(
-                    environment_type=EnvironmentSpecInCode.EnvironmentType.CONDA,
+                    environment_type=EnvironmentType.CONDA,
                     path_to_spec="myenv.yml",
                 ),
                 GitRepoCommit(
@@ -179,6 +185,39 @@ class BasicsSuite(HostProvider, abc.ABC):
                     commit="a249fc16",
                     path_to_source="example_package",
                 ),
+            ),
+        )
+        assert results == ("2.27.1", "1.4.1", "a, b")
+
+    # see test_meadowrun_environment_in_spec
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_meadowrun_local_environment(self):
+        # this currently needs a conda environment created from the test repo:
+        # conda env create -n test_repo_conda_env -f myenv.yml
+        def remote_function():
+            import importlib
+
+            # we could just do import requests, but that messes with mypy
+            pd = importlib.import_module("pandas")  # from myenv.yml
+            requests = importlib.import_module("requests")  # from myenv.yml
+            example = importlib.import_module("example")  # from example_package
+            return (
+                requests.__version__,
+                pd.__version__,
+                example.join_strings("a", "b"),
+            )
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            await Deployment.mirror_local(
+                conda_env="test_repo_conda_env",
+                additional_paths=[
+                    os.path.join(
+                        os.path.dirname(__file__), "../../test_repo/example_package"
+                    )
+                ],
             ),
         )
         assert results == ("2.27.1", "1.4.1", "a, b")

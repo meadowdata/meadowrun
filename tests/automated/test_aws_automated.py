@@ -41,12 +41,13 @@ from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job import AllocCloudInstance
 from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
 
+# TODO don't always run tests in us-east-2
+REGION = "us-east-2"
+
 
 class AwsHostProvider(HostProvider):
-    # TODO don't always run tests in us-east-2
-
     def get_host(self) -> Host:
-        return AllocCloudInstance(1, 2, 80, "EC2", "us-east-2")
+        return AllocCloudInstance(1, 2, 80, "EC2", REGION)
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"
@@ -55,7 +56,7 @@ class AwsHostProvider(HostProvider):
         with fabric.Connection(
             job_completion.public_address,
             user="ubuntu",
-            connect_kwargs={"pkey": ensure_meadowrun_key_pair("us-east-2")},
+            connect_kwargs={"pkey": ensure_meadowrun_key_pair(REGION)},
         ) as conn:
             with io.BytesIO() as local_copy:
                 conn.get(job_completion.log_file_name, local_copy)
@@ -124,7 +125,7 @@ async def test_get_ec2_instance_types():
     # This function makes a lot of assumptions about the format of the data we get from
     # various AWS endpoints, good to check that everything works. Look for unexpected
     # warnings!
-    instance_types = await _get_ec2_instance_types("us-east-2")
+    instance_types = await _get_ec2_instance_types(REGION)
     # the actual number of instance types will fluctuate based on AWS' whims.
     assert len(instance_types) > 600
 

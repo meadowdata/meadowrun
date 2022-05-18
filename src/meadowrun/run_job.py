@@ -4,8 +4,13 @@ import asyncio
 import dataclasses
 import os.path
 import pickle
+import platform
 import shlex
+import shutil
+import tempfile
+import urllib.parse
 import uuid
+from enum import Enum
 from typing import (
     Any,
     Callable,
@@ -22,6 +27,8 @@ from typing import (
 
 import cloudpickle
 
+from meadowrun import local_code
+from meadowrun.aws_integration import s3
 from meadowrun.aws_integration.ec2_instance_allocation import (
     run_job_ec2_instance_registrar,
 )
@@ -32,7 +39,8 @@ from meadowrun.azure_integration.azure_instance_allocation import (
 )
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.azure_integration.grid_tasks_queue import prepare_azure_vm_run_map
-from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
+from meadowrun.conda import env_export
+from meadowrun.config import JOB_ID_VALID_CHARACTERS, MEADOWRUN_INTERPRETER
 from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
     CodeDeployment,
@@ -43,11 +51,14 @@ from meadowrun.deployment import (
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
     AzureSecret,
+    CodeZipFile,
     ContainerAtDigest,
     ContainerAtTag,
     Credentials,
     CredentialsSourceMessage,
+    EnvironmentSpec,
     EnvironmentSpecInCode,
+    EnvironmentType,
     GitRepoBranch,
     GitRepoCommit,
     Job,
@@ -60,12 +71,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableInterpreter,
     StringPair,
 )
-from meadowrun.run_job_core import (
-    Host,
-    JobCompletion,
-    CloudProviderType,
-)
-from meadowrun.run_job_core import SshHost
+from meadowrun.run_job_core import CloudProviderType, Host, JobCompletion, SshHost
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -83,7 +89,49 @@ class Deployment:
     ] = None
     code: Union[CodeDeployment, VersionedCodeDeployment, None] = None
     environment_variables: Optional[Dict[str, str]] = None
-    credentials_sources: Optional[List[CredentialsSourceForService]] = None
+    credentials_sources: List[CredentialsSourceForService] = dataclasses.field(
+        default_factory=list
+    )
+
+    @classmethod
+    async def mirror_local(
+        cls,
+        include_sys_path: bool = True,
+        additional_paths: Iterable[str] = tuple(),
+        conda_env: Optional[str] = None,
+        environment_variables: Optional[Dict[str, str]] = None,
+    ) -> Deployment:
+        """A deployment that mirrors local environment and code.
+
+        :param path_to_source: local code to mirror on the remote servers. Defaults to
+            sys.path.
+        :param conda_env: name or full path of locally installed conda environment to
+            use. Defaults to None which means the currently activated env.
+        :param environment_variables: e.g. :code:`{"PYTHONHASHSEED": "0"}`. These
+            environment variables will be set in the remote environment.
+        """
+        if platform.system() != "Linux":
+            raise ValueError(
+                "mirror_local is only supported on Linux "
+                "because Conda environments are not cross-platform."
+            )
+        interpreter = EnvironmentSpec(
+            environment_type=EnvironmentType.CONDA,
+            spec=await env_export(conda_env),
+        )
+
+        code: CodeDeployment = ServerAvailableFolder(code_paths=[])
+        # annoyingly, this tmp dir now gets deleted in run_local when the file
+        # has been uploaded/unpacked depending on the Host implementation
+        tmp_dir = tempfile.mkdtemp()
+        zip_file_path, zip_paths = local_code.zip(
+            tmp_dir, include_sys_path, additional_paths
+        )
+
+        url = urllib.parse.urlunparse(("file", "", zip_file_path, "", "", ""))
+        code = CodeZipFile(url=url, code_paths=zip_paths)
+
+        return cls(interpreter, code, environment_variables, [])
 
     @classmethod
     def git_repo(
@@ -151,7 +199,7 @@ class Deployment:
 
         if conda_yml_file:
             interpreter: Optional[InterpreterDeployment] = EnvironmentSpecInCode(
-                environment_type=EnvironmentSpecInCode.EnvironmentType.CONDA,
+                environment_type=EnvironmentType.CONDA,
                 path_to_spec=conda_yml_file,
             )
         else:
@@ -250,6 +298,54 @@ def _add_defaults_to_deployment(
         environment_variables,
         credentials_sources,
     )
+
+
+class _DeploymentTarget(Enum):
+    LOCAL = "local"
+    S3 = "s3"
+    AZURE_BLOB_STORAGE = "azure blob storage"
+
+    @staticmethod
+    def from_cloud_provider(cloud_provider: CloudProviderType) -> _DeploymentTarget:
+        if cloud_provider == "EC2":
+            return _DeploymentTarget.S3
+        elif cloud_provider == "AzureVM":
+            # return _DeploymentTarget.AZURE_BLOB_STORAGE
+            raise NotImplementedError("Azure Blob Storage is not implemented yet")
+        else:
+            raise ValueError(f"Unknown cloud provider {cloud_provider}")
+
+    @staticmethod
+    def from_single_host(host: Host) -> _DeploymentTarget:
+        if isinstance(host, AllocCloudInstance):
+            return _DeploymentTarget.from_cloud_provider(host.cloud_provider)
+        else:
+            return _DeploymentTarget.LOCAL
+
+    @staticmethod
+    def from_hosts(hosts: AllocCloudInstances) -> _DeploymentTarget:
+        return _DeploymentTarget.from_cloud_provider(hosts.cloud_provider)
+
+
+async def _prepare_code_deployment(
+    code_deploy: Union[CodeDeployment, VersionedCodeDeployment],
+    target: _DeploymentTarget,
+) -> Union[CodeDeployment, VersionedCodeDeployment]:
+    if not isinstance(code_deploy, CodeZipFile):
+        return code_deploy
+
+    if target == _DeploymentTarget.LOCAL:
+        return code_deploy
+
+    # need to deploy zip file to S3, and update the CodeZipFile
+    file_url = urllib.parse.urlparse(code_deploy.url)
+    if file_url.scheme != "file":
+        raise ValueError(f"Expected file URI: {code_deploy.url}")
+    bucket_name, object_name = await s3.ensure_uploaded(file_url.path)
+    s3_url = urllib.parse.urlunparse(("s3", bucket_name, object_name, "", "", ""))
+    code_deploy.url = s3_url
+    shutil.rmtree(os.path.dirname(file_url.path), ignore_errors=True)
+    return code_deploy
 
 
 @dataclasses.dataclass(frozen=True)
@@ -441,6 +537,10 @@ async def run_function(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
+    code = await _prepare_code_deployment(
+        code, _DeploymentTarget.from_single_host(host)
+    )
+
     job = Job(
         job_id=job_id,
         job_friendly_name=friendly_name,
@@ -451,7 +551,8 @@ async def run_function(
     )
     _add_deployments_to_job(job, code, interpreter)
 
-    return (await host.run_job(job)).result
+    job_completion = await host.run_job(job)
+    return job_completion.result
 
 
 async def run_command(
@@ -490,6 +591,10 @@ async def run_command(
         environment_variables,
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
+
+    code = await _prepare_code_deployment(
+        code, _DeploymentTarget.from_single_host(host)
+    )
 
     if context_variables:
         pickled_context_variables = pickle.dumps(
@@ -572,6 +677,9 @@ async def run_map(
         environment_variables,
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
+
+    code = await _prepare_code_deployment(code, _DeploymentTarget.from_hosts(hosts))
+
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
     # Now we will run worker_loop jobs on the hosts we got:
@@ -598,6 +706,8 @@ async def run_map(
                 credentials_sources=credentials_sources,
             )
             _add_deployments_to_job(job, code, interpreter)
+
+            # hmmm. prepare_job shouldn't run for every of these jobs...
 
             worker_tasks.append(
                 asyncio.create_task(
@@ -639,6 +749,8 @@ def _add_deployments_to_job(
         job.git_repo_commit.CopyFrom(code_deployment)
     elif isinstance(code_deployment, GitRepoBranch):
         job.git_repo_branch.CopyFrom(code_deployment)
+    elif isinstance(code_deployment, CodeZipFile):
+        job.code_zip_file.CopyFrom(code_deployment)
     else:
         raise ValueError(f"Unknown code deployment type {type(code_deployment)}")
 
@@ -652,6 +764,8 @@ def _add_deployments_to_job(
         job.container_at_tag.CopyFrom(interpreter_deployment)
     elif isinstance(interpreter_deployment, EnvironmentSpecInCode):
         job.environment_spec_in_code.CopyFrom(interpreter_deployment)
+    elif isinstance(interpreter_deployment, EnvironmentSpec):
+        job.environment_spec.CopyFrom(interpreter_deployment)
     else:
         raise ValueError(
             f"Unknown interpreter deployment type {type(interpreter_deployment)}"

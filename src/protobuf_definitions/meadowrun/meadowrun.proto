@@ -22,6 +22,17 @@ message ServerAvailableFolder {
     repeated string code_paths = 1;
 }
 
+message CodeZipFile {
+    // A single zip file that contains code which will be unzipped and made available.
+    // All code_paths are relative to the zip file's root, and will be added to the
+    // PYTHONPATH. Order matters as usual for PYTHONPATH.
+    // The zip file is located by URL.
+    // For s3 this is s3://bucket-name/key-name
+    // For files this is file://path/to/file
+    string url = 1;
+    repeated string code_paths = 2;
+}
+
 
 // Represents a git repo at a specific commit
 message GitRepoCommit {
@@ -89,17 +100,31 @@ message ContainerAtTag {
     string tag = 2;
 }
 
+enum EnvironmentType {
+    // Reserved, not used
+    DEFAULT = 0;
+    CONDA = 1;
+    // TODO add others
+}
 
+// Represents the path to an environment spec in the code deployment.
+// An environment spec is a list of packages to install, in a format that
+// the package manager can understand.
+// It is not necessarily reproducible, e.g.
+// if it doesn't contain all transitive dependencies or full version numbers.
+// It is also not necessarily cross-platform.
 message EnvironmentSpecInCode {
-    enum EnvironmentType {
-        // Reserved, not used
-        DEFAULT = 0;
-        CONDA = 1;
-        // TODO add others
-    }
-
     EnvironmentType environment_type = 1;
     string path_to_spec = 2;
+}
+
+// Represents an environment spec represented as a string.
+// An environment spec is a list of packages to install, in a format that
+// the package manager can understand.
+// e.g. output of "conda env export"
+message EnvironmentSpec {
+    EnvironmentType environment_type = 1;
+    string spec = 2;
 }
 
 
@@ -151,6 +176,7 @@ message Job {
         ServerAvailableFolder server_available_folder = 5;
         GitRepoCommit git_repo_commit = 6;
         GitRepoBranch git_repo_branch = 7;
+        CodeZipFile code_zip_file = 19;
     }
     oneof interpreter_deployment {
         ServerAvailableInterpreter server_available_interpreter = 8;
@@ -165,6 +191,7 @@ message Job {
         ServerAvailableContainer server_available_container = 11;
 
         EnvironmentSpecInCode environment_spec_in_code = 12;
+        EnvironmentSpec environment_spec = 18;
     }
 
     repeated StringPair environment_variables = 13;

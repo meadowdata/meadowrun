@@ -31,7 +31,7 @@ used:
 
 .. code-block:: shell
 
-   > meadowrun-manage install
+   > meadowrun-manage-ec2 install
    Creating lambdas for cleaning up meadowrun resources
    Waiting for newly created AWS IAM role to become available...
    Created lambdas in 17.63 seconds
@@ -44,6 +44,6 @@ easily:
 
 .. code-block:: shell
 
-   > meadowrun-manage uninstall
+   > meadowrun-manage-ec2 uninstall
    Deleting all meadowrun resources
    Deleted all meadowrun resources in 6.61 seconds

@@ -293,7 +293,7 @@ async def launch_ec2_instances(
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)
 
     return [
-        CloudInstance(public_dns_name, instance_type)
+        CloudInstance(public_dns_name, "", instance_type)
         for public_dns_name, instance_type in zip(
             public_dns_names, chosen_instance_types_repeated
         )

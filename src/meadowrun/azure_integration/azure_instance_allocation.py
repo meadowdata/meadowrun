@@ -16,11 +16,24 @@ from azure.mgmt.storage.aio import StorageManagementClient
 import meadowrun.azure_integration.azure_vms
 from meadowrun.azure_integration.azure_core import (
     ensure_meadowrun_resource_group,
-    get_credential_aio,
     get_default_location,
     get_subscription_id,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.azure_integration.azure_storage import ensure_meadowrun_storage_account
+from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    ALLOCATED_TIME,
+    LAST_UPDATE_TIME,
+    LOGICAL_CPU_ALLOCATED,
+    LOGICAL_CPU_AVAILABLE,
+    MEMORY_GB_ALLOCATED,
+    MEMORY_GB_AVAILABLE,
+    RUNNING_JOBS,
+    SINGLE_PARTITION_KEY,
+    VM_NAME,
+    get_credential_aio,
+)
+from meadowrun.azure_integration.mgmt_functions.vm_adjust import VM_ALLOC_TABLE_NAME
 from meadowrun.instance_allocation import (
     _InstanceState,
     InstanceRegistrar,
@@ -30,22 +43,10 @@ from meadowrun.instance_selection import Resources, CloudInstance
 from meadowrun.meadowrun_pb2 import Job
 from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, SshHost
 
-_VM_ALLOC_TABLE_NAME = "meadowrunVmAlloc"
-
-
-_SINGLE_PARTITION_KEY = "_"
-_LOGICAL_CPU_AVAILABLE = "logical_cpu_available"
-_LOGICAL_CPU_ALLOCATED = "logical_cpu_allocated"
-_MEMORY_GB_AVAILABLE = "memory_gb_available"
-_MEMORY_GB_ALLOCATED = "memory_gb_allocated"
-_ALLOCATED_TIME = "allocated_time"
-_LAST_UPDATE_TIME = "last_update_time"
-_RUNNING_JOBS = "running_jobs"
-_JOB_ID = "job_id"
-
 
 @dataclasses.dataclass
 class AzureVMInstanceState(_InstanceState):
+    name: str
     # See https://microsoft.github.io/AzureTipsAndTricks/blog/tip88.html
     etag: str
 
@@ -69,7 +70,6 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         # for the best.
         # TODO we need a way to manually set the storage account name in case this ends
         # up colliding
-        storage_account_name = "mr" + subscription_id.replace("-", "")[-22:]
         resource_group_name = await ensure_meadowrun_resource_group(
             self._table_location
         )
@@ -79,76 +79,28 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         ) as client:
             # first, get the key to the storage account. If the storage account doesn't
             # exist, create it and then get the key
-            try:
-                key = (
-                    (
-                        await client.storage_accounts.list_keys(
-                            resource_group_name, storage_account_name
-                        )
-                    )
-                    .keys[0]
-                    .value
-                )
-            except azure.core.exceptions.ResourceNotFoundError:
-                if self._on_table_missing == "raise":
-                    raise ValueError(
-                        f"Storage account {storage_account_name} in "
-                        f"{self._table_location} does not exist"
-                    )
-                elif self._on_table_missing == "create":
-                    print(
-                        f"Storage account {storage_account_name} does not exist, "
-                        "creating it now"
-                    )
-                    poller = await client.storage_accounts.begin_create(
-                        resource_group_name,
-                        storage_account_name,
-                        # https://docs.microsoft.com/en-us/python/api/azure-mgmt-storage/azure.mgmt.storage.v2021_09_01.models.storageaccountcreateparameters?view=azure-python
-                        {
-                            "sku": {
-                                # Standard (as opposed to Premium latency). Locally
-                                # redundant storage (i.e. not very redundant, as opposed
-                                # to zone-, geo-, or geo-and-zone- redundant storage)
-                                "name": "Standard_LRS"
-                            },
-                            "kind": "StorageV2",
-                            "location": self._table_location,
-                        },
-                    )
-                    await poller.result()
-                    key = (
-                        (
-                            await client.storage_accounts.list_keys(
-                                resource_group_name, storage_account_name
-                            )
-                        )
-                        .keys[0]
-                        .value
-                    )
-                else:
-                    raise ValueError(
-                        "Unexpected value for on_table_missing "
-                        f"{self._on_table_missing}"
-                    )
+            storage_account_name, key = await ensure_meadowrun_storage_account(
+                self._table_location, self._on_table_missing
+            )
 
-            # create the table if it doesn't exist
+            # next, create the table if it doesn't exist
             try:
                 await client.table.get(
-                    resource_group_name, storage_account_name, _VM_ALLOC_TABLE_NAME
+                    resource_group_name, storage_account_name, VM_ALLOC_TABLE_NAME
                 )
             except azure.core.exceptions.ResourceNotFoundError:
                 if self._on_table_missing == "raise":
                     raise ValueError(
-                        f"Table {storage_account_name}/{_VM_ALLOC_TABLE_NAME} in "
+                        f"Table {storage_account_name}/{VM_ALLOC_TABLE_NAME} in "
                         f"{self._table_location} does not exist"
                     )
                 elif self._on_table_missing == "create":
                     print(
-                        f"Table {storage_account_name}/{_VM_ALLOC_TABLE_NAME} does not "
+                        f"Table {storage_account_name}/{VM_ALLOC_TABLE_NAME} does not "
                         "exist, creating it now"
                     )
                     await client._table.create(
-                        resource_group_name, storage_account_name, _VM_ALLOC_TABLE_NAME
+                        resource_group_name, storage_account_name, VM_ALLOC_TABLE_NAME
                     )
                 else:
                     raise ValueError(
@@ -158,7 +110,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
         self._table_client = TableClient(
             f"https://{storage_account_name}.table.core.windows.net/",
-            _VM_ALLOC_TABLE_NAME,
+            VM_ALLOC_TABLE_NAME,
             credential=AzureNamedKeyCredential(storage_account_name, key),
         )
 
@@ -179,6 +131,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
     async def register_instance(
         self,
         public_address: str,
+        name: str,
         resources_available: Resources,
         running_jobs: List[Tuple[str, Resources]],
     ) -> None:
@@ -192,21 +145,22 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             # See EC2InstanceRegistrar.register_instance for more details on the schema
             await self._table_client.create_entity(
                 {
-                    "PartitionKey": _SINGLE_PARTITION_KEY,
+                    "PartitionKey": SINGLE_PARTITION_KEY,
                     "RowKey": public_address,
-                    _LOGICAL_CPU_AVAILABLE: resources_available.logical_cpu,
-                    _MEMORY_GB_AVAILABLE: resources_available.memory_gb,
-                    _RUNNING_JOBS: json.dumps(
+                    VM_NAME: name,
+                    LOGICAL_CPU_AVAILABLE: resources_available.logical_cpu,
+                    MEMORY_GB_AVAILABLE: resources_available.memory_gb,
+                    RUNNING_JOBS: json.dumps(
                         {
                             job_id: {
-                                _LOGICAL_CPU_ALLOCATED: allocated_resources.logical_cpu,
-                                _MEMORY_GB_ALLOCATED: allocated_resources.memory_gb,
-                                _ALLOCATED_TIME: now,
+                                LOGICAL_CPU_ALLOCATED: allocated_resources.logical_cpu,
+                                MEMORY_GB_ALLOCATED: allocated_resources.memory_gb,
+                                ALLOCATED_TIME: now,
                             }
                             for job_id, allocated_resources in running_jobs
                         }
                     ),
-                    _LAST_UPDATE_TIME: now,
+                    LAST_UPDATE_TIME: now,
                 }
             )
         except azure.core.exceptions.ResourceExistsError:
@@ -233,19 +187,21 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             AzureVMInstanceState(
                 item["RowKey"],
                 Resources(
-                    float(item[_MEMORY_GB_AVAILABLE]),
-                    int(item[_LOGICAL_CPU_AVAILABLE]),
+                    float(item[MEMORY_GB_AVAILABLE]),
+                    int(item[LOGICAL_CPU_AVAILABLE]),
                     {},
                 ),
-                json.loads(item[_RUNNING_JOBS]),
+                json.loads(item[RUNNING_JOBS]),
+                item[VM_NAME],
                 item.metadata["etag"],
             )
             async for item in self._table_client.list_entities(
                 select=[
                     "RowKey",
-                    _LOGICAL_CPU_AVAILABLE,
-                    _MEMORY_GB_AVAILABLE,
-                    _RUNNING_JOBS,
+                    LOGICAL_CPU_AVAILABLE,
+                    MEMORY_GB_AVAILABLE,
+                    RUNNING_JOBS,
+                    VM_NAME,
                 ]
             )
         ]
@@ -265,13 +221,14 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
         try:
             item = await self._table_client.get_entity(
-                _SINGLE_PARTITION_KEY,
+                SINGLE_PARTITION_KEY,
                 public_address,
                 select=[
                     "RowKey",
-                    _LOGICAL_CPU_AVAILABLE,
-                    _MEMORY_GB_AVAILABLE,
-                    _RUNNING_JOBS,
+                    LOGICAL_CPU_AVAILABLE,
+                    MEMORY_GB_AVAILABLE,
+                    RUNNING_JOBS,
+                    VM_NAME,
                 ],
             )
 
@@ -281,9 +238,10 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         return AzureVMInstanceState(
             item["RowKey"],
             Resources(
-                float(item[_MEMORY_GB_AVAILABLE]), int(item[_LOGICAL_CPU_AVAILABLE]), {}
+                float(item[MEMORY_GB_AVAILABLE]), int(item[LOGICAL_CPU_AVAILABLE]), {}
             ),
-            json.loads(item[_RUNNING_JOBS]),
+            json.loads(item[RUNNING_JOBS]),
+            item[VM_NAME],
             item.metadata["etag"],
         )
 
@@ -310,9 +268,9 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 return False
 
             new_running_jobs[job_id] = {
-                _LOGICAL_CPU_ALLOCATED: resources_allocated_per_job.logical_cpu,
-                _MEMORY_GB_ALLOCATED: resources_allocated_per_job.memory_gb,
-                _ALLOCATED_TIME: now,
+                LOGICAL_CPU_ALLOCATED: resources_allocated_per_job.logical_cpu,
+                MEMORY_GB_ALLOCATED: resources_allocated_per_job.memory_gb,
+                ALLOCATED_TIME: now,
             }
 
         new_logical_cpu_available = (
@@ -327,12 +285,13 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         try:
             await self._table_client.update_entity(
                 {
-                    "PartitionKey": _SINGLE_PARTITION_KEY,
+                    "PartitionKey": SINGLE_PARTITION_KEY,
                     "RowKey": instance.public_address,
-                    _LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
-                    _MEMORY_GB_AVAILABLE: new_memory_gb_available,
-                    _RUNNING_JOBS: json.dumps(new_running_jobs),
-                    _LAST_UPDATE_TIME: now,
+                    VM_NAME: instance.name,
+                    LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
+                    MEMORY_GB_AVAILABLE: new_memory_gb_available,
+                    RUNNING_JOBS: json.dumps(new_running_jobs),
+                    LAST_UPDATE_TIME: now,
                 },
                 UpdateMode.REPLACE,
                 etag=instance.etag,
@@ -357,10 +316,10 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
         job = instance.get_running_jobs()[job_id]
         new_logical_cpu_available = (
-            instance.get_available_resources().logical_cpu + job[_LOGICAL_CPU_ALLOCATED]
+            instance.get_available_resources().logical_cpu + job[LOGICAL_CPU_ALLOCATED]
         )
         new_memory_gb_available = (
-            instance.get_available_resources().memory_gb + job[_MEMORY_GB_ALLOCATED]
+            instance.get_available_resources().memory_gb + job[MEMORY_GB_ALLOCATED]
         )
         new_running_jobs = instance.get_running_jobs().copy()
         del new_running_jobs[job_id]
@@ -369,12 +328,13 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         try:
             await self._table_client.update_entity(
                 {
-                    "PartitionKey": _SINGLE_PARTITION_KEY,
+                    "PartitionKey": SINGLE_PARTITION_KEY,
                     "RowKey": instance.public_address,
-                    _LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
-                    _MEMORY_GB_AVAILABLE: new_memory_gb_available,
-                    _RUNNING_JOBS: json.dumps(new_running_jobs),
-                    _LAST_UPDATE_TIME: now,
+                    VM_NAME: instance.name,
+                    LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
+                    MEMORY_GB_AVAILABLE: new_memory_gb_available,
+                    RUNNING_JOBS: json.dumps(new_running_jobs),
+                    LAST_UPDATE_TIME: now,
                 },
                 UpdateMode.REPLACE,
                 etag=instance.etag,

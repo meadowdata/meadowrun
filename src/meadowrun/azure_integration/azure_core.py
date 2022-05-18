@@ -3,15 +3,16 @@ from __future__ import annotations
 import os
 import uuid
 from types import TracebackType
-from typing import cast, Optional, Literal, Type
+from typing import cast, Optional, Literal, Type, Tuple
 
 import aiohttp
+import azure.core
 import azure.core.exceptions
 import azure.identity
 import azure.identity.aio
 from azure.core.credentials import TokenCredential
-from azure.core.credentials_async import AsyncTokenCredential
 from azure.mgmt.authorization.aio import AuthorizationManagementClient
+from azure.mgmt.msi.aio import ManagedServiceIdentityClient
 from azure.mgmt.resource import ResourceManagementClient
 
 # There are two Subscription clients, azure.mgmt.subscription.SubscriptionClient and
@@ -21,14 +22,14 @@ from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.resource.subscriptions.aio import SubscriptionClient
 from msgraph.core import GraphClient
 
+from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    MEADOWRUN_RESOURCE_GROUP_NAME,
+    _DEFAULT_CREDENTIAL_OPTIONS,
+    get_credential_aio,
+)
+
+
 # credentials and subscriptions
-
-
-_DEFAULT_CREDENTIAL_OPTIONS = {
-    "exclude_visual_studio_code_credential": True,
-    "exclude_environment_credential": True,
-    "exclude_shared_token_cache_credential": True,
-}
 
 
 class TokenCredentialWithContextManager(TokenCredential):
@@ -56,13 +57,6 @@ def get_credential() -> TokenCredentialWithContextManager:
     return cast(
         TokenCredentialWithContextManager,
         azure.identity.DefaultAzureCredential(**_DEFAULT_CREDENTIAL_OPTIONS),
-    )
-
-
-def get_credential_aio() -> AsyncTokenCredential:
-    return cast(
-        AsyncTokenCredential,
-        azure.identity.aio.DefaultAzureCredential(**_DEFAULT_CREDENTIAL_OPTIONS),
     )
 
 
@@ -198,23 +192,20 @@ async def ensure_meadowrun_resource_group(location: str) -> str:
 
             try:
                 resource_client.resource_groups.get(
-                    resource_group_name=_MEADOWRUN_RESOURCE_GROUP_NAME
+                    resource_group_name=MEADOWRUN_RESOURCE_GROUP_NAME
                 )
             except azure.core.exceptions.ResourceNotFoundError:
                 print(
-                    f"The meadowrun resource group ({_MEADOWRUN_RESOURCE_GROUP_NAME}) "
+                    f"The meadowrun resource group ({MEADOWRUN_RESOURCE_GROUP_NAME}) "
                     f"doesn't exist, creating it now in {location}"
                 )
                 resource_client.resource_groups.create_or_update(
-                    _MEADOWRUN_RESOURCE_GROUP_NAME, {"location": location}
+                    MEADOWRUN_RESOURCE_GROUP_NAME, {"location": location}
                 )
 
         _MEADOWRUN_RESOURCE_GROUP_ENSURED = True
 
-    return _MEADOWRUN_RESOURCE_GROUP_NAME
-
-
-_MEADOWRUN_RESOURCE_GROUP_NAME = "Meadowrun-rg"
+    return MEADOWRUN_RESOURCE_GROUP_NAME
 
 
 async def get_current_ip_address_on_vm() -> Optional[str]:
@@ -234,6 +225,37 @@ async def get_current_ip_address_on_vm() -> Optional[str]:
             return None
 
         return await response.text()
+
+
+_MEADOWRUN_MANAGED_IDENTITY = "meadowrun-managed-identity"
+
+
+async def _ensure_managed_identity(location: str) -> Tuple[str, str]:
+    """Returns identity id, client id"""
+    resource_group_name = await ensure_meadowrun_resource_group(location)
+    async with get_credential_aio() as credential, ManagedServiceIdentityClient(
+        credential, await get_subscription_id()
+    ) as client:
+        try:
+            identity = await client.user_assigned_identities.get(
+                resource_group_name, _MEADOWRUN_MANAGED_IDENTITY
+            )
+            return identity.id, identity.client_id
+        except azure.core.exceptions.ResourceNotFoundError:
+            print(
+                f"Azure managed identity {_MEADOWRUN_MANAGED_IDENTITY} does not exist, "
+                f"creating it now"
+            )
+
+            identity = await client.user_assigned_identities.create_or_update(
+                resource_group_name, _MEADOWRUN_MANAGED_IDENTITY, {"location": location}
+            )
+
+            await assign_role_to_principal(
+                "Contributor", identity.principal_id, location, "ServicePrincipal"
+            )
+
+            return identity.id, identity.client_id
 
 
 async def assign_role_to_principal(

@@ -18,7 +18,11 @@ import pytest
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
 from basics import BasicsSuite, HostProvider, ErrorsSuite
-from instance_registrar_suite import InstanceRegistrarProvider, InstanceRegistrarSuite
+from instance_registrar_suite import (
+    InstanceRegistrarProvider,
+    InstanceRegistrarSuite,
+    TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
+)
 from meadowrun import AllocCloudInstances
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
@@ -75,22 +79,11 @@ class TestErrorsAws(AwsHostProvider, ErrorsSuite):
     pass
 
 
-class EC2InstanceRegistrarProvider(InstanceRegistrarProvider):
+class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar]):
     async def get_instance_registrar(self) -> InstanceRegistrar:
         return EC2InstanceRegistrar(await _get_default_region_name(), "create")
 
-    async def clear_instance_registrar(
-        self, instance_registrar: InstanceRegistrar
-    ) -> None:
-        # pretend that we're running in a lambda for _deregister_ec2_instance
-        for instance in await instance_registrar.get_registered_instances():
-            adjust_ec2_instances._deregister_ec2_instance(
-                instance.public_address,
-                False,
-                instance_registrar.get_region_name(),
-            )
-
-    def deregister_instance(
+    async def deregister_instance(
         self,
         instance_registrar: InstanceRegistrar,
         public_address: str,
@@ -111,7 +104,7 @@ class EC2InstanceRegistrarProvider(InstanceRegistrarProvider):
     async def run_adjust(self, instance_registrar: InstanceRegistrar) -> None:
         adjust_ec2_instances._deregister_and_terminate_instances(
             instance_registrar.get_region_name(),
-            datetime.timedelta(seconds=10),
+            TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
             datetime.timedelta.min,
         )
 

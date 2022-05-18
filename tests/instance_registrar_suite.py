@@ -3,7 +3,8 @@ import asyncio
 import os
 import platform
 import time
-from typing import Tuple
+from typing import Tuple, TypeVar, Generic
+import datetime
 
 import pytest
 
@@ -18,30 +19,39 @@ from meadowrun.instance_selection import Resources
 from meadowrun.run_job_core import CloudProviderType, AllocCloudInstancesInternal
 
 
-class InstanceRegistrarProvider(abc.ABC):
+_TInstanceRegistrar = TypeVar("_TInstanceRegistrar", bound=InstanceRegistrar)
+
+
+class InstanceRegistrarProvider(abc.ABC, Generic[_TInstanceRegistrar]):
     """
     Similar to HostProvider but for lower level tests that use the InstanceRegistrar
     directly. In a way this is basically a broader version of the InstanceRegistrar.
     """
 
     @abc.abstractmethod
-    async def get_instance_registrar(self) -> InstanceRegistrar:
+    async def get_instance_registrar(self) -> _TInstanceRegistrar:
         pass
 
-    @abc.abstractmethod
     async def clear_instance_registrar(
-        self, instance_registrar: InstanceRegistrar
+        self, instance_registrar: _TInstanceRegistrar
     ) -> None:
         """
         This function could live on InstanceRegistrar directly, but there's no use for
         it outside of tests yet.
         """
-        pass
+        await asyncio.wait(
+            [
+                self.deregister_instance(
+                    instance_registrar, instance.public_address, False
+                )
+                for instance in await instance_registrar.get_registered_instances()
+            ]
+        )
 
     @abc.abstractmethod
-    def deregister_instance(
+    async def deregister_instance(
         self,
-        instance_registrar: InstanceRegistrar,
+        instance_registrar: _TInstanceRegistrar,
         public_address: str,
         require_no_running_jobs: bool,
     ) -> bool:
@@ -54,7 +64,7 @@ class InstanceRegistrarProvider(abc.ABC):
 
     @abc.abstractmethod
     async def num_currently_running_instances(
-        self, instance_registrar: InstanceRegistrar
+        self, instance_registrar: _TInstanceRegistrar
     ) -> int:
         """
         Returns how many instances are currently running (regardless of what's been
@@ -63,12 +73,12 @@ class InstanceRegistrarProvider(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def run_adjust(self, instance_registrar: InstanceRegistrar) -> None:
+    async def run_adjust(self, instance_registrar: _TInstanceRegistrar) -> None:
         pass
 
     @abc.abstractmethod
     async def terminate_all_instances(
-        self, instance_registrar: InstanceRegistrar
+        self, instance_registrar: _TInstanceRegistrar
     ) -> None:
         pass
 
@@ -76,6 +86,9 @@ class InstanceRegistrarProvider(abc.ABC):
     def cloud_provider(self) -> CloudProviderType:
         """This is used to call run_function/run_command for this instance registrar"""
         pass
+
+
+TERMINATE_INSTANCES_IF_IDLE_FOR_TEST = datetime.timedelta(seconds=10)
 
 
 class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
@@ -86,16 +99,19 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await self.clear_instance_registrar(instance_registrar)
 
             await instance_registrar.register_instance(
-                "testhost-1", Resources(64, 8, {}), []
+                "testhost-1", "testhost-1-name", Resources(64, 8, {}), []
             )
             await instance_registrar.register_instance(
-                "testhost-2", Resources(32, 4, {}), [("worker-1", Resources(1, 2, {}))]
+                "testhost-2",
+                "testhost-2-name",
+                Resources(32, 4, {}),
+                [("worker-1", Resources(1, 2, {}))],
             )
 
-            # Can't create the same table twice
+            # Can't register the same instance twice
             with pytest.raises(ValueError):
                 await instance_registrar.register_instance(
-                    "testhost-2", Resources(32, 4, {}), []
+                    "testhost-2", "testhost-2-name", Resources(32, 4, {}), []
                 )
 
             host2 = await instance_registrar.get_registered_instance("testhost-2")
@@ -122,10 +138,12 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 Resources(4, 2, {}),
                 ["worker-2", "worker-3"],
             )
+            testhost1, _ = await get_instances()
             assert await instance_registrar.allocate_jobs_to_instance(
                 testhost1, Resources(3, 1, {}), ["worker-4"]
             )
             # cannot allocate if the worker id already is in use
+            testhost1, _ = await get_instances()
             assert not await instance_registrar.allocate_jobs_to_instance(
                 testhost1, Resources(4, 2, {}), ["worker-2"]
             )
@@ -154,10 +172,10 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await self.clear_instance_registrar(instance_registrar)
 
             await instance_registrar.register_instance(
-                "testhost-3", Resources(16, 2, {}), []
+                "testhost-3", "testhost-3-name", Resources(16, 2, {}), []
             )
             await instance_registrar.register_instance(
-                "testhost-4", Resources(32, 4, {}), []
+                "testhost-4", "testhost-4-name", Resources(32, 4, {}), []
             )
 
             resources_required = Resources(2, 1, {})
@@ -251,19 +269,26 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await self.clear_instance_registrar(instance_registrar)
 
             await instance_registrar.register_instance(
-                "testhost-1", Resources(64, 8, {}), []
+                "testhost-1", "testhost-1-name", Resources(64, 8, {}), []
             )
             await instance_registrar.register_instance(
-                "testhost-2", Resources(32, 4, {}), [("worker-1", Resources(1, 2, {}))]
+                "testhost-2",
+                "testhost-2-name",
+                Resources(32, 4, {}),
+                [("worker-1", Resources(1, 2, {}))],
             )
 
-            assert self.deregister_instance(instance_registrar, "testhost-1", True)
+            assert await self.deregister_instance(
+                instance_registrar, "testhost-1", True
+            )
             # with require_no_running_jobs=True, testhost-2 should fail to deregister
-            assert not self.deregister_instance(instance_registrar, "testhost-2", True)
+            assert not await self.deregister_instance(
+                instance_registrar, "testhost-2", True
+            )
             assert self.deregister_instance(instance_registrar, "testhost-2", False)
 
     @pytest.mark.asyncio
-    async def test_adjust_ec2_instances(self):
+    async def test_adjust_instances(self):
         """
         Tests the adjust function, involves running real machines, but they should all
         get terminated automatically by the test.
@@ -281,7 +306,10 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             # first, register an instance that's not actually running
             await instance_registrar.register_instance(
-                "testhost-1", Resources(64, 8, {}), [("worker-1", Resources(1, 2, {}))]
+                "testhost-1",
+                "testhost-1-name",
+                Resources(64, 8, {}),
+                [("worker-1", Resources(1, 2, {}))],
             )
             assert len(await instance_registrar.get_registered_instances()) == 1
 
@@ -314,7 +342,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             # deregister one without turning off the instance then adjust should
             # terminate it automatically
-            self.deregister_instance(instance_registrar, public_address1, False)
+            await self.deregister_instance(instance_registrar, public_address1, False)
             await self.run_adjust(instance_registrar)
             assert len(await instance_registrar.get_registered_instances()) == 1
             assert await self.num_currently_running_instances(instance_registrar) == 1

@@ -12,10 +12,12 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from meadowrun.azure_integration.azure_core import (
     assign_role_to_principal,
     ensure_meadowrun_resource_group,
-    get_credential_aio,
     get_current_user_id,
     get_subscription_id,
     get_tenant_id,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    get_credential_aio,
 )
 from meadowrun.ssh_keys import generate_rsa_private_key
 

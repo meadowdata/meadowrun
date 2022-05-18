@@ -140,6 +140,7 @@ class CloudInstance:
     """Represents an instance launched by an InstanceRegistrar"""
 
     public_dns_name: str
+    name: str
 
     # TODO instance_type.interruption_probability should always use the latest data
     # rather than always using the number from when the instance was launched

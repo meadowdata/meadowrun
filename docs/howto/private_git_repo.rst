@@ -23,7 +23,7 @@ need to access this secret:
 
 .. code-block::
 
-    meadowrun-manage grant-permission-to-secret my_ssh_key
+    meadowrun-manage-ec2 grant-permission-to-secret my_ssh_key
 
 Now you can use the following :code:`Deployment` with :code:`run_function` or
 :code:`run_map`:

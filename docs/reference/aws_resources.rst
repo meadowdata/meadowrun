@@ -2,8 +2,8 @@ AWS resources created by meadowrun
 ==================================
 
 This page lists all AWS resources created by using meadowrun or running
-:code:`meadowrun-manage install`. All of these resources can be deleted automatically by
-running :code:`meadowrun-manage uninstall`.
+:code:`meadowrun-manage-ec2 install`. All of these resources can be deleted
+automatically by running :code:`meadowrun-manage-ec2 uninstall`.
 
 * EC2
     * Instances: tagged with "meadowrun_ec2_alloc = true"

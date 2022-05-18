@@ -151,6 +151,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def register_instance(
         self,
         public_address: str,
+        name: str,
         resources_available: Resources,
         running_jobs: List[Tuple[str, Resources]],
     ) -> None:

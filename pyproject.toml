@@ -12,7 +12,8 @@ packages = [
 
 [tool.poetry.scripts]
 meadowrun-local = 'meadowrun.run_job_local_main:command_line_main'
-meadowrun-manage = "meadowrun.manage:main"
+meadowrun-manage-ec2 = "meadowrun.manage:main_ec2"
+meadowrun-manage-azure-vm = "meadowrun.manage:main_azure_vm"
 
 [tool.poetry.dependencies]
 python = "^3.7"
@@ -37,6 +38,9 @@ azure-keyvault-secrets = "^4.4.0"
 azure-mgmt-storage = "^20.0.0"
 azure-data-tables = "^12.3.0"
 azure-mgmt-msi = "^6.0.1"
+azure-mgmt-web = "^6.1.0"
+azure-mgmt-applicationinsights = "^3.0.0"
+azure-mgmt-loganalytics = "^12.0.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0.1"
@@ -92,5 +96,22 @@ no_implicit_optional = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["boto3", "cloudpickle", "fabric", "azure.mgmt.resource", "azure.mgmt.resource.subscriptions.aio", "msgraph.core", "azure.mgmt.compute.aio", "azure.mgmt.authorization.aio", "azure.mgmt.keyvault.aio", "azure.mgmt.storage.aio", "azure.mgmt.network.aio", "azure.mgmt.compute.models", "azure.mgmt.msi.aio"]
+module = [
+    "azure.mgmt.applicationinsights.aio",
+    "azure.mgmt.authorization.aio",
+    "azure.mgmt.compute.aio",
+    "azure.mgmt.compute.models",
+    "azure.mgmt.keyvault.aio",
+    "azure.mgmt.loganalytics.aio",
+    "azure.mgmt.msi.aio",
+    "azure.mgmt.network.aio",
+    "azure.mgmt.resource",
+    "azure.mgmt.resource.subscriptions.aio",
+    "azure.mgmt.storage.aio",
+    "azure.mgmt.web.aio",
+    "boto3",
+    "cloudpickle",
+    "fabric",
+    "msgraph.core"
+]
 ignore_missing_imports = true

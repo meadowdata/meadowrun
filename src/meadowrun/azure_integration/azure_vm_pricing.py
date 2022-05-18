@@ -3,9 +3,9 @@ from typing import Dict, Tuple, Optional, Iterable, Any, List, cast
 import aiohttp
 from azure.mgmt.compute.aio import ComputeManagementClient
 
-from meadowrun.azure_integration.azure_core import (
+from meadowrun.azure_integration.azure_core import get_subscription_id
+from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
     get_credential_aio,
-    get_subscription_id,
 )
 from meadowrun.instance_selection import (
     CloudInstanceType,

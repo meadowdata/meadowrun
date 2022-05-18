@@ -91,6 +91,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
     async def register_instance(
         self,
         public_address: str,
+        name: str,
         resources_available: Resources,
         running_jobs: List[Tuple[str, Resources]],
     ) -> None:
@@ -320,6 +321,7 @@ async def _launch_new_instances(
 
         await instance_registrar.register_instance(
             instance.public_dns_name,
+            instance.name,
             Resources(
                 instance_info.memory_gb
                 - (

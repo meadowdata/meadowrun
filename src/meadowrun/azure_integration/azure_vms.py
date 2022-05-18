@@ -7,16 +7,17 @@ from typing import Optional, Tuple, Sequence
 import azure.core.exceptions
 from azure.mgmt.compute.aio import ComputeManagementClient
 from azure.mgmt.compute.models import ResourceIdentityType
-from azure.mgmt.msi.aio import ManagedServiceIdentityClient
 from azure.mgmt.network.aio import NetworkManagementClient
 
 from meadowrun.azure_integration.azure_core import (
-    _MEADOWRUN_RESOURCE_GROUP_NAME,
-    assign_role_to_principal,
+    MEADOWRUN_RESOURCE_GROUP_NAME,
+    _ensure_managed_identity,
     ensure_meadowrun_resource_group,
-    get_credential_aio,
     get_default_location,
     get_subscription_id,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    get_credential_aio,
 )
 from meadowrun.azure_integration.azure_vm_pricing import get_vm_types
 from meadowrun.instance_selection import (
@@ -38,40 +39,12 @@ _MEADOWRUN_IMAGE_DEFINITION_ID = (
     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/resourceGroups/meadowrun-dev/"
     "providers/Microsoft.Compute/galleries/meadowrun.dev.gallery/images/meadowrun"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.0.6"
+_MEADOWRUN_IMAGE_VERSION = "0.0.7"
 # This is distinct from the resource group referenced in
 # ensure_meadowrun_resource_group--that resource group is for the meadowrun-generated
 # VMs in the user's subscription. This resource group is for the meadowrun-published
 # community image
 _MEADOWRUN_IMAGE_RESOURCE_GROUP = "meadowrun-dev"
-_MEADOWRUN_MANAGED_IDENTITY = "meadowrun-managed-identity"
-
-
-async def _ensure_managed_identity(location: str) -> str:
-    resource_group_name = await ensure_meadowrun_resource_group(location)
-    async with get_credential_aio() as credential, ManagedServiceIdentityClient(
-        credential, await get_subscription_id()
-    ) as client:
-        try:
-            identity = await client.user_assigned_identities.get(
-                resource_group_name, _MEADOWRUN_MANAGED_IDENTITY
-            )
-            return identity.id
-        except azure.core.exceptions.ResourceNotFoundError:
-            print(
-                f"Azure managed identity {_MEADOWRUN_MANAGED_IDENTITY} does not exist, "
-                f"creating it now"
-            )
-
-            identity = await client.user_assigned_identities.create_or_update(
-                resource_group_name, _MEADOWRUN_MANAGED_IDENTITY, {"location": location}
-            )
-
-            await assign_role_to_principal(
-                "Contributor", identity.principal_id, location, "ServicePrincipal"
-            )
-
-            return identity.id
 
 
 async def _ensure_virtual_network_and_subnet(
@@ -91,7 +64,7 @@ async def _ensure_virtual_network_and_subnet(
         print(
             f"The meadowrun virtual network ({_MEADOWRUN_VIRTUAL_NETWORK_NAME}) "
             f"doesn't exist, in the meadowrun resource group "
-            f"({_MEADOWRUN_RESOURCE_GROUP_NAME}), creating it now in {location}"
+            f"({MEADOWRUN_RESOURCE_GROUP_NAME}), creating it now in {location}"
         )
 
         # Provision the virtual network and wait for completion
@@ -115,7 +88,7 @@ async def _ensure_virtual_network_and_subnet(
     except azure.core.exceptions.ResourceNotFoundError:
         print(
             f"The meadowrun subnet ({_MEADOWRUN_SUBNET_NAME}) in "
-            f"({_MEADOWRUN_VIRTUAL_NETWORK_NAME}/{_MEADOWRUN_RESOURCE_GROUP_NAME}),"
+            f"({_MEADOWRUN_VIRTUAL_NETWORK_NAME}/{MEADOWRUN_RESOURCE_GROUP_NAME}),"
             f" doesn't exist, creating it now in {location}"
         )
 
@@ -192,12 +165,12 @@ async def _provision_vm(
     vm_size: str,
     on_demand_or_spot: OnDemandOrSpotType,
     ssh_public_key_data: str,
-) -> str:
+) -> Tuple[str, str]:
     """
     Based on
     https://docs.microsoft.com/en-us/azure/developer/python/sdk/examples/azure-sdk-example-virtual-machines?tabs=cmd
 
-    Returns the public IP address of the VM.
+    Returns the (public IP address of the VM, name of the VM).
 
     ssh_public_key_data should be the actual line that should get added to
     ~/.ssh/authorized_keys, e.g. "ssh-rsa: ...". Azure does seem to have a feature for
@@ -206,7 +179,7 @@ async def _provision_vm(
     """
 
     resource_group_name = await ensure_meadowrun_resource_group(location)
-    meadowrun_identity_id = await _ensure_managed_identity(location)
+    meadowrun_identity_id, _ = await _ensure_managed_identity(location)
 
     vm_name = str(uuid.uuid4())
 
@@ -306,7 +279,7 @@ async def _provision_vm(
         # to worry about the case where we throw an exception and/or crash after those
         # resources are created but before the VM is created
 
-        return ip_address_result2.ip_address
+        return ip_address_result2.ip_address, vm_result.name
 
 
 async def launch_vms(
@@ -334,12 +307,12 @@ async def launch_vms(
             f"memory={memory_gb_required_per_job}, cpu={logical_cpu_required_per_job}"
         )
 
-    public_dns_name_tasks = []
+    vm_detail_tasks = []
     chosen_instance_types_repeated = []
 
     for instance_type in chosen_instance_types:
         for _ in range(instance_type.num_instances):
-            public_dns_name_tasks.append(
+            vm_detail_tasks.append(
                 _provision_vm(
                     location,
                     instance_type.instance_type.name,
@@ -349,11 +322,11 @@ async def launch_vms(
             )
             chosen_instance_types_repeated.append(instance_type)
 
-    public_dns_names = await asyncio.gather(*public_dns_name_tasks)
+    vm_details = await asyncio.gather(*vm_detail_tasks)
 
     return [
-        CloudInstance(public_dns_name, instance_type)
-        for public_dns_name, instance_type in zip(
-            public_dns_names, chosen_instance_types_repeated
+        CloudInstance(public_dns_name, vm_name, instance_type)
+        for (public_dns_name, vm_name), instance_type in zip(
+            vm_details, chosen_instance_types_repeated
         )
     ]

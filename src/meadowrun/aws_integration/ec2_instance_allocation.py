@@ -60,7 +60,7 @@ _EC2_ALLOC_AMIS = {
 }
 
 
-class EC2InstanceRegistrar(InstanceRegistrar):
+class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
     """
     The EC2 instance registrar uses a DynamoDB table to keep track of instances and job
     allocations.

@@ -34,6 +34,9 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results,
     worker_loop,
 )
+from meadowrun.azure_integration.azure_instance_allocation import (
+    run_job_azure_vm_instance_registrar,
+)
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
 from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
@@ -250,6 +253,14 @@ class AllocCloudInstance(Host):
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
+                job,
+                self.logical_cpu_required,
+                self.memory_gb_required,
+                self.interruption_probability_threshold,
+                self.region_name,
+            )
+        elif self.cloud_provider == "AzureVM":
+            return await run_job_azure_vm_instance_registrar(
                 job,
                 self.logical_cpu_required,
                 self.memory_gb_required,

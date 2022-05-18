@@ -5,14 +5,11 @@ import math
 from typing import Dict, Optional, Tuple, List
 from typing_extensions import Literal
 
-ON_DEMAND_OR_SPOT_VALUES = "on_demand", "spot"
+ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
+    "on_demand",
+    "spot",
+)
 OnDemandOrSpotType = Literal["on_demand", "spot"]
-
-
-def assert_is_not_none(resources: Optional[Resources]) -> Resources:
-    """A helper for mypy"""
-    assert resources is not None
-    return resources
 
 
 @dataclasses.dataclass(frozen=True)

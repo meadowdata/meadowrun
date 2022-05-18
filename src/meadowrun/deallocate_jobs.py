@@ -13,6 +13,11 @@ from meadowrun.aws_integration.aws_core import (
 )
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
+from meadowrun.azure_integration.azure_core import (
+    get_default_location,
+    get_current_ip_address_on_vm,
+)
+from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.run_job_core import CloudProvider, CloudProviderType
 from meadowrun.run_job_local import _get_default_working_folder
@@ -61,28 +66,36 @@ async def async_main(
     are complete or never ran successfully, we deallocate them. If job_id is specified,
     we only check whether we need to deallocate the specified job.
     """
-    public_address = await _get_ec2_metadata("public-hostname")
-    if not public_address:
-        raise ValueError(
-            "Cannot deallocate jobs because we can't get the public address of the "
-            "current EC2 instance (maybe we're not running on an EC2 instance?)"
-        )
-
     now = datetime.datetime.utcnow()
 
     if not working_folder:
         working_folder = _get_default_working_folder()
 
     if cloud_provider == "EC2":
+        public_address = await _get_ec2_metadata("public-hostname")
         if instance_registrar_region_name == "default":
             instance_registrar_region_name = await _get_default_region_name()
         instance_registrar: InstanceRegistrar = EC2InstanceRegistrar(
+            instance_registrar_region_name, "raise"
+        )
+    elif cloud_provider == "AzureVM":
+        public_address = await get_current_ip_address_on_vm()
+        if instance_registrar_region_name == "default":
+            instance_registrar_region_name = get_default_location()
+        instance_registrar = AzureInstanceRegistrar(
             instance_registrar_region_name, "raise"
         )
     else:
         raise ValueError(f"Unexpected value for cloud_provider: {cloud_provider}")
 
     async with instance_registrar:
+        if not public_address:
+            raise ValueError(
+                "Cannot deallocate jobs because we can't get the public address of the "
+                f"current {cloud_provider} instance (maybe we're not running on a "
+                f"{cloud_provider} instance?)"
+            )
+
         registered_instance = await instance_registrar.get_registered_instance(
             public_address
         )

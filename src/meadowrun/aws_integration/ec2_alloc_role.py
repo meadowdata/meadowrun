@@ -5,7 +5,7 @@ resources from meadowrun-launched EC2 instances
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import Any
 
 import boto3
 
@@ -16,7 +16,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 
-_T = TypeVar("_T")
 
 # an IAM role/an associated policy that grants permission to read/write the EC2 alloc
 # dynamodb table
@@ -128,15 +127,36 @@ _MEADOWRUN_ECR_ACCESS_POLICY_DOCUMENT = """{
 )
 
 _ACCESS_SECRET_POLICY = """{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "$SECRET_ARN"
-    }
-  ]
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "secretsmanager:GetSecretValue",
+            "Resource": "$SECRET_ARN"
+        }
+    ]
 }"""
+
+_MEADOWRUN_S3_ACCESS_POLICY_NAME = "meadowrun_s3_access"
+_MEADOWRUN_S3_ACCESS_POLICY_DOCUMENT = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": "s3:ListBucket",
+            "Resource": "arn:aws:s3:::meadowrun-*"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::meadowrun-*/*"
+        }
+    ]
+}
+"""
+
 
 # the name of the lambda that runs adjust_ec2_instances.py
 _EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
@@ -205,6 +225,22 @@ def _ensure_ec2_alloc_table_access_policy(iam_client: Any) -> str:
     )
 
 
+def _ensure_s3_access_policy(iam_client: Any) -> str:
+    """Creates a policy that gives permission to list and read meadowrun S3 buckets"""
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.create_policy
+    ignore_boto3_error_code(
+        lambda: iam_client.create_policy(
+            PolicyName=_MEADOWRUN_S3_ACCESS_POLICY_NAME,
+            PolicyDocument=_MEADOWRUN_S3_ACCESS_POLICY_DOCUMENT,
+        ),
+        "EntityAlreadyExists",
+    )
+    return (
+        f"arn:aws:iam::{_get_account_number()}:policy/"
+        f"{_MEADOWRUN_S3_ACCESS_POLICY_NAME}"
+    )
+
+
 def _ensure_ec2_alloc_role(region_name: str) -> None:
     """
     Creates the meadowrun EC2 alloc IAM role if it doesn't exist, and gives it
@@ -248,6 +284,12 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
             RoleName=_EC2_ALLOC_ROLE,
             # TODO should create a policy that only allows what we actually need
             PolicyArn=_ensure_meadowrun_ecr_access_policy(iam),
+        )
+
+        # create the S3 access policy and attach it to the role
+        iam.attach_role_policy(
+            RoleName=_EC2_ALLOC_ROLE,
+            PolicyArn=_ensure_s3_access_policy(iam),
         )
 
         # create an instance profile (so that EC2 instances can assume it) and attach

@@ -68,8 +68,8 @@ def get_credential() -> TokenCredentialWithContextManager:
     )
 
 
-_SUBSCRIPTION_ID = None
-_TENANT_ID = None
+_SUBSCRIPTION_ID: Optional[str] = None
+_TENANT_ID: Optional[str] = None
 
 
 async def get_tenant_id() -> str:
@@ -453,8 +453,8 @@ async def ensure_meadowrun_storage_account(
     return storage_account_name, key
 
 
-_STORAGE_ACCOUNT_NAME = None
-_STORAGE_ACCOUNT_KEY = None
+_STORAGE_ACCOUNT_NAME: Optional[str] = None
+_STORAGE_ACCOUNT_KEY: Optional[str] = None
 _EXISTING_TABLES: Set[str] = set()
 
 

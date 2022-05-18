@@ -66,6 +66,7 @@ mkdocs = "^1.3.0"
 mkdocs-material = "^8.2.15"
 mkdocstrings = {extras = ["python"], version = "^0.18.1"}
 mkdocs-awesome-pages-plugin = "^2.7.0"
+pytest-mock = "^3.7.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -77,6 +78,7 @@ log_level = "DEBUG"
 log_cli = true
 log_cli_level = "DEBUG"
 addopts = "-vvv --strict-markers"
+asyncio_mode="auto"
 
 [tool.mypy]
 files = "src,tests"

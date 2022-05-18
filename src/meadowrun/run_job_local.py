@@ -650,7 +650,7 @@ def _get_default_working_folder() -> str:
 
 def _set_up_working_folder(
     working_folder: Optional[str],
-) -> Tuple[str, str, str, str]:
+) -> Tuple[str, str, str, str, str]:
     """
     Sets the working_folder to a default if it's not set, creates the necessary
     subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
@@ -672,13 +672,22 @@ def _set_up_working_folder(
     git_repos_folder = os.path.join(working_folder, "git_repos")
     # see CodeDeploymentManager
     local_copies_folder = os.path.join(working_folder, "local_copies")
+    # misc folder for e.g. storing environment export files sent from local machine
+    misc_folder = os.path.join(working_folder, "misc")
 
     os.makedirs(io_folder, exist_ok=True)
     os.makedirs(job_logs_folder, exist_ok=True)
     os.makedirs(git_repos_folder, exist_ok=True)
     os.makedirs(local_copies_folder, exist_ok=True)
+    os.makedirs(misc_folder, exist_ok=True)
 
-    return io_folder, job_logs_folder, git_repos_folder, local_copies_folder
+    return (
+        io_folder,
+        job_logs_folder,
+        git_repos_folder,
+        local_copies_folder,
+        misc_folder,
+    )
 
 
 async def _get_credentials_for_job(
@@ -772,6 +781,7 @@ async def run_local(
         job_logs_folder,
         git_repos_folder,
         local_copies_folder,
+        misc_folder,
     ) = _set_up_working_folder(working_folder)
 
     # unpickle credentials if necessary
@@ -799,6 +809,15 @@ async def run_local(
             job.server_available_container.CopyFrom(
                 await compile_environment_spec_to_container(
                     job.environment_spec_in_code, interpreter_spec_path, cloud
+                )
+            )
+            interpreter_deployment = "server_available_container"
+
+        if interpreter_deployment == "environment_spec":
+
+            job.server_available_container.CopyFrom(
+                await compile_environment_spec_to_container(
+                    job.environment_spec, misc_folder, cloud
                 )
             )
             interpreter_deployment = "server_available_container"

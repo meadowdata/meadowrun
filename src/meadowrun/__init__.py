@@ -21,6 +21,7 @@ from meadowrun.run_job_core import LocalHost, SshHost
 
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
+    AzureSecret,
     ContainerAtDigest,
     ContainerAtTag,
     GitRepoBranch,
@@ -42,6 +43,7 @@ __all__ = [
     "LocalHost",
     "SshHost",
     "AwsSecret",
+    "AzureSecret",
     "ContainerAtDigest",
     "ContainerAtTag",
     "GitRepoBranch",

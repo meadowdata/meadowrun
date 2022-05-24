@@ -20,6 +20,9 @@ from azure.mgmt.resource import ResourceManagementClient
 # to return a tenant_id for each subscription and the second one does not, so we just
 # use the first one.
 from azure.mgmt.resource.subscriptions.aio import SubscriptionClient
+from azure.mgmt.resource.subscriptions import (
+    SubscriptionClient as SubscriptionClientSync,
+)
 from msgraph.core import GraphClient
 
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
@@ -114,6 +117,42 @@ async def get_subscription_id() -> str:
                 subscriptions = [
                     sub
                     async for sub in sub_client.subscriptions.list()
+                    if sub.state == "Enabled"
+                ]
+            if len(subscriptions) > 1:
+                raise ValueError(
+                    "Please specify a subscription via the "
+                    "AZURE_SUBSCRIPTION_ID environment variable from among the "
+                    "available subscription ids: "
+                    + ", ".join([sub.subscription_id for sub in subscriptions])
+                )
+            elif len(subscriptions) == 0:
+                raise ValueError("There are no subscriptions available")
+            else:
+                _SUBSCRIPTION_ID = cast(str, subscriptions[0].subscription_id)
+                _TENANT_ID = cast(str, subscriptions[0].tenant_id)
+
+    return _SUBSCRIPTION_ID
+
+
+def get_subscription_id_sync() -> str:
+    """Identical to get_subscription_id but not async"""
+
+    global _SUBSCRIPTION_ID
+    global _TENANT_ID
+
+    if _SUBSCRIPTION_ID is None:
+        specified_subscription_id = os.environ.get("AZURE_SUBSCRIPTION_ID")
+
+        if specified_subscription_id:
+            _SUBSCRIPTION_ID = specified_subscription_id
+        else:
+            with get_credential() as credential, SubscriptionClientSync(
+                credential
+            ) as sub_client:
+                subscriptions = [
+                    sub
+                    for sub in sub_client.subscriptions.list()
                     if sub.state == "Enabled"
                 ]
             if len(subscriptions) > 1:
@@ -253,6 +292,12 @@ async def _ensure_managed_identity(location: str) -> Tuple[str, str]:
 
             await assign_role_to_principal(
                 "Contributor", identity.principal_id, location, "ServicePrincipal"
+            )
+            await assign_role_to_principal(
+                "Key Vault Secrets User",
+                identity.principal_id,
+                location,
+                "ServicePrincipal",
             )
 
             return identity.id, identity.client_id

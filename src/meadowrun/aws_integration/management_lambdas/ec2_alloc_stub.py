@@ -1,5 +1,5 @@
 """
-This is code that "should" be part of ec2_alloc.py, but is also needed by
+This is code that "should" be part of ec2_instance_allocation.py, but is also needed by
 adjust_ec2_instances.
 
 This module contains code that will run in the generic AWS Lambda environment, so it

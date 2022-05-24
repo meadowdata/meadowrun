@@ -265,8 +265,8 @@ message CredentialsSourceMessage {
     string service_url = 2;
     oneof source {
         AwsSecret aws_secret = 3;
+        AzureSecret azure_secret = 5;
         ServerAvailableFile server_available_file = 4;
-        // TODO add e.g. Azure secrets, Hashicorp Vault
     }
 }
 
@@ -298,6 +298,18 @@ message Credentials {
 message AwsSecret {
     Credentials.Type credentials_type = 1;
     string secret_name = 2;
+}
+
+
+// Represents credentials stored in Azure
+// - For credentials_type = USERNAME_PASSWORD, expects a json like '{"username":
+//   "my_username", "password": "my_pasword}'
+// - For credentials_type = SSH_KEY, expects a plain-text value containing the contents
+//   of the SSH private key file
+message AzureSecret {
+    Credentials.Type credentials_type = 1;
+    string vault_name = 2;
+    string secret_name = 3;
 }
 
 

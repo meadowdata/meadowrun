@@ -106,6 +106,7 @@ module = [
     "azure.mgmt.msi.aio",
     "azure.mgmt.network.aio",
     "azure.mgmt.resource",
+    "azure.mgmt.resource.subscriptions",
     "azure.mgmt.resource.subscriptions.aio",
     "azure.mgmt.storage.aio",
     "azure.mgmt.web.aio",

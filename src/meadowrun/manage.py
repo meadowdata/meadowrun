@@ -34,6 +34,7 @@ from meadowrun.azure_integration.azure_mgmt_functions_setup import (
 )
 from meadowrun.azure_integration.azure_ssh_keys import (
     download_ssh_key as azure_download_ssh_key,
+    _ensure_meadowrun_vault,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
     get_credential_aio,
@@ -172,12 +173,18 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             f"{time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "grant-permission-to-secret":
-        print(f"Granting access to the meadowrun EC2 role to access {args.secret_name}")
+        print(
+            f"Granting access to the meadowrun {ec2_role} to access {args.secret_name}"
+        )
         if cloud_provider == "EC2":
             grant_permission_to_secret(args.secret_name, region_name)
         elif cloud_provider == "AzureVM":
-            # TODO implement
-            pass
+            raise NotImplementedError(
+                "Granting permission to individual secrets is not implemented for "
+                "Azure. The meadowrun managed identity already has permissions to all "
+                "secrets in the meadowrun-created Vault: "
+                f"{await _ensure_meadowrun_vault(get_default_location())}"
+            )
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(f"Granted access in {time.perf_counter() - t0:.2f} seconds")

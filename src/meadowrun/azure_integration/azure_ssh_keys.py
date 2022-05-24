@@ -24,6 +24,13 @@ from meadowrun.ssh_keys import generate_rsa_private_key
 _MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME = "meadowrunSshPrivateKey"
 
 
+def get_meadowrun_vault_name(subscription_id: str) -> str:
+    # key vault names need to be globally unique. Also, they cannot be more than 24
+    # characters long
+    # TODO we need a way to manually set Key Vault name in case this ends up colliding
+    return "mr" + subscription_id.replace("-", "")[-22:]
+
+
 async def _ensure_meadowrun_vault(location: str) -> str:
     """
     Gets the meadowrun key vault URI if it exists. If it doesn't exist, also creates the
@@ -31,11 +38,8 @@ async def _ensure_meadowrun_vault(location: str) -> str:
     current user.
     """
 
-    # key vault names need to be globally unique. Also, they cannot be more than 24
-    # characters long
-    # TODO we need a way to manually set Key Vault name in case this ends up colliding
     subscription_id = await get_subscription_id()
-    vault_name = "mr" + subscription_id.replace("-", "")[-22:]
+    vault_name = get_meadowrun_vault_name(subscription_id)
     resource_group_name = await ensure_meadowrun_resource_group(location)
 
     async with get_credential_aio() as credential, KeyVaultManagementClient(

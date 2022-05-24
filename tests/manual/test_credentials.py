@@ -5,10 +5,13 @@ uploading an image to it.
 
 import subprocess
 
+from meadowrun.azure_integration.azure_core import get_subscription_id
+from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.credentials import CredentialsSource, CredentialsSourceForService
 from meadowrun.docker_controller import delete_images_from_repository
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
+    AzureSecret,
     ContainerAtTag,
     Credentials,
     GitRepoBranch,
@@ -63,6 +66,26 @@ async def manual_test_docker_credentials_aws_secret():
     await _manual_test_docker_credentials(
         AwsSecret(
             credentials_type=Credentials.Type.USERNAME_PASSWORD, secret_name="dockerhub"
+        )
+    )
+
+
+async def manual_test_docker_credentials_azure_secret():
+    """
+    Follow the same steps as in manual_test_docker_credentials_file, but just a
+    different step 2:
+
+    2. Create an Azure Secret in the meadowrun-generated Vault with name "dockerhub". It
+        should have a username key and a password key populated with your Dockerhub
+        credentials. Make sure the machine you're running the test under has access to
+        the secret you've created. If you've installed the Azure CLI, `az keyvault
+        secret show --name dockerhub --vault-name <mr...>` should work.
+    """
+    await _manual_test_docker_credentials(
+        AzureSecret(
+            credentials_type=Credentials.Type.USERNAME_PASSWORD,
+            vault_name=get_meadowrun_vault_name(await get_subscription_id()),
+            secret_name="dockerhub",
         )
     )
 
@@ -147,6 +170,25 @@ async def manual_test_git_ssh_key_aws_secret():
         AwsSecret(
             credentials_type=Credentials.Type.SSH_KEY,
             secret_name=r"meadowrun_test_ssh_key",
+        )
+    )
+
+
+async def manual_test_git_ssh_key_azure_secret():
+    r"""
+    Follow the same steps as in manual_test_git_ssh_key_file but just an additional
+    step before 6:
+
+    5.1: Create an Azure Secret with the name/id meadowrun_test_ssh_key. It should
+        have the contents of your c:\temp\key file that you generated in step 3. See
+        https://docs.microsoft.com/en-in/azure/key-vault/secrets/multiline-secrets for
+        instructions on how to add a multi-line value to an Azure secret
+    """
+    await _manual_test_git_ssh_key(
+        AzureSecret(
+            credentials_type=Credentials.Type.SSH_KEY,
+            vault_name=get_meadowrun_vault_name(await get_subscription_id()),
+            secret_name=r"meadowrun-test-ssh-key",
         )
     )
 

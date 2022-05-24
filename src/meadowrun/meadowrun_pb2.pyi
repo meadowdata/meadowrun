@@ -867,21 +867,23 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     SERVICE_FIELD_NUMBER: builtins.int
     SERVICE_URL_FIELD_NUMBER: builtins.int
     AWS_SECRET_FIELD_NUMBER: builtins.int
+    AZURE_SECRET_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FILE_FIELD_NUMBER: builtins.int
     service: global___Credentials.Service.ValueType
     service_url: typing.Text
     @property
     def aws_secret(self) -> global___AwsSecret: ...
     @property
-    def server_available_file(self) -> global___ServerAvailableFile:
-        """TODO add e.g. Azure secrets, Hashicorp Vault"""
-        pass
+    def azure_secret(self) -> global___AzureSecret: ...
+    @property
+    def server_available_file(self) -> global___ServerAvailableFile: ...
     def __init__(
         self,
         *,
         service: global___Credentials.Service.ValueType = ...,
         service_url: typing.Text = ...,
         aws_secret: typing.Optional[global___AwsSecret] = ...,
+        azure_secret: typing.Optional[global___AzureSecret] = ...,
         server_available_file: typing.Optional[global___ServerAvailableFile] = ...,
     ) -> None: ...
     def HasField(
@@ -889,6 +891,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "aws_secret",
             b"aws_secret",
+            "azure_secret",
+            b"azure_secret",
             "server_available_file",
             b"server_available_file",
             "source",
@@ -900,6 +904,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "aws_secret",
             b"aws_secret",
+            "azure_secret",
+            b"azure_secret",
             "server_available_file",
             b"server_available_file",
             "service",
@@ -913,7 +919,7 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     def WhichOneof(
         self, oneof_group: typing_extensions.Literal["source", b"source"]
     ) -> typing.Optional[
-        typing_extensions.Literal["aws_secret", "server_available_file"]
+        typing_extensions.Literal["aws_secret", "azure_secret", "server_available_file"]
     ]: ...
 
 global___CredentialsSourceMessage = CredentialsSourceMessage
@@ -1006,6 +1012,37 @@ class AwsSecret(google.protobuf.message.Message):
     ) -> None: ...
 
 global___AwsSecret = AwsSecret
+
+class AzureSecret(google.protobuf.message.Message):
+    """Represents credentials stored in Azure. See AwsSecret"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+    CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
+    VAULT_NAME_FIELD_NUMBER: builtins.int
+    SECRET_NAME_FIELD_NUMBER: builtins.int
+    credentials_type: global___Credentials.Type.ValueType
+    vault_name: typing.Text
+    secret_name: typing.Text
+    def __init__(
+        self,
+        *,
+        credentials_type: global___Credentials.Type.ValueType = ...,
+        vault_name: typing.Text = ...,
+        secret_name: typing.Text = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "credentials_type",
+            b"credentials_type",
+            "secret_name",
+            b"secret_name",
+            "vault_name",
+            b"vault_name",
+        ],
+    ) -> None: ...
+
+global___AzureSecret = AzureSecret
 
 class ServerAvailableFile(google.protobuf.message.Message):
     """Represents credentials in a file. Must be a file accessible by the coordinator.

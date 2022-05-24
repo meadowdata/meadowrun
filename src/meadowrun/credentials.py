@@ -25,17 +25,26 @@ from __future__ import annotations
 import abc
 import dataclasses
 import json
-from typing import Union, Optional, Dict, List, Tuple
-from typing_extensions import Literal
+from typing import Union, Optional, Dict, List, Tuple, cast
 
 import boto3
+from azure.keyvault.secrets.aio import SecretClient
+from typing_extensions import Literal
 
 import meadowrun.docker_controller
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.meadowrun_pb2 import ServerAvailableFile, AwsSecret, Credentials
+from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    get_credential_aio,
+)
+from meadowrun.meadowrun_pb2 import (
+    AwsSecret,
+    AzureSecret,
+    Credentials,
+    ServerAvailableFile,
+)
 
 # Represents a way to get credentials
-CredentialsSource = Union[AwsSecret, ServerAvailableFile]
+CredentialsSource = Union[AwsSecret, AzureSecret, ServerAvailableFile]
 # Represents a service that credentials can be used for
 CredentialsService = Literal["DOCKER", "GIT"]
 
@@ -93,6 +102,24 @@ async def _get_credentials_from_source(source: CredentialsSource) -> RawCredenti
             return UsernamePassword(secret["username"], secret["password"])
         elif source.credentials_type == Credentials.Type.SSH_KEY:
             return SshKey(secret["private_key"])
+        else:
+            raise ValueError(f"Unknown credentials type {source.credentials_type}")
+    elif isinstance(source, AzureSecret):
+        async with SecretClient(
+            f"https://{source.vault_name}.vault.azure.net/", get_credential_aio()
+        ) as client:
+            # for some reason, reveal_type(client) returns AsyncKeyVaultClientBase which
+            # is the super class of SecretClient. This is either a problem with the
+            # azure SDK type hints or a bug in mypy
+            client = cast(SecretClient, client)
+            secret_value = (await client.get_secret(source.secret_name)).value
+            if secret_value is None:
+                raise ValueError(f"Specified secret {source.secret_name} had no value")
+        if source.credentials_type == Credentials.Type.USERNAME_PASSWORD:
+            secret_json = json.loads(secret_value)
+            return UsernamePassword(secret_json["username"], secret_json["password"])
+        elif source.credentials_type == Credentials.Type.SSH_KEY:
+            return SshKey(secret_value)
         else:
             raise ValueError(f"Unknown credentials type {source.credentials_type}")
     elif isinstance(source, ServerAvailableFile):

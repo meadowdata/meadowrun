@@ -34,9 +34,11 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results,
     worker_loop,
 )
+from meadowrun.azure_integration.azure_core import get_subscription_id_sync
 from meadowrun.azure_integration.azure_instance_allocation import (
     run_job_azure_vm_instance_registrar,
 )
+from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
 from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
@@ -48,6 +50,7 @@ from meadowrun.deployment import (
 from meadowrun.instance_allocation import allocate_jobs_to_instances
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
+    AzureSecret,
     ContainerAtDigest,
     ContainerAtTag,
     Credentials,
@@ -101,6 +104,7 @@ class Deployment:
         conda_yml_file: Optional[str] = None,
         environment_variables: Optional[Dict[str, str]] = None,
         ssh_key_aws_secret: Optional[str] = None,
+        ssh_key_azure_secret: Optional[str] = None,
     ) -> Deployment:
         """
         A deployment based on a git repo:
@@ -120,6 +124,10 @@ class Deployment:
         :param ssh_key_aws_secret: The name of an AWS secret that contains the contents
             of a private SSH key that has read access to :code:`repo_url`,
             e.g. :code:`"my_ssh_key"`. See :doc:`../howto/private_git_repo`
+        :param ssh_key_azure_secret: The name of a secret in the meadowrun-generated
+            Azure Vault (which will be named "mr" followed by the last 22
+            letters/numbers of the Azure subscription id).
+            TODO should be easy to add support for other vaults.
         """
         if branch and commit:
             raise ValueError("Only one of branch and commit can be specified")
@@ -154,7 +162,13 @@ class Deployment:
         else:
             interpreter = None
 
-        if ssh_key_aws_secret:
+        if ssh_key_aws_secret is not None and ssh_key_azure_secret is not None:
+            # TODO this doesn't seem totally right--we could theoretically specify both
+            # if meadowrun was smart enough to use the right one depending on the
+            # environment
+            raise ValueError("Cannot specify both an AWS secret and an Azure secret")
+
+        if ssh_key_aws_secret is not None:
             credentials_sources = [
                 CredentialsSourceForService(
                     service="GIT",
@@ -162,6 +176,18 @@ class Deployment:
                     source=AwsSecret(
                         credentials_type=Credentials.Type.SSH_KEY,
                         secret_name=ssh_key_aws_secret,
+                    ),
+                )
+            ]
+        elif ssh_key_azure_secret is not None:
+            credentials_sources = [
+                CredentialsSourceForService(
+                    service="GIT",
+                    service_url=repo_url,
+                    source=AzureSecret(
+                        credentials_type=Credentials.Type.SSH_KEY,
+                        vault_name=get_meadowrun_vault_name(get_subscription_id_sync()),
+                        secret_name=ssh_key_azure_secret,
                     ),
                 )
             ]
@@ -180,6 +206,8 @@ def _credentials_source_message(
     )
     if isinstance(credentials_source.source, AwsSecret):
         result.aws_secret.CopyFrom(credentials_source.source)
+    elif isinstance(credentials_source.source, AzureSecret):
+        result.azure_secret.CopyFrom(credentials_source.source)
     elif isinstance(credentials_source.source, ServerAvailableFile):
         result.server_available_file.CopyFrom(credentials_source.source)
     else:

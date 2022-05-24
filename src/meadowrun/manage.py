@@ -26,6 +26,7 @@ from meadowrun.aws_integration.management_lambdas.clean_up import (
     delete_unused_images,
 )
 from meadowrun.azure_integration.azure_core import (
+    delete_meadowrun_resource_group,
     get_default_location,
     get_subscription_id,
 )
@@ -123,8 +124,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         if cloud_provider == "EC2":
             delete_meadowrun_resources(region_name)
         elif cloud_provider == "AzureVM":
-            # TODO not implemented
-            pass
+            await delete_meadowrun_resource_group()
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(

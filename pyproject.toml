@@ -105,7 +105,7 @@ module = [
     "azure.mgmt.loganalytics.aio",
     "azure.mgmt.msi.aio",
     "azure.mgmt.network.aio",
-    "azure.mgmt.resource",
+    "azure.mgmt.resource.resources.aio",
     "azure.mgmt.resource.subscriptions",
     "azure.mgmt.resource.subscriptions.aio",
     "azure.mgmt.storage.aio",

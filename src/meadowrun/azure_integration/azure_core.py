@@ -13,7 +13,7 @@ import azure.identity.aio
 from azure.core.credentials import TokenCredential
 from azure.mgmt.authorization.aio import AuthorizationManagementClient
 from azure.mgmt.msi.aio import ManagedServiceIdentityClient
-from azure.mgmt.resource import ResourceManagementClient
+from azure.mgmt.resource.resources.aio import ResourceManagementClient
 
 # There are two Subscription clients, azure.mgmt.subscription.SubscriptionClient and
 # azure.mgmt.resource.subscriptions. They seem pretty similar, but the first one seems
@@ -225,12 +225,12 @@ async def ensure_meadowrun_resource_group(location: str) -> str:
     global _MEADOWRUN_RESOURCE_GROUP_ENSURED
 
     if not _MEADOWRUN_RESOURCE_GROUP_ENSURED:
-        with get_credential() as credential, ResourceManagementClient(
+        async with get_credential_aio() as credential, ResourceManagementClient(
             credential, await get_subscription_id()
         ) as resource_client:
 
             try:
-                resource_client.resource_groups.get(
+                await resource_client.resource_groups.get(
                     resource_group_name=MEADOWRUN_RESOURCE_GROUP_NAME
                 )
             except azure.core.exceptions.ResourceNotFoundError:
@@ -238,7 +238,7 @@ async def ensure_meadowrun_resource_group(location: str) -> str:
                     f"The meadowrun resource group ({MEADOWRUN_RESOURCE_GROUP_NAME}) "
                     f"doesn't exist, creating it now in {location}"
                 )
-                resource_client.resource_groups.create_or_update(
+                await resource_client.resource_groups.create_or_update(
                     MEADOWRUN_RESOURCE_GROUP_NAME, {"location": location}
                 )
 
@@ -358,4 +358,21 @@ async def assign_role_to_principal(
             )
         except azure.core.exceptions.ResourceExistsError:
             # this means the role assignment already exists
+            pass
+
+
+async def delete_meadowrun_resource_group() -> None:
+    """
+    This should delete all meadowrun-generated resources as deletes everything in the
+    meadowrun resource group.
+    """
+    async with get_credential_aio() as credential, ResourceManagementClient(
+        credential, await get_subscription_id()
+    ) as resource_client:
+        try:
+            poller = await resource_client.resource_groups.begin_delete(
+                MEADOWRUN_RESOURCE_GROUP_NAME
+            )
+            await poller.result()
+        except azure.core.exceptions.ResourceNotFoundError:
             pass

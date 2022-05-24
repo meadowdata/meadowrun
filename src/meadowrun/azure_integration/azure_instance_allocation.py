@@ -99,7 +99,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                         f"Table {storage_account_name}/{VM_ALLOC_TABLE_NAME} does not "
                         "exist, creating it now"
                     )
-                    await client._table.create(
+                    await client.table.create(
                         resource_group_name, storage_account_name, VM_ALLOC_TABLE_NAME
                     )
                 else:

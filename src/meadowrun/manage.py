@@ -11,7 +11,7 @@ from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
     ensure_clean_up_lambda,
 )
 from meadowrun.aws_integration.aws_uninstall import delete_meadowrun_resources
-from meadowrun.aws_integration.ec2_alloc import (
+from meadowrun.aws_integration.ec2_alloc_role import (
     grant_permission_to_secret,
     _ensure_ec2_alloc_role,
 )

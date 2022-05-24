@@ -15,7 +15,7 @@ from meadowrun.aws_integration.aws_core import (
     _get_default_region_name,
     _iam_role_exists,
 )
-from meadowrun.aws_integration.ec2_alloc import (
+from meadowrun.aws_integration.ec2_alloc_role import (
     _CLEAN_UP_LAMBDA_NAME,
     _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
     _EC2_ALLOC_LAMBDA_NAME,

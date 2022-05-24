@@ -52,7 +52,7 @@ def replicate_images(source_ami: str) -> None:
             destination_image_id = result["ImageId"]
             created_images.append((destination_region, destination_image_id))
 
-    print("Copy this into ec2_alloc.py:_EC2_ALLOC_AMIS")
+    print("Copy this into ec2_instance_allocation.py:_EC2_ALLOC_AMIS")
     print(f'"{_SOURCE_REGION}": "{source_ami}",')
     for destination_region, destination_image_id in created_images:
         print(f'"{destination_region}": "{destination_image_id}",')
@@ -81,7 +81,7 @@ def replicate_images(source_ami: str) -> None:
 
     # repeating this from before, as it's sometimes hard to find the first one if there
     # are a lot of "waiting" messages in between
-    print("Copy this into ec2_alloc.py:_EC2_ALLOC_AMIS")
+    print("Copy this into ec2_instance_allocation.py:_EC2_ALLOC_AMIS")
     print(f'"{_SOURCE_REGION}": "{source_ami}",')
     for destination_region, destination_image_id in created_images:
         print(f'"{destination_region}": "{destination_image_id}",')

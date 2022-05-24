@@ -60,22 +60,22 @@ async def _ensure_meadowrun_vault(location: str) -> str:
             if any(deleted_vault):
                 # if we have a deleted vault, then we should try to recover it
                 create_mode = "recover"
-                assign_role_task = None
                 print(f"The meadowrun Key Vault {vault_name} was deleted, recovering")
             else:
                 create_mode = "default"
-                # if we're creating the Key Vault for the first time, assume that we
-                # need to add the current user to the Key Vault Administrator role so
-                # that the current user can access secrets.
-                assign_role_task = asyncio.create_task(
-                    assign_role_to_principal(
-                        "Key Vault Administrator", get_current_user_id(), location
-                    )
-                )
                 print(
                     f"The meadowrun Key Vault {vault_name} does not exist, creating it "
                     "now"
                 )
+
+            # if we're creating or recreating the Key Vault, assume that we need to
+            # add the current user to the Key Vault Administrator role so that the
+            # current user can access secrets.
+            assign_role_task = asyncio.create_task(
+                assign_role_to_principal(
+                    "Key Vault Administrator", get_current_user_id(), location
+                )
+            )
 
             # Now we can create/recover the Key Vault.
             # https://docs.microsoft.com/en-us/python/api/azure-mgmt-keyvault/azure.mgmt.keyvault.v2021_06_01_preview.operations.vaultsoperations?view=azure-python#azure-mgmt-keyvault-v2021-06-01-preview-operations-vaultsoperations-begin-create-or-update
@@ -94,15 +94,14 @@ async def _ensure_meadowrun_vault(location: str) -> str:
             )
             vault = await poller.result()
 
-            if assign_role_task:
-                try:
-                    await assign_role_task
-                except Exception as e:
-                    print(
-                        "Warning: we were not able to assign the Key Vault "
-                        "Administrator role to the current user. You may not be able to"
-                        f" create/read secrets: {e}"
-                    )
+            try:
+                await assign_role_task
+            except Exception as e:
+                print(
+                    "Warning: we were not able to assign the Key Vault "
+                    "Administrator role to the current user. You may not be able to"
+                    f" create/read secrets: {e}"
+                )
 
             return vault.properties.vault_uri
 

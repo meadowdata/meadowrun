@@ -50,6 +50,7 @@ _U = TypeVar("_U")
 @dataclasses.dataclass(frozen=True)
 class QueueClientParameters:
     """Basically a QueueClient constructor lambda"""
+
     _queue_name: str
     _storage_connection_string: str
 

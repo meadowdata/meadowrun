@@ -27,8 +27,8 @@ from typing import (
 import fabric
 import paramiko.ssh_exception
 
+from meadowrun.credentials import UsernamePassword
 from meadowrun.meadowrun_pb2 import Job, ProcessState
-from meadowrun.run_job_local import run_local
 
 
 _T = TypeVar("_T")
@@ -64,38 +64,6 @@ class Host(abc.ABC):
 
 
 @dataclasses.dataclass(frozen=True)
-class LocalHost(Host):
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
-        initial_update, continuation = await run_local(job)
-        if (
-            initial_update.state != ProcessState.ProcessStateEnum.RUNNING
-            or continuation is None
-        ):
-            result = initial_update
-        else:
-            result = await continuation
-
-        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            job_spec_type = job.WhichOneof("job_spec")
-            # we must have a result from functions, in other cases we can optionally
-            # have a result
-            if job_spec_type == "py_function" or result.pickled_result:
-                unpickled_result = pickle.loads(result.pickled_result)
-            else:
-                unpickled_result = None
-
-            return JobCompletion(
-                unpickled_result,
-                result.state,
-                result.log_file_name,
-                result.return_code,
-                "localhost",
-            )
-        else:
-            raise MeadowrunException(result)
-
-
-@dataclasses.dataclass(frozen=True)
 class SshHost(Host):
     """
     Tells run_function and related functions to connects to the remote machine over SSH
@@ -111,7 +79,7 @@ class SshHost(Host):
     # instance allocated via instance_allocation.py, so we need to deallocate the job
     # via the right InstanceRegistrar when we're done. region name indicates where
     # the InstanceRegistrar that we used to allocate this job is.
-    deallocation: Optional[Tuple[CloudProviderType, str]] = None
+    cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         with fabric.Connection(
@@ -175,9 +143,9 @@ class SshHost(Host):
                     f"/var/meadowrun/env/bin/meadowrun-local --job-id {job.job_id} "
                     f"--working-folder {remote_working_folder}"
                 )
-                if self.deallocation is not None:
-                    command += f" --deallocation {self.deallocation[0]}"
-                    command += f" --deallocation-region-name {self.deallocation[1]}"
+                if self.cloud_provider is not None:
+                    command += f" --cloud {self.cloud_provider[0]}"
+                    command += f" --cloud-region-name {self.cloud_provider[1]}"
 
                 print(f"Running {command}")
 
@@ -290,3 +258,16 @@ class RunMapHelper:
     worker_function: Callable[[str, int], None]
     fabric_kwargs: Dict[str, Any]
     results_future: Coroutine[Any, Any, List[Any]]
+
+
+@dataclasses.dataclass(frozen=True)
+class ContainerRegistryHelper:
+    """
+    Allows compile_environment_spec_to_container to use either AWS ECR, Azure CR, or
+    neither
+    """
+
+    should_push: bool
+    username_password: Optional[UsernamePassword]
+    image_name: str
+    does_image_exist: bool

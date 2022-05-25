@@ -17,7 +17,8 @@ from meadowrun.run_job import (
     run_function,
     run_map,
 )
-from meadowrun.run_job_core import LocalHost, SshHost
+from meadowrun.run_job_local import LocalHost
+from meadowrun.run_job_core import SshHost
 
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,

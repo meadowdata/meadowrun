@@ -17,7 +17,8 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableInterpreter,
 )
 from meadowrun.run_job import run_command, Deployment
-from meadowrun.run_job_core import Host, JobCompletion, LocalHost
+from meadowrun.run_job_core import Host, JobCompletion
+from meadowrun.run_job_local import LocalHost
 
 EXAMPLE_CODE = str(
     (pathlib.Path(__file__).parent.parent / "example_user_code").resolve()

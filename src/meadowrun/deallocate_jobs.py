@@ -53,8 +53,8 @@ def _try_read_pid_file(working_folder: str, job_id: str) -> Optional[int]:
 
 
 async def async_main(
-    cloud_provider: CloudProviderType,
-    instance_registrar_region_name: str,
+    cloud: CloudProviderType,
+    cloud_region_name: str,
     working_folder: Optional[str],
     job_id: Optional[str],
     allocated_but_not_running_timeout: datetime.timedelta,
@@ -71,29 +71,27 @@ async def async_main(
     if not working_folder:
         working_folder = _get_default_working_folder()
 
-    if cloud_provider == "EC2":
+    if cloud == "EC2":
         public_address = await _get_ec2_metadata("public-hostname")
-        if instance_registrar_region_name == "default":
-            instance_registrar_region_name = await _get_default_region_name()
+        if cloud_region_name == "default":
+            cloud_region_name = await _get_default_region_name()
         instance_registrar: InstanceRegistrar = EC2InstanceRegistrar(
-            instance_registrar_region_name, "raise"
+            cloud_region_name, "raise"
         )
-    elif cloud_provider == "AzureVM":
+    elif cloud == "AzureVM":
         public_address = await get_current_ip_address_on_vm()
-        if instance_registrar_region_name == "default":
-            instance_registrar_region_name = get_default_location()
-        instance_registrar = AzureInstanceRegistrar(
-            instance_registrar_region_name, "raise"
-        )
+        if cloud_region_name == "default":
+            cloud_region_name = get_default_location()
+        instance_registrar = AzureInstanceRegistrar(cloud_region_name, "raise")
     else:
-        raise ValueError(f"Unexpected value for cloud_provider: {cloud_provider}")
+        raise ValueError(f"Unexpected value for cloud_provider: {cloud}")
 
     async with instance_registrar:
         if not public_address:
             raise ValueError(
                 "Cannot deallocate jobs because we can't get the public address of the "
-                f"current {cloud_provider} instance (maybe we're not running on a "
-                f"{cloud_provider} instance?)"
+                f"current {cloud} instance (maybe we're not running on a {cloud} "
+                "instance?)"
             )
 
         registered_instance = await instance_registrar.get_registered_instance(
@@ -149,16 +147,16 @@ async def async_main(
 
 
 def main(
-    cloud_provider: CloudProviderType,
-    instance_registrar_region_name: str,
+    cloud: CloudProviderType,
+    cloud_region_name: str,
     working_folder: Optional[str],
     job_id: Optional[str],
     allocated_but_not_running_timeout: datetime.timedelta,
 ) -> None:
     asyncio.run(
         async_main(
-            cloud_provider,
-            instance_registrar_region_name,
+            cloud,
+            cloud_region_name,
             working_folder,
             job_id,
             allocated_but_not_running_timeout,
@@ -170,8 +168,8 @@ def command_line_main() -> None:
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cloud-provider", required=True, choices=CloudProvider)
-    parser.add_argument("--instance-registrar-region-name", required=True)
+    parser.add_argument("--cloud", required=True, choices=CloudProvider)
+    parser.add_argument("--cloud-region-name", required=True)
     parser.add_argument("--working-folder")
     parser.add_argument("--job-id")
     parser.add_argument("--allocated-but-not-running-timeout-seconds", type=int)
@@ -185,8 +183,8 @@ def command_line_main() -> None:
         allocated_but_not_running_timeout = _ALLOCATED_BUT_NOT_RUNNING_TIMEOUT
 
     main(
-        args.cloud_provider,
-        args.instance_registrar_region_name,
+        args.cloud,
+        args.cloud_region_name,
         args.working_folder,
         args.job_id,
         allocated_but_not_running_timeout,

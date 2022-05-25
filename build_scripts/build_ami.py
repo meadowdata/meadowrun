@@ -147,7 +147,7 @@ async def build_meadowrun_ami():
             "* * * * * /var/meadowrun/env/bin/python "
             "/var/meadowrun/env/lib/python3.9/site-packages/meadowrun"
             "/deallocate_jobs.py "
-            "--cloud-provider EC2 --instance-registrar-region-name default "
+            "--cloud EC2 --cloud-region-name default "
             ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
         )
         with io.StringIO(crontab_line) as sio:

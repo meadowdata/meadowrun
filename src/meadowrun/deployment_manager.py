@@ -10,15 +10,11 @@ from typing import List, Optional, Tuple, Sequence
 import filelock
 
 from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
-from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.ecr import (
-    does_image_exist,
-    ensure_repository,
-    get_username_password,
-)
+from meadowrun.aws_integration.ecr import get_ecr_helper
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
+from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
     build_image,
@@ -31,6 +27,7 @@ from meadowrun.meadowrun_pb2 import (
     Job,
     ServerAvailableContainer,
 )
+from meadowrun.run_job_core import CloudProviderType, ContainerRegistryHelper
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
@@ -226,7 +223,9 @@ async def _get_git_code_paths(
 
 
 async def compile_environment_spec_to_container(
-    environment_spec_in_code: EnvironmentSpecInCode, interpreter_spec_path: str
+    environment_spec_in_code: EnvironmentSpecInCode,
+    interpreter_spec_path: str,
+    cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> ServerAvailableContainer:
     """
     Turns e.g. a conda_environment.yml file into a docker container which will be
@@ -248,34 +247,42 @@ async def compile_environment_spec_to_container(
             # are ignored
             spec_hash = hashlib.blake2b(spec.read(), digest_size=64).hexdigest()
 
-        region_name = await _get_default_region_name()
-        repository_prefix = ensure_repository(
-            _MEADOWRUN_GENERATED_DOCKER_REPO, region_name
-        )
-        image_name = (
-            f"{repository_prefix}/{_MEADOWRUN_GENERATED_DOCKER_REPO}:{spec_hash}"
-        )
-        result = ServerAvailableContainer(image_name=image_name)
+        if cloud is None:
+            helper = ContainerRegistryHelper(
+                False, None, f"{_MEADOWRUN_GENERATED_DOCKER_REPO}:{spec_hash}", False
+            )
+        else:
+            cloud_type, region_name = cloud
+            if cloud_type == "EC2":
+                helper = await get_ecr_helper(
+                    _MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name
+                )
+            elif cloud_type == "AzureVM":
+                helper = await get_acr_helper(
+                    _MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name
+                )
+            else:
+                raise ValueError(f"Unexpected cloud_type {cloud_type}")
 
-        username_password = get_username_password(region_name)
+        result = ServerAvailableContainer(image_name=helper.image_name)
 
         # if the image already exists locally, just return it
-        if await _does_digest_exist_locally(image_name):
+        if await _does_digest_exist_locally(helper.image_name):
             return result
 
         # if the image doesn't exist locally but does exist in ECR, try to pull it
-        if does_image_exist(_MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name):
+        if helper.does_image_exist:
             try:
-                await pull_image(image_name, username_password)
+                await pull_image(helper.image_name, helper.username_password)
                 # TODO we're assuming that once we pull the image it will be available
                 # locally until the job runs, which might not be true if we implement
                 # something to clean unused images.
                 return result
             except (aiodocker_exceptions.DockerError, ValueError) as e:
                 print(
-                    f"Warning, image {image_name} was supposed to exist, but we were "
-                    "unable to pull, so re-building locally. This could happen if the "
-                    "image was deleted between when we checked for it and when we "
+                    f"Warning, image {helper.image_name} was supposed to exist, but we "
+                    "were unable to pull, so re-building locally. This could happen if "
+                    "the image was deleted between when we checked for it and when we "
                     f"pulled, but that should be rare: {e}"
                 )
 
@@ -287,7 +294,7 @@ async def compile_environment_spec_to_container(
         )
         await build_image(
             [(docker_file_path, "Dockerfile"), (path_to_spec, spec_filename)],
-            image_name,
+            helper.image_name,
             {"ENV_FILE": spec_filename},
         )
 
@@ -296,13 +303,14 @@ async def compile_environment_spec_to_container(
         # isn't critical.
         # TODO we should also somehow avoid multiple processes on the same (or even on
         # different machines) building the identical image at the same time.
-        try:
-            await push_image(image_name, username_password)
-        except aiodocker_exceptions.DockerError as e:
-            print(
-                f"Warning, image {image_name} couldn't be pushed. Execution can "
-                f"continue, but we won't be able to reuse this image later: {e}"
-            )
+        if helper.should_push:
+            try:
+                await push_image(helper.image_name, helper.username_password)
+            except aiodocker_exceptions.DockerError as e:
+                print(
+                    f"Warning, image {helper.image_name} couldn't be pushed. Execution "
+                    f"can continue, but we won't be able to reuse this image later: {e}"
+                )
 
         return result
     else:

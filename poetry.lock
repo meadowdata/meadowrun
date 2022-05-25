@@ -118,6 +118,18 @@ optional = false
 python-versions = "*"
 
 [[package]]
+name = "azure-containerregistry"
+version = "1.0.0"
+description = "Microsoft Azure Azure Container Registry Client Library for Python"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+azure-core = ">=1.20.0,<2.0.0"
+msrest = ">=0.6.21"
+
+[[package]]
 name = "azure-core"
 version = "1.23.1"
 description = "Microsoft Azure Core Library for Python"
@@ -200,6 +212,19 @@ msrest = ">=0.6.21"
 name = "azure-mgmt-compute"
 version = "26.1.0"
 description = "Microsoft Azure Compute Management Client Library for Python"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+azure-common = ">=1.1,<2.0"
+azure-mgmt-core = ">=1.3.0,<2.0.0"
+msrest = ">=0.6.21"
+
+[[package]]
+name = "azure-mgmt-containerregistry"
+version = "9.1.0"
+description = "Microsoft Azure Container Registry Client Library for Python"
 category = "main"
 optional = false
 python-versions = ">=3.6"
@@ -2083,7 +2108,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "e123cd5bb431ced6d73a1c21dec1c3c9b35511ab4c764dc92bb05fbd93d91763"
+content-hash = "082b7dafb16aecf8fff4207b844ed35d597db163cedfb97a597c26bf8d7075e3"
 
 [metadata.files]
 aiobotocore = [
@@ -2195,6 +2220,10 @@ azure-common = [
     {file = "azure-common-1.1.28.zip", hash = "sha256:4ac0cd3214e36b6a1b6a442686722a5d8cc449603aa833f3f0f40bda836704a3"},
     {file = "azure_common-1.1.28-py2.py3-none-any.whl", hash = "sha256:5c12d3dcf4ec20599ca6b0d3e09e86e146353d443e7fcc050c9a19c1f9df20ad"},
 ]
+azure-containerregistry = [
+    {file = "azure-containerregistry-1.0.0.zip", hash = "sha256:0c86421d933969e2ad989ae0c00939276ea5b5ac4dc4a527deb47e15b9aec997"},
+    {file = "azure_containerregistry-1.0.0-py3-none-any.whl", hash = "sha256:780c08f604036b93c22db47811b205ae1a229c4aa63d481b1eedf6c2e041cd73"},
+]
 azure-core = [
     {file = "azure-core-1.23.1.zip", hash = "sha256:28a01dfbaf0a6812c4e2a82d1642ea30956a9739f25bc77c9b23b91f4ea68f0f"},
     {file = "azure_core-1.23.1-py3-none-any.whl", hash = "sha256:c3e8a9a3ec9d89f59b5d5b2f19d19a30d76a5b5c0cee3788ecad3cb72b9bd028"},
@@ -2222,6 +2251,10 @@ azure-mgmt-authorization = [
 azure-mgmt-compute = [
     {file = "azure-mgmt-compute-26.1.0.zip", hash = "sha256:2bade74fcb31d8f08816173ed5e080b3f22d1126eff7103ef060e7da16422475"},
     {file = "azure_mgmt_compute-26.1.0-py3-none-any.whl", hash = "sha256:d394a1772286e005009a3b40ebbeda135b4b1d5bda18f8af1ad4e87f6f3096e5"},
+]
+azure-mgmt-containerregistry = [
+    {file = "azure-mgmt-containerregistry-9.1.0.zip", hash = "sha256:8e4cc62c3aab260c029f3dbb946cc5938776abe8f43fe3d4f2e51519083b3240"},
+    {file = "azure_mgmt_containerregistry-9.1.0-py3-none-any.whl", hash = "sha256:06ab1bb871063a83b32d0d188b9da6cec4d7937102213f01491f3e53680ea2d3"},
 ]
 azure-mgmt-core = [
     {file = "azure-mgmt-core-1.3.0.zip", hash = "sha256:3ffb7352b39e5495dccc2d2b47254f4d82747aff4735e8bf3267c335b0c9bb40"},

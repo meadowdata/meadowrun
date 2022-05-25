@@ -4,7 +4,7 @@ import io
 import fabric
 from azure.mgmt.compute.aio import ComputeManagementClient
 
-from basics import HostProvider, BasicsSuite, MapSuite, ErrorsSuite
+from basics import HostProvider, BasicsSuite, MapSuite
 from instance_registrar_suite import (
     InstanceRegistrarProvider,
     InstanceRegistrarSuite,

@@ -417,7 +417,7 @@ async def prepare_ec2_run_map(
     num_concurrent_tasks: int,
 ) -> RunMapHelper:
     """This code is tightly coupled with run_map"""
-    
+
     if not region_name:
         region_name = await _get_default_region_name()
 

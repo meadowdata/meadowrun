@@ -114,7 +114,7 @@ async def _deregister_and_terminate_vms(
     table_client: TableClient,
     compute_client: ComputeManagementClient,
     terminate_vms_if_idle_for: datetime.timedelta,
-    launch_register_delay: datetime.timedelta,
+    launch_register_delay: datetime.timedelta = _LAUNCH_REGISTER_DELAY,
 ) -> List[str]:
     """
     Returns a list of log statements. Because of a bug in Azure Functions, logging calls

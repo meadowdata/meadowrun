@@ -103,12 +103,6 @@ _NON_TERMINATED_EC2_STATES = [
 ]
 
 
-def deregister_all_inactive_instances(region_name: str) -> None:
-    _deregister_and_terminate_instances(
-        region_name, datetime.timedelta.min, _LAUNCH_REGISTER_DELAY
-    )
-
-
 def adjust(region_name: str) -> None:
     _deregister_and_terminate_instances(
         region_name, _TERMINATE_INSTANCES_IF_IDLE_FOR, _LAUNCH_REGISTER_DELAY
@@ -138,7 +132,7 @@ def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
 def _deregister_and_terminate_instances(
     region_name: str,
     terminate_instances_if_idle_for: datetime.timedelta,
-    launch_register_delay: datetime.timedelta,
+    launch_register_delay: datetime.timedelta = _LAUNCH_REGISTER_DELAY,
 ) -> None:
     """
     1. Compares running vs registered instances and terminates/deregisters instances
@@ -195,6 +189,7 @@ def terminate_all_instances(region_name: str) -> None:
     for instance in _get_non_terminated_instances(
         boto3.resource("ec2", region_name=region_name)
     ):
+        print(f"Terminating {instance.id}")
         instance.terminate()
 
 

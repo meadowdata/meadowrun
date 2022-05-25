@@ -1,5 +1,7 @@
 import argparse
 import asyncio
+import datetime
+import logging
 import os.path
 import time
 
@@ -19,7 +21,8 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     download_ssh_key as ec2_download_ssh_key,
 )
 from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
-    deregister_all_inactive_instances,
+    _deregister_and_terminate_instances,
+    terminate_all_instances,
 )
 from meadowrun.aws_integration.management_lambdas.clean_up import (
     delete_old_task_queues,
@@ -30,6 +33,7 @@ from meadowrun.azure_integration.azure_core import (
     get_default_location,
     get_subscription_id,
 )
+from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_mgmt_functions_setup import (
     create_or_update_mgmt_function,
 )
@@ -40,7 +44,10 @@ from meadowrun.azure_integration.azure_ssh_keys import (
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
     get_credential_aio,
 )
-from meadowrun.azure_integration.mgmt_functions.vm_adjust import terminate_all_vms
+from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
+    _deregister_and_terminate_vms,
+    terminate_all_vms,
+)
 from meadowrun.run_job_core import CloudProviderType
 
 
@@ -77,17 +84,18 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         help=f"Removes all {aws} resources created by meadowrun",
     )
 
-    subparsers.add_parser(
+    clean_parser = subparsers.add_parser(
         "clean",
         help=f"Cleans up all temporary resources, runs the same code as the {lambdas} "
         "created by install",
     )
+    clean_parser.add_argument("--clean-active", action="store_true")
 
-    parser_grant_permission_to_secret = subparsers.add_parser(
+    grant_permission_to_secret_parser = subparsers.add_parser(
         "grant-permission-to-secret",
         help=f"Gives the meadowrun {ec2_role} access to the specified {secret}",
     )
-    parser_grant_permission_to_secret.add_argument(
+    grant_permission_to_secret_parser.add_argument(
         "secret_name", help=f"The name of the {secret} to give permissions to"
     )
 
@@ -105,7 +113,12 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
     args = parser.parse_args()
 
-    region_name = await _get_default_region_name()
+    if cloud_provider == "EC2":
+        region_name = await _get_default_region_name()
+    elif cloud_provider == "AzureVM":
+        region_name = get_default_location()
+    else:
+        raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
 
     t0 = time.perf_counter()
     if args.command == "install":
@@ -131,18 +144,40 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             f"Deleted all meadowrun resources in {time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "clean":
-        print(f"Terminating all inactive {ec2_instances}")
+        logging.getLogger().setLevel(logging.INFO)
+        if args.clean_active:
+            print(
+                f"Terminating and deregistering all {ec2_instances}. This will "
+                f"interrupt actively running jobs."
+            )
+        else:
+            print(
+                f"Terminating and deregistering all inactive {ec2_instances} (specify "
+                "--clean-active to also terminate and deregister active instances)"
+            )
+
         if cloud_provider == "EC2":
-            deregister_all_inactive_instances(region_name)
+            if args.clean_active:
+                terminate_all_instances(region_name)
+            _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
         elif cloud_provider == "AzureVM":
-            async with ComputeManagementClient(
+            async with AzureInstanceRegistrar(
+                region_name, "create"
+            ) as instance_registrar, ComputeManagementClient(
                 get_credential_aio(), await get_subscription_id()
             ) as compute_client:
-                await terminate_all_vms(compute_client)
+                if args.clean_active:
+                    await terminate_all_vms(compute_client)
+                assert instance_registrar._table_client is not None  # for mypy
+                await _deregister_and_terminate_vms(
+                    instance_registrar._table_client,
+                    compute_client,
+                    datetime.timedelta.min,
+                )
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(
-            f"Terminated all inactive {ec2_instances} in "
+            f"Terminated and deregistered {ec2_instances} in "
             f"{time.perf_counter() - t0:.2f} seconds"
         )
         t0 = time.perf_counter()

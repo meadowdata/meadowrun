@@ -11,15 +11,17 @@ import pickle
 import threading
 from typing import (
     Any,
-    Optional,
-    Dict,
-    Tuple,
-    cast,
     Callable,
-    Union,
+    Coroutine,
+    Dict,
     Generic,
+    List,
     Literal,
+    Optional,
+    Tuple,
     TypeVar,
+    Union,
+    cast,
 )
 
 import fabric
@@ -276,3 +278,15 @@ class MeadowrunException(Exception):
     def __init__(self, process_state: ProcessState) -> None:
         super().__init__("Failure while running a meadowrun job: " + str(process_state))
         self.process_state = process_state
+
+
+@dataclasses.dataclass(frozen=True)
+class RunMapHelper:
+    """See run_map. This allows run_map to use EC2 or Azure VMs"""
+
+    region_name: str
+    allocated_hosts: Dict[str, List[str]]
+    # public_address, worker_id -> None
+    worker_function: Callable[[str, int], None]
+    fabric_kwargs: Dict[str, Any]
+    results_future: Coroutine[Any, Any, List[Any]]

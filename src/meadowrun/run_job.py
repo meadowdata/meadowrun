@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import functools
 import os.path
 import pickle
 import shlex
@@ -23,22 +22,16 @@ from typing import (
 
 import cloudpickle
 
-from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
-    EC2InstanceRegistrar,
     run_job_ec2_instance_registrar,
 )
-from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.aws_integration.grid_tasks_sqs import (
-    create_queues_and_add_tasks,
-    get_results,
-    worker_loop,
-)
+from meadowrun.aws_integration.grid_tasks_sqs import prepare_ec2_run_map
 from meadowrun.azure_integration.azure_core import get_subscription_id_sync
 from meadowrun.azure_integration.azure_instance_allocation import (
     run_job_azure_vm_instance_registrar,
 )
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
+from meadowrun.azure_integration.grid_tasks_queue import prepare_azure_vm_run_map
 from meadowrun.config import MEADOWRUN_INTERPRETER, JOB_ID_VALID_CHARACTERS
 from meadowrun.credentials import CredentialsSourceForService
 from meadowrun.deployment import (
@@ -47,7 +40,6 @@ from meadowrun.deployment import (
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
-from meadowrun.instance_allocation import allocate_jobs_to_instances
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
     AzureSecret,
@@ -70,7 +62,6 @@ from meadowrun.meadowrun_pb2 import (
 )
 from meadowrun.run_job_core import (
     Host,
-    AllocCloudInstancesInternal,
     JobCompletion,
     CloudProviderType,
 )
@@ -319,6 +310,7 @@ class AllocCloudInstances:
     logical_cpu_required_per_task: int
     memory_gb_required_per_task: float
     interruption_probability_threshold: float
+    cloud_provider: CloudProviderType
     # defaults to half the number of total tasks
     num_concurrent_tasks: Optional[int] = None
     region_name: Optional[str] = None
@@ -529,29 +521,30 @@ async def run_map(
     else:
         num_concurrent_tasks = min(hosts.num_concurrent_tasks, len(args))
 
-    region_name = hosts.region_name or await _get_default_region_name()
-    pkey = ensure_meadowrun_key_pair(region_name)
-
-    alloc_cloud_instances = AllocCloudInstancesInternal(
-        hosts.logical_cpu_required_per_task,
-        hosts.memory_gb_required_per_task,
-        hosts.interruption_probability_threshold,
-        num_concurrent_tasks,
-        region_name,
-    )
-
-    # the first stage of preparation, which happens concurrently:
-
-    # 1. create SQS queues and add tasks to the request queue
-    queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, args))
-
-    # 2. get hosts
-    async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
-        allocated_hosts = await allocate_jobs_to_instances(
-            instance_registrar, alloc_cloud_instances
+    if hosts.cloud_provider == "EC2":
+        helper = await prepare_ec2_run_map(
+            function,
+            args,
+            hosts.region_name,
+            hosts.logical_cpu_required_per_task,
+            hosts.memory_gb_required_per_task,
+            hosts.interruption_probability_threshold,
+            num_concurrent_tasks,
         )
+    elif hosts.cloud_provider == "AzureVM":
+        helper = await prepare_azure_vm_run_map(
+            function,
+            args,
+            hosts.region_name,
+            hosts.logical_cpu_required_per_task,
+            hosts.memory_gb_required_per_task,
+            hosts.interruption_probability_threshold,
+            num_concurrent_tasks,
+        )
+    else:
+        raise ValueError(f"Unexpected value for cloud_provider {hosts.cloud_provider}")
 
-    # 3. prepare some variables for constructing the worker jobs
+    # prepare some variables for constructing the worker jobs
     friendly_name = _get_friendly_name(function)
     (
         interpreter,
@@ -560,23 +553,16 @@ async def run_map(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
-    fabric_kwargs: Dict[str, Any] = {"user": "ubuntu", "connect_kwargs": {"pkey": pkey}}
-
-    # now wait for 1 to complete:
-    request_queue_url, result_queue_url = await queues_future
 
     # Now we will run worker_loop jobs on the hosts we got:
 
     pickled_worker_function = cloudpickle.dumps(
-        functools.partial(
-            worker_loop, function, request_queue_url, result_queue_url, region_name
-        ),
-        protocol=pickle_protocol,
+        helper.worker_function, protocol=pickle_protocol
     )
 
     worker_tasks = []
     worker_id = 0
-    for public_address, worker_job_ids in allocated_hosts.items():
+    for public_address, worker_job_ids in helper.allocated_hosts.items():
         for worker_job_id in worker_job_ids:
             job = Job(
                 job_id=worker_job_id,
@@ -594,16 +580,23 @@ async def run_map(
             _add_deployments_to_job(job, code, interpreter)
 
             worker_tasks.append(
-                asyncio.create_task(SshHost(public_address, fabric_kwargs).run_job(job))
+                asyncio.create_task(
+                    SshHost(
+                        public_address,
+                        helper.fabric_kwargs,
+                        (hosts.cloud_provider, helper.region_name),
+                    ).run_job(job)
+                )
             )
 
             worker_id += 1
 
     # finally, wait for results:
 
-    results = await get_results(result_queue_url, region_name, len(args))
+    results = await helper.results_future
 
-    # not really necessary except interpreter will complain...
+    # TODO if there's an error these workers will crash before the results_future
+    # returns
     await asyncio.gather(*worker_tasks)
 
     return results

@@ -17,13 +17,12 @@ import fabric
 import pytest
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
-from basics import BasicsSuite, HostProvider, ErrorsSuite
+from basics import BasicsSuite, HostProvider, ErrorsSuite, MapSuite
 from instance_registrar_suite import (
     InstanceRegistrarProvider,
     InstanceRegistrarSuite,
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
 )
-from meadowrun import AllocCloudInstances
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
@@ -39,7 +38,7 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import choose_instance_types_for_job, Resources
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job import run_map, AllocCloudInstance
+from meadowrun.run_job import AllocCloudInstance
 from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
 
 
@@ -64,19 +63,16 @@ class AwsHostProvider(HostProvider):
 
 
 class TestBasicsAws(AwsHostProvider, BasicsSuite):
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_run_map(self):
-        """Runs a "real" run_map"""
-        results = await run_map(
-            lambda x: x**x, [1, 2, 3, 4], AllocCloudInstances(1, 0.5, 15)
-        )
-
-        assert results == [1, 4, 27, 256]
+    pass
 
 
 class TestErrorsAws(AwsHostProvider, ErrorsSuite):
     pass
+
+
+class TestMapAws(MapSuite):
+    def cloud_provider(self) -> CloudProviderType:
+        return "EC2"
 
 
 class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar]):

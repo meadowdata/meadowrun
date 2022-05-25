@@ -6,14 +6,16 @@ import pytest
 
 import meadowrun.docker_controller
 from meadowrun import (
-    ServerAvailableInterpreter,
-    ContainerAtTag,
-    GitRepoCommit,
-    GitRepoBranch,
-    run_function,
-    Deployment,
-    run_command,
+    AllocCloudInstances,
     ContainerAtDigest,
+    ContainerAtTag,
+    Deployment,
+    GitRepoBranch,
+    GitRepoCommit,
+    ServerAvailableInterpreter,
+    run_command,
+    run_function,
+    run_map,
 )
 from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.deployment import (
@@ -24,7 +26,12 @@ from meadowrun.deployment import (
 )
 from meadowrun.meadowrun_pb2 import EnvironmentSpecInCode
 from meadowrun.meadowrun_pb2 import ServerAvailableContainer, ProcessState
-from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
+from meadowrun.run_job_core import (
+    CloudProviderType,
+    Host,
+    JobCompletion,
+    MeadowrunException,
+)
 
 
 class HostProvider(abc.ABC):
@@ -206,3 +213,21 @@ class ErrorsSuite(HostProvider, abc.ABC):
             == ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE
         )
         assert exc_info.value.process_state.return_code == 101
+
+
+class MapSuite(abc.ABC):
+    @abc.abstractmethod
+    def cloud_provider(self) -> CloudProviderType:
+        pass
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_run_map(self):
+        """Runs a "real" run_map"""
+        results = await run_map(
+            lambda x: x**x,
+            [1, 2, 3, 4],
+            AllocCloudInstances(1, 1, 15, self.cloud_provider(), 3),
+        )
+
+        assert results == [1, 4, 27, 256]

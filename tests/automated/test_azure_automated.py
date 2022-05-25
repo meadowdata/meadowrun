@@ -2,10 +2,9 @@ import datetime
 import io
 
 import fabric
-import pytest
 from azure.mgmt.compute.aio import ComputeManagementClient
 
-from basics import HostProvider, BasicsSuite
+from basics import HostProvider, BasicsSuite, MapSuite, ErrorsSuite
 from instance_registrar_suite import (
     InstanceRegistrarProvider,
     InstanceRegistrarSuite,
@@ -26,7 +25,7 @@ from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     _deregister_vm,
     terminate_all_vms,
 )
-from meadowrun.run_job import AllocCloudInstance, run_map, AllocCloudInstances
+from meadowrun.run_job import AllocCloudInstance
 from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
 
 
@@ -52,15 +51,12 @@ class AzureHostProvider(HostProvider):
 
 
 class TestBasicsAzure(AzureHostProvider, BasicsSuite):
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_run_map(self):
-        """Runs a "real" run_map"""
-        results = await run_map(
-            lambda x: x**x, [1, 2, 3, 4], AllocCloudInstances(1, 0.5, 15)
-        )
+    pass
 
-        assert results == [1, 4, 27, 256]
+
+class TestMapAzure(MapSuite):
+    def cloud_provider(self) -> CloudProviderType:
+        return "AzureVM"
 
 
 class AzureVMInstanceRegistrarProvider(

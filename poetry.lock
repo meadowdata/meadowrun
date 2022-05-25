@@ -325,6 +325,19 @@ azure-mgmt-core = ">=1.3.0,<2.0.0"
 msrest = ">=0.6.21"
 
 [[package]]
+name = "azure-storage-queue"
+version = "12.3.0"
+description = "Microsoft Azure Azure Queue Storage Client Library for Python"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+azure-core = ">=1.23.1,<2.0.0"
+cryptography = ">=2.1.4"
+msrest = ">=0.6.21"
+
+[[package]]
 name = "babel"
 version = "2.10.0"
 description = "Internationalization utilities"
@@ -2070,7 +2083,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "8e76e7fd6e9f531af2026fd6c40ba675a3be7c5e7618222a809b94b529573278"
+content-hash = "e123cd5bb431ced6d73a1c21dec1c3c9b35511ab4c764dc92bb05fbd93d91763"
 
 [metadata.files]
 aiobotocore = [
@@ -2245,6 +2258,10 @@ azure-mgmt-subscription = [
 azure-mgmt-web = [
     {file = "azure-mgmt-web-6.1.0.zip", hash = "sha256:c26635089276515b0488fcf014aab50a0446f54800c6e0e5583cc493ac8d738f"},
     {file = "azure_mgmt_web-6.1.0-py3-none-any.whl", hash = "sha256:123c0fd9cd8fff14ed18db36c157071bf7813beaa24d133522c269f622119162"},
+]
+azure-storage-queue = [
+    {file = "azure-storage-queue-12.3.0.zip", hash = "sha256:231f4ee6ddcb95ce85bb55a6e96f17e15b1f08f16abdb9567e8fd275cdb6f8e2"},
+    {file = "azure_storage_queue-12.3.0-py3-none-any.whl", hash = "sha256:010a3f6ed8798b6677f5ea44f83f75e7cd1b383b9c023576585b0c51bd687a40"},
 ]
 babel = [
     {file = "Babel-2.10.0-py2.py3-none-any.whl", hash = "sha256:92c9313a278c2920e39c8ac6373eb397b540798830fa0fcb8968192f908e2eef"},

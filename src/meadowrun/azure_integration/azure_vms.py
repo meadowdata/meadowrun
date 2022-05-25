@@ -39,7 +39,7 @@ _MEADOWRUN_IMAGE_DEFINITION_ID = (
     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/resourceGroups/meadowrun-dev/"
     "providers/Microsoft.Compute/galleries/meadowrun.dev.gallery/images/meadowrun"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.0.7"
+_MEADOWRUN_IMAGE_VERSION = "0.0.9"
 # This is distinct from the resource group referenced in
 # ensure_meadowrun_resource_group--that resource group is for the meadowrun-generated
 # VMs in the user's subscription. This resource group is for the meadowrun-published

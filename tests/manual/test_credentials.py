@@ -18,7 +18,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFile,
 )
 from meadowrun.run_job import Deployment, run_function
-from meadowrun.run_job_core import LocalHost
+from meadowrun.run_job_local import LocalHost
 
 _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
 

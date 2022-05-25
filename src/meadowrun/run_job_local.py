@@ -7,6 +7,7 @@ import itertools
 import os
 import os.path
 import pathlib
+import pickle
 import shutil
 import sys
 import traceback
@@ -20,15 +21,11 @@ from typing import (
     Sequence,
     Tuple,
 )
+
 from typing_extensions import Literal
 
-from meadowrun._vendor.aiodocker import containers as aiodocker_containers
 from meadowrun._vendor import aiodocker
-
-from meadowrun.deployment_manager import (
-    compile_environment_spec_to_container,
-    get_code_paths,
-)
+from meadowrun._vendor.aiodocker import containers as aiodocker_containers
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
     MEADOWRUN_CODE_MOUNT_LINUX,
@@ -41,6 +38,10 @@ from meadowrun.credentials import (
     get_docker_credentials,
     get_matching_credentials,
 )
+from meadowrun.deployment_manager import (
+    compile_environment_spec_to_container,
+    get_code_paths,
+)
 from meadowrun.docker_controller import (
     run_container,
     get_image_environment_variables,
@@ -52,6 +53,12 @@ from meadowrun.meadowrun_pb2 import (
     ProcessState,
     PyFunctionJob,
     StringPair,
+)
+from meadowrun.run_job_core import (
+    CloudProviderType,
+    Host,
+    JobCompletion,
+    MeadowrunException,
 )
 from meadowrun.shared import pickle_exception
 
@@ -738,7 +745,9 @@ async def _get_credentials_for_job(
 
 
 async def run_local(
-    job: Job, working_folder: Optional[str] = None
+    job: Job,
+    working_folder: Optional[str] = None,
+    cloud: Optional[Tuple[CloudProviderType, str]] = None,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """
     Runs a job locally using the specified working_folder (or uses the default). Meant
@@ -789,7 +798,7 @@ async def run_local(
                 )
             job.server_available_container.CopyFrom(
                 await compile_environment_spec_to_container(
-                    job.environment_spec_in_code, interpreter_spec_path
+                    job.environment_spec_in_code, interpreter_spec_path, cloud
                 )
             )
             interpreter_deployment = "server_available_container"
@@ -910,3 +919,35 @@ async def run_local(
             ),
             None,
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class LocalHost(Host):
+    async def run_job(self, job: Job) -> JobCompletion[Any]:
+        initial_update, continuation = await run_local(job)
+        if (
+            initial_update.state != ProcessState.ProcessStateEnum.RUNNING
+            or continuation is None
+        ):
+            result = initial_update
+        else:
+            result = await continuation
+
+        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+            job_spec_type = job.WhichOneof("job_spec")
+            # we must have a result from functions, in other cases we can optionally
+            # have a result
+            if job_spec_type == "py_function" or result.pickled_result:
+                unpickled_result = pickle.loads(result.pickled_result)
+            else:
+                unpickled_result = None
+
+            return JobCompletion(
+                unpickled_result,
+                result.state,
+                result.log_file_name,
+                result.return_code,
+                "localhost",
+            )
+        else:
+            raise MeadowrunException(result)

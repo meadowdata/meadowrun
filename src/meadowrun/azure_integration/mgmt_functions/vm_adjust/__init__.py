@@ -21,16 +21,15 @@ from azure.mgmt.compute.aio import ComputeManagementClient
 from ..azure_instance_alloc_stub import (
     LAST_UPDATE_TIME,
     MEADOWRUN_RESOURCE_GROUP_NAME,
+    MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
+    MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,
+    MEADOWRUN_SUBSCRIPTION_ID,
     RUNNING_JOBS,
     SINGLE_PARTITION_KEY,
     VM_ALLOC_TABLE_NAME,
     VM_NAME,
     get_credential_aio,
 )
-
-MEADOWRUN_STORAGE_ACCOUNT_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT"
-MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT_KEY"
-MEADOWRUN_SUBSCRIPTION_ID = "MEADOWRUN_SUBSCRIPTION_ID"
 
 # Terminate instances if they haven't run any jobs in the last 30 seconds
 _TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=30)
@@ -203,10 +202,12 @@ async def adjust() -> List[str]:
 
 
 async def terminate_all_vms(compute_client: ComputeManagementClient) -> None:
-    terminate_tasks = [
-        asyncio.create_task(_terminate_vm(compute_client, vm.name))
-        for vm in await _get_all_vms(compute_client)
-    ]
+    terminate_tasks = []
+    for vm in await _get_all_vms(compute_client):
+        print(f"Terminating {vm.name}")
+        terminate_tasks.append(
+            asyncio.create_task(_terminate_vm(compute_client, vm.name))
+        )
     if terminate_tasks:
         await asyncio.wait(terminate_tasks)
 

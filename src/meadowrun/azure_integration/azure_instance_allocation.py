@@ -8,19 +8,15 @@ from typing import Tuple, List, Optional, Sequence, Literal, Type, Any, Dict
 
 import azure.core.exceptions
 from azure.core import MatchConditions
-from azure.core.credentials import AzureNamedKeyCredential
 from azure.data.tables import UpdateMode
 from azure.data.tables.aio import TableClient
-from azure.mgmt.storage.aio import StorageManagementClient
 
 import meadowrun.azure_integration.azure_vms
 from meadowrun.azure_integration.azure_core import (
-    ensure_meadowrun_resource_group,
     get_default_location,
-    get_subscription_id,
+    ensure_table,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.azure_storage import ensure_meadowrun_storage_account
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
     ALLOCATED_TIME,
     LAST_UPDATE_TIME,
@@ -31,7 +27,6 @@ from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import
     RUNNING_JOBS,
     SINGLE_PARTITION_KEY,
     VM_NAME,
-    get_credential_aio,
 )
 from meadowrun.azure_integration.mgmt_functions.vm_adjust import VM_ALLOC_TABLE_NAME
 from meadowrun.instance_allocation import (
@@ -63,57 +58,9 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         self._table_client: Optional[TableClient] = None
 
     async def __aenter__(self) -> AzureInstanceRegistrar:
-        subscription_id = await get_subscription_id()
-        # the storage account name must be globally unique in Azure (across all users),
-        # alphanumeric, and 24 characters or less. Our strategy is to use "mr" (for
-        # meadowrun) plus the last 22 letters/numbers of the subscription id and hope
-        # for the best.
-        # TODO we need a way to manually set the storage account name in case this ends
-        # up colliding
-        resource_group_name = await ensure_meadowrun_resource_group(
-            self._table_location
+        self._table_client = await ensure_table(
+            VM_ALLOC_TABLE_NAME, self._table_location, self._on_table_missing
         )
-
-        async with get_credential_aio() as credential, StorageManagementClient(
-            credential, subscription_id
-        ) as client:
-            # first, get the key to the storage account. If the storage account doesn't
-            # exist, create it and then get the key
-            storage_account_name, key = await ensure_meadowrun_storage_account(
-                self._table_location, self._on_table_missing
-            )
-
-            # next, create the table if it doesn't exist
-            try:
-                await client.table.get(
-                    resource_group_name, storage_account_name, VM_ALLOC_TABLE_NAME
-                )
-            except azure.core.exceptions.ResourceNotFoundError:
-                if self._on_table_missing == "raise":
-                    raise ValueError(
-                        f"Table {storage_account_name}/{VM_ALLOC_TABLE_NAME} in "
-                        f"{self._table_location} does not exist"
-                    )
-                elif self._on_table_missing == "create":
-                    print(
-                        f"Table {storage_account_name}/{VM_ALLOC_TABLE_NAME} does not "
-                        "exist, creating it now"
-                    )
-                    await client.table.create(
-                        resource_group_name, storage_account_name, VM_ALLOC_TABLE_NAME
-                    )
-                else:
-                    raise ValueError(
-                        "Unexpected value for on_table_missing "
-                        f"{self._on_table_missing}"
-                    )
-
-        self._table_client = TableClient(
-            f"https://{storage_account_name}.table.core.windows.net/",
-            VM_ALLOC_TABLE_NAME,
-            credential=AzureNamedKeyCredential(storage_account_name, key),
-        )
-
         return self
 
     async def __aexit__(

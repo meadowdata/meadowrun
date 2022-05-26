@@ -6,7 +6,7 @@ mgmt_functions
 # this should almost never be used directly instead of ensure_meadowrun_resource_group.
 from __future__ import annotations
 
-from typing import cast
+from typing import cast, Literal
 
 import azure.identity.aio
 from azure.core.credentials_async import AsyncTokenCredential
@@ -15,6 +15,17 @@ from azure.core.credentials_async import AsyncTokenCredential
 MEADOWRUN_RESOURCE_GROUP_NAME = "Meadowrun-rg"
 
 VM_ALLOC_TABLE_NAME = "meadowrunVmAlloc"
+LAST_USED_TABLE_NAME = "meadowrunLastUsed"
+
+LAST_USED = "last_used"
+RESOURCE_TYPES_TYPE = Literal["GRID_TASK_QUEUE", "CONTAINER_IMAGE"]
+GRID_TASK_QUEUE: RESOURCE_TYPES_TYPE = "GRID_TASK_QUEUE"
+CONTAINER_IMAGE: RESOURCE_TYPES_TYPE = "CONTAINER_IMAGE"
+
+_REQUEST_QUEUE_NAME_PREFIX = "mrgtrequest"
+_RESULT_QUEUE_NAME_PREFIX = "mrgtresult"
+
+QUEUE_NAME_TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
 
 ALLOCATED_TIME = "allocated_time"
 JOB_ID = "job_id"
@@ -40,3 +51,18 @@ def get_credential_aio() -> AsyncTokenCredential:
         AsyncTokenCredential,
         azure.identity.aio.DefaultAzureCredential(**_DEFAULT_CREDENTIAL_OPTIONS),
     )
+
+
+MEADOWRUN_STORAGE_ACCOUNT_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT"
+MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT_KEY"
+MEADOWRUN_SUBSCRIPTION_ID = "MEADOWRUN_SUBSCRIPTION_ID"
+
+_MEADOWRUN_GENERATED_DOCKER_REPO = "meadowrun_generated"
+
+
+def meadowrun_registry_name(subscription_id: str) -> str:
+    """
+    Azure Container registry names must be 5 to 50 characters, alphanumeric, and
+    globally unique.
+    """
+    return "mr" + subscription_id.replace("-", "")

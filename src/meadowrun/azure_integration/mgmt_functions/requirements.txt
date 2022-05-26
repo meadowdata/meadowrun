@@ -3,8 +3,10 @@
 # Manually managing azure-functions-worker may cause unexpected issues
 
 aiohttp
+azure-containerregistry
 azure-data-tables
 azure-functions
 azure-identity
 azure-mgmt-compute
 azure-mgmt-network
+azure-mgmt-storage

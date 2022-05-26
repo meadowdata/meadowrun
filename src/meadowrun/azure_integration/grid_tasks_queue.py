@@ -2,6 +2,7 @@
 
 import asyncio
 import dataclasses
+import datetime
 import functools
 import os
 import pickle
@@ -25,23 +26,25 @@ from azure.storage.queue import BinaryBase64EncodePolicy, BinaryBase64DecodePoli
 from azure.storage.queue.aio import QueueClient
 
 from meadowrun.azure_integration.azure_core import (
+    ensure_meadowrun_storage_account,
     get_default_location,
     get_subscription_id,
+    record_last_used,
 )
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.azure_storage import ensure_meadowrun_storage_account
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    GRID_TASK_QUEUE,
     MEADOWRUN_RESOURCE_GROUP_NAME,
+    QUEUE_NAME_TIMESTAMP_FORMAT,
+    _REQUEST_QUEUE_NAME_PREFIX,
+    _RESULT_QUEUE_NAME_PREFIX,
     get_credential_aio,
 )
 from meadowrun.instance_allocation import allocate_jobs_to_instances
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
 from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
 from meadowrun.shared import pickle_exception
-
-_REQUEST_QUEUE_NAME_PREFIX = "meadowruntaskrequestqueue-"
-_RESULT_QUEUE_NAME_PREFIX = "meadowruntaskresultqueue-"
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -51,6 +54,7 @@ _U = TypeVar("_U")
 class QueueClientParameters:
     """Basically a QueueClient constructor lambda"""
 
+    queue_job_id: str
     _queue_name: str
     _storage_connection_string: str
 
@@ -72,6 +76,7 @@ async def create_queues_and_add_tasks(
     tasks: Iterable[Any],
 ) -> Tuple[QueueClientParameters, QueueClientParameters]:
     job_id = str(uuid.uuid4())
+    print(f"The current run_map's id is {job_id}")
     request_queue, result_queue = await _create_queues_for_job(job_id, location)
     await _add_tasks(request_queue, tasks)
     return request_queue, result_queue
@@ -91,11 +96,12 @@ async def _create_queues_for_job(
     async with StorageManagementClient(
         get_credential_aio(), await get_subscription_id()
     ) as mgmt_client:
+        now = datetime.datetime.utcnow().strftime(QUEUE_NAME_TIMESTAMP_FORMAT)
         request_queue_task = asyncio.create_task(
             mgmt_client.queue.create(
                 MEADOWRUN_RESOURCE_GROUP_NAME,
                 storage_account_name,
-                f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}",
+                f"{_REQUEST_QUEUE_NAME_PREFIX}-{job_id}-{now}",
                 {},
             )
         )
@@ -103,16 +109,16 @@ async def _create_queues_for_job(
             mgmt_client.queue.create(
                 MEADOWRUN_RESOURCE_GROUP_NAME,
                 storage_account_name,
-                f"{_RESULT_QUEUE_NAME_PREFIX}{job_id}",
+                f"{_RESULT_QUEUE_NAME_PREFIX}-{job_id}-{now}",
                 {},
             )
         )
         return (
             QueueClientParameters(
-                (await request_queue_task).name, storage_connection_string
+                job_id, (await request_queue_task).name, storage_connection_string
             ),
             QueueClientParameters(
-                (await result_queue_task).name, storage_connection_string
+                job_id, (await result_queue_task).name, storage_connection_string
             ),
         )
 
@@ -225,7 +231,9 @@ def worker_loop(
     )
 
 
-async def get_results(result_queue: QueueClientParameters, num_tasks: int) -> List[Any]:
+async def get_results(
+    result_queue: QueueClientParameters, num_tasks: int, location: str
+) -> List[Any]:
     task_results_received = 0
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
@@ -245,6 +253,9 @@ async def get_results(result_queue: QueueClientParameters, num_tasks: int) -> Li
                     f"Waiting for grid tasks. Requested: {num_tasks}, "
                     f"running: {sum(1 for task in running_tasks if task is not None)}, "
                     f"completed: {sum(1 for task in task_results if task is not None)}"
+                )
+                await record_last_used(
+                    GRID_TASK_QUEUE, result_queue.queue_job_id, location
                 )
 
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.receive_message
@@ -321,5 +332,5 @@ async def prepare_azure_vm_run_map(
             "user": "meadowrunuser",
             "connect_kwargs": {"pkey": private_key},
         },
-        get_results(result_queue, len(tasks)),
+        get_results(result_queue, len(tasks), location),
     )

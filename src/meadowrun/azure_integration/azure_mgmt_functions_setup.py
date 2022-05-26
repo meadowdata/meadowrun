@@ -13,9 +13,9 @@ import meadowrun.azure_integration.mgmt_functions
 from meadowrun.azure_integration.azure_core import (
     _ensure_managed_identity,
     ensure_meadowrun_resource_group,
+    ensure_meadowrun_storage_account,
     get_subscription_id,
 )
-from meadowrun.azure_integration.azure_storage import ensure_meadowrun_storage_account
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
     get_credential_aio,
 )

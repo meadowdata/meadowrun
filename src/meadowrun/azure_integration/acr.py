@@ -13,20 +13,15 @@ from meadowrun.azure_integration.azure_core import (
     get_default_location,
     get_subscription_id,
     get_tenant_id,
+    record_last_used,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    CONTAINER_IMAGE,
     get_credential_aio,
+    meadowrun_registry_name,
 )
 from meadowrun.credentials import UsernamePassword
 from meadowrun.run_job_core import ContainerRegistryHelper
-
-
-def _meadowrun_registry_name(subscription_id: str) -> str:
-    """
-    Azure Container registry names must be 5 to 50 characters, alphanumeric, and
-    globally unique.
-    """
-    return "mr" + subscription_id.replace("-", "")
 
 
 async def _ensure_meadowrun_registry(registry_name: str, location: str) -> str:
@@ -168,9 +163,11 @@ async def get_acr_helper(
         location = get_default_location()
 
     subscription_id = await get_subscription_id()
-    registry_name = _meadowrun_registry_name(subscription_id)
+    registry_name = meadowrun_registry_name(subscription_id)
 
     repository_prefix = await _ensure_meadowrun_registry(registry_name, location)
+
+    await record_last_used(CONTAINER_IMAGE, tag, location)
 
     return ContainerRegistryHelper(
         True,

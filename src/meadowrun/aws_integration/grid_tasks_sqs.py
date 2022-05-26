@@ -65,6 +65,7 @@ async def create_queues_and_add_tasks(
     # this id is just used for creating the job's queues. It has no relationship to any
     # Job.job_ids
     job_id = str(uuid.uuid4())
+    print(f"The current run_map's id is {job_id}")
     request_queue_url, result_queue_url = await _create_queues_for_job(
         job_id, region_name
     )

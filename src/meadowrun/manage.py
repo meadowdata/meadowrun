@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import datetime
-import logging
 import os.path
 import time
 
@@ -25,15 +24,16 @@ from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
     terminate_all_instances,
 )
 from meadowrun.aws_integration.management_lambdas.clean_up import (
-    delete_old_task_queues,
-    delete_unused_images,
+    delete_old_task_queues as aws_delete_old_task_queues,
+    delete_unused_images as aws_delete_unused_images,
 )
 from meadowrun.azure_integration.azure_core import (
     delete_meadowrun_resource_group,
     get_default_location,
     get_subscription_id,
+    ensure_table,
+    ensure_meadowrun_storage_account,
 )
-from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_mgmt_functions_setup import (
     create_or_update_mgmt_function,
 )
@@ -42,7 +42,15 @@ from meadowrun.azure_integration.azure_ssh_keys import (
     _ensure_meadowrun_vault,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
+    MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,
+    MEADOWRUN_SUBSCRIPTION_ID,
+    VM_ALLOC_TABLE_NAME,
     get_credential_aio,
+)
+from meadowrun.azure_integration.mgmt_functions.clean_up import (
+    delete_old_task_queues as azure_delete_old_task_queues,
+    delete_unused_images as azure_delete_unused_images,
 )
 from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     _deregister_and_terminate_vms,
@@ -144,7 +152,6 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             f"Deleted all meadowrun resources in {time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "clean":
-        logging.getLogger().setLevel(logging.INFO)
         if args.clean_active:
             print(
                 f"Terminating and deregistering all {ec2_instances}. This will "
@@ -161,19 +168,17 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
                 terminate_all_instances(region_name)
             _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
         elif cloud_provider == "AzureVM":
-            async with AzureInstanceRegistrar(
-                region_name, "create"
-            ) as instance_registrar, ComputeManagementClient(
+            async with await ensure_table(
+                VM_ALLOC_TABLE_NAME, region_name, "create"
+            ) as table_client, ComputeManagementClient(
                 get_credential_aio(), await get_subscription_id()
             ) as compute_client:
                 if args.clean_active:
                     await terminate_all_vms(compute_client)
-                assert instance_registrar._table_client is not None  # for mypy
-                await _deregister_and_terminate_vms(
-                    instance_registrar._table_client,
-                    compute_client,
-                    datetime.timedelta.min,
-                )
+                for log_line in await _deregister_and_terminate_vms(
+                    table_client, compute_client, datetime.timedelta.min
+                ):
+                    print(log_line)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(
@@ -184,10 +189,18 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
         print("Deleting unused grid task queues")
         if cloud_provider == "EC2":
-            delete_old_task_queues(region_name)
+            aws_delete_old_task_queues(region_name)
         elif cloud_provider == "AzureVM":
-            # TODO implement
-            pass
+            # set some environment variables as if we're running in an Azure Function
+            (
+                storage_account_name,
+                storage_account_key,
+            ) = await ensure_meadowrun_storage_account(region_name, "create")
+            os.environ[MEADOWRUN_STORAGE_ACCOUNT_VARIABLE] = storage_account_name
+            os.environ[MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE] = storage_account_key
+            os.environ[MEADOWRUN_SUBSCRIPTION_ID] = await get_subscription_id()
+            for log_line in await azure_delete_old_task_queues():
+                print(log_line)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(
@@ -197,10 +210,10 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
         print("Deleting unused meadowrun-generated ECR images")
         if cloud_provider == "EC2":
-            delete_unused_images(region_name)
+            aws_delete_unused_images(region_name)
         elif cloud_provider == "AzureVM":
-            # TODO implement
-            pass
+            for log_line in await azure_delete_unused_images():
+                print(log_line)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(

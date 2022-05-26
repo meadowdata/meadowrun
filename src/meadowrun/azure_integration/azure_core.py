@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from types import TracebackType
-from typing import cast, Optional, Literal, Type, Tuple
+from typing import cast, Optional, Literal, Type, Tuple, Set
 
 import aiohttp
 import azure.core
 import azure.core.exceptions
 import azure.identity
 import azure.identity.aio
-from azure.core.credentials import TokenCredential
+from azure.core.credentials import TokenCredential, AzureNamedKeyCredential
+from azure.data.tables.aio import TableClient
 from azure.mgmt.authorization.aio import AuthorizationManagementClient
 from azure.mgmt.msi.aio import ManagedServiceIdentityClient
 from azure.mgmt.resource.resources.aio import ResourceManagementClient
@@ -19,14 +21,17 @@ from azure.mgmt.resource.resources.aio import ResourceManagementClient
 # azure.mgmt.resource.subscriptions. They seem pretty similar, but the first one seems
 # to return a tenant_id for each subscription and the second one does not, so we just
 # use the first one.
-from azure.mgmt.resource.subscriptions.aio import SubscriptionClient
 from azure.mgmt.resource.subscriptions import (
     SubscriptionClient as SubscriptionClientSync,
 )
+from azure.mgmt.resource.subscriptions.aio import SubscriptionClient
+from azure.mgmt.storage.aio import StorageManagementClient
 from msgraph.core import GraphClient
 
 from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+    LAST_USED_TABLE_NAME,
     MEADOWRUN_RESOURCE_GROUP_NAME,
+    RESOURCE_TYPES_TYPE,
     _DEFAULT_CREDENTIAL_OPTIONS,
     get_credential_aio,
 )
@@ -376,3 +381,150 @@ async def delete_meadowrun_resource_group() -> None:
             await poller.result()
         except azure.core.exceptions.ResourceNotFoundError:
             pass
+
+
+async def ensure_meadowrun_storage_account(
+    location: str, on_missing: Literal["raise", "create"]
+) -> Tuple[str, str]:
+    """Returns (storage account name, key)"""
+    subscription_id = await get_subscription_id()
+    # the storage account name must be globally unique in Azure (across all users),
+    # alphanumeric, and 24 characters or less. Our strategy is to use "mr" (for
+    # meadowrun) plus the last 22 letters/numbers of the subscription id and hope for
+    # the best.
+    # TODO we need a way to manually set the storage account name in case this ends
+    # up colliding
+    storage_account_name = "mr" + subscription_id.replace("-", "")[-22:]
+    resource_group_name = await ensure_meadowrun_resource_group(location)
+
+    async with get_credential_aio() as credential, StorageManagementClient(
+        credential, subscription_id
+    ) as client:
+        # first, get the key to the storage account. If the storage account doesn't
+        # exist, create it and then get the key
+        try:
+            key = (
+                (
+                    await client.storage_accounts.list_keys(
+                        resource_group_name, storage_account_name
+                    )
+                )
+                .keys[0]
+                .value
+            )
+        except azure.core.exceptions.ResourceNotFoundError:
+            if on_missing == "raise":
+                raise ValueError(
+                    f"Storage account {storage_account_name} does not exist"
+                )
+            elif on_missing == "create":
+                print(
+                    f"Storage account {storage_account_name} does not exist, "
+                    "creating it now"
+                )
+                poller = await client.storage_accounts.begin_create(
+                    resource_group_name,
+                    storage_account_name,
+                    # https://docs.microsoft.com/en-us/python/api/azure-mgmt-storage/azure.mgmt.storage.v2021_09_01.models.storageaccountcreateparameters?view=azure-python
+                    {
+                        "sku": {
+                            # Standard (as opposed to Premium latency). Locally
+                            # redundant storage (i.e. not very redundant, as opposed to
+                            # zone-, geo-, or geo-and-zone- redundant storage)
+                            "name": "Standard_LRS"
+                        },
+                        "kind": "StorageV2",
+                        "location": location,
+                    },
+                )
+                await poller.result()
+                key = (
+                    (
+                        await client.storage_accounts.list_keys(
+                            resource_group_name, storage_account_name
+                        )
+                    )
+                    .keys[0]
+                    .value
+                )
+            else:
+                raise ValueError(f"Unexpected value for on_missing {on_missing}")
+
+    return storage_account_name, key
+
+
+_STORAGE_ACCOUNT_NAME = None
+_STORAGE_ACCOUNT_KEY = None
+_EXISTING_TABLES: Set[str] = set()
+
+
+async def ensure_table(
+    table_name: str, location: str, on_missing: Literal["raise", "create"]
+) -> TableClient:
+    """
+    Gets the TableClient for the specified table, creates it if it doesn't exist
+    (depending on the value of the on_missing parameter). Multiple calls for the same
+    table in the same process should be fast.
+    """
+    global _STORAGE_ACCOUNT_NAME, _STORAGE_ACCOUNT_KEY
+    if _STORAGE_ACCOUNT_NAME is None or _STORAGE_ACCOUNT_KEY is None:
+        # first, get the key to the storage account. If the storage account doesn't
+        # exist, create it and then get the key
+        (
+            _STORAGE_ACCOUNT_NAME,
+            _STORAGE_ACCOUNT_KEY,
+        ) = await ensure_meadowrun_storage_account(location, "create")
+
+    if table_name not in _EXISTING_TABLES:
+        resource_group_name = await ensure_meadowrun_resource_group(location)
+
+        async with get_credential_aio() as credential, StorageManagementClient(
+            credential, await get_subscription_id()
+        ) as client:
+            # check if the table exists and create it if it doesn't
+            try:
+                await client.table.get(
+                    resource_group_name, _STORAGE_ACCOUNT_NAME, table_name
+                )
+            except azure.core.exceptions.ResourceNotFoundError:
+                if on_missing == "raise":
+                    raise ValueError(
+                        f"Table {_STORAGE_ACCOUNT_NAME}/{table_name} does not exist"
+                    )
+                elif on_missing == "create":
+                    print(
+                        f"Table {_STORAGE_ACCOUNT_NAME}/{table_name} does not exist, "
+                        "creating it now"
+                    )
+                    await client.table.create(
+                        resource_group_name, _STORAGE_ACCOUNT_NAME, table_name
+                    )
+                else:
+                    raise ValueError(f"Unexpected value for on_missing {on_missing}")
+
+            _EXISTING_TABLES.add(table_name)
+
+    return TableClient(
+        f"https://{_STORAGE_ACCOUNT_NAME}.table.core.windows.net/",
+        table_name,
+        credential=AzureNamedKeyCredential(_STORAGE_ACCOUNT_NAME, _STORAGE_ACCOUNT_KEY),
+    )
+
+
+async def record_last_used(
+    resource_type: RESOURCE_TYPES_TYPE, resource_name: str, location: str
+) -> None:
+    try:
+        async with await ensure_table(
+            LAST_USED_TABLE_NAME, location, "create"
+        ) as table_client:
+            # no need to insert timestamp, that's always included in the Azure table
+            # metadata
+            await table_client.upsert_entity(
+                {"PartitionKey": resource_type, "RowKey": resource_name}
+            )
+    except Exception as e:
+        logging.error(
+            f"Warning, failed when trying to record usage of {resource_name}",
+            exc_info=e,
+        )

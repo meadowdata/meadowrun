@@ -33,3 +33,10 @@ For more context, see the `project homepage <https://meadowrun.io>`_.
 
    reference/apis.rst
    reference/aws_resources.rst
+
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Explanation
+
+   explanation/how_it_works.rst

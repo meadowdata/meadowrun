@@ -82,7 +82,7 @@ async def build_meadowrun_ami():
     # this only works if we're running in the directory with pyproject.toml
     package_root_dir = os.path.dirname(os.path.dirname(__file__))
     result = subprocess.run(
-        "poetry version --short", capture_output=True, cwd=package_root_dir
+        ["poetry", "version", "--short"], capture_output=True, cwd=package_root_dir
     )
     version = result.stdout.strip().decode("utf-8")
     new_ami_name = _NEW_AMI_NAME.format(version)

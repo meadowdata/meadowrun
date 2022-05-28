@@ -114,8 +114,9 @@ class Deployment:
                 variables will be set in the remote environment
             ssh_key_aws_secret: The name of an AWS secret that contains the contents
                 of a private SSH key that has read access to `repo_url`,
-                e.g. `"my_ssh_key"`. See [How to use a private git
-                repo](/how_to/private_git_repo)
+                e.g. `"my_ssh_key"`. See How to use a private git
+                repo for [AWS](/how_to/private_git_repo_aws.md) or
+                [Azure](/how_to/private_git_repo_azure.md)
             ssh_key_azure_secret: The name of a secret in the meadowrun-generated
                 Azure Vault (which will be named "mr" followed by the last 22
                 letters/numbers of the Azure subscription id).

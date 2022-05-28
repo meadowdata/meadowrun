@@ -1,6 +1,6 @@
 # Run a function remotely
 
-Run a Python function on a single AWS EC2 instance.
+Run a Python function on a single EC2 instance or Azure VM.
 
 ## Prerequisites
 
@@ -45,7 +45,8 @@ async def main():
             logical_cpu_required=1,
             memory_gb_required=4,
             interruption_probability_threshold=15,
-            cloud_provider="EC2"
+            cloud_provider="EC2"  # to run on AWS EC2 instance
+            # cloud_provider="AzureVM"  # to run on an Azure VM
         ),
         Deployment.git_repo(
             # URL to the repo
@@ -78,17 +79,18 @@ is doing:
 1. Based on the options specified in [AllocCloudInstance][meadowrun.AllocCloudInstance],
    `run_function` will launch the cheapest EC2 instance type that has at least 1 CPU and
    4GB of memory, and a <15% chance of being interrupted. You can set this to 0 to
-   exclude spot instances and only use on-demand instances. The exact instance type chosen
-   depends on current EC2 prices, but in this case we can see that it's a spot t2.medium,
-   and we're paying $0.0139/hr for it.
+   exclude spot instances and only use on-demand instances. The exact instance type
+   chosen depends on current EC2 prices, but in this case we can see that it's a spot
+   t2.medium, and we're paying $0.0139/hr for it.
 
 2. Based on the options specified in
-   [Deployment.git_repo][meadowrun.Deployment.git_repo], `run_function` grabs code from the
-   `main` branch of the `test_repo` git repo, and then creates a conda environment (in a
-   container) using the `myenv.yml` file in the git repo as the environment specification.
-   Creating the conda environment takes some time, but once it has been created, it gets
-   cached and reused using AWS ECR. Creating the container happens on the EC2 instance, so
-   make sure to size your `AllocCloudInstance` appropriately.
+   [Deployment.git_repo][meadowrun.Deployment.git_repo], `run_function` grabs code from
+   the `main` branch of the `test_repo` git repo, and then creates a conda environment
+   (in a container) using the `myenv.yml` file in the git repo as the environment
+   specification. Creating the conda environment takes some time, but once it has been
+   created, it gets cached and reused using AWS ECR/Azure Container Registry. Creating
+   the container happens on the EC2 instance/Azure VM, so make sure to size your
+   `AllocCloudInstance` appropriately.
 
 3. Meadowrun runs the specified function in that environment on the remote machine and
    returns the result.

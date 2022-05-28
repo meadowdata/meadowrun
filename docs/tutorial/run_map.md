@@ -11,6 +11,7 @@ different cores/instances.
    https://github.com/meadowdata/test_repo.
 2. Install meadowrun in the target repo, see [Installing Meadowrun](/tutorial/install)
 
+
 Create a Conda environment export file
 --------------------------------------
 
@@ -48,6 +49,8 @@ async def main():
             logical_cpu_required_per_task=4,
             memory_gb_required_per_task=32,
             interruption_probability_threshold=15,
+            cloud_provider="EC2",  # to run on AWS EC2 instances
+            # cloud_provider="AzureVM",  # to run on Azure VMs
             num_concurrent_tasks=3),
         Deployment.git_repo(
             "https://github.com/meadowdata/test_repo",
@@ -77,19 +80,19 @@ The output will walk you through what Meadowrun's [run_map][meadowrun.run_map] i
 
 1. Based on the options specified in
    [AllocCloudInstances][meadowrun.AllocCloudInstances], `run_map` launches the cheapest
-   combination of EC2 instances such that we can run 3 workers that each are allocated at
-   least 4 CPU and 32GB of memory. (In this case, we already have one instance that can run
-   a worker, so we'll use that in addition to launching another instance for the remaining
-   2 workers.) The instances will have <15% chance of being interrupted. You can set this
-   to 0 to exclude spot instances and only use on-demand instances. The exact instance
-   types chosen depends on current EC2 prices.
+   combination of EC2 instances/Azure VMs such that we can run 3 workers that each are
+   allocated at least 4 CPU and 32GB of memory. (In this case, we already have one
+   instance that can run a worker, so we'll use that in addition to launching another
+   instance for the remaining 2 workers.) The instances will have <15% chance of being
+   interrupted. You can set this to 0 to exclude spot instances and only use on-demand
+   instances. The exact instance types chosen depends on current EC2/Azure VM prices.
 
 2. Based on the options specified in
    [Deployment.git_repo][meadowrun.Deployment.git_repo], `run_map` grabs code from the
    `main` branch of the `test_repo` git repo, and creates a Conda environment (in a
    container) using the `myenv.yml` file in the git repo as the environment
    specification. Creating the Conda environment takes some time, but once it has been
-   created, it gets cached and reused using AWS ECR. 
+   created, it gets cached and reused using AWS ECR/Azure Container Registry.
 
 3. Finally, the workers will execute tasks until there are none left, returning a list
    of results:

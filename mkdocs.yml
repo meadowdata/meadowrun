@@ -1,0 +1,24 @@
+site_name: Meadowrun
+repo_url: https://github.com/meadowdata/meadowrun
+theme:
+  name: material
+  font:
+    text: Source Sans Pro
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.expand
+    - navigation.indexes
+    - search.suggest
+extra_css:
+  - extra.css
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          rendering:
+            show_root_heading: yes
+            heading_level: 3
+            show_source: no
+  - search
+  - awesome-pages

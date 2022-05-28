@@ -1,0 +1,9 @@
+/* this is "meadowrun blue", just for the header */
+header.md-header {
+    background-color: #9ACAEF;
+}
+
+/* a slightly darker shade of the header color */
+:root > * {
+  --md-primary-fg-color: #65aee7;
+}

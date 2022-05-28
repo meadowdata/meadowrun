@@ -15,6 +15,5 @@ build:
       - poetry install
 
 # Build documentation in the docs/ directory with Sphinx
-sphinx:
-  configuration: docs/conf.py
-  fail_on_warning: true
+mkdocs:
+  configuration: mkdocs.yml

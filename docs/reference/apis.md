@@ -9,7 +9,7 @@
 ::: meadowrun.run_map
 
 
-## Specifying EC2 hosts
+## Specifying EC2/Azure VM hosts
 
 ::: meadowrun.AllocCloudInstance
 

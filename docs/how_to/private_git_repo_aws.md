@@ -1,4 +1,4 @@
-# How to use a private git repo
+# Use a private git repo on AWS
 
 To use a private git repo, you'll need to give Meadowrun the name of an AWS secret that
 contains the private SSH key for the repo you want to use.
@@ -34,5 +34,3 @@ Deployment.git_repo(
     ssh_key_aws_secret="my_ssh_key"
 )
 ```
-
-

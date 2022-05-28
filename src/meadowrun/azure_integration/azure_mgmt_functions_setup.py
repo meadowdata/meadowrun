@@ -25,8 +25,8 @@ from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     MEADOWRUN_SUBSCRIPTION_ID,
 )
 
-_MEADOWRUN_MGMT_LAMBDAS_LOGS_COMPONENT_NAME = "meadowrun-mgmt-lambdas-logs"
-_MEADOWRUN_MGMT_LAMBDAS_LOGS_WORKSPACE = "meadowrun-mgmt-lambdas-logs-workspace"
+_MEADOWRUN_MGMT_FUNCTIONS_LOGS_COMPONENT_NAME = "meadowrun-mgmt-functions-logs"
+_MEADOWRUN_MGMT_FUNCTIONS_LOGS_WORKSPACE = "meadowrun-mgmt-functions-logs-workspace"
 
 
 async def _create_application_insights_component(location: str) -> Tuple[str, str]:
@@ -46,7 +46,7 @@ async def _create_application_insights_component(location: str) -> Tuple[str, st
             # https://docs.microsoft.com/en-us/python/api/azure-mgmt-loganalytics/azure.mgmt.loganalytics.aio.operations.workspacesoperations?view=azure-python-preview#azure-mgmt-loganalytics-aio-operations-workspacesoperations-begin-create-or-update
             poller = await logs_client.workspaces.begin_create_or_update(
                 resource_group_name,
-                _MEADOWRUN_MGMT_LAMBDAS_LOGS_WORKSPACE,
+                _MEADOWRUN_MGMT_FUNCTIONS_LOGS_WORKSPACE,
                 {"location": location},
             )
             workspace = await poller.result()
@@ -61,7 +61,7 @@ async def _create_application_insights_component(location: str) -> Tuple[str, st
             # https://docs.microsoft.com/en-us/python/api/azure-mgmt-applicationinsights/azure.mgmt.applicationinsights.v2020_02_02_preview.operations.componentsoperations?view=azure-python#azure-mgmt-applicationinsights-v2020-02-02-preview-operations-componentsoperations-create-or-update
             component = await client.components.create_or_update(
                 resource_group_name,
-                _MEADOWRUN_MGMT_LAMBDAS_LOGS_COMPONENT_NAME,
+                _MEADOWRUN_MGMT_FUNCTIONS_LOGS_COMPONENT_NAME,
                 {
                     "location": location,
                     "kind": "web",

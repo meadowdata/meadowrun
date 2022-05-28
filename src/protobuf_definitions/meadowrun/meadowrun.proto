@@ -83,7 +83,8 @@ message ContainerAtDigest {
 // cannot be resolved to a ContainerAtDigest on the client.
 message ContainerAtTag {
     // Together, repository and tag should be such that `docker pull [repository]:[tag]`
-    // works
+    // works. The container should be configured so that `docker run [repository]:[tag]
+    // python [additional arguments]` behaves as expected
     string repository = 1;
     string tag = 2;
 }

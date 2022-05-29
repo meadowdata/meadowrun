@@ -33,7 +33,7 @@ jobs:
         poetry install
     - name: Run code generation
       run: |
-        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src --grpc_python_out=src --mypy_grpc_out=src meadowrun/meadowrun.proto
+        poetry run python -m grpc_tools.protoc -Isrc/protobuf_definitions --python_out=src --mypy_out=src meadowrun/meadowrun.proto
         poetry run black src/meadowrun/*pb2*
     - name: Run Black
       run: |

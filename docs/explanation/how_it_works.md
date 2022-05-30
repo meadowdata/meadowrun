@@ -66,21 +66,35 @@ Every job specifies a deployment, which is made up of an **interpreter** and opt
 installed, and the code is "your code".
 
 The options for an interpreter are:
-- A docker container image that you have built and made available in a container
-  registry somewhere. In this case, the Meadowrun worker will pull the specified image
-  from the specified container registry. For container registries that require
+
+  - A docker container image that you have built and made available in a container
+  registry somewhere. In this case,the Meadowrun worker will pull the specified
+  imagefrom the specified container registry. For container registries that require
   authentication, see the "Credentials" section.
-- A conda yaml file in your code. In this case, the Meadowrun worker will look for the
+  - A conda yaml file in your code. In this case, the Meadowrun worker will look for the
   file you specify in your code and create a docker image and run `conda env create -f
   <your file>` in it. This image will get cached in a Meadowrun-managed AWS/Azure
   container registry. (One of the AWS Lambdas/Azure Functions that run periodically will
   clean up images that haven't been used recently.)
+  - *Supported on Linux only* *Supported on AWS only* A locally installed conda environment. In this case,
+  Meadworun first runs conda locally (`conda env export`) to extract the conda yaml, and
+  then proceeds as before. Since Meadowrun allocates Linux VMs, and conda environments
+  are not cross-platform, doing this from Windows or Mac is currently not supported.
+  There are a few approaches we are considering to work around this limitation. If this
+  is important to you, please [open an
+  issue](https://github.com/meadowdata/meadowrun/issues/new) describing your use case.
 
 The options for code are:
+
 - Code can be None, which makes sense if e.g. your pre-built docker container image
   already has all the code you need.
 - A git repo. The Meadowrun worker will pull the specified branch/commit. For git repos
   that require authentication, see the "Credentials" section.
+- *Supported on AWS only* Local python code. By default, Meadowrun can collect all
+  Python code on `sys.path` that is not installed in a virtual environment (that should
+  be taken care of via interpreter deployments). You can also add paths explicitly.
+  Meadowrun zips all python files in these paths and uploads them to S3. The workers
+  then unpack the zip file and add the paths back to `sys.path` in the right order.
 
 
 ### Credentials

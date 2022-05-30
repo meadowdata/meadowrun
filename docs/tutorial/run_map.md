@@ -19,7 +19,7 @@ Meadowrun needs to know what the third-party dependencies are to execute the fun
 With Conda, the easiest way to do that is:
 
 ```shell
-conda list --export > myenv.yml
+conda env export > myenv.yml
 ``` 
 
 Check this file into the repository, and push the change.

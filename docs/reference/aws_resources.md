@@ -30,3 +30,6 @@ running `meadowrun-manage-ec2 uninstall`.
     * Policy: meadowrun_ec2_alloc_table_access
     * Policy: meadowrun_sqs_access
     * Policy: meadowrun_ecr_access
+* S3
+    * Buckets: meadowrun-<region>-<uuid> with 14 day object expiry policy
+    * Policy: meadowrun_s3_access

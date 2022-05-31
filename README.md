@@ -1,4 +1,4 @@
-# ![Meadowrun](docs/_static/meadowrun-logo-full.svg)
+# ![Meadowrun](meadowrun-logo-full.svg)
 
 Meadowrun automates the tedious details of running your python code on AWS. Meadowrun
 will

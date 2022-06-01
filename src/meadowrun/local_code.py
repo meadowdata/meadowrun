@@ -19,9 +19,11 @@ def zip(
 
     real_paths_to_zip_paths, zip_paths = _consolidate_paths_to_zip(paths_to_zip)
 
-    # Currently we always zip all the files and the compute the hash.
-    # The hash is just used to avoid upload to S3. In future we could
-    # try to
+    # Currently we always zip all the files and the compute the hash. The hash is just
+    # used to avoid upload to S3. In future we could try to split the files into chunks
+    # or even individually, to only upload what we need. For small-ish codebases zipping
+    # and hashing is fast though, certainly relative to EC2 startup times and container
+    # building, so this is not currently a bottleneck.
     zip_file_path = join(working_dir, str(uuid.uuid4()) + ".zip")
     with zipfile.ZipFile(zip_file_path, "w") as zip_file:
         for real_path, zip_path in real_paths_to_zip_paths.items():

@@ -103,8 +103,10 @@ class Deployment:
     ) -> Deployment:
         """A deployment that mirrors local environment and code.
 
-        :param path_to_source: local code to mirror on the remote servers. Defaults to
-            sys.path.
+        :param include_sys_path: if True, find paths on sys.path, copy them to
+            the remote machines, and add them to sys.path there. Ignores any installed
+            packages. Defaults to True.
+        :param additional_paths: local code paths to mirror on the remote servers.
         :param conda_env: name or full path of locally installed conda environment to
             use. Defaults to None which means the currently activated env.
         :param environment_variables: e.g. :code:`{"PYTHONHASHSEED": "0"}`. These
@@ -706,8 +708,6 @@ async def run_map(
                 credentials_sources=credentials_sources,
             )
             _add_deployments_to_job(job, code, interpreter)
-
-            # hmmm. prepare_job shouldn't run for every of these jobs...
 
             worker_tasks.append(
                 asyncio.create_task(

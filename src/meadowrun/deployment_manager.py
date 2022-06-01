@@ -242,21 +242,26 @@ async def _get_zip_file_code_paths(
     decoded_url = urllib.parse.urlparse(zip_file_url)
     if decoded_url.scheme == "file":
         with zipfile.ZipFile(decoded_url.path) as zip_file:
-            folder = os.path.splitext(os.path.basename(decoded_url.path))[0]
-            zip_file.extractall(os.path.join(local_copies_folder, folder))
-            return [
-                os.path.join(local_copies_folder, folder, zip_path)
-                for zip_path in code_paths
-            ]
+            extracted_folder = os.path.splitext(os.path.basename(decoded_url.path))[0]
+            zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
+        return [
+            os.path.join(local_copies_folder, extracted_folder, zip_path)
+            for zip_path in code_paths
+        ]
+
     if decoded_url.scheme == "s3":
         bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
-        zip_file_path = os.path.join(local_copies_folder, object_name + ".zip")
-        await s3.download_file(bucket_name, object_name, zip_file_path)
-        with zipfile.ZipFile(zip_file_path) as zip_file:
-            folder = os.path.join(local_copies_folder, object_name)
-            zip_file.extractall(os.path.join(local_copies_folder, folder))
-            return [os.path.join(folder, zip_path) for zip_path in code_paths]
+        extracted_folder = os.path.join(local_copies_folder, object_name)
+
+        if not os.path.exists(extracted_folder):
+            zip_file_path = extracted_folder + ".zip"
+            await s3.download_file(bucket_name, object_name, zip_file_path)
+            with zipfile.ZipFile(zip_file_path) as zip_file:
+                zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
+
+        return [os.path.join(extracted_folder, zip_path) for zip_path in code_paths]
+
     raise ValueError(f"Unknown URL scheme in {zip_file_url}")
 
 

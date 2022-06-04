@@ -14,6 +14,12 @@ def _boto3_paginate(method: Any, **kwargs: Any) -> Iterable[Any]:
             yield item
 
 
+# on WSL, the EC2 metadata endpoint hangs instead of immediately failing to connect. We
+# have a relatively short timeout here as we should never have network issues with the
+# EC2 metadata endpoint
+_EC2_METADATA_ENDPOINT_TIMEOUT_SECS = 1
+
+
 async def _get_ec2_metadata(url_suffix: str) -> Optional[str]:
     """
     Queries the EC2 metadata endpoint, which gives us information about the EC2 instance
@@ -24,10 +30,12 @@ async def _get_ec2_metadata(url_suffix: str) -> Optional[str]:
     """
     try:
         async with aiohttp.request(
-            "GET", f"http://169.254.169.254/latest/meta-data/{url_suffix}"
+            "GET",
+            f"http://169.254.169.254/latest/meta-data/{url_suffix}",
+            timeout=aiohttp.ClientTimeout(total=_EC2_METADATA_ENDPOINT_TIMEOUT_SECS),
         ) as response:
             return await response.text()
-    except aiohttp.client_exceptions.ClientConnectorError:
+    except Exception:
         # the AWS metadata endpoint is not available, probably because we're not on
         # an EC2 instance.
         pass

@@ -60,17 +60,6 @@ async def get_token(scope: Optional[str] = None) -> str:
 
     try:
         if scope == _DEFAULT_SCOPE:
-            if _MANAGED_IDENTITY_CREDENTIAL is None:
-                _MANAGED_IDENTITY_CREDENTIAL = await _get_managed_identity_token(scope)
-
-            return _MANAGED_IDENTITY_CREDENTIAL
-        else:
-            return await _get_managed_identity_token(scope)
-    except Exception:
-        managed_exception = traceback.format_exc()
-
-    try:
-        if scope == _DEFAULT_SCOPE:
             # If the user is logged in on the command line, will populate
             # _CACHED_CLI_TOKEN, CachedAzureVariables
 
@@ -100,6 +89,17 @@ async def get_token(scope: Optional[str] = None) -> str:
     except Exception:
         cli_exception = traceback.format_exc()
 
+    try:
+        if scope == _DEFAULT_SCOPE:
+            if _MANAGED_IDENTITY_CREDENTIAL is None:
+                _MANAGED_IDENTITY_CREDENTIAL = await _get_managed_identity_token(scope)
+
+            return _MANAGED_IDENTITY_CREDENTIAL
+        else:
+            return await _get_managed_identity_token(scope)
+    except Exception:
+        managed_exception = traceback.format_exc()
+
     raise ValueError(
         "Unable to get a token for Azure. Error trying to get managed identity token:\n"
         f"{managed_exception}\n"
@@ -112,17 +112,6 @@ def get_token_sync(scope: Optional[str] = None) -> str:
 
     if scope is None:
         scope = _DEFAULT_SCOPE
-
-    try:
-        if scope == _DEFAULT_SCOPE:
-            if _MANAGED_IDENTITY_CREDENTIAL is None:
-                _MANAGED_IDENTITY_CREDENTIAL = _get_managed_identity_token_sync(scope)
-
-            return _MANAGED_IDENTITY_CREDENTIAL
-        else:
-            return _get_managed_identity_token_sync(scope)
-    except Exception:
-        managed_exception = traceback.format_exc()
 
     try:
         if scope == _DEFAULT_SCOPE:
@@ -146,6 +135,17 @@ def get_token_sync(scope: Optional[str] = None) -> str:
             return _get_cli_token_sync(scope)[0]
     except Exception:
         cli_exception = traceback.format_exc()
+
+    try:
+        if scope == _DEFAULT_SCOPE:
+            if _MANAGED_IDENTITY_CREDENTIAL is None:
+                _MANAGED_IDENTITY_CREDENTIAL = _get_managed_identity_token_sync(scope)
+
+            return _MANAGED_IDENTITY_CREDENTIAL
+        else:
+            return _get_managed_identity_token_sync(scope)
+    except Exception:
+        managed_exception = traceback.format_exc()
 
     raise ValueError(
         "Unable to get a token for Azure. Error trying to get managed identity token:\n"
@@ -312,6 +312,11 @@ def _get_managed_identity_token_helper(scope: str) -> Tuple[Dict[str, Any], bool
     }, disable_verify
 
 
+# on WSL, the IMDS endpoint will hang rather than failing to connect immediately, so put
+# a relatively short timeout as it generally shouldn't require a long time to connect
+_MANAGED_IDENTITY_TIMEOUT_SECS = 1
+
+
 async def _get_managed_identity_token(scope: str) -> str:
     request_parameters, disable_verify = _get_managed_identity_token_helper(scope)
     if disable_verify:
@@ -319,7 +324,11 @@ async def _get_managed_identity_token(scope: str) -> str:
     else:
         connector = None
 
-    async with aiohttp.request(**request_parameters, connector=connector) as response:
+    async with aiohttp.request(
+        **request_parameters,
+        connector=connector,
+        timeout=aiohttp.ClientTimeout(total=_MANAGED_IDENTITY_TIMEOUT_SECS),
+    ) as response:
         await raise_for_status(response)
         return (await response.json())["access_token"]
 
@@ -329,7 +338,9 @@ def _get_managed_identity_token_sync(scope: str) -> str:
     if disable_verify:
         request_parameters["verify"] = False
 
-    response = requests.request(**request_parameters)
+    response = requests.request(
+        **request_parameters, timeout=_MANAGED_IDENTITY_TIMEOUT_SECS
+    )
     raise_for_status_sync(response)
     return response.json()["access_token"]
 

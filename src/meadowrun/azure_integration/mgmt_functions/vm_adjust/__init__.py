@@ -15,6 +15,7 @@ from ..azure.azure_exceptions import ResourceModifiedError
 from ..azure.azure_rest_api import (
     azure_rest_api_paged,
     azure_rest_api_poll,
+    parse_azure_timestamp,
     wait_for_poll,
 )
 from ..azure.azure_storage_api import (
@@ -109,7 +110,9 @@ async def _deregister_vm(
 async def _get_all_vms(resource_group_path: str) -> Sequence[ExistingVM]:
     """Gets all VMs via the Azure compute API"""
     return [
-        ExistingVM(item["name"], item["properties"]["timeCreated"])
+        ExistingVM(
+            item["name"], parse_azure_timestamp(item["properties"]["timeCreated"])
+        )
         async for page in azure_rest_api_paged(
             "GET",
             f"{resource_group_path}/providers/Microsoft.Compute/virtualMachines",
@@ -152,7 +155,6 @@ async def _deregister_and_terminate_vms(
     registered_vms = await _get_registered_vms(storage_account)
 
     now = datetime.datetime.utcnow()
-    now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
 
     termination_tasks = []
 
@@ -186,7 +188,7 @@ async def _deregister_and_terminate_vms(
     for vm in existing_vms:
         if (
             vm.name not in registered_vms_names
-            and (now_with_timezone - vm.time_created) > launch_register_delay
+            and (now - vm.time_created) > launch_register_delay
         ):
             # terminate instances that are running but not registered
             logs.append(

@@ -10,27 +10,29 @@ import logging
 import os
 from typing import List
 
-from azure.containerregistry import ArtifactTagProperties
-from azure.containerregistry.aio import ContainerRegistryClient
-from azure.core.credentials import AzureNamedKeyCredential
-from azure.data.tables.aio import TableClient
-from azure.mgmt.storage.aio import StorageManagementClient
-
-from ..azure_instance_alloc_stub import (
+from ..azure.azure_acr import get_tags_in_repository, delete_tag
+from ..azure.azure_rest_api import (
+    azure_rest_api_paged,
+    azure_rest_api,
+    parse_azure_timestamp,
+)
+from ..azure.azure_storage_api import (
+    azure_table_api,
+    azure_table_api_paged,
+    table_key_url,
+)
+from ..azure_constants import (
     CONTAINER_IMAGE,
     GRID_TASK_QUEUE,
     LAST_USED_TABLE_NAME,
-    MEADOWRUN_RESOURCE_GROUP_NAME,
-    MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
-    MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,
     MEADOWRUN_SUBSCRIPTION_ID,
     QUEUE_NAME_TIMESTAMP_FORMAT,
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     _REQUEST_QUEUE_NAME_PREFIX,
     _RESULT_QUEUE_NAME_PREFIX,
-    get_credential_aio,
-    meadowrun_registry_name,
+    meadowrun_container_registry_name,
 )
+from ..mgmt_functions_shared import get_storage_account, get_resource_group_path
 
 # a queue that has been inactive for this time will get cleaned up
 _QUEUE_INACTIVE_TIME = datetime.timedelta(hours=4)
@@ -42,58 +44,57 @@ async def delete_old_task_queues() -> List[str]:
     """See _deregister_and_terminate_vms for why we return log statements"""
     logs = []
 
-    storage_account_name = os.environ[MEADOWRUN_STORAGE_ACCOUNT_VARIABLE]
-    storage_account_key = os.environ[MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE]
-    async with TableClient(
-        f"https://{storage_account_name}.table.core.windows.net/",
-        LAST_USED_TABLE_NAME,
-        credential=AzureNamedKeyCredential(storage_account_name, storage_account_key),
-    ) as table_client, StorageManagementClient(
-        get_credential_aio(), os.environ[MEADOWRUN_SUBSCRIPTION_ID]
-    ) as queue_client:
-        # the last used records are keyed off of the job_id for the queue, whereas
-        # the queue names are in the form of {prefix}-{job_id}-{created_timestamp}
+    storage_account = get_storage_account()
+    resource_group_path = get_resource_group_path()
 
-        now = datetime.datetime.utcnow()
-        now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
-        delete_tasks = []
+    # the last used records are keyed off of the job_id for the queue, whereas the queue
+    # names are in the form of {prefix}-{job_id}-{created_timestamp}
 
-        last_used_records = {
-            item["RowKey"]: item.metadata["timestamp"]
-            async for item in table_client.query_entities(
-                f"PartitionKey eq '{GRID_TASK_QUEUE}'"
-            )
-        }
+    now = datetime.datetime.utcnow()
+    delete_tasks = []
 
-        surviving_job_ids = set()
-        deleted_job_ids = set()
+    last_used_records = {
+        item["RowKey"]: parse_azure_timestamp(item["Timestamp"])
+        async for page in azure_table_api_paged(
+            "GET",
+            storage_account,
+            f"{LAST_USED_TABLE_NAME}()",
+            query_parameters={"$filter": f"PartitionKey eq '{GRID_TASK_QUEUE}'"},
+        )
+        for item in page["value"]
+    }
 
-        async for queue in queue_client.queue.list(
-            MEADOWRUN_RESOURCE_GROUP_NAME,
-            os.environ[MEADOWRUN_STORAGE_ACCOUNT_VARIABLE],
-        ):
-            if not queue.name.startswith(
+    surviving_job_ids = set()
+    deleted_job_ids = set()
+
+    queues_path = (
+        f"{resource_group_path}/providers/Microsoft.Storage/storageAccounts"
+        f"/{storage_account.name}/queueServices/default/queues"
+    )
+
+    async for page in azure_rest_api_paged("GET", queues_path, "2021-09-01"):
+        for queue in page["value"]:
+            queue_name = queue["name"]
+            if not queue_name.startswith(
                 _REQUEST_QUEUE_NAME_PREFIX
-            ) and not queue.name.startswith(_RESULT_QUEUE_NAME_PREFIX):
+            ) and not queue_name.startswith(_RESULT_QUEUE_NAME_PREFIX):
                 # this is not a meadowrun grid task queue
                 continue
 
             # first parse the queue names, while deleting any queues that don't fit the
             # expected patterns
 
-            prefix, sep, remainder = queue.name.partition("-")
+            prefix, sep, remainder = queue_name.partition("-")
             job_id, sep, created_timestamp_string = remainder.rpartition("-")
             if sep != "-":
                 logs.append(
                     "Queue name was not in the expected prefix-job_id-timestamp format:"
-                    f" {queue.name}, deleting it"
+                    f" {queue_name}, deleting it"
                 )
                 delete_tasks.append(
                     asyncio.create_task(
-                        queue_client.queue.delete(
-                            MEADOWRUN_RESOURCE_GROUP_NAME,
-                            storage_account_name,
-                            queue.name,
+                        azure_rest_api(
+                            "DELETE", f"{queues_path}/{queue_name}", "2021-09-01"
                         )
                     )
                 )
@@ -104,17 +105,15 @@ async def delete_old_task_queues() -> List[str]:
             # last_used record around
             if job_id in last_used_records:
                 last_used = last_used_records[job_id]
-                if now_with_timezone - last_used > _QUEUE_INACTIVE_TIME:
+                if now - last_used > _QUEUE_INACTIVE_TIME:
                     logs.append(
-                        f"Queue {queue.name} was last used at {last_used}, deleting"
+                        f"Queue {queue_name} was last used at {last_used}, deleting"
                     )
                     deleted_job_ids.add(job_id)
                     delete_tasks.append(
                         asyncio.create_task(
-                            queue_client.queue.delete(
-                                MEADOWRUN_RESOURCE_GROUP_NAME,
-                                storage_account_name,
-                                queue.name,
+                            azure_rest_api(
+                                "DELETE", f"{queues_path}/{queue_name}", "2021-09-01"
                             )
                         )
                     )
@@ -130,15 +129,13 @@ async def delete_old_task_queues() -> List[str]:
                 )
             except ValueError:
                 logs.append(
-                    f"Queue name {queue.name} is in the format prefix-job_id-timestamp,"
+                    f"Queue name {queue_name} is in the format prefix-job_id-timestamp,"
                     " but the timestamp cannot be parsed, deleting the queue"
                 )
                 delete_tasks.append(
                     asyncio.create_task(
-                        queue_client.queue.delete(
-                            MEADOWRUN_RESOURCE_GROUP_NAME,
-                            storage_account_name,
-                            queue.name,
+                        azure_rest_api(
+                            "DELETE", f"{queues_path}/{queue_name}", "2021-09-01"
                         )
                     )
                 )
@@ -146,39 +143,44 @@ async def delete_old_task_queues() -> List[str]:
 
             if now - created_timestamp > _QUEUE_INACTIVE_TIME:
                 logs.append(
-                    f"Queue {queue.name} has no last used records and was created at "
+                    f"Queue {queue_name} has no last used records and was created at "
                     f"{created_timestamp}, deleting"
                 )
                 delete_tasks.append(
                     asyncio.create_task(
-                        queue_client.queue.delete(
-                            MEADOWRUN_RESOURCE_GROUP_NAME,
-                            storage_account_name,
-                            queue.name,
+                        azure_rest_api(
+                            "DELETE", f"{queues_path}/{queue_name}", "2021-09-01"
                         )
                     )
                 )
                 continue
 
-        # now delete last_used records that don't correspond to any existing queues
-        for job_id in last_used_records.keys():
-            if job_id in surviving_job_ids:
-                continue
+    # now delete last_used records that don't correspond to any existing queues
+    for job_id in last_used_records.keys():
+        if job_id in surviving_job_ids:
+            continue
 
-            if job_id not in deleted_job_ids:
-                logs.append(
-                    f"job_id {job_id} has a last_used record, but no existing queues, "
-                    "deleting the last_used record now"
-                )
-
-            # if we did delete the corresponding queue, still delete the last_used
-            # record, just no need to log
-            delete_tasks.append(
-                asyncio.create_task(table_client.delete_entity(GRID_TASK_QUEUE, job_id))
+        if job_id not in deleted_job_ids:
+            logs.append(
+                f"job_id {job_id} has a last_used record, but no existing queues, "
+                "deleting the last_used record now"
             )
 
-        if delete_tasks:
-            await asyncio.wait(delete_tasks)
+        # if we did delete the corresponding queue, still delete the last_used
+        # record, just no need to log
+        delete_tasks.append(
+            asyncio.create_task(
+                azure_table_api(
+                    "DELETE",
+                    storage_account,
+                    table_key_url(LAST_USED_TABLE_NAME, GRID_TASK_QUEUE, job_id),
+                    additional_headers={"If-Match": "*"},
+                )
+            )
+        )
+
+    if delete_tasks:
+        await asyncio.wait(delete_tasks)
 
     return logs
 
@@ -187,100 +189,95 @@ async def delete_unused_images() -> List[str]:
     """See _deregister_and_terminate_vms for why we return log statements"""
     logs = []
 
-    storage_account_name = os.environ[MEADOWRUN_STORAGE_ACCOUNT_VARIABLE]
-    storage_account_key = os.environ[MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE]
-    registry_name = meadowrun_registry_name(os.environ[MEADOWRUN_SUBSCRIPTION_ID])
-    async with TableClient(
-        f"https://{storage_account_name}.table.core.windows.net/",
-        LAST_USED_TABLE_NAME,
-        credential=AzureNamedKeyCredential(storage_account_name, storage_account_key),
-    ) as table_client, ContainerRegistryClient(
-        f"{registry_name}.azurecr.io",
-        get_credential_aio(),
-        audience="https://management.azure.com",
-    ) as acr_client:
-        delete_tasks = []
+    storage_account = get_storage_account()
 
-        now = datetime.datetime.now(datetime.timezone.utc)
+    registry_name = meadowrun_container_registry_name(
+        os.environ[MEADOWRUN_SUBSCRIPTION_ID]
+    )
 
-        last_used_records = {
-            item["RowKey"]: item.metadata["timestamp"]
-            async for item in table_client.query_entities(
-                f"PartitionKey eq '{CONTAINER_IMAGE}'"
-            )
-        }
+    delete_tasks = []
 
-        deleted_tags = set()
-        surviving_tags = set()
+    now = datetime.datetime.now()
 
-        async for tag in acr_client.list_tag_properties(
-            _MEADOWRUN_GENERATED_DOCKER_REPO,
-            # copied and modified from
-            # azure.containerregistry.aio._async_container_registry_client.py:474 Can be
-            # deleted when
-            # https://github.com/Azure/azure-sdk-for-python/pull/24621/files is merged
-            cls=lambda objs: [
-                ArtifactTagProperties._from_generated(
-                    o, repository=_MEADOWRUN_GENERATED_DOCKER_REPO  # type: ignore
-                )
-                for o in objs
-            ]
-            if objs
-            else [],
-        ):
-            # first see if we have a last used record for this tag
-            if tag.name in last_used_records:
-                last_used = last_used_records[tag.name]
-                if now - last_used > _CONTAINER_IMAGE_UNUSED_TIME:
-                    logs.append(
-                        f"Image {tag.name} will be deleted, was last used at "
-                        f"{last_used}"
-                    )
-                    delete_tasks.append(
-                        asyncio.create_task(
-                            acr_client.delete_tag(
-                                _MEADOWRUN_GENERATED_DOCKER_REPO, tag.name
-                            )
-                        )
-                    )
-                    deleted_tags.add(tag.name)
-                else:
-                    surviving_tags.add(tag.name)
-                continue
+    last_used_records = {
+        item["RowKey"]: parse_azure_timestamp(item["Timestamp"])
+        async for page in azure_table_api_paged(
+            "GET",
+            storage_account,
+            LAST_USED_TABLE_NAME,
+            query_parameters={"$filter": f"PartitionKey eq '{CONTAINER_IMAGE}'"},
+        )
+        for item in page["value"]
+    }
 
-            # if we don't have a last used record, use the last_updated property
-            if now - tag.last_updated_on > _CONTAINER_IMAGE_UNUSED_TIME:
+    deleted_tags = set()
+    surviving_tags = set()
+
+    for tag in await get_tags_in_repository(
+        registry_name, _MEADOWRUN_GENERATED_DOCKER_REPO
+    ):
+        tag_name = tag["name"]
+
+        # first see if we have a last used record for this tag
+        if tag_name in last_used_records:
+            last_used = last_used_records[tag_name]
+            if now - last_used > _CONTAINER_IMAGE_UNUSED_TIME:
                 logs.append(
-                    f"Image {tag.name} will be deleted, has not been used and last "
-                    f"updated at {tag.last_updated_on}"
+                    f"Image {tag_name} will be deleted, was last used at {last_used}"
                 )
                 delete_tasks.append(
                     asyncio.create_task(
-                        acr_client.delete_tag(
-                            _MEADOWRUN_GENERATED_DOCKER_REPO, tag.name
+                        delete_tag(
+                            registry_name, _MEADOWRUN_GENERATED_DOCKER_REPO, tag_name
                         )
                     )
                 )
+                deleted_tags.add(tag_name)
+            else:
+                surviving_tags.add(tag_name)
+            continue
 
-        for tag_name in last_used_records.keys():
-            if tag_name in surviving_tags:
-                continue
-
-            if tag_name not in deleted_tags:
-                logs.append(
-                    f"Image {tag_name} has a last_used record but the image does not "
-                    "exist. Deleting the last_used record now"
-                )
-            # if we did delete the corresponding image, still delete the last_used
-            # record, just no need to log
+        # if we don't have a last used record, use the last_updated property
+        if (
+            now - parse_azure_timestamp(tag["lastUpdateTime"])
+            > _CONTAINER_IMAGE_UNUSED_TIME
+        ):
+            logs.append(
+                f"Image {tag_name} will be deleted, has not been used and last "
+                f"updated at {tag['lastUpdateTime']}"
+            )
             delete_tasks.append(
                 asyncio.create_task(
-                    table_client.delete_entity(CONTAINER_IMAGE, tag_name)
+                    delete_tag(
+                        registry_name, _MEADOWRUN_GENERATED_DOCKER_REPO, tag_name
+                    )
                 )
             )
 
-        if delete_tasks:
-            await asyncio.wait(delete_tasks)
+    for tag_name in last_used_records.keys():
+        if tag_name in surviving_tags:
+            continue
+
+        if tag_name not in deleted_tags:
+            logs.append(
+                f"Image {tag_name} has a last_used record but the image does not "
+                "exist. Deleting the last_used record now"
+            )
+        # if we did delete the corresponding image, still delete the last_used
+        # record, just no need to log
+        delete_tasks.append(
+            asyncio.create_task(
+                azure_table_api(
+                    "DELETE",
+                    storage_account,
+                    table_key_url(LAST_USED_TABLE_NAME, CONTAINER_IMAGE, tag_name),
+                    additional_headers={"If-Match": "*"},
+                )
+            )
+        )
+
+    if delete_tasks:
+        await asyncio.wait(delete_tasks)
 
     return logs
 

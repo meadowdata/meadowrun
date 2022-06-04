@@ -25,16 +25,15 @@ from __future__ import annotations
 import abc
 import dataclasses
 import json
-from typing import Union, Optional, Dict, List, Tuple, cast
+from typing import Union, Optional, Dict, List, Tuple
 
 import boto3
-from azure.keyvault.secrets.aio import SecretClient
 from typing_extensions import Literal
 
 import meadowrun.docker_controller
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
-    get_credential_aio,
+from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+    azure_rest_api,
 )
 from meadowrun.meadowrun_pb2 import (
     AwsSecret,
@@ -105,16 +104,14 @@ async def _get_credentials_from_source(source: CredentialsSource) -> RawCredenti
         else:
             raise ValueError(f"Unknown credentials type {source.credentials_type}")
     elif isinstance(source, AzureSecret):
-        async with SecretClient(
-            f"https://{source.vault_name}.vault.azure.net/", get_credential_aio()
-        ) as client:
-            # for some reason, reveal_type(client) returns AsyncKeyVaultClientBase which
-            # is the super class of SecretClient. This is either a problem with the
-            # azure SDK type hints or a bug in mypy
-            client = cast(SecretClient, client)
-            secret_value = (await client.get_secret(source.secret_name)).value
-            if secret_value is None:
-                raise ValueError(f"Specified secret {source.secret_name} had no value")
+        result = await azure_rest_api(
+            "GET",
+            f"secrets/{source.secret_name}",
+            "7.3",
+            base_url=source.vault_name,
+            token_scope="https://vault.azure.net/.default",
+        )
+        secret_value = result["value"]
         if source.credentials_type == Credentials.Type.USERNAME_PASSWORD:
             secret_json = json.loads(secret_value)
             return UsernamePassword(secret_json["username"], secret_json["password"])

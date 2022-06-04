@@ -1,23 +1,28 @@
 import asyncio
 import io
-from typing import Tuple, Optional, cast
+from typing import Tuple, Optional
 
-import azure.core.exceptions
 import paramiko
-from azure.keyvault.secrets.aio import SecretClient
-from azure.mgmt.keyvault.aio import KeyVaultManagementClient
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
-from meadowrun.azure_integration.azure_core import (
+from meadowrun.azure_integration.azure_meadowrun_core import (
     assign_role_to_principal,
     ensure_meadowrun_resource_group,
-    get_current_user_id,
     get_subscription_id,
-    get_tenant_id,
 )
-from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
-    get_credential_aio,
+from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+    ResourceNotFoundError,
+)
+from meadowrun.azure_integration.mgmt_functions.azure.azure_identity import (
+    get_current_user_id,
+)
+from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+    azure_rest_api,
+    azure_rest_api_paged,
+    azure_rest_api_poll,
+    get_tenant_id,
+    wait_for_poll,
 )
 from meadowrun.ssh_keys import generate_rsa_private_key
 
@@ -40,70 +45,82 @@ async def _ensure_meadowrun_vault(location: str) -> str:
 
     subscription_id = await get_subscription_id()
     vault_name = get_meadowrun_vault_name(subscription_id)
-    resource_group_name = await ensure_meadowrun_resource_group(location)
+    resource_group_path = await ensure_meadowrun_resource_group(location)
+    vault_path = (
+        f"{resource_group_path}/providers/Microsoft.KeyVault/vaults/{vault_name}"
+    )
 
-    async with get_credential_aio() as credential, KeyVaultManagementClient(
-        credential, subscription_id
-    ) as key_vault_client:
-        try:
-            vault = await key_vault_client.vaults.get(resource_group_name, vault_name)
-            return vault.properties.vault_uri
-        except azure.core.exceptions.ResourceNotFoundError:
-            # theoretically key_vault_client.vaults.get_deleted() should be faster,
-            # but that requires specifying a location and there's no way to know what
-            # location the key vault may have been originally created in.
-            deleted_vault = [
-                vault
-                async for vault in key_vault_client.vaults.list_deleted()
-                if vault.name == vault_name
-            ]
-            if any(deleted_vault):
-                # if we have a deleted vault, then we should try to recover it
-                create_mode = "recover"
-                print(f"The meadowrun Key Vault {vault_name} was deleted, recovering")
-            else:
-                create_mode = "default"
-                print(
-                    f"The meadowrun Key Vault {vault_name} does not exist, creating it "
-                    "now"
-                )
+    try:
+        vault = await azure_rest_api("GET", vault_path, "2019-09-01")
+        return vault["properties"]["vaultUri"]
+    except ResourceNotFoundError:
+        # theoretically key_vault_client.vaults.get_deleted() should be faster,
+        # but that requires specifying a location and there's no way to know what
+        # location the key vault may have been originally created in.
+        deleted_vault_found = False
+        async for page in azure_rest_api_paged(
+            "GET",
+            f"/subscriptions/{subscription_id}/providers/Microsoft.KeyVault/"
+            f"deletedVaults",
+            "2019-09-01",
+        ):
+            for vault in page["value"]:
+                if vault["name"] == vault_name:
+                    deleted_vault_found = True
+                    break
 
-            # if we're creating or recreating the Key Vault, assume that we need to
-            # add the current user to the Key Vault Administrator role so that the
-            # current user can access secrets.
-            assign_role_task = asyncio.create_task(
-                assign_role_to_principal(
-                    "Key Vault Administrator", get_current_user_id(), location
-                )
+            if deleted_vault_found:
+                break
+
+        if deleted_vault_found:
+            # if we have a deleted vault, then we should try to recover it
+            create_mode = "recover"
+            print(f"The meadowrun Key Vault {vault_name} was deleted, recovering")
+        else:
+            create_mode = "default"
+            print(
+                f"The meadowrun Key Vault {vault_name} does not exist, creating it "
+                "now"
             )
 
-            # Now we can create/recover the Key Vault.
-            # https://docs.microsoft.com/en-us/python/api/azure-mgmt-keyvault/azure.mgmt.keyvault.v2021_06_01_preview.operations.vaultsoperations?view=azure-python#azure-mgmt-keyvault-v2021-06-01-preview-operations-vaultsoperations-begin-create-or-update
-            poller = await key_vault_client.vaults.begin_create_or_update(
-                resource_group_name,
-                vault_name,
-                {
+        # if we're creating or recreating the Key Vault, assume that we need to add the
+        # current user to the Key Vault Administrator role so that the current user can
+        # access secrets.
+        assign_role_task = asyncio.create_task(
+            assign_role_to_principal(
+                "Key Vault Administrator", await get_current_user_id(), location
+            )
+        )
+
+        # Now we can create/recover the Key Vault.
+        # https://docs.microsoft.com/en-us/rest/api/keyvault/keyvault/vaults/create-or-update#vaultproperties
+        vault, _ = await wait_for_poll(
+            await azure_rest_api_poll(
+                "PUT",
+                vault_path,
+                "2019-09-01",
+                "AsyncOperationJsonStatus",
+                json_content={
                     "location": location,
                     "properties": {
-                        "tenant_id": await get_tenant_id(),
+                        "tenantId": await get_tenant_id(),
                         "sku": {"family": "A", "name": "Standard"},
-                        "enable_rbac_authorization": True,
-                        "create_mode": create_mode,
+                        "enableRbacAuthorization": True,
+                        "createMode": create_mode,
                     },
                 },
             )
-            vault = await poller.result()
+        )
 
-            try:
-                await assign_role_task
-            except Exception as e:
-                print(
-                    "Warning: we were not able to assign the Key Vault "
-                    "Administrator role to the current user. You may not be able to"
-                    f" create/read secrets: {e}"
-                )
+        try:
+            await assign_role_task
+        except Exception as e:
+            print(
+                "Warning: we were not able to assign the Key Vault Administrator role "
+                f"to the current user. You may not be able to create/read secrets: {e}"
+            )
 
-            return vault.properties.vault_uri
+        return vault["properties"]["vaultUri"]
 
 
 _private_key: Optional[paramiko.RSAKey] = None
@@ -123,43 +140,47 @@ async def ensure_meadowrun_key_pair(location: str) -> Tuple[paramiko.PKey, str]:
     vault_uri = await _ensure_meadowrun_vault(location)
 
     if _private_key is None:
-        async with get_credential_aio() as credential, SecretClient(
-            vault_uri, credential
-        ) as secret_client:
-            # for some reason, reveal_type(secret_client) returns
-            # AsyncKeyVaultClientBase which is the super class of SecretClient. This is
-            # either a problem with the azure SDK type hints or a bug in mypy
-            secret_client = cast(SecretClient, secret_client)
-
+        try:
+            result = await azure_rest_api(
+                "GET",
+                f"secrets/{_MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME}",
+                "7.3",
+                base_url=vault_uri,
+                token_scope="https://vault.azure.net/.default",
+            )
+            private_key_text = result["value"]
+        except ResourceNotFoundError:
             try:
-                private_key_text = (
-                    await secret_client.get_secret(
-                        _MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME
-                    )
-                ).value
-            except azure.core.exceptions.ResourceNotFoundError:
-                try:
-                    await secret_client.get_deleted_secret(
-                        _MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME
-                    )
-                    # if we have a deleted secret, recover it, as we cannot add update a
-                    # deleted secret, we must recover it first
-                    await secret_client.recover_deleted_secret(
-                        _MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME
-                    )
-                except azure.core.exceptions.ResourceNotFoundError:
-                    pass
-
-                print(
-                    "The Azure Key Vault secret that stores the meadowrun private key "
-                    "does not exist, creating it now"
+                # if we have a deleted secret, recover it, as we cannot add update a
+                # deleted secret, we must recover it first. No need to check if the
+                # deleted secret exists already, this call will just fail with
+                # ResourceNotFoundError
+                await azure_rest_api(
+                    "POST",
+                    f"deletedsecrets/{_MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME}/recover",
+                    "7.3",
+                    base_url=vault_uri,
+                    token_scope="https://vault.azure.net/.default",
                 )
+            except ResourceNotFoundError:
+                pass
 
-                private_key_text = generate_rsa_private_key()
-                # create the private key secret
-                await secret_client.set_secret(
-                    _MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME, private_key_text
-                )
+            print(
+                "The Azure Key Vault secret that stores the meadowrun private key does "
+                "not exist, creating it now"
+            )
+
+            private_key_text = generate_rsa_private_key()
+            # create the private key secret
+            # https://docs.microsoft.com/en-us/rest/api/keyvault/secrets/set-secret/set-secret
+            await azure_rest_api(
+                "PUT",
+                f"secrets/{_MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME}",
+                "7.3",
+                base_url=vault_uri,
+                token_scope="https://vault.azure.net/.default",
+                json_content={"value": private_key_text},
+            )
 
         with io.StringIO(private_key_text) as s:
             _private_key = paramiko.RSAKey(file_obj=s)
@@ -175,20 +196,17 @@ async def ensure_meadowrun_key_pair(location: str) -> Tuple[paramiko.PKey, str]:
     ).decode("utf-8")
 
 
-async def download_ssh_key(output_path: str, file_name: str) -> None:
+async def download_ssh_key(output_path: str, location: str) -> None:
     """Downloads the meadowrun private SSH key to the specified file name"""
-    vault_uri = await _ensure_meadowrun_vault(file_name)
-    async with get_credential_aio() as credential, SecretClient(
-        vault_uri, credential
-    ) as secret_client:
-        # for some reason, reveal_type(secret_client) returns
-        # AsyncKeyVaultClientBase which is the super class of SecretClient. This is
-        # either a problem with the azure SDK type hints or a bug in mypy
-        secret_client = cast(SecretClient, secret_client)
-
-        key = (
-            await secret_client.get_secret(_MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME)
-        ).value
+    vault_uri = await _ensure_meadowrun_vault(location)
+    result = await azure_rest_api(
+        "GET",
+        f"secrets/{_MEADOWRUN_PRIVATE_SSH_KEY_SECRET_NAME}",
+        "7.3",
+        base_url=vault_uri,
+        token_scope="https://vault.azure.net/.default",
+    )
+    key = result["value"]
 
     if key is None:
         raise ValueError("Azure SSH key secret's value was None")

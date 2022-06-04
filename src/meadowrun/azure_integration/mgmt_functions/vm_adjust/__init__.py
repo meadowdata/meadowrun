@@ -9,27 +9,28 @@ import dataclasses
 import datetime
 import json
 import logging
-import os
 from typing import Optional, Sequence, List
 
-import azure.core.exceptions
-from azure.core import MatchConditions
-from azure.core.credentials import AzureNamedKeyCredential
-from azure.data.tables.aio import TableClient
-from azure.mgmt.compute.aio import ComputeManagementClient
-
-from ..azure_instance_alloc_stub import (
+from ..azure.azure_exceptions import ResourceModifiedError
+from ..azure.azure_rest_api import (
+    azure_rest_api_paged,
+    azure_rest_api_poll,
+    wait_for_poll,
+)
+from ..azure.azure_storage_api import (
+    StorageAccount,
+    azure_table_api,
+    azure_table_api_paged,
+    table_key_url,
+)
+from ..azure_constants import (
     LAST_UPDATE_TIME,
-    MEADOWRUN_RESOURCE_GROUP_NAME,
-    MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
-    MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,
-    MEADOWRUN_SUBSCRIPTION_ID,
     RUNNING_JOBS,
     SINGLE_PARTITION_KEY,
     VM_ALLOC_TABLE_NAME,
     VM_NAME,
-    get_credential_aio,
 )
+from ..mgmt_functions_shared import get_resource_group_path, get_storage_account
 
 # Terminate instances if they haven't run any jobs in the last 30 seconds
 _TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=30)
@@ -55,7 +56,9 @@ class ExistingVM:
     time_created: datetime.datetime
 
 
-async def _get_registered_vms(table_client: TableClient) -> Sequence[RegisteredVM]:
+async def _get_registered_vms(
+    storage_account: StorageAccount,
+) -> Sequence[RegisteredVM]:
     """Gets instances registered by AzureInstanceRegistrars"""
     return [
         RegisteredVM(
@@ -63,16 +66,22 @@ async def _get_registered_vms(table_client: TableClient) -> Sequence[RegisteredV
             datetime.datetime.fromisoformat(item[LAST_UPDATE_TIME]),
             len(json.loads(item[RUNNING_JOBS])),
             item[VM_NAME],
-            item.metadata["etag"],
+            item["odata.etag"],
         )
-        async for item in table_client.list_entities(
-            select=["RowKey", RUNNING_JOBS, LAST_UPDATE_TIME, VM_NAME]
+        async for page in azure_table_api_paged(
+            "GET",
+            storage_account,
+            VM_ALLOC_TABLE_NAME,
+            query_parameters={
+                "$select": ",".join(["RowKey", RUNNING_JOBS, LAST_UPDATE_TIME, VM_NAME])
+            },
         )
+        for item in page["value"]
     ]
 
 
 async def _deregister_vm(
-    table_client: TableClient, public_address: str, etag: Optional[str]
+    storage_account: StorageAccount, public_address: str, etag: Optional[str]
 ) -> bool:
     """
     Deregisters a VM. If etag is None, deregisters unconditionally. If etag is provided,
@@ -80,38 +89,53 @@ async def _deregister_vm(
     optimistic concurrency check failed). Returns True if successful.
     """
     if etag is not None:
-        kwargs = {"etag": etag, "match_condition": MatchConditions.IfNotModified}
+        if_match = etag
     else:
-        kwargs = {}
+        if_match = "*"
 
     try:
-        await table_client.delete_entity(SINGLE_PARTITION_KEY, public_address, **kwargs)
+        await azure_table_api(
+            "DELETE",
+            storage_account,
+            table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, public_address),
+            additional_headers={"If-Match": if_match},
+        )
         return True
-    except azure.core.exceptions.ResourceModifiedError:
+    except ResourceModifiedError:
         # this is how the API indicates that the etag does not match
         return False
 
 
-async def _get_all_vms(compute_client: ComputeManagementClient) -> Sequence[ExistingVM]:
+async def _get_all_vms(resource_group_path: str) -> Sequence[ExistingVM]:
     """Gets all VMs via the Azure compute API"""
     return [
-        ExistingVM(vm.name, vm.time_created)
-        async for vm in compute_client.virtual_machines.list(
-            MEADOWRUN_RESOURCE_GROUP_NAME
+        ExistingVM(item["name"], item["properties"]["timeCreated"])
+        async for page in azure_rest_api_paged(
+            "GET",
+            f"{resource_group_path}/providers/Microsoft.Compute/virtualMachines",
+            "2021-11-01",
         )
+        for item in page["value"]
     ]
 
 
-async def _terminate_vm(compute_client: ComputeManagementClient, name: str) -> None:
-    poller = await compute_client.virtual_machines.begin_delete(
-        MEADOWRUN_RESOURCE_GROUP_NAME, name
+async def _terminate_vm(resource_group_path: str, name: str) -> None:
+    await (
+        wait_for_poll(
+            await azure_rest_api_poll(
+                "DELETE",
+                f"{resource_group_path}/providers/Microsoft.Compute/virtualMachines/"
+                f"{name}",
+                "2021-11-01",
+                "LocationStatusCode",
+            )
+        )
     )
-    await poller.result()
 
 
 async def _deregister_and_terminate_vms(
-    table_client: TableClient,
-    compute_client: ComputeManagementClient,
+    storage_account: StorageAccount,
+    resource_group_path: str,
     terminate_vms_if_idle_for: datetime.timedelta,
     launch_register_delay: datetime.timedelta = _LAUNCH_REGISTER_DELAY,
 ) -> List[str]:
@@ -124,8 +148,8 @@ async def _deregister_and_terminate_vms(
     """
     logs = []
 
-    existing_vms = await _get_all_vms(compute_client)
-    registered_vms = await _get_registered_vms(table_client)
+    existing_vms = await _get_all_vms(resource_group_path)
+    registered_vms = await _get_registered_vms(storage_account)
 
     now = datetime.datetime.utcnow()
     now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
@@ -140,13 +164,13 @@ async def _deregister_and_terminate_vms(
                 f"{vm.name} ({vm.public_address}) is registered but does not exist, "
                 "deregistering"
             )
-            await _deregister_vm(table_client, vm.public_address, None)
+            await _deregister_vm(storage_account, vm.public_address, None)
         elif (
             vm.num_running_jobs == 0
             and (now - vm.last_update_time) > terminate_vms_if_idle_for
         ):
             # deregister and terminate machines that have been idle for a while
-            success = await _deregister_vm(table_client, vm.public_address, vm.etag)
+            success = await _deregister_vm(storage_account, vm.public_address, vm.etag)
             if success:
                 logs.append(
                     f"{vm.name} ({vm.public_address}) is not running any jobs and has "
@@ -155,7 +179,7 @@ async def _deregister_and_terminate_vms(
                 )
 
                 termination_tasks.append(
-                    asyncio.create_task(_terminate_vm(compute_client, vm.name))
+                    asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
                 )
 
     registered_vms_names = {vm.name for vm in registered_vms}
@@ -170,7 +194,7 @@ async def _deregister_and_terminate_vms(
                 f" at {vm.time_created}"
             )
             termination_tasks.append(
-                asyncio.create_task(_terminate_vm(compute_client, vm.name))
+                asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
             )
 
     if termination_tasks:
@@ -184,29 +208,20 @@ async def adjust() -> List[str]:
     This code is designed to run on an Azure function as set up by
     azure_mgmt_functions_setup
     """
-    storage_account_name = os.environ[MEADOWRUN_STORAGE_ACCOUNT_VARIABLE]
-    storage_account_key = os.environ[MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE]
-    async with TableClient(
-        f"https://{storage_account_name}.table.core.windows.net/",
-        VM_ALLOC_TABLE_NAME,
-        credential=AzureNamedKeyCredential(storage_account_name, storage_account_key),
-    ) as table_client, ComputeManagementClient(
-        get_credential_aio(), os.environ[MEADOWRUN_SUBSCRIPTION_ID]
-    ) as compute_client:
-        return await _deregister_and_terminate_vms(
-            table_client,
-            compute_client,
-            _TERMINATE_INSTANCES_IF_IDLE_FOR,
-            _LAUNCH_REGISTER_DELAY,
-        )
+    return await _deregister_and_terminate_vms(
+        get_storage_account(),
+        get_resource_group_path(),
+        _TERMINATE_INSTANCES_IF_IDLE_FOR,
+        _LAUNCH_REGISTER_DELAY,
+    )
 
 
-async def terminate_all_vms(compute_client: ComputeManagementClient) -> None:
+async def terminate_all_vms(resource_group_path: str) -> None:
     terminate_tasks = []
-    for vm in await _get_all_vms(compute_client):
+    for vm in await _get_all_vms(resource_group_path):
         print(f"Terminating {vm.name}")
         terminate_tasks.append(
-            asyncio.create_task(_terminate_vm(compute_client, vm.name))
+            asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
         )
     if terminate_tasks:
         await asyncio.wait(terminate_tasks)

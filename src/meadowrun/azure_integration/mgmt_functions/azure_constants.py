@@ -1,23 +1,18 @@
 """
-Things that should be in azure_instance_allocation but are also needed by the code in
-mgmt_functions
+Constants needed both by mgmt_functions and the "regular" code outside of
+mgmt_functions.
 """
 
-# this should almost never be used directly instead of ensure_meadowrun_resource_group.
 from __future__ import annotations
 
-from typing import cast, Literal
+from typing import Literal
 
-import azure.identity.aio
-from azure.core.credentials_async import AsyncTokenCredential
-
-
+# this should almost never be used directly instead of ensure_meadowrun_resource_group.
 MEADOWRUN_RESOURCE_GROUP_NAME = "Meadowrun-rg"
 
 VM_ALLOC_TABLE_NAME = "meadowrunVmAlloc"
 LAST_USED_TABLE_NAME = "meadowrunLastUsed"
 
-LAST_USED = "last_used"
 RESOURCE_TYPES_TYPE = Literal["GRID_TASK_QUEUE", "CONTAINER_IMAGE"]
 GRID_TASK_QUEUE: RESOURCE_TYPES_TYPE = "GRID_TASK_QUEUE"
 CONTAINER_IMAGE: RESOURCE_TYPES_TYPE = "CONTAINER_IMAGE"
@@ -39,20 +34,6 @@ SINGLE_PARTITION_KEY = "_"
 VM_NAME = "vm_name"
 
 
-_DEFAULT_CREDENTIAL_OPTIONS = {
-    "exclude_visual_studio_code_credential": True,
-    "exclude_environment_credential": True,
-    "exclude_shared_token_cache_credential": True,
-}
-
-
-def get_credential_aio() -> AsyncTokenCredential:
-    return cast(
-        AsyncTokenCredential,
-        azure.identity.aio.DefaultAzureCredential(**_DEFAULT_CREDENTIAL_OPTIONS),
-    )
-
-
 MEADOWRUN_STORAGE_ACCOUNT_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT"
 MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT_KEY"
 MEADOWRUN_SUBSCRIPTION_ID = "MEADOWRUN_SUBSCRIPTION_ID"
@@ -60,7 +41,7 @@ MEADOWRUN_SUBSCRIPTION_ID = "MEADOWRUN_SUBSCRIPTION_ID"
 _MEADOWRUN_GENERATED_DOCKER_REPO = "meadowrun_generated"
 
 
-def meadowrun_registry_name(subscription_id: str) -> str:
+def meadowrun_container_registry_name(subscription_id: str) -> str:
     """
     Azure Container registry names must be 5 to 50 characters, alphanumeric, and
     globally unique.

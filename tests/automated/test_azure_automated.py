@@ -2,7 +2,6 @@ import datetime
 import io
 
 import fabric
-from azure.mgmt.compute.aio import ComputeManagementClient
 
 from basics import HostProvider, BasicsSuite, MapSuite, ErrorsSuite
 from instance_registrar_suite import (
@@ -10,15 +9,15 @@ from instance_registrar_suite import (
     InstanceRegistrarSuite,
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
 )
-from meadowrun.azure_integration.azure_core import (
-    get_default_location,
-    get_subscription_id,
-)
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
+from meadowrun.azure_integration.azure_meadowrun_core import (
+    get_default_location,
+    ensure_meadowrun_resource_group,
+)
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
-    MEADOWRUN_RESOURCE_GROUP_NAME,
-    get_credential_aio,
+from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+    azure_rest_api_paged,
+    azure_rest_api,
 )
 from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     _deregister_and_terminate_vms,
@@ -83,54 +82,65 @@ class AzureVMInstanceRegistrarProvider(
         else:
             etag = None
 
-        assert instance_registrar._table_client is not None
+        assert instance_registrar._storage_account is not None
         return await _deregister_vm(
-            instance_registrar._table_client, public_address, etag
+            instance_registrar._storage_account, public_address, etag
         )
 
     async def num_currently_running_instances(
         self, instance_registrar: AzureInstanceRegistrar
     ) -> int:
         count = 0
-        async with ComputeManagementClient(
-            get_credential_aio(), subscription_id=await get_subscription_id()
-        ) as compute_client:
 
-            async for vm in compute_client.virtual_machines.list(
-                MEADOWRUN_RESOURCE_GROUP_NAME
-            ):
-                vm_info = await compute_client.virtual_machines.get(
-                    MEADOWRUN_RESOURCE_GROUP_NAME, vm.name, expand="instanceView"
-                )
-                power_states = [
-                    status.code[len("PowerState/") :]
-                    for status in vm_info.instance_view.statuses
-                    if status.code.startswith("PowerState/")
-                ]
-                if len(power_states) > 0 and power_states[-1] == "running":
-                    count += 1
+        resource_group_path = await ensure_meadowrun_resource_group(
+            instance_registrar.get_region_name()
+        )
+        virtual_machines_path = (
+            f"{resource_group_path}/providers/Microsoft.Compute/virtualMachines"
+        )
+
+        vm_names = [
+            vm["name"]
+            async for page in azure_rest_api_paged(
+                "GET",
+                virtual_machines_path,
+                "2021-11-01",
+            )
+            for vm in page["value"]
+        ]
+        for vm_name in vm_names:
+            vm = await azure_rest_api(
+                "GET",
+                f"{virtual_machines_path}/{vm_name}",
+                "2021-11-01",
+                query_parameters={"$expand": "instanceView"},
+            )
+
+            power_states = [
+                status["code"][len("PowerState/") :]
+                for status in vm["properties"]["instanceView"]["statuses"]
+                if status["code"].startswith("PowerState/")
+            ]
+            if len(power_states) > 0 and power_states[-1] == "running":
+                count += 1
 
         return count
 
     async def run_adjust(self, instance_registrar: AzureInstanceRegistrar) -> None:
-        async with ComputeManagementClient(
-            get_credential_aio(), subscription_id=await get_subscription_id()
-        ) as compute_client:
-            assert instance_registrar._table_client is not None
-            await _deregister_and_terminate_vms(
-                instance_registrar._table_client,
-                compute_client,
-                TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
-                datetime.timedelta.min,
-            )
+        assert instance_registrar._storage_account is not None
+        await _deregister_and_terminate_vms(
+            instance_registrar._storage_account,
+            await ensure_meadowrun_resource_group(instance_registrar.get_region_name()),
+            TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
+            datetime.timedelta.min,
+        )
 
     async def terminate_all_instances(
         self, instance_registrar: AzureInstanceRegistrar
     ) -> None:
-        async with ComputeManagementClient(
-            get_credential_aio(), subscription_id=await get_subscription_id()
-        ) as compute_client:
-            await terminate_all_vms(compute_client)
+        await terminate_all_vms(
+            await ensure_meadowrun_resource_group(instance_registrar.get_region_name())
+        )
 
     def cloud_provider(self) -> CloudProviderType:
         return "AzureVM"

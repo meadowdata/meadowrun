@@ -39,14 +39,16 @@ class InstanceRegistrarProvider(abc.ABC, Generic[_TInstanceRegistrar]):
         This function could live on InstanceRegistrar directly, but there's no use for
         it outside of tests yet.
         """
-        await asyncio.wait(
-            [
-                self.deregister_instance(
-                    instance_registrar, instance.public_address, False
-                )
-                for instance in await instance_registrar.get_registered_instances()
-            ]
-        )
+        registered_instances = await instance_registrar.get_registered_instances()
+        if registered_instances:
+            await asyncio.wait(
+                [
+                    self.deregister_instance(
+                        instance_registrar, instance.public_address, False
+                    )
+                    for instance in registered_instances
+                ]
+            )
 
     @abc.abstractmethod
     async def deregister_instance(

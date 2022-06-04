@@ -6,18 +6,24 @@ import json
 from types import TracebackType
 from typing import Tuple, List, Optional, Sequence, Literal, Type, Any, Dict
 
-import azure.core.exceptions
-from azure.core import MatchConditions
-from azure.data.tables import UpdateMode
-from azure.data.tables.aio import TableClient
-
 import meadowrun.azure_integration.azure_vms
-from meadowrun.azure_integration.azure_core import (
-    get_default_location,
+from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_table,
+    get_default_location,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+    ResourceExistsError,
+    ResourceModifiedError,
+    ResourceNotFoundError,
+)
+from meadowrun.azure_integration.mgmt_functions.azure.azure_storage_api import (
+    StorageAccount,
+    azure_table_api,
+    azure_table_api_paged,
+    table_key_url,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
     LAST_UPDATE_TIME,
     LOGICAL_CPU_ALLOCATED,
@@ -55,10 +61,10 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         self._table_location = table_location
         self._on_table_missing = on_table_missing
 
-        self._table_client: Optional[TableClient] = None
+        self._storage_account: Optional[StorageAccount] = None
 
     async def __aenter__(self) -> AzureInstanceRegistrar:
-        self._table_client = await ensure_table(
+        self._storage_account = await ensure_table(
             VM_ALLOC_TABLE_NAME, self._table_location, self._on_table_missing
         )
         return self
@@ -69,8 +75,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         exc_val: BaseException,
         exc_tb: TracebackType,
     ) -> None:
-        if self._table_client is not None:
-            await self._table_client.__aexit__(exc_typ, exc_val, exc_tb)
+        pass
 
     def get_region_name(self) -> str:
         return self._table_location
@@ -82,7 +87,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         resources_available: Resources,
         running_jobs: List[Tuple[str, Resources]],
     ) -> None:
-        if self._table_client is None:
+        if self._storage_account is None:
             raise ValueError(
                 "Tried to use AzureInstanceRegistrar without calling __aenter__"
             )
@@ -90,8 +95,12 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         now = datetime.datetime.utcnow().isoformat()
         try:
             # See EC2InstanceRegistrar.register_instance for more details on the schema
-            await self._table_client.create_entity(
-                {
+            # https://docs.microsoft.com/en-us/rest/api/storageservices/insert-entity
+            await azure_table_api(
+                "POST",  # inserts rather than replace/update
+                self._storage_account,
+                VM_ALLOC_TABLE_NAME,
+                json_content={
                     "PartitionKey": SINGLE_PARTITION_KEY,
                     "RowKey": public_address,
                     VM_NAME: name,
@@ -108,9 +117,9 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                         }
                     ),
                     LAST_UPDATE_TIME: now,
-                }
+                },
             )
-        except azure.core.exceptions.ResourceExistsError:
+        except ResourceExistsError:
             # It's possible that an existing EC2 instance crashed unexpectedly, the
             # coordinator record hasn't been deleted yet, and a new instance was created
             # that has the same address
@@ -125,11 +134,12 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         AzureVMInstanceState because we will need them in allocate_jobs_to_instance and
         deallocate_job_from_instance
         """
-        if self._table_client is None:
+        if self._storage_account is None:
             raise ValueError(
                 "Tried to use AzureInstanceRegistrar without calling __aenter__"
             )
 
+        # https://docs.microsoft.com/en-us/rest/api/storageservices/query-entities
         return [
             AzureVMInstanceState(
                 item["RowKey"],
@@ -140,17 +150,25 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 ),
                 json.loads(item[RUNNING_JOBS]),
                 item[VM_NAME],
-                item.metadata["etag"],
+                item["odata.etag"],
             )
-            async for item in self._table_client.list_entities(
-                select=[
-                    "RowKey",
-                    LOGICAL_CPU_AVAILABLE,
-                    MEMORY_GB_AVAILABLE,
-                    RUNNING_JOBS,
-                    VM_NAME,
-                ]
+            async for page in azure_table_api_paged(
+                "GET",
+                self._storage_account,
+                VM_ALLOC_TABLE_NAME,
+                query_parameters={
+                    "$select": ",".join(
+                        [
+                            "RowKey",
+                            LOGICAL_CPU_AVAILABLE,
+                            MEMORY_GB_AVAILABLE,
+                            RUNNING_JOBS,
+                            VM_NAME,
+                        ]
+                    ),
+                },
             )
+            for item in page["value"]
         ]
 
     async def get_registered_instance(
@@ -161,25 +179,31 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         AzureVMInstanceState because we will need them in allocate_jobs_to_instance and
         deallocate_job_from_instance
         """
-        if self._table_client is None:
+        if self._storage_account is None:
             raise ValueError(
                 "Tried to use AzureInstanceRegistrar without calling __aenter__"
             )
 
         try:
-            item = await self._table_client.get_entity(
-                SINGLE_PARTITION_KEY,
-                public_address,
-                select=[
-                    "RowKey",
-                    LOGICAL_CPU_AVAILABLE,
-                    MEMORY_GB_AVAILABLE,
-                    RUNNING_JOBS,
-                    VM_NAME,
-                ],
+            item = await azure_table_api(
+                "GET",
+                self._storage_account,
+                table_key_url(
+                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, public_address
+                ),
+                query_parameters={
+                    "$select": ",".join(
+                        [
+                            "RowKey",
+                            LOGICAL_CPU_AVAILABLE,
+                            MEMORY_GB_AVAILABLE,
+                            RUNNING_JOBS,
+                            VM_NAME,
+                        ]
+                    )
+                },
             )
-
-        except azure.core.exceptions.ResourceNotFoundError:
+        except ResourceNotFoundError:
             raise ValueError(f"VM {public_address} was not found")
 
         return AzureVMInstanceState(
@@ -189,7 +213,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             ),
             json.loads(item[RUNNING_JOBS]),
             item[VM_NAME],
-            item.metadata["etag"],
+            item["odata.etag"],
         )
 
     async def allocate_jobs_to_instance(
@@ -198,7 +222,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         resources_allocated_per_job: Resources,
         new_job_ids: List[str],
     ) -> bool:
-        if self._table_client is None:
+        if self._storage_account is None:
             raise ValueError(
                 "Tried to use AzureInstanceRegistrar without calling __aenter__"
             )
@@ -230,22 +254,24 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         )
 
         try:
-            await self._table_client.update_entity(
-                {
-                    "PartitionKey": SINGLE_PARTITION_KEY,
-                    "RowKey": instance.public_address,
+            # https://docs.microsoft.com/en-us/rest/api/storageservices/update-entity2
+            await azure_table_api(
+                "PUT",  # replace rather than merge
+                self._storage_account,
+                table_key_url(
+                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.public_address
+                ),
+                json_content={
                     VM_NAME: instance.name,
                     LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
                     MEMORY_GB_AVAILABLE: new_memory_gb_available,
                     RUNNING_JOBS: json.dumps(new_running_jobs),
                     LAST_UPDATE_TIME: now,
                 },
-                UpdateMode.REPLACE,
-                etag=instance.etag,
-                match_condition=MatchConditions.IfNotModified,
+                additional_headers={"If-Match": instance.etag},
             )
             return True
-        except azure.core.exceptions.ResourceModifiedError:
+        except ResourceModifiedError:
             # this is how the API indicates that the etag does not match, i.e. the
             # optimistic concurrency check failed
             return False
@@ -253,7 +279,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
     async def deallocate_job_from_instance(
         self, instance: AzureVMInstanceState, job_id: str
     ) -> bool:
-        if self._table_client is None:
+        if self._storage_account is None:
             raise ValueError(
                 "Tried to use AzureInstanceRegistrar without calling __aenter__"
             )
@@ -273,22 +299,24 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         now = datetime.datetime.utcnow().isoformat()
 
         try:
-            await self._table_client.update_entity(
-                {
-                    "PartitionKey": SINGLE_PARTITION_KEY,
-                    "RowKey": instance.public_address,
+            # https://docs.microsoft.com/en-us/rest/api/storageservices/update-entity2
+            await azure_table_api(
+                "PUT",
+                self._storage_account,
+                table_key_url(
+                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.public_address
+                ),
+                json_content={
                     VM_NAME: instance.name,
                     LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
                     MEMORY_GB_AVAILABLE: new_memory_gb_available,
                     RUNNING_JOBS: json.dumps(new_running_jobs),
                     LAST_UPDATE_TIME: now,
                 },
-                UpdateMode.REPLACE,
-                etag=instance.etag,
-                match_condition=MatchConditions.IfNotModified,
+                additional_headers={"If-Match": instance.etag},
             )
             return True
-        except azure.core.exceptions.ResourceModifiedError:
+        except ResourceModifiedError:
             # this is how the API indicates that the etag does not match, i.e. the
             # optimistic concurrency check failed
             return False

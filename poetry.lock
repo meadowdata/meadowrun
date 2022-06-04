@@ -113,259 +113,6 @@ tests = ["coverage[toml] (>=5.0.2)", "hypothesis", "pympler", "pytest (>=4.3.0)"
 tests_no_zope = ["coverage[toml] (>=5.0.2)", "hypothesis", "pympler", "pytest (>=4.3.0)", "six", "mypy", "pytest-mypy-plugins", "cloudpickle"]
 
 [[package]]
-name = "azure-common"
-version = "1.1.28"
-description = "Microsoft Azure Client Library for Python (Common)"
-category = "main"
-optional = false
-python-versions = "*"
-
-[[package]]
-name = "azure-containerregistry"
-version = "1.0.0"
-description = "Microsoft Azure Azure Container Registry Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-core = ">=1.20.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-core"
-version = "1.24.0"
-description = "Microsoft Azure Core Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-requests = ">=2.18.4"
-six = ">=1.11.0"
-typing-extensions = ">=4.0.1"
-
-[[package]]
-name = "azure-data-tables"
-version = "12.4.0"
-description = "Microsoft Azure Azure Data Tables Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-core = ">=1.15.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-identity"
-version = "1.10.0"
-description = "Microsoft Azure Identity Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-core = ">=1.11.0,<2.0.0"
-cryptography = ">=2.5"
-msal = ">=1.12.0,<2.0.0"
-msal-extensions = ">=0.3.0,<2.0.0"
-six = ">=1.12.0"
-
-[[package]]
-name = "azure-keyvault-secrets"
-version = "4.4.0"
-description = "Microsoft Azure Key Vault Secrets Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-core = ">=1.20.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-applicationinsights"
-version = "3.0.0"
-description = "Microsoft Azure Application Insights Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-authorization"
-version = "2.0.0"
-description = "Microsoft Azure Authorization Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.2.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-compute"
-version = "26.1.0"
-description = "Microsoft Azure Compute Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-containerregistry"
-version = "9.1.0"
-description = "Microsoft Azure Container Registry Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-core"
-version = "1.3.0"
-description = "Microsoft Azure Management Core Library for Python"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-azure-core = ">=1.15.0,<2.0.0"
-
-[[package]]
-name = "azure-mgmt-keyvault"
-version = "9.3.0"
-description = "Microsoft Azure Keyvault Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.2.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-loganalytics"
-version = "12.0.0"
-description = "Microsoft Azure Log Analytics Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.2.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-msi"
-version = "6.0.1"
-description = "Microsoft Azure Msi Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-network"
-version = "19.3.0"
-description = "Microsoft Azure Network Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.2.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-resource"
-version = "21.1.0"
-description = "Microsoft Azure Resource Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-storage"
-version = "20.0.0"
-description = "Microsoft Azure Storage Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-subscription"
-version = "3.0.0"
-description = "Microsoft Azure Subscription Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-mgmt-web"
-version = "6.1.0"
-description = "Microsoft Azure Web Apps Management Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-common = ">=1.1,<2.0"
-azure-mgmt-core = ">=1.3.0,<2.0.0"
-msrest = ">=0.6.21"
-
-[[package]]
-name = "azure-storage-queue"
-version = "12.3.0"
-description = "Microsoft Azure Azure Queue Storage Client Library for Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-azure-core = ">=1.23.1,<2.0.0"
-cryptography = ">=2.1.4"
-msrest = ">=0.6.21"
-
-[[package]]
 name = "bcrypt"
 version = "3.2.2"
 description = "Modern password hashing for your software and your servers"
@@ -1024,17 +771,6 @@ optional = false
 python-versions = "*"
 
 [[package]]
-name = "isodate"
-version = "0.6.1"
-description = "An ISO 8601 date/time/duration parser and formatter"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-six = "*"
-
-[[package]]
 name = "jinja2"
 version = "3.1.2"
 description = "A very fast and expressive template engine."
@@ -1213,59 +949,6 @@ mkdocstrings = ">=0.18"
 pytkdocs = ">=0.14"
 
 [[package]]
-name = "msal"
-version = "1.17.0"
-description = "The Microsoft Authentication Library (MSAL) for Python library enables your app to access the Microsoft Cloud by supporting authentication of users with Microsoft Azure Active Directory accounts (AAD) and Microsoft Accounts (MSA) using industry standard OAuth2 and OpenID Connect."
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-cryptography = ">=0.6,<39"
-PyJWT = {version = ">=1.0.0,<3", extras = ["crypto"]}
-requests = ">=2.0.0,<3"
-
-[[package]]
-name = "msal-extensions"
-version = "1.0.0"
-description = "Microsoft Authentication Library extensions (MSAL EX) provides a persistence API that can save your data on disk, encrypted on Windows, macOS and Linux. Concurrent data access will be coordinated by a file lock mechanism."
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-msal = ">=0.4.1,<2.0.0"
-portalocker = [
-    {version = ">=1.0,<3", markers = "python_version >= \"3.5\" and platform_system != \"Windows\""},
-    {version = ">=1.6,<3", markers = "python_version >= \"3.5\" and platform_system == \"Windows\""},
-]
-
-[[package]]
-name = "msgraph-core"
-version = "0.2.2"
-description = "Core component of the Microsoft Graph Python SDK consisting of HTTP/Graph Client and a configurable middleware pipeline (Preview)."
-category = "main"
-optional = false
-python-versions = ">=3.5"
-
-[[package]]
-name = "msrest"
-version = "0.6.21"
-description = "AutoRest swagger generator Python client runtime."
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.dependencies]
-certifi = ">=2017.4.17"
-isodate = ">=0.6.0"
-requests = ">=2.16,<3.0"
-requests-oauthlib = ">=0.5.0"
-
-[package.extras]
-async = ["aiohttp (>=3.0)", "aiodns"]
-
-[[package]]
 name = "multidict"
 version = "6.0.2"
 description = "multidict implementation"
@@ -1311,19 +994,6 @@ python-versions = ">=3.6"
 [package.dependencies]
 protobuf = ">=3.19.3"
 types-protobuf = ">=3.19.5"
-
-[[package]]
-name = "oauthlib"
-version = "3.2.0"
-description = "A generic, spec-compliant, thorough implementation of the OAuth request-signing logic"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.extras]
-rsa = ["cryptography (>=3.0.0)"]
-signals = ["blinker (>=1.4.0)"]
-signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
 
 [[package]]
 name = "packaging"
@@ -1403,22 +1073,6 @@ dev = ["pre-commit", "tox"]
 testing = ["pytest", "pytest-benchmark"]
 
 [[package]]
-name = "portalocker"
-version = "2.4.0"
-description = "Wraps the portalocker recipe for easy usage"
-category = "main"
-optional = false
-python-versions = ">=3.5"
-
-[package.dependencies]
-pywin32 = {version = ">=226", markers = "platform_system == \"Windows\""}
-
-[package.extras]
-docs = ["sphinx (>=1.7.1)"]
-redis = ["redis"]
-tests = ["pytest (>=5.4.1)", "pytest-cov (>=2.8.1)", "sphinx (>=3.0.3)", "pytest-mypy (>=0.8.0)", "redis"]
-
-[[package]]
 name = "protobuf"
 version = "3.20.1"
 description = "Protocol Buffers"
@@ -1476,23 +1130,6 @@ description = "Pygments is a syntax highlighting package written in Python."
 category = "dev"
 optional = false
 python-versions = ">=3.6"
-
-[[package]]
-name = "pyjwt"
-version = "2.4.0"
-description = "JSON Web Token implementation in Python"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[package.dependencies]
-cryptography = {version = ">=3.3.1", optional = true, markers = "extra == \"crypto\""}
-
-[package.extras]
-crypto = ["cryptography (>=3.3.1)"]
-dev = ["sphinx", "sphinx-rtd-theme", "zope.interface", "cryptography (>=3.3.1)", "pytest (>=6.0.0,<7.0.0)", "coverage[toml] (==5.0.4)", "mypy", "pre-commit"]
-docs = ["sphinx", "sphinx-rtd-theme", "zope.interface"]
-tests = ["pytest (>=6.0.0,<7.0.0)", "coverage[toml] (==5.0.4)"]
 
 [[package]]
 name = "pymdown-extensions"
@@ -1610,14 +1247,6 @@ typing-extensions = {version = ">=3.7", markers = "python_version < \"3.8\""}
 numpy-style = ["docstring_parser (>=0.7)"]
 
 [[package]]
-name = "pywin32"
-version = "304"
-description = "Python for Window Extensions"
-category = "main"
-optional = false
-python-versions = "*"
-
-[[package]]
 name = "pyyaml"
 version = "6.0"
 description = "YAML parser and emitter for Python"
@@ -1653,21 +1282,6 @@ urllib3 = ">=1.21.1,<1.27"
 [package.extras]
 socks = ["PySocks (>=1.5.6,!=1.5.7)", "win-inet-pton"]
 use_chardet_on_py3 = ["chardet (>=3.0.2,<5)"]
-
-[[package]]
-name = "requests-oauthlib"
-version = "1.3.1"
-description = "OAuthlib authentication support for Requests."
-category = "main"
-optional = false
-python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
-
-[package.dependencies]
-oauthlib = ">=3.0.0"
-requests = ">=2.0.0"
-
-[package.extras]
-rsa = ["oauthlib[signedtoken] (>=3.0.0)"]
 
 [[package]]
 name = "s3transfer"
@@ -2153,9 +1767,28 @@ optional = false
 python-versions = "*"
 
 [[package]]
+name = "types-requests"
+version = "2.27.30"
+description = "Typing stubs for requests"
+category = "dev"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+types-urllib3 = "<1.27"
+
+[[package]]
 name = "types-setuptools"
 version = "57.4.17"
 description = "Typing stubs for setuptools"
+category = "dev"
+optional = false
+python-versions = "*"
+
+[[package]]
+name = "types-urllib3"
+version = "1.26.15"
+description = "Typing stubs for urllib3"
 category = "dev"
 optional = false
 python-versions = "*"
@@ -2239,7 +1872,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "01f878b08a5e2f9a41251c3adff9b229b7473a0b80824e7cb62d2e7d8a86d44a"
+content-hash = "612f4112a085d329560488ebffd39fd62753210277793fa1610d165a6da3513c"
 
 [metadata.files]
 aiobotocore = [
@@ -2346,86 +1979,6 @@ atomicwrites = [
 attrs = [
     {file = "attrs-21.4.0-py2.py3-none-any.whl", hash = "sha256:2d27e3784d7a565d36ab851fe94887c5eccd6a463168875832a1be79c82828b4"},
     {file = "attrs-21.4.0.tar.gz", hash = "sha256:626ba8234211db98e869df76230a137c4c40a12d72445c45d5f5b716f076e2fd"},
-]
-azure-common = [
-    {file = "azure-common-1.1.28.zip", hash = "sha256:4ac0cd3214e36b6a1b6a442686722a5d8cc449603aa833f3f0f40bda836704a3"},
-    {file = "azure_common-1.1.28-py2.py3-none-any.whl", hash = "sha256:5c12d3dcf4ec20599ca6b0d3e09e86e146353d443e7fcc050c9a19c1f9df20ad"},
-]
-azure-containerregistry = [
-    {file = "azure-containerregistry-1.0.0.zip", hash = "sha256:0c86421d933969e2ad989ae0c00939276ea5b5ac4dc4a527deb47e15b9aec997"},
-    {file = "azure_containerregistry-1.0.0-py3-none-any.whl", hash = "sha256:780c08f604036b93c22db47811b205ae1a229c4aa63d481b1eedf6c2e041cd73"},
-]
-azure-core = [
-    {file = "azure-core-1.24.0.zip", hash = "sha256:345b1b041faad7d0205b20d5697f1d0df344302e7aaa8501905580ff87bd0be5"},
-    {file = "azure_core-1.24.0-py3-none-any.whl", hash = "sha256:923e492e72d103c768a643dfad331ce6b8ec1669575c7d0832fed19bffd119f7"},
-]
-azure-data-tables = [
-    {file = "azure-data-tables-12.4.0.zip", hash = "sha256:dd5fc8de91e2f8908efa4c64ca7f63cf83b3068a9ba426298de3b54139e9665c"},
-    {file = "azure_data_tables-12.4.0-py3-none-any.whl", hash = "sha256:a9a2f3a7db410a874c91d5b0994c697d3d8c54c322be1bbf3d1186ec74ab0968"},
-]
-azure-identity = [
-    {file = "azure-identity-1.10.0.zip", hash = "sha256:656e5034d9cef297cf9b35376ed620085273c18cfa52cea4a625bf0d5d2d6409"},
-    {file = "azure_identity-1.10.0-py3-none-any.whl", hash = "sha256:b386f1ccbea6a48b9ab7e7f162adc456793c345193a7c1a713959562b08dcbbd"},
-]
-azure-keyvault-secrets = [
-    {file = "azure-keyvault-secrets-4.4.0.zip", hash = "sha256:c0b732db9de855d9c39766067cf43e2f66cdbb28b859f03c787e33924cca82d7"},
-    {file = "azure_keyvault_secrets-4.4.0-py3-none-any.whl", hash = "sha256:7143c6e83398a7aba048e44413f7f26b6ce43505afb3e3c89ba62b25f06dd729"},
-]
-azure-mgmt-applicationinsights = [
-    {file = "azure-mgmt-applicationinsights-3.0.0.zip", hash = "sha256:2b8e89d16a90b78bf0af5084e328f12944ff02d76ce412ecd24f048ce038cb30"},
-    {file = "azure_mgmt_applicationinsights-3.0.0-py3-none-any.whl", hash = "sha256:2e61fcbd96e4030575871d943e9bb9424a967d7b7e056919a15923b3e8db746c"},
-]
-azure-mgmt-authorization = [
-    {file = "azure-mgmt-authorization-2.0.0.zip", hash = "sha256:0776edc4980be940a8602eefc0372b4d1a1fa26caa46e3c0234e0c7a0feda4ec"},
-    {file = "azure_mgmt_authorization-2.0.0-py2.py3-none-any.whl", hash = "sha256:02bcf52ccd1594ebf484741f5a7110dc28ee970664bb75493561d1a180874d38"},
-]
-azure-mgmt-compute = [
-    {file = "azure-mgmt-compute-26.1.0.zip", hash = "sha256:2bade74fcb31d8f08816173ed5e080b3f22d1126eff7103ef060e7da16422475"},
-    {file = "azure_mgmt_compute-26.1.0-py3-none-any.whl", hash = "sha256:d394a1772286e005009a3b40ebbeda135b4b1d5bda18f8af1ad4e87f6f3096e5"},
-]
-azure-mgmt-containerregistry = [
-    {file = "azure-mgmt-containerregistry-9.1.0.zip", hash = "sha256:8e4cc62c3aab260c029f3dbb946cc5938776abe8f43fe3d4f2e51519083b3240"},
-    {file = "azure_mgmt_containerregistry-9.1.0-py3-none-any.whl", hash = "sha256:06ab1bb871063a83b32d0d188b9da6cec4d7937102213f01491f3e53680ea2d3"},
-]
-azure-mgmt-core = [
-    {file = "azure-mgmt-core-1.3.0.zip", hash = "sha256:3ffb7352b39e5495dccc2d2b47254f4d82747aff4735e8bf3267c335b0c9bb40"},
-    {file = "azure_mgmt_core-1.3.0-py2.py3-none-any.whl", hash = "sha256:7b7fa952aeb9d3eaa13eff905880f3d3b62200f7be7a8ba5a50c8b2e7295322a"},
-]
-azure-mgmt-keyvault = [
-    {file = "azure-mgmt-keyvault-9.3.0.zip", hash = "sha256:54156422e618b686d52232a7989594b240bd18afd0fa381e12e4772ed4ab5ea8"},
-    {file = "azure_mgmt_keyvault-9.3.0-py2.py3-none-any.whl", hash = "sha256:4ef0285292de9d833e5b1a56b9667ef7f7fd435ac44ad179b917ed3f3470c974"},
-]
-azure-mgmt-loganalytics = [
-    {file = "azure-mgmt-loganalytics-12.0.0.zip", hash = "sha256:da128a7e0291be7fa2063848df92a9180cf5c16d42adc09d2bc2efd711536bfb"},
-    {file = "azure_mgmt_loganalytics-12.0.0-py2.py3-none-any.whl", hash = "sha256:75ac1d47dd81179905c40765be8834643d8994acff31056ddc1863017f3faa02"},
-]
-azure-mgmt-msi = [
-    {file = "azure-mgmt-msi-6.0.1.zip", hash = "sha256:3cf910994a01909f12bbb87d1b6fedf1d572fcf4f7b826198e57fbd1f9d8daf5"},
-    {file = "azure_mgmt_msi-6.0.1-py3-none-any.whl", hash = "sha256:e52a7470f6a839b0ab2363b6eb6b3c38892e7fa92d2b03dd87f4ab55c35f4447"},
-]
-azure-mgmt-network = [
-    {file = "azure-mgmt-network-19.3.0.zip", hash = "sha256:0b6a1ccdffd76e057ab16a6c319740a0ca68d59fedf7e9c02f2437396e72aa11"},
-    {file = "azure_mgmt_network-19.3.0-py2.py3-none-any.whl", hash = "sha256:00e391243ed772ebfe551dec3a3f50c4001ac622a4c5504ef4453001f8c63433"},
-]
-azure-mgmt-resource = [
-    {file = "azure-mgmt-resource-21.1.0.zip", hash = "sha256:52965ade31cd059fea2b1513d65fe616046e433de0e583dcf5c9c9bebf3ebd69"},
-    {file = "azure_mgmt_resource-21.1.0-py3-none-any.whl", hash = "sha256:5c8203f72bfb483adb345f73df1be65351072f25714fc6bb77eb0d5b970aba3b"},
-]
-azure-mgmt-storage = [
-    {file = "azure-mgmt-storage-20.0.0.zip", hash = "sha256:6ee476b5622ff6f5954edee6eb0d8dd427b3217022855adf1ec8633ca04cdee2"},
-    {file = "azure_mgmt_storage-20.0.0-py3-none-any.whl", hash = "sha256:bc7a79d16b2979a2d6e6adb0b90b323ddbd91457848095c89f73119df6c34565"},
-]
-azure-mgmt-subscription = [
-    {file = "azure-mgmt-subscription-3.0.0.zip", hash = "sha256:157bd9123a5814473a9cd131832ea614c478548722ec01f47b35d778dc307d55"},
-    {file = "azure_mgmt_subscription-3.0.0-py3-none-any.whl", hash = "sha256:826dd252d7483b2f374d41685f63700b2d9bd98aaf73317f5a2a04a6109ef640"},
-]
-azure-mgmt-web = [
-    {file = "azure-mgmt-web-6.1.0.zip", hash = "sha256:c26635089276515b0488fcf014aab50a0446f54800c6e0e5583cc493ac8d738f"},
-    {file = "azure_mgmt_web-6.1.0-py3-none-any.whl", hash = "sha256:123c0fd9cd8fff14ed18db36c157071bf7813beaa24d133522c269f622119162"},
-]
-azure-storage-queue = [
-    {file = "azure-storage-queue-12.3.0.zip", hash = "sha256:231f4ee6ddcb95ce85bb55a6e96f17e15b1f08f16abdb9567e8fd275cdb6f8e2"},
-    {file = "azure_storage_queue-12.3.0-py3-none-any.whl", hash = "sha256:010a3f6ed8798b6677f5ea44f83f75e7cd1b383b9c023576585b0c51bd687a40"},
 ]
 bcrypt = [
     {file = "bcrypt-3.2.2-cp36-abi3-macosx_10_10_universal2.whl", hash = "sha256:7180d98a96f00b1050e93f5b0f556e658605dd9f524d0b0e68ae7944673f525e"},
@@ -2798,10 +2351,6 @@ invoke = [
     {file = "invoke-1.7.1-py3-none-any.whl", hash = "sha256:2dc975b4f92be0c0a174ad2d063010c8a1fdb5e9389d69871001118b4fcac4fb"},
     {file = "invoke-1.7.1.tar.gz", hash = "sha256:7b6deaf585eee0a848205d0b8c0014b9bf6f287a8eb798818a642dff1df14b19"},
 ]
-isodate = [
-    {file = "isodate-0.6.1-py2.py3-none-any.whl", hash = "sha256:0751eece944162659049d35f4f549ed815792b38793f07cf73381c1c87cbed96"},
-    {file = "isodate-0.6.1.tar.gz", hash = "sha256:48c5881de7e8b0a0d648cb024c8062dc84e7b840ed81e864c7614fd3c127bde9"},
-]
 jinja2 = [
     {file = "Jinja2-3.1.2-py3-none-any.whl", hash = "sha256:6088930bfe239f0e6710546ab9c19c9ef35e29792895fed6e6e31a023a182a61"},
     {file = "Jinja2-3.1.2.tar.gz", hash = "sha256:31351a702a408a9e7595a8fc6150fc3f43bb6bf7e319770cbc0db9df9437e852"},
@@ -2895,22 +2444,6 @@ mkdocstrings-python = [
 mkdocstrings-python-legacy = [
     {file = "mkdocstrings-python-legacy-0.2.2.tar.gz", hash = "sha256:f0e7ec6a19750581b752acb38f6b32fcd1efe006f14f6703125d2c2c9a5c6f02"},
     {file = "mkdocstrings_python_legacy-0.2.2-py3-none-any.whl", hash = "sha256:379107a3a5b8db9b462efc4493c122efe21e825e3702425dbd404621302a563a"},
-]
-msal = [
-    {file = "msal-1.17.0-py2.py3-none-any.whl", hash = "sha256:5a52d78e70d2c451e267c1e8c2342e4c06f495c75c859aeafd9260d3974f09fe"},
-    {file = "msal-1.17.0.tar.gz", hash = "sha256:04e3cb7bb75c51f56d290381f23056207df1f3eb594ed03d38551f3b16d2a36e"},
-]
-msal-extensions = [
-    {file = "msal-extensions-1.0.0.tar.gz", hash = "sha256:c676aba56b0cce3783de1b5c5ecfe828db998167875126ca4b47dc6436451354"},
-    {file = "msal_extensions-1.0.0-py2.py3-none-any.whl", hash = "sha256:91e3db9620b822d0ed2b4d1850056a0f133cba04455e62f11612e40f5502f2ee"},
-]
-msgraph-core = [
-    {file = "msgraph-core-0.2.2.tar.gz", hash = "sha256:147324246788abe8ed7e05534cd9e4e0ec98b33b30e011693b8d014cebf97f63"},
-    {file = "msgraph_core-0.2.2-py3-none-any.whl", hash = "sha256:e297564b9a0ca228493d8851f95cb2de9522143d82efa40ce3a6ad286e21392e"},
-]
-msrest = [
-    {file = "msrest-0.6.21-py2.py3-none-any.whl", hash = "sha256:c840511c845330e96886011a236440fafc2c9aff7b2df9c0a92041ee2dee3782"},
-    {file = "msrest-0.6.21.tar.gz", hash = "sha256:72661bc7bedc2dc2040e8f170b6e9ef226ee6d3892e01affd4d26b06474d68d8"},
 ]
 multidict = [
     {file = "multidict-6.0.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:0b9e95a740109c6047602f4db4da9949e6c5945cefbad34a1299775ddc9a62e2"},
@@ -3006,10 +2539,6 @@ mypy-protobuf = [
     {file = "mypy-protobuf-3.2.0.tar.gz", hash = "sha256:730aa15337c38f0446fbe08f6c6c2370ee01d395125369d4b70e08b1e2ee30ee"},
     {file = "mypy_protobuf-3.2.0-py3-none-any.whl", hash = "sha256:65fc0492165f4a3c0aff69b03e34096fc1453e4dac8f14b4e9c2306cdde06010"},
 ]
-oauthlib = [
-    {file = "oauthlib-3.2.0-py3-none-any.whl", hash = "sha256:6db33440354787f9b7f3a6dbd4febf5d0f93758354060e802f6c06cb493022fe"},
-    {file = "oauthlib-3.2.0.tar.gz", hash = "sha256:23a8208d75b902797ea29fd31fa80a15ed9dc2c6c16fe73f5d346f83f6fa27a2"},
-]
 packaging = [
     {file = "packaging-21.3-py3-none-any.whl", hash = "sha256:ef103e05f519cdc783ae24ea4e2e0f508a9c99b2d4969652eed6a2e1ea5bd522"},
     {file = "packaging-21.3.tar.gz", hash = "sha256:dd47c42927d89ab911e606518907cc2d3a1f38bbd026385970643f9c5b8ecfeb"},
@@ -3033,10 +2562,6 @@ platformdirs = [
 pluggy = [
     {file = "pluggy-1.0.0-py2.py3-none-any.whl", hash = "sha256:74134bbf457f031a36d68416e1509f34bd5ccc019f0bcc952c7b909d06b37bd3"},
     {file = "pluggy-1.0.0.tar.gz", hash = "sha256:4224373bacce55f955a878bf9cfa763c1e360858e330072059e10bad68531159"},
-]
-portalocker = [
-    {file = "portalocker-2.4.0-py2.py3-none-any.whl", hash = "sha256:b092f48e1e30a234ab3dd1cfd44f2f235e8a41f4e310e463fc8d6798d1c3c235"},
-    {file = "portalocker-2.4.0.tar.gz", hash = "sha256:a648ad761b8ea27370cb5915350122cd807b820d2193ed5c9cc28f163df637f4"},
 ]
 protobuf = [
     {file = "protobuf-3.20.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:3cc797c9d15d7689ed507b165cd05913acb992d78b379f6014e013f9ecb20996"},
@@ -3118,10 +2643,6 @@ pygments = [
     {file = "Pygments-2.12.0-py3-none-any.whl", hash = "sha256:dc9c10fb40944260f6ed4c688ece0cd2048414940f1cea51b8b226318411c519"},
     {file = "Pygments-2.12.0.tar.gz", hash = "sha256:5eb116118f9612ff1ee89ac96437bb6b49e8f04d8a13b514ba26f620208e26eb"},
 ]
-pyjwt = [
-    {file = "PyJWT-2.4.0-py3-none-any.whl", hash = "sha256:72d1d253f32dbd4f5c88eaf1fdc62f3a19f676ccbadb9dbc5d07e951b2b26daf"},
-    {file = "PyJWT-2.4.0.tar.gz", hash = "sha256:d42908208c699b3b973cbeb01a969ba6a96c821eefb1c5bfe4c390c01d67abba"},
-]
 pymdown-extensions = [
     {file = "pymdown_extensions-9.4-py3-none-any.whl", hash = "sha256:5b7432456bf555ce2b0ab3c2439401084cda8110f24f6b3ecef952b8313dfa1b"},
     {file = "pymdown_extensions-9.4.tar.gz", hash = "sha256:1baa22a60550f731630474cad28feb0405c8101f1a7ddc3ec0ed86ee510bcc43"},
@@ -3162,22 +2683,6 @@ python-dateutil = [
 pytkdocs = [
     {file = "pytkdocs-0.16.1-py3-none-any.whl", hash = "sha256:a8c3f46ecef0b92864cc598e9101e9c4cf832ebbf228f50c84aa5dd850aac379"},
     {file = "pytkdocs-0.16.1.tar.gz", hash = "sha256:e2ccf6dfe9dbbceb09818673f040f1a7c32ed0bffb2d709b06be6453c4026045"},
-]
-pywin32 = [
-    {file = "pywin32-304-cp310-cp310-win32.whl", hash = "sha256:3c7bacf5e24298c86314f03fa20e16558a4e4138fc34615d7de4070c23e65af3"},
-    {file = "pywin32-304-cp310-cp310-win_amd64.whl", hash = "sha256:4f32145913a2447736dad62495199a8e280a77a0ca662daa2332acf849f0be48"},
-    {file = "pywin32-304-cp310-cp310-win_arm64.whl", hash = "sha256:d3ee45adff48e0551d1aa60d2ec066fec006083b791f5c3527c40cd8aefac71f"},
-    {file = "pywin32-304-cp311-cp311-win32.whl", hash = "sha256:30c53d6ce44c12a316a06c153ea74152d3b1342610f1b99d40ba2795e5af0269"},
-    {file = "pywin32-304-cp311-cp311-win_amd64.whl", hash = "sha256:7ffa0c0fa4ae4077e8b8aa73800540ef8c24530057768c3ac57c609f99a14fd4"},
-    {file = "pywin32-304-cp311-cp311-win_arm64.whl", hash = "sha256:cbbe34dad39bdbaa2889a424d28752f1b4971939b14b1bb48cbf0182a3bcfc43"},
-    {file = "pywin32-304-cp36-cp36m-win32.whl", hash = "sha256:be253e7b14bc601718f014d2832e4c18a5b023cbe72db826da63df76b77507a1"},
-    {file = "pywin32-304-cp36-cp36m-win_amd64.whl", hash = "sha256:de9827c23321dcf43d2f288f09f3b6d772fee11e809015bdae9e69fe13213988"},
-    {file = "pywin32-304-cp37-cp37m-win32.whl", hash = "sha256:f64c0377cf01b61bd5e76c25e1480ca8ab3b73f0c4add50538d332afdf8f69c5"},
-    {file = "pywin32-304-cp37-cp37m-win_amd64.whl", hash = "sha256:bb2ea2aa81e96eee6a6b79d87e1d1648d3f8b87f9a64499e0b92b30d141e76df"},
-    {file = "pywin32-304-cp38-cp38-win32.whl", hash = "sha256:94037b5259701988954931333aafd39cf897e990852115656b014ce72e052e96"},
-    {file = "pywin32-304-cp38-cp38-win_amd64.whl", hash = "sha256:ead865a2e179b30fb717831f73cf4373401fc62fbc3455a0889a7ddac848f83e"},
-    {file = "pywin32-304-cp39-cp39-win32.whl", hash = "sha256:25746d841201fd9f96b648a248f731c1dec851c9a08b8e33da8b56148e4c65cc"},
-    {file = "pywin32-304-cp39-cp39-win_amd64.whl", hash = "sha256:d24a3382f013b21aa24a5cfbfad5a2cd9926610c0affde3e8ab5b3d7dbcf4ac9"},
 ]
 pyyaml = [
     {file = "PyYAML-6.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:d4db7c7aef085872ef65a8fd7d6d09a14ae91f691dec3e87ee5ee0539d516f53"},
@@ -3221,10 +2726,6 @@ pyyaml-env-tag = [
 requests = [
     {file = "requests-2.27.1-py2.py3-none-any.whl", hash = "sha256:f22fa1e554c9ddfd16e6e41ac79759e17be9e492b3587efa038054674760e72d"},
     {file = "requests-2.27.1.tar.gz", hash = "sha256:68d7c56fd5a8999887728ef304a6d12edc7be74f1cfa47714fc8b414525c9a61"},
-]
-requests-oauthlib = [
-    {file = "requests-oauthlib-1.3.1.tar.gz", hash = "sha256:75beac4a47881eeb94d5ea5d6ad31ef88856affe2332b9aafb52c6452ccf0d7a"},
-    {file = "requests_oauthlib-1.3.1-py2.py3-none-any.whl", hash = "sha256:2577c501a2fb8d05a304c09d090d6e47c306fef15809d102b327cf8364bddab5"},
 ]
 s3transfer = [
     {file = "s3transfer-0.5.2-py3-none-any.whl", hash = "sha256:7a6f4c4d1fdb9a2b640244008e142cbc2cd3ae34b386584ef044dd0f27101971"},
@@ -3316,9 +2817,17 @@ types-pytz = [
     {file = "types-pytz-2021.3.8.tar.gz", hash = "sha256:41253a3a2bf028b6a3f17b58749a692d955af0f74e975de94f6f4d2d3cd01dbd"},
     {file = "types_pytz-2021.3.8-py3-none-any.whl", hash = "sha256:aef4a917ab28c585d3f474bfce4f4b44b91e95d9d47d4de29dd845e0db8e3910"},
 ]
+types-requests = [
+    {file = "types-requests-2.27.30.tar.gz", hash = "sha256:ca8d7cc549c3d10dbcb3c69c1b53e3ffd1270089c1001a65c1e9e1017eb5e704"},
+    {file = "types_requests-2.27.30-py3-none-any.whl", hash = "sha256:b9b6cd0a6e5d500e56419b79f44ec96f316e9375ff6c8ee566c39d25e9612621"},
+]
 types-setuptools = [
     {file = "types-setuptools-57.4.17.tar.gz", hash = "sha256:9d556fcaf6808a1cead4aaa41e5c07a61f0152a875811e1239738eba4e0b7b16"},
     {file = "types_setuptools-57.4.17-py3-none-any.whl", hash = "sha256:9c7cdaf0d55113e24ac17103bde2d434472abf1dbf444238e989fe4e798ffa26"},
+]
+types-urllib3 = [
+    {file = "types-urllib3-1.26.15.tar.gz", hash = "sha256:c89283541ef92e344b7f59f83ea9b5a295b16366ceee3f25ecfc5593c79f794e"},
+    {file = "types_urllib3-1.26.15-py3-none-any.whl", hash = "sha256:6011befa13f901fc934f59bb1fd6973be6f3acf4ebfce427593a27e7f492918f"},
 ]
 typing-extensions = [
     {file = "typing_extensions-4.2.0-py3-none-any.whl", hash = "sha256:6657594ee297170d19f67d55c05852a874e7eb634f4f753dbd667855e07c1708"},

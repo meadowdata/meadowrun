@@ -33,12 +33,14 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
     run_job_ec2_instance_registrar,
 )
 from meadowrun.aws_integration.grid_tasks_sqs import prepare_ec2_run_map
-from meadowrun.azure_integration.azure_core import get_subscription_id_sync
 from meadowrun.azure_integration.azure_instance_allocation import (
     run_job_azure_vm_instance_registrar,
 )
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.azure_integration.grid_tasks_queue import prepare_azure_vm_run_map
+from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+    get_subscription_id_sync,
+)
 from meadowrun.conda import env_export
 from meadowrun.config import JOB_ID_VALID_CHARACTERS, MEADOWRUN_INTERPRETER
 from meadowrun.credentials import CredentialsSourceForService

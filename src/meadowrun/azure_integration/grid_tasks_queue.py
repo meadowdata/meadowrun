@@ -21,25 +21,27 @@ from typing import (
     cast,
 )
 
-from azure.mgmt.storage.aio import StorageManagementClient
-from azure.storage.queue import BinaryBase64EncodePolicy, BinaryBase64DecodePolicy
-from azure.storage.queue.aio import QueueClient
-
-from meadowrun.azure_integration.azure_core import (
+from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
+from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_storage_account,
     get_default_location,
-    get_subscription_id,
     record_last_used,
 )
-from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
+from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+    azure_rest_api,
+)
+from meadowrun.azure_integration.mgmt_functions.azure.azure_storage_api import (
+    StorageAccount,
+    queue_delete_message,
+    queue_receive_messages,
+    queue_send_message,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     GRID_TASK_QUEUE,
-    MEADOWRUN_RESOURCE_GROUP_NAME,
     QUEUE_NAME_TIMESTAMP_FORMAT,
     _REQUEST_QUEUE_NAME_PREFIX,
     _RESULT_QUEUE_NAME_PREFIX,
-    get_credential_aio,
 )
 from meadowrun.instance_allocation import allocate_jobs_to_instances
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
@@ -51,30 +53,17 @@ _U = TypeVar("_U")
 
 
 @dataclasses.dataclass(frozen=True)
-class QueueClientParameters:
-    """Basically a QueueClient constructor lambda"""
+class Queue:
+    """Everything we need to be able to access a queue"""
 
     queue_job_id: str
-    _queue_name: str
-    _storage_connection_string: str
-
-    def get_queue_client(self) -> QueueClient:
-        # cast is necessary because type hint for from_connection_string is wrong
-        return cast(
-            QueueClient,
-            QueueClient.from_connection_string(
-                self._storage_connection_string,
-                self._queue_name,
-                message_encode_policy=BinaryBase64EncodePolicy(),
-                message_decode_policy=BinaryBase64DecodePolicy(),
-            ),
-        )
+    queue_name: str
+    storage_account: StorageAccount
 
 
 async def create_queues_and_add_tasks(
-    location: str,
-    tasks: Iterable[Any],
-) -> Tuple[QueueClientParameters, QueueClientParameters]:
+    location: str, tasks: Iterable[Any]
+) -> Tuple[Queue, Queue]:
     job_id = str(uuid.uuid4())
     print(f"The current run_map's id is {job_id}")
     request_queue, result_queue = await _create_queues_for_job(job_id, location)
@@ -82,107 +71,106 @@ async def create_queues_and_add_tasks(
     return request_queue, result_queue
 
 
-async def _create_queues_for_job(
-    job_id: str, location: str
-) -> Tuple[QueueClientParameters, QueueClientParameters]:
-    storage_account_name, storage_account_key = await ensure_meadowrun_storage_account(
-        location, "create"
+async def _create_queues_for_job(job_id: str, location: str) -> Tuple[Queue, Queue]:
+    storage_account = await ensure_meadowrun_storage_account(location, "create")
+    now = datetime.datetime.utcnow().strftime(QUEUE_NAME_TIMESTAMP_FORMAT)
+    request_queue_task = azure_rest_api(
+        "PUT",
+        f"{storage_account.get_path()}/queueServices/default/queues/"
+        f"{_REQUEST_QUEUE_NAME_PREFIX}-{job_id}-{now}",
+        "2021-09-01",
+        json_content={},
     )
-    storage_connection_string = (
-        f"DefaultEndpointsProtocol=https;AccountName={storage_account_name};"
-        f"AccountKey={storage_account_key}"
+    result_queue_task = azure_rest_api(
+        "PUT",
+        f"{storage_account.get_path()}/queueServices/default/queues/"
+        f"{_RESULT_QUEUE_NAME_PREFIX}-{job_id}-{now}",
+        "2021-09-01",
+        json_content={},
     )
 
-    async with StorageManagementClient(
-        get_credential_aio(), await get_subscription_id()
-    ) as mgmt_client:
-        now = datetime.datetime.utcnow().strftime(QUEUE_NAME_TIMESTAMP_FORMAT)
-        request_queue_task = asyncio.create_task(
-            mgmt_client.queue.create(
-                MEADOWRUN_RESOURCE_GROUP_NAME,
-                storage_account_name,
-                f"{_REQUEST_QUEUE_NAME_PREFIX}-{job_id}-{now}",
-                {},
-            )
-        )
-        result_queue_task = asyncio.create_task(
-            mgmt_client.queue.create(
-                MEADOWRUN_RESOURCE_GROUP_NAME,
-                storage_account_name,
-                f"{_RESULT_QUEUE_NAME_PREFIX}-{job_id}-{now}",
-                {},
-            )
-        )
-        return (
-            QueueClientParameters(
-                job_id, (await request_queue_task).name, storage_connection_string
-            ),
-            QueueClientParameters(
-                job_id, (await result_queue_task).name, storage_connection_string
-            ),
-        )
+    return (
+        Queue(job_id, (await request_queue_task)["name"], storage_account),
+        Queue(job_id, (await result_queue_task)["name"], storage_account),
+    )
 
 
-async def _add_tasks(
-    request_queue: QueueClientParameters, tasks: Iterable[Any]
-) -> None:
-    async with request_queue.get_queue_client() as client:
-        for i, task in enumerate(tasks):
-            await client.send_message(
+async def _add_tasks(request_queue: Queue, tasks: Iterable[Any]) -> None:
+    await asyncio.wait(
+        [
+            queue_send_message(
+                request_queue.storage_account,
+                request_queue.queue_name,
                 GridTask(
                     task_id=i, pickled_function_arguments=pickle.dumps(task)
-                ).SerializeToString()
+                ).SerializeToString(),
             )
+            for i, task in enumerate(tasks)
+        ]
+    )
 
 
-async def _get_task(
-    request_queue: QueueClientParameters, result_queue: QueueClientParameters
-) -> Optional[GridTask]:
-    async with request_queue.get_queue_client() as request_queue_client:
-        message = await request_queue_client.receive_message(visibility_timeout=5)
+async def _get_task(request_queue: Queue, result_queue: Queue) -> Optional[GridTask]:
+    messages = await queue_receive_messages(
+        request_queue.storage_account,
+        request_queue.queue_name,
+        visibility_timeout_secs=5,
+    )
 
-        # there was nothing in the queue
-        if message is None:
-            return None
+    # there was nothing in the queue
+    if len(messages) == 0:
+        return None
 
-        task = GridTask()
-        task.ParseFromString(message["content"])
+    if len(messages) > 1:
+        raise ValueError(
+            "queue_receive_messages returned more than 1 message unexpectedly"
+        )
 
-        async with result_queue.get_queue_client() as result_queue_client:
-            await result_queue_client.send_message(
-                GridTaskStateResponse(
-                    task_id=task.task_id,
-                    process_state=ProcessState(
-                        state=ProcessState.ProcessStateEnum.RUN_REQUESTED,
-                        # TODO needs to include public address and worker id
-                    ),
-                ).SerializeToString()
-            )
+    task = GridTask()
+    task.ParseFromString(messages[0].message_content)
 
-        await request_queue_client.delete_message(message["id"], message["pop_receipt"])
+    await queue_send_message(
+        result_queue.storage_account,
+        result_queue.queue_name,
+        GridTaskStateResponse(
+            task_id=task.task_id,
+            process_state=ProcessState(
+                state=ProcessState.ProcessStateEnum.RUN_REQUESTED,
+                # TODO needs to include public address and worker id
+            ),
+        ).SerializeToString(),
+    )
+
+    await queue_delete_message(
+        request_queue.storage_account,
+        request_queue.queue_name,
+        messages[0].message_id,
+        messages[0].pop_receipt,
+    )
 
     return task
 
 
 async def _complete_task(
-    result_queue: QueueClientParameters,
+    result_queue: Queue,
     task: GridTask,
     process_state: ProcessState,
     public_address: str,
     worker_id: int,
 ) -> None:
-    async with result_queue.get_queue_client() as client:
-        await client.send_message(
-            GridTaskStateResponse(
-                task_id=task.task_id, process_state=process_state
-            ).SerializeToString()
-        )
+    await queue_send_message(
+        result_queue.storage_account,
+        result_queue.queue_name,
+        GridTaskStateResponse(
+            task_id=task.task_id, process_state=process_state
+        ).SerializeToString(),
+    )
 
 
 async def worker_loop_async(
     function: Callable[[Any], Any],
-    request_queue: QueueClientParameters,
-    result_queue: QueueClientParameters,
+    request_queue: Queue,
+    result_queue: Queue,
     public_address: str,
     worker_id: int,
 ) -> None:
@@ -219,8 +207,8 @@ async def worker_loop_async(
 
 def worker_loop(
     function: Callable[[Any], Any],
-    request_queue: QueueClientParameters,
-    result_queue: QueueClientParameters,
+    request_queue: Queue,
+    result_queue: Queue,
     public_address: str,
     worker_id: int,
 ) -> None:
@@ -231,9 +219,7 @@ def worker_loop(
     )
 
 
-async def get_results(
-    result_queue: QueueClientParameters, num_tasks: int, location: str
-) -> List[Any]:
+async def get_results(result_queue: Queue, num_tasks: int, location: str) -> List[Any]:
     task_results_received = 0
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
@@ -243,38 +229,44 @@ async def get_results(
 
     t0 = None
     updated = True
-    async with result_queue.get_queue_client() as client:
-        while task_results_received < num_tasks:
-            if updated or t0 is None or time.time() - t0 > 20:
-                # log this message every 20 seconds, or whenever there's an update
-                t0 = time.time()
-                updated = False
-                print(
-                    f"Waiting for grid tasks. Requested: {num_tasks}, "
-                    f"running: {sum(1 for task in running_tasks if task is not None)}, "
-                    f"completed: {sum(1 for task in task_results if task is not None)}"
-                )
-                await record_last_used(
-                    GRID_TASK_QUEUE, result_queue.queue_job_id, location
-                )
+    while task_results_received < num_tasks:
+        if updated or t0 is None or time.time() - t0 > 20:
+            # log this message every 20 seconds, or whenever there's an update
+            t0 = time.time()
+            updated = False
+            print(
+                f"Waiting for grid tasks. Requested: {num_tasks}, "
+                f"running: {sum(1 for task in running_tasks if task is not None)}, "
+                f"completed: {sum(1 for task in task_results if task is not None)}"
+            )
+            await record_last_used(GRID_TASK_QUEUE, result_queue.queue_job_id, location)
 
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.receive_message
-            async for message in client.receive_messages(visibility_timeout=10):
-                updated = True
+        for message in await queue_receive_messages(
+            result_queue.storage_account,
+            result_queue.queue_name,
+            visibility_timeout_secs=10,
+            num_messages=32,  # the max number of messages to get at once
+        ):
+            updated = True
 
-                task_result = GridTaskStateResponse()
-                task_result.ParseFromString(message["content"])
+            task_result = GridTaskStateResponse()
+            task_result.ParseFromString(message.message_content)
 
-                if (
-                    task_result.process_state.state
-                    == ProcessState.ProcessStateEnum.RUN_REQUESTED
-                ):
-                    running_tasks[task_result.task_id] = task_result.process_state
-                elif task_results[task_result.task_id] is None:
-                    task_results[task_result.task_id] = task_result.process_state
-                    task_results_received += 1
+            if (
+                task_result.process_state.state
+                == ProcessState.ProcessStateEnum.RUN_REQUESTED
+            ):
+                running_tasks[task_result.task_id] = task_result.process_state
+            elif task_results[task_result.task_id] is None:
+                task_results[task_result.task_id] = task_result.process_state
+                task_results_received += 1
 
-                await client.delete_message(message["id"], message["pop_receipt"])
+            await queue_delete_message(
+                result_queue.storage_account,
+                result_queue.queue_name,
+                message.message_id,
+                message.pop_receipt,
+            )
 
     # we're guaranteed by the logic in the while loop that we don't have any Nones left
     # in task_results

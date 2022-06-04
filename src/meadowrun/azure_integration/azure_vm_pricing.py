@@ -1,11 +1,10 @@
 from typing import Dict, Tuple, Optional, Iterable, Any, List, cast
 
 import aiohttp
-from azure.mgmt.compute.aio import ComputeManagementClient
 
-from meadowrun.azure_integration.azure_core import get_subscription_id
-from meadowrun.azure_integration.mgmt_functions.azure_instance_alloc_stub import (
-    get_credential_aio,
+from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
+from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+    azure_rest_api_paged,
 )
 from meadowrun.instance_selection import (
     CloudInstanceType,
@@ -20,25 +19,24 @@ async def _get_vm_skus(location: str) -> Dict[str, Tuple[float, int]]:
     """Returns name -> (memory_gb, logical_cpu)"""
     result = {}
 
-    async with get_credential_aio() as credential, ComputeManagementClient(
-        credential, await get_subscription_id()
-    ) as client:
-        # Unfortunately the slightly friendlier client.virtual_machine_sizes.list
-        # function is deprecated as per
-        # https://docs.microsoft.com/en-us/rest/api/compute/virtual-machine-sizes/list
-        #
-        # The new API is https://docs.microsoft.com/en-us/rest/api/compute/resource-skus
-        # The python API for the replacement (resource_skus) doesn't support location,
-        # but we can use params to manually pass in a location filter. The underlying
-        # REST API does not support any other filters.
-        async for r in client.resource_skus.list(
-            params=f"$filter=location eq " f"'{location}'"
-        ):
-            if r.resource_type == "virtualMachines":
+    # Unfortunately the slightly friendlier client.virtual_machine_sizes.list function
+    # is deprecated as per
+    # https://docs.microsoft.com/en-us/rest/api/compute/virtual-machine-sizes/list
+    #
+    # The new API is https://docs.microsoft.com/en-us/rest/api/compute/resource-skus The
+    # underlying REST API does not support any filters other than location
+    async for page in azure_rest_api_paged(
+        "GET",
+        f"subscriptions/{await get_subscription_id()}/providers/Microsoft.Compute/skus",
+        "2021-07-01",
+        query_parameters={"$filter": f"location eq '{location}'"},
+    ):
+        for r in page["value"]:
+            if r["resourceType"] == "virtualMachines":
                 capabilities = {
-                    c.name: c.value
-                    for c in r.capabilities
-                    if c.name in _RELEVANT_CAPABILITIES
+                    c["name"]: c["value"]
+                    for c in r["capabilities"]
+                    if c["name"] in _RELEVANT_CAPABILITIES
                 }
                 if "V2" in capabilities.get("HyperVGenerations", ""):
                     # can't find documentation on the difference between vCPUsAvailable
@@ -53,13 +51,13 @@ async def _get_vm_skus(location: str) -> Dict[str, Tuple[float, int]]:
 
                     if not logical_cpu or not memory_gb:
                         print(
-                            f"Warning {r.name} could not be processed because vCPUs "
+                            f"Warning {r['name']} could not be processed because vCPUs "
                             "and/or MemoryGB is missing"
                         )
-                    elif r.name in result:
-                        print(f"Warning ignoring duplicate record for {r.name}")
+                    elif r["name"] in result:
+                        print(f"Warning ignoring duplicate record for {r['name']}")
                     else:
-                        result[r.name] = float(memory_gb), int(logical_cpu)
+                        result[r["name"]] = float(memory_gb), int(logical_cpu)
 
     return result
 

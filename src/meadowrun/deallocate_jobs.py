@@ -13,7 +13,7 @@ from meadowrun.aws_integration.aws_core import (
 )
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
-from meadowrun.azure_integration.azure_core import (
+from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
     get_current_ip_address_on_vm,
 )

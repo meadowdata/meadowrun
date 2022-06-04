@@ -5,7 +5,7 @@ uploading an image to it.
 
 import subprocess
 
-from meadowrun.azure_integration.azure_core import get_subscription_id
+from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.credentials import CredentialsSource, CredentialsSourceForService
 from meadowrun.docker_controller import delete_images_from_repository

@@ -172,12 +172,20 @@ async def build_meadowrun_ami():
         else:
             print("Image is pending, sleeping for 5s...")
             time.sleep(5)
+    # make it public
+    client.modify_image_attribute(
+        ImageId=image_id, LaunchPermission={"Add": [{"Group": "all"}]}
+    )
     print("Done! Terminating instance")
 
     # now terminate the instance as we don't need it anymore
     client.terminate_instances(InstanceIds=[instance_id])
 
     print(f"New image id: {image_id}")
+    print(
+        "After testing, you will need to replicate to other regions via "
+        f"`python build_scripts\\replicate_ami.py {image_id}`"
+    )
     print("Remember to delete old AMIs and snapshots!")
 
 

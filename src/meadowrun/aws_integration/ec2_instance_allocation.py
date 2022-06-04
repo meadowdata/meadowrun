@@ -48,15 +48,15 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # AMIs that have meadowrun pre-installed. These are all identical, we just need to
 # replicate into each region.
 _EC2_ALLOC_AMIS = {
-    "us-east-2": "ami-0810b9cac54c59181",
-    "us-east-1": "ami-0af0e4776302b8b9d",
-    "us-west-1": "ami-0a1268e99883a6551",
-    "us-west-2": "ami-0bcccb168b298dd0d",
-    "eu-central-1": "ami-0ade73b74a1485e64",
-    "eu-west-1": "ami-0c0ed7b56e10df8bf",
-    "eu-west-2": "ami-0cfcea3ddef0fe695",
-    "eu-west-3": "ami-06869071ee28b5ccc",
-    "eu-north-1": "ami-0ddade5e219321c69",
+    "us-east-2": "ami-004b3424bf92d9177",
+    "us-east-1": "ami-012e9d193b89375d5",
+    "us-west-1": "ami-0c52a37a6e38158dd",
+    "us-west-2": "ami-0575fbcd477b0cf64",
+    "eu-central-1": "ami-0491e6d53114982f9",
+    "eu-west-1": "ami-03a40cc6e0deee8ee",
+    "eu-west-2": "ami-0fa4a1d0e75ef8adb",
+    "eu-west-3": "ami-0d16b7b5918ea8361",
+    "eu-north-1": "ami-004dc0266e779cc12",
 }
 
 

@@ -29,15 +29,21 @@ _MEADOWRUN_VIRTUAL_NETWORK_NAME = "Meadowrun-vnet"
 _MEADOWRUN_SUBNET_NAME = "Meadowrun-subnet"
 _MEADOWRUN_USERNAME = "meadowrunuser"
 
-# This id does not appear to be available on the Azure Portal. The easiest way to get it
-# is to navigate to the image definition in the portal and then run `az sig
-# image-definition list --resource-group meadowrun-dev --gallery-name
-# meadowrun.dev.gallery`
-_MEADOWRUN_IMAGE_DEFINITION_ID = (
-    "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/resourceGroups/meadowrun-dev/"
-    "providers/Microsoft.Compute/galleries/meadowrun.dev.gallery/images/meadowrun"
+
+# To get this ID, first create an image by manually running the equivalent of
+# build_ami.py in Azure. (TODO should write a script for this.) This requires creating a
+# compute gallery using the "Community Sharing" preview feature. Instructions for
+# setting up the community compute gallery:
+# https://docs.microsoft.com/en-us/azure/virtual-machines/azure-compute-gallery
+# https://docs.microsoft.com/en-us/azure/virtual-machines/create-gallery?tabs=portal%2Ccli2#create-a-community-gallery-preview
+# Finally, you'll need to get the community image id (NOT the image's regular id!) and
+# copy/paste that here, using the following command:
+# https://docs.microsoft.com/en-us/cli/azure/sig/image-definition?view=azure-cli-latest#az-sig-image-definition-list-community
+_MEADOWRUN_COMMUNITY_IMAGE_ID = (
+    "/CommunityGalleries/meadowprodeastus-e8b60fd5-8978-467b-a1b0-5b83cbf5393d/Images/"
+    "meadowrun"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.0.15"
+_MEADOWRUN_IMAGE_VERSION = "0.1.7"
 
 
 async def _ensure_virtual_network_and_subnet(location: str) -> str:
@@ -210,21 +216,17 @@ async def _provision_vm(
             },
             "storageProfile": {
                 "imageReference": {
-                    # according to
-                    # https://docs.microsoft.com/en-us/rest/api/compute/virtual-machines/create-or-update#imagereference
-                    # for sharedGalleryImageId and communityGalleryImageId (and
-                    # presumably for "id" as well), we should not use the version field
-                    # and instead just give the id of the image definition rather than
-                    # the id of a specific version.
-                    # TODO until our community compute gallery is enabled by Microsoft
-                    # this won't work for anyone unless we explicitly share it with them
-                    "id": (
-                        f"{_MEADOWRUN_IMAGE_DEFINITION_ID}/versions/"
+                    "communityGalleryImageId": (
+                        f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/"
                         f"{_MEADOWRUN_IMAGE_VERSION}"
-                    ),
-                    # this does not seem to have any effect, the "id" version takes
-                    # precedence
-                    "exactVersion": _MEADOWRUN_IMAGE_VERSION,
+                    )
+                    # for development, you can replace this with something like
+                    # "id": (
+                    #     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/"
+                    #     "resourceGroups/meadowrun-dev/providers/Microsoft.Compute/"
+                    #     "galleries/meadowrun.dev.gallery/images/meadowrun/versions/"
+                    #     f"{_MEADOWRUN_IMAGE_VERSION}"
+                    # ),
                 },
                 "osDisk": {
                     "createOption": "FromImage",

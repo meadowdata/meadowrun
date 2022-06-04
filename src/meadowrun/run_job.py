@@ -314,8 +314,7 @@ class _DeploymentTarget(Enum):
         if cloud_provider == "EC2":
             return _DeploymentTarget.S3
         elif cloud_provider == "AzureVM":
-            # return _DeploymentTarget.AZURE_BLOB_STORAGE
-            raise NotImplementedError("Azure Blob Storage is not implemented yet")
+            return _DeploymentTarget.AZURE_BLOB_STORAGE
         else:
             raise ValueError(f"Unknown cloud provider {cloud_provider}")
 
@@ -340,16 +339,20 @@ async def _prepare_code_deployment(
 
     if target == _DeploymentTarget.LOCAL:
         return code_deploy
-
-    # need to deploy zip file to S3, and update the CodeZipFile
-    file_url = urllib.parse.urlparse(code_deploy.url)
-    if file_url.scheme != "file":
-        raise ValueError(f"Expected file URI: {code_deploy.url}")
-    bucket_name, object_name = await s3.ensure_uploaded(file_url.path)
-    s3_url = urllib.parse.urlunparse(("s3", bucket_name, object_name, "", "", ""))
-    code_deploy.url = s3_url
-    shutil.rmtree(os.path.dirname(file_url.path), ignore_errors=True)
-    return code_deploy
+    elif target == _DeploymentTarget.S3:
+        # need to deploy zip file to S3, and update the CodeZipFile
+        file_url = urllib.parse.urlparse(code_deploy.url)
+        if file_url.scheme != "file":
+            raise ValueError(f"Expected file URI: {code_deploy.url}")
+        bucket_name, object_name = await s3.ensure_uploaded(file_url.path)
+        s3_url = urllib.parse.urlunparse(("s3", bucket_name, object_name, "", "", ""))
+        code_deploy.url = s3_url
+        shutil.rmtree(os.path.dirname(file_url.path), ignore_errors=True)
+        return code_deploy
+    elif target == _DeploymentTarget.AZURE_BLOB_STORAGE:
+        raise NotImplementedError("Azure Blob Storage is not implemented yet")
+    else:
+        raise ValueError(f"Unexpected value for target {target}")
 
 
 @dataclasses.dataclass(frozen=True)

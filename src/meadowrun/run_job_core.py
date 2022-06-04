@@ -93,7 +93,7 @@ class SshHost(Host):
                 # should (but doesn't strictly need to) correspond to
                 # agent._set_up_working_folder
 
-                # try the first command 3 times, as this is when we actually try to
+                # try the first command 20 times, as this is when we actually try to
                 # connect to the remote machine.
                 home_result = await _retry(
                     lambda: connection.run("echo $HOME", hide=True, in_stream=False),
@@ -101,6 +101,7 @@ class SshHost(Host):
                         cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
                         cast(Exception, TimeoutError),
                     ),
+                    max_num_attempts=20,
                 )
                 if not home_result.ok:
                     raise ValueError(

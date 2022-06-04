@@ -535,10 +535,16 @@ def parse_azure_timestamp(s: str) -> datetime.datetime:
     """
     main, sep, frac = s.rpartition(".")
     # frac will be e.g. 0.3535722Z
-    if sep != "." or not frac.endswith("Z"):
+    if sep != ".":
         raise ValueError(f"Unable to parse Timestamp from Azure table: {s}")
 
-    frac = frac[:-1]  # drop the Z, so 0.3535722
+    if frac.endswith("Z"):
+        frac = frac[:-1]  # drop the Z, so 0.3535722
+    elif frac.endswith("+00:00"):
+        frac = frac[:-6]
+    else:
+        raise ValueError(f"Unable to parse Timestamp from Azure table: {s}")
+
     frac_rounded = round(float(f"0.{frac}"), 6)  # round to 6 digits, so 0.353572
     frac = str(frac_rounded)[2:]  # drop the 0., so 353572
 

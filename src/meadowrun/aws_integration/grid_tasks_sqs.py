@@ -44,11 +44,6 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 
 
-# On Windows, aiohttp via aiobotocore causes messages like "Exception ignored in:
-# <function _ProactorBasePipeTransport.__del__ at 0x...>" to be printed. These can be
-# safely ignored: https://github.com/aio-libs/aiohttp/issues/4324
-
-
 async def create_queues_and_add_tasks(
     region_name: str, tasks: Iterable[Any]
 ) -> Tuple[str, str]:

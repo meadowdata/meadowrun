@@ -1,0 +1,89 @@
+# TODO we should write a script to generate this file automatically from pyproject.toml.
+# For now, we just keep it in sync by hand.
+
+# To build a conda package:
+# 1. Update this file to be in sync with pyproject.toml, see the comments in this file
+#    for what needs to be synced from pyproject.toml
+# 2. Build the pip package using `poetry build`
+# 3. Unpack the resulting meadowrun-0.1.7.tar.gz file into /dist/meadowrun-0.1.7. (E.g.
+#    setup.py should be at /dist/meadowrun-0.1.7/setup.py.)
+# 4. Now run `conda build -c defaults -c conda-forge --python 3.9 .` from this directory
+
+# 5a. To test this, you can install this package into a conda environment by running
+#     `conda install meadowrun -c c:\bin\Miniconda\conda-bld -c defaults -c conda-forge`
+#     (obviously replace c:\bin\Miniconda with your conda installation)
+
+# 5b. To publish this image, run `conda activate base` then `anaconda upload
+#     C:\bin\Miniconda\conda-bld\noarch\meadowrun-0.1.7-py_0.tar.bz2`. If you're running
+#     this for the first time, you'll need to run `anaconda login` before you run
+#     `anaconda upload`
+
+package:
+  name: meadowrun
+  version: 0.1.7  # from pyproject.toml
+source:
+  path: ../../dist/meadowrun-0.1.7  # from pyproject.toml
+build:
+  entry_points:  # from pyproject.toml
+    - meadowrun-local = meadowrun.run_job_local_main:command_line_main
+    - meadowrun-manage-ec2 = meadowrun.manage:main_ec2
+    - meadowrun-manage-azure-vm = meadowrun.manage:main_azure_vm
+  noarch: python
+  number: '0'
+  script: "python.exe -m pip install . -vv"
+  string: py_0
+requirements:
+  host:  # from pyproject.toml + poetry
+    - aiobotocore >=2.1.2,<3.0.0
+    - aiohttp >=3.8.0,<4.0.0
+    - boto3 ==1.21.21
+    - cloudpickle >=2.0.0,<3.0.0
+    - fabric >=2.6.0,<3.0.0
+    - filelock >=3.6.0,<4.0.0
+    - poetry
+    - protobuf >=3.18.1,<4.0.0
+    - psutil >=5.8.0,<6.0.0
+    - python >=3.7
+    - requests >=2.27.1,<3.0.0
+    - typing-extensions >=4.1.1,<5.0.0
+  run:  # from pyproject.toml
+    - aiobotocore >=2.1.2,<3.0.0
+    - aiohttp >=3.8.0,<4.0.0
+    - boto3 ==1.21.21
+    - cloudpickle >=2.0.0,<3.0.0
+    - fabric >=2.6.0,<3.0.0
+    - filelock >=3.6.0,<4.0.0
+    - protobuf >=3.18.1,<4.0.0
+    - psutil >=5.8.0,<6.0.0
+    - python >=3.7
+    - requests >=2.27.1,<3.0.0
+    - typing-extensions >=4.1.1,<5.0.0
+test:
+  commands:  # generated based on commands above
+    - meadowrun-local --help
+    - meadowrun-manage-ec2 --help
+    - meadowrun-manage-azure-vm --help
+  imports:  # generated based on available imports
+    - meadowrun
+    - meadowrun._vendor
+    - meadowrun._vendor.aiodocker
+    - meadowrun.aws_integration
+    - meadowrun.aws_integration.management_lambdas
+    - meadowrun.azure_integration
+    - meadowrun.azure_integration.mgmt_functions
+    - meadowrun.azure_integration.mgmt_functions.azure
+    - meadowrun.azure_integration.mgmt_functions.clean_up
+    - meadowrun.azure_integration.mgmt_functions.vm_adjust
+about:
+  dev_url: null
+  doc_url: null
+  home: https://github.com/meadowdata/meadowrun
+  license: UNKNOWN
+  license_family: OTHER
+  license_file: null
+  summary: The easiest way to run python code on one or more remote machines
+extra:
+  copy_test_source_files: true
+  final: true
+  recipe-maintainers:
+    - your-github-id-here

@@ -26,7 +26,7 @@ homepage](https://meadowrun.io).
 First, install meadowrun:
 
 ```
-> conda install -c defaults -c conda-forge -c hrichardlee meadowrun
+> conda install -c defaults -c conda-forge -c meadowdata meadowrun
 ```
 
 Next, make sure you've [configured the AWS

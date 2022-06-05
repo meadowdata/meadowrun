@@ -9,7 +9,7 @@ Meadowrun requires python 3.7 or above.
 First, install meadowrun with conda:
 
 ```shell
-conda install -c defaults -c conda-forge -c hrichardlee meadowrun
+conda install -c defaults -c conda-forge -c meadowdata meadowrun
 ```
 
 ## Configure the AWS and/or Azure CLI

@@ -158,6 +158,18 @@ _MEADOWRUN_S3_ACCESS_POLICY_DOCUMENT = """{
 """
 
 
+_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": "sts:AssumeRole",
+            "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" }
+        }
+    ]
+}"""
+
+
 # the name of the lambda that runs adjust_ec2_instances.py
 _EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
 # the EventBridge rule that triggers the lambda
@@ -306,6 +318,59 @@ def _ensure_ec2_alloc_role(region_name: str) -> None:
                 RoleName=_EC2_ALLOC_ROLE,
             ),
             "LimitExceeded",
+        )
+
+
+def _ensure_management_lambda_role(region_name: str) -> None:
+    """Creates the role for the ec2 alloc lambda to run as"""
+    iam = boto3.client("iam", region_name=region_name)
+    if not _iam_role_exists(iam, _MANAGEMENT_LAMBDA_ROLE):
+        # create the role
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.ServiceResource.create_role
+        ignore_boto3_error_code(
+            lambda: iam.create_role(
+                RoleName=_MANAGEMENT_LAMBDA_ROLE,
+                # allow EC2 instances to assume this role
+                AssumeRolePolicyDocument=_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
+                Description="Allows reading/writing the EC2 alloc table and "
+                "creating/terminating EC2 instances",
+            ),
+            "EntityAlreadyExists",
+        )
+
+        # allow accessing the EC2 alloc dynamodb table
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.attach_role_policy
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            PolicyArn=_ensure_ec2_alloc_table_access_policy(iam),
+        )
+
+        # allow creating/terminating EC2 instances
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            # TODO should create a policy that only allows what we actually need
+            PolicyArn="arn:aws:iam::aws:policy/AmazonEC2FullAccess",
+        )
+
+        # allow deleting SQS queues
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            PolicyArn=_ensure_meadowrun_sqs_access_policy(iam),
+        )
+
+        # allow deleting unused ECR images
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            PolicyArn=_ensure_meadowrun_ecr_access_policy(iam),
+        )
+
+        # allow writing CloudWatch logs
+        # TODO also configure CloudWatch retention so that we don't keep everything
+        # forever
+        iam.attach_role_policy(
+            RoleName=_MANAGEMENT_LAMBDA_ROLE,
+            PolicyArn="arn:aws:iam::aws:policy/service-role/"
+            "AWSLambdaBasicExecutionRole",
         )
 
 

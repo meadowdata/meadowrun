@@ -13,17 +13,14 @@ import meadowrun.aws_integration
 from meadowrun.aws_integration.aws_core import (
     _get_account_number,
     _get_default_region_name,
-    _iam_role_exists,
 )
-from meadowrun.aws_integration.ec2_alloc_role import (
+from meadowrun.aws_integration.aws_permissions import (
     _CLEAN_UP_LAMBDA_NAME,
     _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
     _EC2_ALLOC_LAMBDA_NAME,
     _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
     _MANAGEMENT_LAMBDA_ROLE,
-    _ensure_ec2_alloc_table_access_policy,
-    _ensure_meadowrun_ecr_access_policy,
-    _ensure_meadowrun_sqs_access_policy,
+    _ensure_management_lambda_role,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
@@ -31,17 +28,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 
 
 _T = TypeVar("_T")
-
-_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT = """{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Action": "sts:AssumeRole",
-            "Effect": "Allow",
-            "Principal": { "Service": "lambda.amazonaws.com" }
-        }
-    ]
-}"""
 
 
 def _get_zipped_lambda_code() -> bytes:
@@ -69,59 +55,6 @@ def _get_zipped_lambda_code() -> bytes:
         buffer.seek(0)
 
         return buffer.read()
-
-
-def _ensure_management_lambda_role(region_name: str) -> None:
-    """Creates the role for the ec2 alloc lambda to run as"""
-    iam = boto3.client("iam", region_name=region_name)
-    if not _iam_role_exists(iam, _MANAGEMENT_LAMBDA_ROLE):
-        # create the role
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.ServiceResource.create_role
-        ignore_boto3_error_code(
-            lambda: iam.create_role(
-                RoleName=_MANAGEMENT_LAMBDA_ROLE,
-                # allow EC2 instances to assume this role
-                AssumeRolePolicyDocument=_LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT,
-                Description="Allows reading/writing the EC2 alloc table and "
-                "creating/terminating EC2 instances",
-            ),
-            "EntityAlreadyExists",
-        )
-
-        # allow accessing the EC2 alloc dynamodb table
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/iam.html#IAM.Client.attach_role_policy
-        iam.attach_role_policy(
-            RoleName=_MANAGEMENT_LAMBDA_ROLE,
-            PolicyArn=_ensure_ec2_alloc_table_access_policy(iam),
-        )
-
-        # allow creating/terminating EC2 instances
-        iam.attach_role_policy(
-            RoleName=_MANAGEMENT_LAMBDA_ROLE,
-            # TODO should create a policy that only allows what we actually need
-            PolicyArn="arn:aws:iam::aws:policy/AmazonEC2FullAccess",
-        )
-
-        # allow deleting SQS queues
-        iam.attach_role_policy(
-            RoleName=_MANAGEMENT_LAMBDA_ROLE,
-            PolicyArn=_ensure_meadowrun_sqs_access_policy(iam),
-        )
-
-        # allow deleting unused ECR images
-        iam.attach_role_policy(
-            RoleName=_MANAGEMENT_LAMBDA_ROLE,
-            PolicyArn=_ensure_meadowrun_ecr_access_policy(iam),
-        )
-
-        # allow writing CloudWatch logs
-        # TODO also configure CloudWatch retention so that we don't keep everything
-        # forever
-        iam.attach_role_policy(
-            RoleName=_MANAGEMENT_LAMBDA_ROLE,
-            PolicyArn="arn:aws:iam::aws:policy/service-role/"
-            "AWSLambdaBasicExecutionRole",
-        )
 
 
 async def _create_management_lambda(

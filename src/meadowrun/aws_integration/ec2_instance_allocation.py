@@ -12,7 +12,7 @@ from meadowrun.aws_integration.ec2 import (
     ensure_meadowrun_ssh_security_group,
     launch_ec2_instances,
 )
-from meadowrun.aws_integration.ec2_alloc_role import (
+from meadowrun.aws_integration.aws_permissions import (
     _EC2_ALLOC_ROLE_INSTANCE_PROFILE,
     _ensure_ec2_alloc_role,
 )

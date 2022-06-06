@@ -16,8 +16,7 @@ conda install -c defaults -c conda-forge -c meadowdata meadowrun
 
 If you want to use AWS, [install the AWS
 CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) and
-then configure it [configured the AWS
-CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html).
+then [configure it](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html).
 
 If you want to use Azure, [install the Azure
 CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) and then
@@ -39,7 +38,8 @@ Created lambdas in 17.63 seconds
 ```
 
 Skipping this step won't prevent you from using meadowrun, but it does mean that once
-you start using meadowrun your EC2 instances/VMs will run forever.
+you start using meadowrun your EC2 instances/VMs will run forever, or until you 
+run `meadowrun-manage-[ec2|azure-vm] clean` manually.
 
 If you decide to stop using meadowrun, you can remove all meadowrun-related resources
 easily:

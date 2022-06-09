@@ -1,5 +1,7 @@
 # ![Meadowrun](meadowrun-logo-full.svg)
 
+[![Join the chat at https://gitter.im/meadowdata/meadowrun](https://badges.gitter.im/meadowdata/meadowrun.svg)](https://gitter.im/meadowdata/meadowrun?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Meadowrun automates the tedious details of running your python code on AWS. Meadowrun
 will
 - choose the optimal set of EC2 on-demand or spot instances and turn them off when

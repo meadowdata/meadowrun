@@ -32,7 +32,23 @@ _T = TypeVar("_T")
 _MEADOWRUN_SSH_SECURITY_GROUP = "meadowrunSshSecurityGroup"
 
 
-async def get_ssh_security_group_id_authorize_current_ip(region_name: str) -> str:
+def get_ssh_security_group_id(region_name: str) -> str:
+    """
+    Gets the id of the meadowrun SSH security group, which determines which IPs are
+    allowed to SSH into the Meadowrun-managed instances.
+    """
+    ec2_resource = boto3.resource("ec2", region_name=region_name)
+    security_group = _get_ec2_security_group(
+        ec2_resource, _MEADOWRUN_SSH_SECURITY_GROUP
+    )
+    if security_group is None:
+        raise MeadowrunNotInstalledError(
+            f"security group {_MEADOWRUN_SSH_SECURITY_GROUP}"
+        )
+    return security_group.id
+
+
+async def authorize_current_ip_helper(region_name: str) -> None:
     """
     Tries to add the current IP address to the list of IPs allowed to SSH into the
     meadowrun SSH security group (will warn rather than raise on error). Returns the
@@ -82,7 +98,7 @@ async def get_ssh_security_group_id_authorize_current_ip(region_name: str) -> st
         except Exception as e:
             print(
                 "Warning, failed to authorize current IP address for SSH. Connecting to"
-                " launched instances will fail unless your connection has been "
+                " Meadowrun instances will fail unless your connection has been "
                 "authorized in a different way. Most likely, meadowrun was installed "
                 "with `meadowrun-manage-ec2 install --allow-authorize-ips False`. If "
                 "this is the case, you can rerun with `--allow-authorize-ips True`, or "
@@ -92,8 +108,6 @@ async def get_ssh_security_group_id_authorize_current_ip(region_name: str) -> st
                 f"{_MEADOWRUN_SSH_SECURITY_GROUP} --protocol tcp --port 22 --cidr "
                 f"{current_ip_for_ssh}/32` {e}"
             )
-
-    return security_group.id
 
 
 def ensure_security_group(group_name: str) -> str:

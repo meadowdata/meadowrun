@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 import dataclasses
 import uuid
 from types import TracebackType
@@ -159,6 +160,10 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         This isn't per se part of the "instance registration" process, but it's helpful
         to have on the same object.
         """
+        pass
+
+    @abc.abstractmethod
+    async def authorize_current_ip(self) -> None:
         pass
 
 
@@ -383,6 +388,10 @@ async def allocate_jobs_to_instances(
     Returns {public_address: [job_ids]}
     """
 
+    authorize_current_ip_task = asyncio.create_task(
+        instance_registrar.authorize_current_ip()
+    )
+
     # TODO this should take interruption_probability_threshold into account for existing
     # instances as well
     allocated = await _choose_existing_instances(
@@ -408,5 +417,7 @@ async def allocate_jobs_to_instances(
                 alloc_cloud_instances.num_concurrent_tasks,
             )
         )
+
+    await authorize_current_ip_task
 
     return allocated

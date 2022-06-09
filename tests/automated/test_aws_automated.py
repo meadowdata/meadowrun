@@ -16,6 +16,7 @@ import boto3
 import fabric
 import pytest
 
+import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
 from basics import BasicsSuite, HostProvider, ErrorsSuite, MapSuite
 from instance_registrar_suite import (
@@ -108,8 +109,8 @@ class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar])
     async def terminate_all_instances(
         self, instance_registrar: InstanceRegistrar
     ) -> None:
-        adjust_ec2_instances.terminate_all_instances(
-            instance_registrar.get_region_name()
+        meadowrun.aws_integration.aws_install_uninstall.terminate_all_instances(
+            instance_registrar.get_region_name(), False
         )
 
     def cloud_provider(self) -> CloudProviderType:

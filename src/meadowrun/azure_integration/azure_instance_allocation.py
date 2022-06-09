@@ -333,6 +333,10 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             instances_spec.region_name,
         )
 
+    async def authorize_current_ip(self) -> None:
+        # TODO currently Azure instances are open to everyone
+        pass
+
 
 async def run_job_azure_vm_instance_registrar(
     job: Job,

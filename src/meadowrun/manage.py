@@ -8,6 +8,7 @@ from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_install_uninstall import (
     delete_meadowrun_resources,
     install,
+    terminate_all_instances,
 )
 from meadowrun.aws_integration.aws_permissions_install import (
     grant_permission_to_secret,
@@ -17,7 +18,6 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
 )
 from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
     _deregister_and_terminate_instances,
-    terminate_all_instances,
 )
 from meadowrun.aws_integration.management_lambdas.clean_up import (
     delete_old_task_queues as aws_delete_old_task_queues,
@@ -188,7 +188,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
         if cloud_provider == "EC2":
             if args.clean_active:
-                terminate_all_instances(region_name)
+                terminate_all_instances(region_name, False)
             _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
         elif cloud_provider == "AzureVM":
             resource_group_path = await ensure_meadowrun_resource_group(region_name)

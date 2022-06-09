@@ -19,7 +19,7 @@ _ECR_DELETION_TIMEOUT = datetime.timedelta(days=2)
 def _get_meadowrun_task_queue_urls(sqs_client: Any) -> Iterable[str]:
     """Gets all SQS queue URLs created for meadowrun tasks"""
     for page in sqs_client.get_paginator("list_queues").paginate(
-        QueueNamePrefix="meadowrunTask"
+        QueueNamePrefix="meadowrun-task"
     ):
         if "QueueUrls" in page:
             for queue_url in page["QueueUrls"]:

@@ -38,14 +38,14 @@ _EC2_ROLE_POLICY_DOCUMENT = """{
         }
     ]
 }"""
-_EC2_ROLE_POLICY_NAME = "meadowrunEC2Policy"
+_EC2_ROLE_POLICY_NAME = "meadowrun_ec2_policy"
 
 # the policy for the user group for meadowrun users
-_MEADOWRUN_USER_POLICY_NAME = "meadowrunUserPolicy"
+_MEADOWRUN_USER_POLICY_NAME = "meadowrun_user_policy"
 
 # the IAM role that the management lambdas will run as
 _MANAGEMENT_LAMBDA_ROLE = "meadowrun_management_lambda_role"
-_MANAGEMENT_LAMBDA_POLICY_NAME = "meadowrunManagementLambdaPolicy"
+_MANAGEMENT_LAMBDA_POLICY_NAME = "meadowrun_management_lambda_policy"
 _LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT = """{
     "Version": "2012-10-17",
     "Statement": [

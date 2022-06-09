@@ -6,12 +6,12 @@ running `meadowrun-manage-ec2 uninstall`.
 
 * EC2
     * Instances: tagged with "meadowrun_ec2_alloc = true"
-    * SSH Key Pair: meadowrunKeyPair
-    * Security Group: meadowrunSshSecurityGroup
+    * SSH Key Pair: meadowrun_key_pair
+    * Security Group: meadowrun_ssh_security_group
 * Secrets
-    * meadowrunKeyPairPrivateKey
+    * meadowrun_private_key
 * SQS
-    * Queues: names start with "meadowrunTask"
+    * Queues: names start with "meadowrun-task"
 * Lambdas
     * meadowrun_ec2_alloc_lambda
     * meadowrun_clean_up
@@ -21,15 +21,13 @@ running `meadowrun-manage-ec2 uninstall`.
 * Logs
     * Lambdas will automatically generate logs under /aws/lambda/<lambda name>
 * DynamoDB:
-    * _meadowrun_ec2_alloc_table
+    * meadowrun_ec2_alloc_table
 * ECR:
     * meadowrun_generated
 * IAM
-    * Role: meadowrun_ec2_alloc_role and associated instance profile
-    * Role: meadowrun_management_lambda_role
-    * Policy: meadowrun_ec2_alloc_table_access
-    * Policy: meadowrun_sqs_access
-    * Policy: meadowrun_ecr_access
+    * Role: meadowrun_ec2_role, associated instance profile (meadowrun_ec2_role_instance_profile), and associated policy (meadowrun_ec2_policy)
+    * Role: meadowrun_management_lambda_role and associated policy (meadowrun_management_lambda_policy)
+    * User group: meadowrun_user_group and associated policy (meadowrun_user_policy)
 * S3
-    * Buckets: meadowrun-<region>-<uuid> with 14 day object expiry policy
+    * Buckets: meadowrun-<region>-<account number> with 14 day object expiry policy
     * Policy: meadowrun_s3_access

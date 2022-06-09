@@ -8,8 +8,8 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 
-MEADOWRUN_KEY_PAIR_NAME = "meadowrunKeyPair"
-_MEADOWRUN_KEY_PAIR_SECRET_NAME = "meadowrunKeyPairPrivateKey"
+MEADOWRUN_KEY_PAIR_NAME = "meadowrun_key_pair"
+_MEADOWRUN_KEY_PAIR_SECRET_NAME = "meadowrun_private_key"
 
 
 def ensure_meadowrun_key_pair(region_name: str) -> None:

@@ -16,7 +16,7 @@ _T = TypeVar("_T")
 
 # a dynamodb table that holds information about EC2 instances we've created and what has
 # been allocated to which instances
-_EC2_ALLOC_TABLE_NAME = "_meadowrun_ec2_alloc_table"
+_EC2_ALLOC_TABLE_NAME = "meadowrun_ec2_alloc_table"
 
 # names of attributes/keys in the EC2 alloc table
 _PUBLIC_ADDRESS = "public_address"

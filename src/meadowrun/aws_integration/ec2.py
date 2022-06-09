@@ -29,7 +29,7 @@ _T = TypeVar("_T")
 
 
 # A security group that allows SSH, clients' IP addresses get added as needed
-_MEADOWRUN_SSH_SECURITY_GROUP = "meadowrunSshSecurityGroup"
+_MEADOWRUN_SSH_SECURITY_GROUP = "meadowrun_ssh_security_group"
 
 
 def get_ssh_security_group_id(region_name: str) -> str:

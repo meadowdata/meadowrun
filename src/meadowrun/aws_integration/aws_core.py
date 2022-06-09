@@ -11,7 +11,7 @@ import botocore.exceptions
 _T = TypeVar("_T")
 
 # the IAM user group that gives users the permissions they need to run Meadowrun jobs
-_MEADOWRUN_USER_GROUP_NAME = "meadowrunUserGroup"
+_MEADOWRUN_USER_GROUP_NAME = "meadowrun_user_group"
 
 
 class MeadowrunNotInstalledError(Exception):

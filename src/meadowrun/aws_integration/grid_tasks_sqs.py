@@ -36,8 +36,8 @@ from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
 from meadowrun.shared import pickle_exception
 
 
-_REQUEST_QUEUE_NAME_PREFIX = "meadowrunTaskRequestQueue-"
-_RESULT_QUEUE_NAME_PREFIX = "meadowrunTaskResultQueue-"
+_REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-request-"
+_RESULT_QUEUE_NAME_PREFIX = "meadowrun-task-result-"
 _QUEUE_NAME_SUFFIX = ".fifo"
 
 _T = TypeVar("_T")

@@ -1,20 +1,34 @@
 import hashlib
 from typing import Dict, List, Optional, Tuple
-import uuid
 
 import boto3
+import boto3.exceptions
 from botocore.exceptions import ClientError
 
-from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.aws_core import (
+    MeadowrunAWSAccessError,
+    MeadowrunNotInstalledError,
+    _get_account_number,
+    _get_default_region_name,
+)
+from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    ignore_boto3_error_code,
+)
 
 BUCKET_PREFIX = "meadowrun"
+
+
+def _get_bucket_name(region_name: str) -> str:
+    # s3 bucket names must be globally unique across all accounts and regions.
+    return f"{BUCKET_PREFIX}-{region_name}-{_get_account_number()}"
 
 
 def ensure_bucket(
     region_name: str,
     expire_days: int = 14,
-) -> str:
-    """Create an S3 bucket in a specified region if it does not exist yet.
+) -> None:
+    """
+    Create an S3 bucket in a specified region if it does not exist yet.
 
     If a region is not specified, the bucket is created in the configured default
     region.
@@ -22,8 +36,7 @@ def ensure_bucket(
     The bucket is created with a default lifecycle policy of 14 days.
 
     Since bucket names must be globally unique, the name is bucket_prefix + region +
-    uuid and is returned. If a bucket with the given bucket_prefix already exists, then
-    that one is used.
+    account number
 
     :param bucket_name: Bucket to create
     :param region_name: String region to create bucket in, e.g., 'us-west-2'
@@ -34,16 +47,16 @@ def ensure_bucket(
 
     s3 = boto3.client("s3", region_name=region_name)
 
-    # s3 bucket names must be globally unique accross all acounts and regions.
-    prefix = f"{BUCKET_PREFIX}-{region_name}"
-    response = s3.list_buckets()
-    for existing_bucket in response["Buckets"]:
-        if existing_bucket["Name"].startswith(prefix):
-            return existing_bucket["Name"]
+    bucket_name = _get_bucket_name(region_name)
 
     location = {"LocationConstraint": region_name}
-    bucket_name = f"{prefix}-{str(uuid.uuid4())}"
-    s3.create_bucket(Bucket=bucket_name, CreateBucketConfiguration=location)
+
+    success, _ = ignore_boto3_error_code(
+        lambda: s3.create_bucket(
+            Bucket=bucket_name, CreateBucketConfiguration=location
+        ),
+        "BucketAlreadyOwnedByYou",
+    )
     s3.put_bucket_lifecycle_configuration(
         Bucket=bucket_name,
         LifecycleConfiguration=dict(
@@ -60,7 +73,6 @@ def ensure_bucket(
             ]
         ),
     )
-    return bucket_name
 
 
 async def ensure_uploaded(
@@ -78,16 +90,28 @@ async def ensure_uploaded(
         hasher.update(buf)
     digest = hasher.hexdigest()
 
-    bucket_name = ensure_bucket(region_name)
+    bucket_name = _get_bucket_name(region_name)
     try:
         s3.head_object(Bucket=bucket_name, Key=digest)
         return bucket_name, digest
     except ClientError as error:
+        if error.response["Error"]["Code"] == "403":
+            # if we don't have permissions to the bucket, throw a helpful error
+            raise MeadowrunAWSAccessError("S3 bucket") from error
+
+        # don't raise an error saying the file doesn't exist, we'll just upload it in
+        # that case by falling through to the next bit of code
         if not error.response["Error"]["Code"] == "404":
             raise error
 
     # doesn't exist, need to upload it
-    s3.upload_file(Filename=file_path, Bucket=bucket_name, Key=digest)
+    try:
+        s3.upload_file(Filename=file_path, Bucket=bucket_name, Key=digest),
+    except boto3.exceptions.S3UploadFailedError as e:
+        if len(e.args) >= 1 and "NoSuchBucket" in e.args[0]:
+            raise MeadowrunNotInstalledError("S3 bucket")
+        raise
+
     return bucket_name, digest
 
 
@@ -105,31 +129,25 @@ async def download_file(
     s3.download_file(bucket_name, object_name, file_name)
 
 
-def delete_all_buckets(region_name: str) -> None:
-    """Deletes all meadowrun buckets in given region."""
-    s3 = boto3.client("s3", region_name=region_name)
-
-    prefix = f"{BUCKET_PREFIX}-{region_name}"
-    response = s3.list_buckets()
-    for existing_bucket in response["Buckets"]:
-        if existing_bucket["Name"].startswith(prefix):
-            bucket_name = existing_bucket["Name"]
-            break
-    else:
-        return
-
-    # easier to work with resource now
+def delete_bucket(region_name: str) -> None:
+    """Deletes the meadowrun bucket"""
     s3 = boto3.resource("s3", region_name=region_name)
-    bucket = s3.Bucket(bucket_name)
 
-    # S3 doesn't allow deleting a bucket with anything in it, so delete all objects in
-    # chunks of up to 1000, which is the maximum allowed.
-    key_chunk: List[Dict[str, str]] = []
-    for object in bucket.objects.all():
-        if len(key_chunk) == 1000:
+    bucket = s3.Bucket(_get_bucket_name(region_name))
+    success, _ = ignore_boto3_error_code(
+        lambda: list(bucket.objects.limit(1)),
+        "NoSuchBucket",
+    )
+    if success:
+        # S3 doesn't allow deleting a bucket with anything in it, so delete all objects
+        # in chunks of up to 1000, which is the maximum allowed.
+        key_chunk: List[Dict[str, str]] = []
+        for s3object in bucket.objects.all():
+            if len(key_chunk) == 1000:
+                bucket.delete_objects(Delete=dict(Objects=key_chunk))
+                key_chunk.clear()
+            key_chunk.append(dict(Key=s3object.key))
+        if key_chunk:
             bucket.delete_objects(Delete=dict(Objects=key_chunk))
-            key_chunk.clear()
-        key_chunk.append(dict(Key=object.key))
-    bucket.delete_objects(Delete=dict(Objects=key_chunk))
 
-    bucket.delete()
+        bucket.delete()

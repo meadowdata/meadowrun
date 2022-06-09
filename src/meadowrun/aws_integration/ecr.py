@@ -32,18 +32,13 @@ def _get_username_password(region_name: str) -> UsernamePassword:
     return UsernamePassword(username, password)
 
 
-def _ensure_repository(repository: str, region_name: str) -> str:
-    """
-    Takes a "simple" repository name like "foo", creates it if it doesn't exist and
-    returns the repository name that can be used with the docker API. Returns e.g.
-    012345678901.dkr.ecr.us-east-2.amazonaws.com
-    """
+def _ensure_repository(repository: str, region_name: str) -> None:
+    """Creates the ECR repository if it doesn't exist"""
     client = boto3.client("ecr", region_name=region_name)
     ignore_boto3_error_code(
         lambda: client.create_repository(repositoryName=repository),
         "RepositoryAlreadyExistsException",
     )
-    return f"{_get_account_number()}.dkr.ecr.{region_name}.amazonaws.com"
 
 
 def _does_image_exist(repository: str, tag: str, region_name: str) -> bool:
@@ -71,7 +66,7 @@ async def get_ecr_helper(
     if region_name == "default":
         region_name = await _get_default_region_name()
 
-    repository_prefix = _ensure_repository(repository, region_name)
+    repository_prefix = f"{_get_account_number()}.dkr.ecr.{region_name}.amazonaws.com"
 
     return ContainerRegistryHelper(
         True,

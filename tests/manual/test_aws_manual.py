@@ -7,7 +7,7 @@ import time
 
 from automated.test_aws_automated import EC2InstanceRegistrarProvider
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
+from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     ensure_clean_up_lambda,
     ensure_ec2_alloc_lambda,
 )

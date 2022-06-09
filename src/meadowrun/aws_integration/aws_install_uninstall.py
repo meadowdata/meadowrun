@@ -4,32 +4,114 @@ import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
-import meadowrun.aws_integration.s3
-from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
-    _EC2_ALLOC_LAMBDA_NAME,
-    _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+from meadowrun.aws_integration.aws_core import (
+    _MEADOWRUN_USER_GROUP_NAME,
+    _get_current_ip_for_ssh,
+)
+from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     _CLEAN_UP_LAMBDA_NAME,
     _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
+    _EC2_ALLOC_LAMBDA_NAME,
+    _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+    ensure_clean_up_lambda,
+    ensure_ec2_alloc_lambda,
 )
-from meadowrun.aws_integration.aws_permissions import (
-    _EC2_ALLOC_ROLE,
-    _EC2_ALLOC_ROLE_INSTANCE_PROFILE,
+from meadowrun.aws_integration.aws_permissions_install import (
+    _EC2_ROLE_INSTANCE_PROFILE,
+    _EC2_ROLE_NAME,
+    _MANAGEMENT_LAMBDA_POLICY_NAME,
     _MANAGEMENT_LAMBDA_ROLE,
-    _ensure_ec2_alloc_table_access_policy,
-    _ensure_meadowrun_ecr_access_policy,
-    _ensure_meadowrun_sqs_access_policy,
-    _ensure_s3_access_policy,
+    _EC2_ROLE_POLICY_NAME,
+    _MEADOWRUN_USER_POLICY_NAME,
+    _policy_arn_from_name,
+    ensure_management_lambda_role,
+    ensure_meadowrun_ec2_role,
+    ensure_meadowrun_user_group,
 )
-from meadowrun.aws_integration.ec2 import _MEADOWRUN_SSH_SECURITY_GROUP
+from meadowrun.aws_integration.ec2 import (
+    _MEADOWRUN_SSH_SECURITY_GROUP,
+    ensure_security_group,
+)
+from meadowrun.aws_integration.ec2_instance_allocation import ensure_ec2_alloc_table
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     _MEADOWRUN_KEY_PAIR_SECRET_NAME,
+    ensure_meadowrun_key_pair,
 )
+from meadowrun.aws_integration.ecr import _ensure_repository
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     ignore_boto3_error_code,
 )
+from meadowrun.aws_integration.s3 import ensure_bucket
+
+
+async def install(region_name: str, allow_authorize_ips: bool) -> None:
+    """Installs resources needed to run Meadowrun jobs"""
+
+    security_group_id = ensure_security_group(_MEADOWRUN_SSH_SECURITY_GROUP)
+
+    if not allow_authorize_ips:
+        print(
+            "--allow-authorize-ips was set to false. This means you must manually edit "
+            f"the {_MEADOWRUN_SSH_SECURITY_GROUP} security group to allow users to SSH "
+            "over port 22 to that security group. For example, you can run `aws ec2 "
+            "authorize-security-group-ingress --group-name "
+            f"{_MEADOWRUN_SSH_SECURITY_GROUP} --protocol tcp --port 22 --cidr "
+            f"{await _get_current_ip_for_ssh()}/32`"
+        )
+
+    iam_client = boto3.client("iam", region_name=region_name)
+    ensure_meadowrun_user_group(iam_client, security_group_id, allow_authorize_ips)
+    ensure_meadowrun_ec2_role(iam_client, security_group_id)
+    ensure_management_lambda_role(iam_client, security_group_id)
+
+    ensure_ec2_alloc_table(region_name)
+
+    await ensure_ec2_alloc_lambda(True)
+    await ensure_clean_up_lambda(True)
+
+    ensure_meadowrun_key_pair(region_name)
+
+    ensure_bucket(region_name)
+
+    _ensure_repository(_MEADOWRUN_GENERATED_DOCKER_REPO, region_name)
+
+
+def _delete_user_group(iam: Any, group_name: str) -> None:
+    """
+    Deletes an IAM user group, requires removing all users and detaching all policies
+    """
+    success, group = ignore_boto3_error_code(
+        lambda: iam.get_group(GroupName=group_name), "NoSuchEntity"
+    )
+    if success:
+        assert group is not None  # just for mypy
+        for user in group["Users"]:
+            iam.remove_user_from_group(GroupName=group_name, UserName=user["UserName"])
+
+    success, attached_policies = ignore_boto3_error_code(
+        lambda: iam.list_attached_group_policies(GroupName=group_name), "NoSuchEntity"
+    )
+    if success:
+        assert attached_policies is not None  # just for mypy
+        for attached_policy in attached_policies["AttachedPolicies"]:
+            iam.detach_group_policy(
+                GroupName=group_name, PolicyArn=attached_policy["PolicyArn"]
+            )
+
+    success, inline_policies = ignore_boto3_error_code(
+        lambda: iam.list_group_policies(GroupName=group_name), "NoSuchEntity"
+    )
+    if success:
+        assert inline_policies is not None  # just for mypy
+        for inline_policy in inline_policies["PolicyNames"]:
+            iam.delete_group_policy(GroupName=group_name, PolicyName=inline_policy)
+
+    ignore_boto3_error_code(
+        lambda: iam.delete_group(GroupName=group_name), "NoSuchEntity"
+    )
 
 
 def _delete_iam_role(iam: Any, role_name: str) -> None:
@@ -53,6 +135,26 @@ def _delete_iam_role(iam: Any, role_name: str) -> None:
             iam.delete_role_policy(RoleName=role_name, PolicyName=inline_policy)
 
     ignore_boto3_error_code(lambda: iam.delete_role(RoleName=role_name), "NoSuchEntity")
+
+
+def _delete_policy(iam: Any, policy_name: str) -> None:
+    policy_arn = _policy_arn_from_name(policy_name)
+
+    # non-default versions need to be deleted explicitly
+    success, versions = ignore_boto3_error_code(
+        lambda: iam.list_policy_versions(PolicyArn=policy_arn), "NoSuchEntity"
+    )
+    if success:
+        assert versions is not None  # just for mypy
+        for version in versions["Versions"]:
+            if not version["IsDefaultVersion"]:
+                iam.delete_policy_version(
+                    PolicyArn=policy_arn, VersionId=version["VersionId"]
+                )
+    ignore_boto3_error_code(
+        lambda: iam.delete_policy(PolicyArn=_policy_arn_from_name(policy_name)),
+        "NoSuchEntity",
+    )
 
 
 def _delete_event_rule(events_client: Any, rule_name: str) -> None:
@@ -85,46 +187,31 @@ def delete_meadowrun_resources(region_name: str) -> None:
         region_name
     )
 
-    meadowrun.aws_integration.s3.delete_all_buckets(region_name)
+    meadowrun.aws_integration.s3.delete_bucket(region_name)
 
     iam = boto3.client("iam", region_name=region_name)
 
     ignore_boto3_error_code(
         lambda: iam.remove_role_from_instance_profile(
-            RoleName=_EC2_ALLOC_ROLE,
-            InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE,
+            RoleName=_EC2_ROLE_NAME,
+            InstanceProfileName=_EC2_ROLE_INSTANCE_PROFILE,
         ),
         "NoSuchEntity",
     )
     ignore_boto3_error_code(
         lambda: iam.delete_instance_profile(
-            InstanceProfileName=_EC2_ALLOC_ROLE_INSTANCE_PROFILE
+            InstanceProfileName=_EC2_ROLE_INSTANCE_PROFILE
         ),
         "NoSuchEntity",
     )
 
-    _delete_iam_role(iam, _EC2_ALLOC_ROLE)
+    _delete_user_group(iam, _MEADOWRUN_USER_GROUP_NAME)
+    _delete_iam_role(iam, _EC2_ROLE_NAME)
     _delete_iam_role(iam, _MANAGEMENT_LAMBDA_ROLE)
 
-    table_access_policy_arn = _ensure_ec2_alloc_table_access_policy(iam)
-    ignore_boto3_error_code(
-        lambda: iam.delete_policy(PolicyArn=table_access_policy_arn), "NoSuchEntity"
-    )
-
-    sqs_access_policy_arn = _ensure_meadowrun_sqs_access_policy(iam)
-    ignore_boto3_error_code(
-        lambda: iam.delete_policy(PolicyArn=sqs_access_policy_arn), "NoSuchEntity"
-    )
-
-    ecr_access_policy_arn = _ensure_meadowrun_ecr_access_policy(iam)
-    ignore_boto3_error_code(
-        lambda: iam.delete_policy(PolicyArn=ecr_access_policy_arn), "NoSuchEntity"
-    )
-
-    s3_access_policy_arn = _ensure_s3_access_policy(iam)
-    ignore_boto3_error_code(
-        lambda: iam.delete_policy(PolicyArn=s3_access_policy_arn), "NoSuchEntity"
-    )
+    _delete_policy(iam, _MEADOWRUN_USER_POLICY_NAME)
+    _delete_policy(iam, _EC2_ROLE_POLICY_NAME)
+    _delete_policy(iam, _MANAGEMENT_LAMBDA_POLICY_NAME)
 
     lambda_client = boto3.client("lambda", region_name=region_name)
     ignore_boto3_error_code(

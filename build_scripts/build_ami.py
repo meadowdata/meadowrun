@@ -61,12 +61,12 @@ import paramiko.ssh_exception
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
-    ensure_meadowrun_ssh_security_group,
+    get_ssh_security_group_id_authorize_current_ip,
     launch_ec2_instance,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
-    ensure_meadowrun_key_pair,
+    get_meadowrun_ssh_key,
 )
 from meadowrun.run_job_core import _retry
 
@@ -104,13 +104,14 @@ async def build_meadowrun_ami():
 
     # launch an EC2 instance that we'll use to create the AMI
     print("Launching EC2 instance:")
-    pkey = ensure_meadowrun_key_pair(await _get_default_region_name())
+    region_name = await _get_default_region_name()
+    pkey = get_meadowrun_ssh_key(region_name)
     public_address = await launch_ec2_instance(
-        await _get_default_region_name(),
+        region_name,
         "t2.micro",
         "on_demand",
         _BASE_AMI,
-        [await ensure_meadowrun_ssh_security_group()],
+        [await get_ssh_security_group_id_authorize_current_ip(region_name)],
         key_name=MEADOWRUN_KEY_PAIR_NAME,
     )
     print(f"Launched EC2 instance {public_address}")

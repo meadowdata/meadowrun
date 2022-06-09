@@ -25,7 +25,7 @@ import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
-from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
@@ -417,7 +417,7 @@ async def prepare_ec2_run_map(
     if not region_name:
         region_name = await _get_default_region_name()
 
-    pkey = ensure_meadowrun_key_pair(region_name)
+    pkey = get_meadowrun_ssh_key(region_name)
 
     # create SQS queues and add tasks to the request queue
     queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, tasks))

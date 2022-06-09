@@ -5,14 +5,12 @@ import os.path
 import time
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
-    ensure_ec2_alloc_lambda,
-    ensure_clean_up_lambda,
+from meadowrun.aws_integration.aws_install_uninstall import (
+    delete_meadowrun_resources,
+    install,
 )
-from meadowrun.aws_integration.aws_uninstall import delete_meadowrun_resources
-from meadowrun.aws_integration.aws_permissions import (
+from meadowrun.aws_integration.aws_permissions_install import (
     grant_permission_to_secret,
-    _ensure_ec2_alloc_role,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import (
     download_ssh_key as ec2_download_ssh_key,
@@ -55,6 +53,23 @@ from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
 from meadowrun.run_job_core import CloudProviderType
 
 
+def _strtobool(val: str) -> int:
+    # copied from distutils.util
+    """Convert a string representation of truth to true (1) or false (0).
+
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+    """
+    val = val.lower()
+    if val in ("y", "yes", "t", "true", "True", "on", "1"):
+        return 1
+    elif val in ("n", "no", "f", "false", "False", "off", "0"):
+        return 0
+    else:
+        raise ValueError("invalid truth value %r" % (val,))
+
+
 async def async_main(cloud_provider: CloudProviderType) -> None:
     parser = argparse.ArgumentParser()
 
@@ -76,12 +91,25 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     else:
         raise ValueError(f"Unexpected value for cloud_provider {cloud_provider}")
 
-    subparsers.add_parser(
+    install_parser = subparsers.add_parser(
         "install",
         help=f"Does one-time setup of {lambdas} that automatically periodically clean "
         "up unused temporary resources. Must be re-run when meadowrun is updated "
         f"so that {lambdas} pick up updated code.",
     )
+    if cloud_provider == "EC2":
+        install_parser.add_argument(
+            "--allow-authorize-ips",
+            action="store_true",
+            help=(
+                "Users' machines need to be authorized to access Meadowrun-created "
+                f"{ec2_instances}. If this option is set, users will be given "
+                "permissions to automatically authorize their IPs to SSH into "
+                f"Meadowrun-created {ec2_instances}. If this option is not set, an "
+                "administrator must manually edit the Meadowrun security group to "
+                "grant access for users."
+            ),
+        )
 
     subparsers.add_parser(
         "uninstall",
@@ -95,13 +123,14 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     )
     clean_parser.add_argument("--clean-active", action="store_true")
 
-    grant_permission_to_secret_parser = subparsers.add_parser(
-        "grant-permission-to-secret",
-        help=f"Gives the meadowrun {ec2_role} access to the specified {secret}",
-    )
-    grant_permission_to_secret_parser.add_argument(
-        "secret_name", help=f"The name of the {secret} to give permissions to"
-    )
+    if cloud_provider == "EC2":
+        grant_permission_to_secret_parser = subparsers.add_parser(
+            "grant-permission-to-secret",
+            help=f"Gives the meadowrun {ec2_role} access to the specified {secret}",
+        )
+        grant_permission_to_secret_parser.add_argument(
+            "secret_name", help=f"The name of the {secret} to give permissions to"
+        )
 
     get_ssh_key_parser = subparsers.add_parser(
         "get-ssh-key",
@@ -126,16 +155,14 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
     t0 = time.perf_counter()
     if args.command == "install":
-        print(f"Creating {lambdas} for cleaning up meadowrun resources")
+        print("Creating resources for running meadowrun")
         if cloud_provider == "EC2":
-            await ensure_ec2_alloc_lambda(True)
-            await ensure_clean_up_lambda(True)
-            _ensure_ec2_alloc_role(region_name)
+            await install(region_name, args.allow_authorize_ips)
         elif cloud_provider == "AzureVM":
-            await create_or_update_mgmt_function(get_default_location())
+            await create_or_update_mgmt_function(region_name)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
-        print(f"Created {lambdas} in {time.perf_counter() - t0:.2f} seconds")
+        print(f"Created resources in {time.perf_counter() - t0:.2f} seconds")
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")
         if cloud_provider == "EC2":
@@ -232,7 +259,9 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         print(f"Granted access in {time.perf_counter() - t0:.2f} seconds")
     elif args.command == "get-ssh-key":
         if not args.output:
-            output = os.path.expanduser(os.path.join("~", ".ssh", "meadowrun_id_rsa"))
+            output = os.path.expanduser(
+                os.path.join("~", ".ssh", f"meadowrun_id_rsa.{cloud_provider}")
+            )
         else:
             output = args.output
         print(f"Writing meadowrun ssh key to {output}")

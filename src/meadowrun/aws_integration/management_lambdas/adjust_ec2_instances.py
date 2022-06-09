@@ -181,18 +181,6 @@ def _deregister_and_terminate_instances(
             instance.terminate()
 
 
-def terminate_all_instances(region_name: str) -> None:
-    """
-    Terminates all instances, regardless of whether they are registered or not. WARNING
-    this will kill running jobs.
-    """
-    for instance in _get_non_terminated_instances(
-        boto3.resource("ec2", region_name=region_name)
-    ):
-        print(f"Terminating {instance.id}")
-        instance.terminate()
-
-
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:
     """The handler for AWS lambda"""
     adjust(os.environ["AWS_REGION"])

@@ -9,7 +9,8 @@ import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
-    get_ssh_security_group_id_authorize_current_ip,
+    authorize_current_ip_helper,
+    get_ssh_security_group_id,
     launch_ec2_instances,
 )
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
@@ -353,12 +354,6 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             )
         ami = _EC2_ALLOC_AMIS[instances_spec.region_name]
 
-        meadowrun_ssh_security_group_id = (
-            await get_ssh_security_group_id_authorize_current_ip(
-                instances_spec.region_name
-            )
-        )
-
         return await launch_ec2_instances(
             instances_spec.logical_cpu_required_per_task,
             instances_spec.memory_gb_required_per_task,
@@ -367,7 +362,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             ami,
             region_name=instances_spec.region_name,
             # TODO we should let users add their own security groups
-            security_group_ids=[meadowrun_ssh_security_group_id],
+            security_group_ids=[get_ssh_security_group_id(instances_spec.region_name)],
             # TODO we should let users set their own IAM role as long as it grants
             # access to the dynamodb table we need for deallocation
             iam_role_name=_EC2_ROLE_INSTANCE_PROFILE,
@@ -375,6 +370,9 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             key_name=MEADOWRUN_KEY_PAIR_NAME,
             tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
         )
+
+    async def authorize_current_ip(self) -> None:
+        await authorize_current_ip_helper(self.get_region_name())
 
 
 async def run_job_ec2_instance_registrar(

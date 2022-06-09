@@ -65,10 +65,13 @@ def delete_old_task_queues(region_name: str) -> None:
 
 
 def delete_all_task_queues(region_name: str) -> None:
-    """WARNING this will causing running run_map jobs to fail"""
+    """WARNING this will cause running run_map jobs to fail"""
     client = boto3.client("sqs", region_name=region_name)
     for queue_url in _get_meadowrun_task_queue_urls(client):
-        client.delete_queue(QueueUrl=queue_url)
+        ignore_boto3_error_code(
+            lambda: client.delete_queue(QueueUrl=queue_url),
+            "AWS.SimpleQueueService.NonExistentQueue",
+        )
 
 
 def delete_unused_images(region_name: str) -> None:

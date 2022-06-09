@@ -39,6 +39,9 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     ensure_meadowrun_key_pair,
 )
 from meadowrun.aws_integration.ecr import _ensure_repository
+from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
+    _get_non_terminated_instances,
+)
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
     _MEADOWRUN_GENERATED_DOCKER_REPO,
@@ -171,6 +174,24 @@ def _delete_event_rule(events_client: Any, rule_name: str) -> None:
     events_client.delete_rule(Name=rule_name)
 
 
+def terminate_all_instances(region_name: str, wait: bool) -> None:
+    """
+    Terminates all Meadowrun-tagged instances, regardless of whether they are registered
+    or not. If wait is true, we wait for the instances to terminate, otherwise we return
+    "immediately". WARNING this will kill running jobs.
+    """
+    instances = _get_non_terminated_instances(
+        boto3.resource("ec2", region_name=region_name)
+    )
+    for instance in instances:
+        print(f"Terminating {instance.id}")
+        instance.terminate()
+    if wait:
+        print("Waiting for instances to terminate cleanly")
+        for instance in instances:
+            instance.wait_until_terminated()
+
+
 def delete_meadowrun_resources(region_name: str) -> None:
     """
     Delete all AWS resources that meadowrun creates
@@ -179,9 +200,7 @@ def delete_meadowrun_resources(region_name: str) -> None:
     this library.
     """
 
-    meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.terminate_all_instances(  # noqa: E501
-        region_name
-    )
+    terminate_all_instances(region_name, True)
 
     meadowrun.aws_integration.management_lambdas.clean_up.delete_all_task_queues(
         region_name

@@ -49,26 +49,24 @@ be used for anything other than to build meadowrun AMIs.
 """
 
 import asyncio
-import io
 import os.path
 import subprocess
 import time
-from typing import cast
 
 import boto3
 import fabric
-import paramiko.ssh_exception
 
+from build_image_shared import upload_and_configure_meadowrun
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
-    get_ssh_security_group_id_authorize_current_ip,
+    authorize_current_ip_helper,
+    get_ssh_security_group_id,
     launch_ec2_instance,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     get_meadowrun_ssh_key,
 )
-from meadowrun.run_job_core import _retry
 
 _BASE_AMI = "ami-01344892e448f48c2"
 _NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
@@ -111,50 +109,19 @@ async def build_meadowrun_ami():
         "t2.micro",
         "on_demand",
         _BASE_AMI,
-        [await get_ssh_security_group_id_authorize_current_ip(region_name)],
+        [get_ssh_security_group_id(region_name)],
         key_name=MEADOWRUN_KEY_PAIR_NAME,
     )
     print(f"Launched EC2 instance {public_address}")
+
+    await authorize_current_ip_helper(region_name)
 
     with fabric.Connection(
         public_address,
         user="ubuntu",
         connect_kwargs={"pkey": pkey},
     ) as connection:
-        # retry with a no-op until we've established a connection
-        await _retry(
-            lambda: connection.run("echo $HOME"),
-            (
-                cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
-                cast(Exception, TimeoutError),
-            ),
-        )
-
-        # install the meadowrun package
-        connection.put(
-            os.path.join(
-                package_root_dir, "dist", f"meadowrun-{version}-py3-none-any.whl"
-            ),
-            "/var/meadowrun/",
-        )
-        connection.run(
-            "source /var/meadowrun/env/bin/activate "
-            f"&& pip install /var/meadowrun/meadowrun-{version}-py3-none-any.whl"
-        )
-        connection.run(f"rm /var/meadowrun/meadowrun-{version}-py3-none-any.whl")
-
-        # set deallocate_jobs to run from crontab
-        crontab_line = (
-            "* * * * * /var/meadowrun/env/bin/python "
-            "/var/meadowrun/env/lib/python3.9/site-packages/meadowrun"
-            "/deallocate_jobs.py "
-            "--cloud EC2 --cloud-region-name default "
-            ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
-        )
-        with io.StringIO(crontab_line) as sio:
-            connection.put(sio, "/var/meadowrun/meadowrun_crontab")
-        connection.run("crontab < /var/meadowrun/meadowrun_crontab")
-        connection.run("rm /var/meadowrun/meadowrun_crontab")
+        await upload_and_configure_meadowrun(connection, version, package_root_dir)
 
     # get the instance id of our EC2 instance
     instances = client.describe_instances(
@@ -185,7 +152,7 @@ async def build_meadowrun_ami():
     print(f"New image id: {image_id}")
     print(
         "After testing, you will need to replicate to other regions via "
-        f"`python build_scripts\\replicate_ami.py {image_id}`"
+        f"`python build_scripts\\replicate_ami.py replicate {image_id}`"
     )
     print("Remember to delete old AMIs and snapshots!")
 

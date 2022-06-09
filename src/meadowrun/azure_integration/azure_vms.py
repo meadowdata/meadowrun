@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Optional, Tuple, Sequence, Awaitable, Any, Dict
+from typing import Optional, Tuple, Sequence, Awaitable, Any, Dict, Literal
 
 from meadowrun.azure_integration.azure_meadowrun_core import (
     _ensure_managed_identity,
@@ -43,7 +43,7 @@ _MEADOWRUN_COMMUNITY_IMAGE_ID = (
     "/CommunityGalleries/meadowprodeastus-e8b60fd5-8978-467b-a1b0-5b83cbf5393d/Images/"
     "meadowrun"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.1.7"
+_MEADOWRUN_IMAGE_VERSION = "0.1.8"
 
 
 async def _ensure_virtual_network_and_subnet(location: str) -> str:
@@ -174,6 +174,8 @@ async def _provision_vm(
     vm_size: str,
     on_demand_or_spot: OnDemandOrSpotType,
     ssh_public_key_data: str,
+    image_id: str,
+    image_type: Literal["Community", "Regular"],
 ) -> Tuple[str, str]:
     """
     Based on
@@ -216,17 +218,7 @@ async def _provision_vm(
             },
             "storageProfile": {
                 "imageReference": {
-                    "communityGalleryImageId": (
-                        f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/"
-                        f"{_MEADOWRUN_IMAGE_VERSION}"
-                    )
-                    # for development, you can replace this with something like
-                    # "id": (
-                    #     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/"
-                    #     "resourceGroups/meadowrun-dev/providers/Microsoft.Compute/"
-                    #     "galleries/meadowrun.dev.gallery/images/meadowrun/versions/"
-                    #     f"{_MEADOWRUN_IMAGE_VERSION}"
-                    # ),
+                    # will be populated further down
                 },
                 "osDisk": {
                     "createOption": "FromImage",
@@ -259,6 +251,17 @@ async def _provision_vm(
     }
     if on_demand_or_spot == "spot":
         vm_create_properties["properties"]["priority"] = "Spot"
+
+    if image_type == "Community":
+        vm_create_properties["properties"]["storageProfile"]["imageReference"][
+            "communityGalleryImageId"
+        ] = image_id
+    elif image_type == "Regular":
+        vm_create_properties["properties"]["storageProfile"]["imageReference"][
+            "id"
+        ] = image_id
+    else:
+        raise ValueError(f"Unexpected value for image_type {image_type}")
 
     vm_result, vm_continuation = await azure_rest_api_poll(
         "PUT",
@@ -321,6 +324,15 @@ async def launch_vms(
     vm_detail_tasks = []
     chosen_instance_types_repeated = []
 
+    # for development, you can replace this with something like
+    # (
+    #     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/resourceGroups/"
+    #     "meadowrun-dev/providers/Microsoft.Compute/galleries/meadowrun.dev.gallery/"
+    #     f"images/meadowrun/versions/{_MEADOWRUN_IMAGE_VERSION}"
+    # )
+    # and replace "Community" with "Regular" below
+    image_id = f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/{_MEADOWRUN_IMAGE_VERSION}"
+
     for instance_type in chosen_instance_types:
         for _ in range(instance_type.num_instances):
             vm_detail_tasks.append(
@@ -329,6 +341,8 @@ async def launch_vms(
                     instance_type.instance_type.name,
                     instance_type.instance_type.on_demand_or_spot,
                     ssh_public_key_data,
+                    image_id,
+                    "Community",
                 )
             )
             chosen_instance_types_repeated.append(instance_type)

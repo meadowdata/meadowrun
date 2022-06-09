@@ -3,6 +3,7 @@ import io
 import boto3
 import paramiko
 
+from meadowrun.aws_integration.aws_core import wrap_access_or_install_errors
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
@@ -11,16 +12,11 @@ MEADOWRUN_KEY_PAIR_NAME = "meadowrunKeyPair"
 _MEADOWRUN_KEY_PAIR_SECRET_NAME = "meadowrunKeyPairPrivateKey"
 
 
-def ensure_meadowrun_key_pair(region_name: str) -> paramiko.PKey:
+def ensure_meadowrun_key_pair(region_name: str) -> None:
     """
-    On first run, creates an EC2 key pair and stores the private key in an AWS secret,
-    and returns a paramiko.PKey that is compatible with that EC2 key pair and can be
-    passed to paramiko.connect(pkey=pkey).
-
-    On subsequent runs, this will return the same paramiko.PKey using the AWS secret.
-
-    TODO should we cache the key locally so that we're not requesting the secret
-    constantly?
+    Ensures that an EC2 key pair and corresponding private key in an AWS secret exist.
+    If both exist, they will not be modified. If either do not exist, both will be
+    recreated.
     """
 
     ec2_client = boto3.client("ec2", region_name=region_name)
@@ -78,16 +74,34 @@ def ensure_meadowrun_key_pair(region_name: str) -> paramiko.PKey:
                 SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME, SecretString=private_key_text
             )
 
-    assert private_key_text is not None  # just for mypy, logic above guarantees this
 
+def _get_meadowrun_ssh_key_text(region_name: str) -> str:
+    # TODO should we cache the key locally so that we're not requesting the secret
+    # constantly?
+    secrets_client = boto3.client("secretsmanager", region_name=region_name)
+    secret_result = wrap_access_or_install_errors(
+        lambda: secrets_client.get_secret_value(
+            SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME
+        ),
+        f"secret {_MEADOWRUN_KEY_PAIR_SECRET_NAME}",
+        "AccessDeniedException",
+        # InvalidRequestException actually means this was deleted
+        {"ResourceNotFoundException", "InvalidRequestException"},
+    )
+    return secret_result["SecretString"]
+
+
+def get_meadowrun_ssh_key(region_name: str) -> paramiko.PKey:
+    """
+    and returns a paramiko.PKey that is compatible with that EC2 key pair and can be
+    passed to paramiko.connect(pkey=pkey).
+    """
+    private_key_text = _get_meadowrun_ssh_key_text(region_name)
     with io.StringIO(private_key_text) as s:
         return paramiko.RSAKey(file_obj=s)
 
 
 def download_ssh_key(output_path: str, region_name: str) -> None:
-    secrets_client = boto3.client("secretsmanager", region_name=region_name)
-    key = secrets_client.get_secret_value(SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME)[
-        "SecretString"
-    ]
+    private_key_text = _get_meadowrun_ssh_key_text(region_name)
     with open(output_path, "w") as output_file:
-        output_file.write(key)
+        output_file.write(private_key_text)

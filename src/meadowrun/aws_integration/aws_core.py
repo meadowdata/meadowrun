@@ -1,10 +1,68 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Callable, TypeVar, Union, Set
 
 import aiohttp
 import aiohttp.client_exceptions
 import boto3
+import botocore.exceptions
+
+
+_T = TypeVar("_T")
+
+# the IAM user group that gives users the permissions they need to run Meadowrun jobs
+_MEADOWRUN_USER_GROUP_NAME = "meadowrunUserGroup"
+
+
+class MeadowrunNotInstalledError(Exception):
+    def __init__(self, missing_resource: str):
+        super().__init__(
+            f"Meadowrun resource is not available: {missing_resource}. Please run "
+            "`meadowrun-manage-ec2 install` as an AWS root/Administrator account"
+        )
+
+
+class MeadowrunAWSAccessError(Exception):
+    def __init__(self, resource: str):
+        super().__init__(
+            f"Encountered an AWS access exception trying to access {resource}. If you "
+            f"are not a member of the {_MEADOWRUN_USER_GROUP_NAME} user group, please "
+            "add yourself/ask to to be added to this group. If this group does not "
+            "exist, please run `meadowrun-manage-ec2 install` as an AWS "
+            "root/Administrator account"
+        )
+
+
+def wrap_access_or_install_errors(
+    func: Callable[[], _T],
+    resource: str,
+    access_error_code: Union[str, Set[str]],
+    install_error_code: Union[str, Set[str]],
+) -> _T:
+    """
+    A variation on ignore_boto3_error_code that would otherwise require wrapping func in
+    two lambdas. Makes sense for operations that are the first operation a user will
+    try, so that we can give them helpful information if Meadowrun hasn't been installed
+    yet or they don't have the right permissions.
+    """
+    if isinstance(access_error_code, str):
+        access_error_code = {access_error_code}
+
+    if isinstance(install_error_code, str):
+        install_error_code = {install_error_code}
+
+    try:
+        return func()
+    except botocore.exceptions.ClientError as e:
+        if "Error" in e.response:
+            error = e.response["Error"]
+            if "Code" in error:
+                if error["Code"] in access_error_code:
+                    raise MeadowrunAWSAccessError(resource) from e
+                elif error["Code"] in install_error_code:
+                    raise MeadowrunNotInstalledError(resource) from e
+
+        raise
 
 
 def _boto3_paginate(method: Any, **kwargs: Any) -> Iterable[Any]:

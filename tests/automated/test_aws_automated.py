@@ -26,7 +26,7 @@ from instance_registrar_suite import (
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
-from meadowrun.aws_integration.ec2_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.grid_tasks_sqs import (
     _add_tasks,
     _complete_task,
@@ -56,7 +56,7 @@ class AwsHostProvider(HostProvider):
         with fabric.Connection(
             job_completion.public_address,
             user="ubuntu",
-            connect_kwargs={"pkey": ensure_meadowrun_key_pair(REGION)},
+            connect_kwargs={"pkey": get_meadowrun_ssh_key(REGION)},
         ) as conn:
             with io.BytesIO() as local_copy:
                 conn.get(job_completion.log_file_name, local_copy)

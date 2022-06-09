@@ -30,7 +30,7 @@ _LAUNCH_REGISTER_DELAY = datetime.timedelta(minutes=5)
 
 def _get_ec2_alloc_table(region_name: str) -> Any:
     """
-    Very similar to _ensure_ec2_alloc_table, but assumes the table already exists and
+    Very similar to ensure_ec2_alloc_table, but assumes the table already exists and
     assumes we're running in an AWS lambda
     """
 

@@ -15,10 +15,7 @@ from meadowrun.aws_integration.aws_core import (
     _get_account_number,
     _get_default_region_name,
 )
-from meadowrun.aws_integration.aws_permissions import (
-    _MANAGEMENT_LAMBDA_ROLE,
-    _ensure_management_lambda_role,
-)
+from meadowrun.aws_integration.aws_permissions_install import _MANAGEMENT_LAMBDA_ROLE
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
@@ -167,6 +164,8 @@ async def _ensure_management_lambda(
 
     Even if this is called with update_if_exists, it is not guaranteed to update the
     code if another process creates the lambda after this function starts executing.
+
+    The meadowrun management lambda role must exist already
     """
 
     region_name = await _get_default_region_name()
@@ -178,9 +177,6 @@ async def _ensure_management_lambda(
     )
 
     if not exists:
-        # create the role that the lambda will run as
-        _ensure_management_lambda_role(region_name)
-
         await _create_management_lambda(
             lambda_client,
             lambda_handler,

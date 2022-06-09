@@ -9,16 +9,13 @@ import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
-    ensure_meadowrun_ssh_security_group,
+    get_ssh_security_group_id_authorize_current_ip,
     launch_ec2_instances,
 )
-from meadowrun.aws_integration.aws_permissions import (
-    _EC2_ALLOC_ROLE_INSTANCE_PROFILE,
-    _ensure_ec2_alloc_role,
-)
+from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
-    ensure_meadowrun_key_pair,
+    get_meadowrun_ssh_key,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
@@ -48,7 +45,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # AMIs that have meadowrun pre-installed. These are all identical, we just need to
 # replicate into each region.
 _EC2_ALLOC_AMIS = {
-    "us-east-2": "ami-004b3424bf92d9177",
+    "us-east-2": "ami-0ef7203e69a2d116b",
     "us-east-1": "ami-012e9d193b89375d5",
     "us-west-1": "ami-0c52a37a6e38158dd",
     "us-west-2": "ami-0575fbcd477b0cf64",
@@ -58,6 +55,35 @@ _EC2_ALLOC_AMIS = {
     "eu-west-3": "ami-0d16b7b5918ea8361",
     "eu-north-1": "ami-004dc0266e779cc12",
 }
+
+
+def ensure_ec2_alloc_table(region_name: str) -> None:
+    """Creates the EC2 alloc DynamoDB table if it doesn't already exist"""
+    db = boto3.resource("dynamodb", region_name=region_name)
+
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.ServiceResource.create_table
+    ignore_boto3_error_code(
+        lambda: db.create_table(
+            TableName=_EC2_ALLOC_TABLE_NAME,
+            AttributeDefinitions=[
+                {
+                    "AttributeName": _PUBLIC_ADDRESS,
+                    "AttributeType": "S",
+                }
+            ],
+            KeySchema=[
+                {
+                    "AttributeName": _PUBLIC_ADDRESS,
+                    "KeyType": "HASH",
+                }
+            ],
+            BillingMode="PAY_PER_REQUEST",
+            TableClass="STANDARD",
+        ),
+        "ResourceInUseException",
+    )
+
+    db.Table(_EC2_ALLOC_TABLE_NAME).wait_until_exists()
 
 
 class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
@@ -87,48 +113,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             self._table_region_name = await _get_default_region_name()
 
         db = boto3.resource("dynamodb", region_name=self._table_region_name)
-
-        # this constructor will always succeed, regardless of whether the table already
-        # exists or not
         self._table = db.Table(_EC2_ALLOC_TABLE_NAME)
-        success, _ = ignore_boto3_error_code(
-            lambda: self._table.load(), "ResourceNotFoundException"
-        )
-        if not success:
-            # this means the table does not exist
-
-            if self._on_table_missing == "raise":
-                raise ValueError(
-                    f"Table {_EC2_ALLOC_TABLE_NAME} does not exist in region "
-                    f"{self._table_region_name}"
-                )
-            elif self._on_table_missing == "create":
-                # This could be more robust against ResourceInUseException which would
-                # indicate that someone else created the table at the same time
-                # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.ServiceResource.create_table
-                db.create_table(
-                    TableName=_EC2_ALLOC_TABLE_NAME,
-                    AttributeDefinitions=[
-                        {
-                            "AttributeName": _PUBLIC_ADDRESS,
-                            "AttributeType": "S",
-                        }
-                    ],
-                    KeySchema=[
-                        {
-                            "AttributeName": _PUBLIC_ADDRESS,
-                            "KeyType": "HASH",
-                        }
-                    ],
-                    BillingMode="PAY_PER_REQUEST",
-                    TableClass="STANDARD",
-                )
-                self._table.wait_until_exists()
-            else:
-                raise ValueError(
-                    f"Unexpected value for on_table_missing {self._on_table_missing}"
-                )
-
         return self
 
     async def __aexit__(
@@ -368,8 +353,11 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             )
         ami = _EC2_ALLOC_AMIS[instances_spec.region_name]
 
-        meadowrun_ssh_security_group_id = await ensure_meadowrun_ssh_security_group()
-        _ensure_ec2_alloc_role(instances_spec.region_name)
+        meadowrun_ssh_security_group_id = (
+            await get_ssh_security_group_id_authorize_current_ip(
+                instances_spec.region_name
+            )
+        )
 
         return await launch_ec2_instances(
             instances_spec.logical_cpu_required_per_task,
@@ -382,7 +370,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             security_group_ids=[meadowrun_ssh_security_group_id],
             # TODO we should let users set their own IAM role as long as it grants
             # access to the dynamodb table we need for deallocation
-            iam_role_name=_EC2_ALLOC_ROLE_INSTANCE_PROFILE,
+            iam_role_name=_EC2_ROLE_INSTANCE_PROFILE,
             # assumes that we've already called ensure_meadowrun_key_pair!
             key_name=MEADOWRUN_KEY_PAIR_NAME,
             tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
@@ -398,7 +386,7 @@ async def run_job_ec2_instance_registrar(
 ) -> JobCompletion[Any]:
     """Runs the specified job on EC2. Creates an EC2InstanceRegistrar"""
     region_name = region_name or await _get_default_region_name()
-    pkey = ensure_meadowrun_key_pair(region_name)
+    pkey = get_meadowrun_ssh_key(region_name)
 
     async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
         hosts = await allocate_jobs_to_instances(

@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import tarfile
 import urllib.parse
 import urllib.request
@@ -343,8 +344,19 @@ async def build_image(
                     if "stream" in line:
                         print(line["stream"], end="")
                     if "errorDetail" in line:
+                        error_detail = line["errorDetail"]
+                        try:
+                            error_detail_json = json.loads(error_detail)
+                            code = error_detail_json.get("code")
+                            if code == 137:
+                                raise ValueError(
+                                    "Error building docker image: ran out of memory, "
+                                    "please provision an instance that has more memory"
+                                )
+                        except Exception:
+                            pass
                         raise ValueError(
-                            f"Error building docker image: f{line['errorDetail']}"
+                            f"Error building docker image: f{error_detail}"
                         )
 
 

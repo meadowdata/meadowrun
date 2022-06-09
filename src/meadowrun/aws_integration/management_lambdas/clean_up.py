@@ -34,15 +34,21 @@ def delete_old_task_queues(region_name: str) -> None:
     now = datetime.datetime.utcnow()
     client = boto3.client("sqs", region_name=region_name)
     for queue_url in _get_meadowrun_task_queue_urls(client):
-        response = client.get_queue_attributes(
-            QueueUrl=queue_url,
-            AttributeNames=[
-                "ApproximateNumberOfMessages",
-                "ApproximateNumberOfMessagesNotVisible",
-                "CreatedTimestamp",
-                "LastModifiedTimestamp",
-            ],
+        success, response = ignore_boto3_error_code(
+            lambda: client.get_queue_attributes(
+                QueueUrl=queue_url,
+                AttributeNames=[
+                    "ApproximateNumberOfMessages",
+                    "ApproximateNumberOfMessagesNotVisible",
+                    "CreatedTimestamp",
+                    "LastModifiedTimestamp",
+                ],
+            ),
+            "AWS.SimpleQueueService.NonExistentQueue",
         )
+        if not success:
+            continue
+        assert response is not None  # just for mypy
         attributes = response["Attributes"]
         # we should only need to check LastModifiedTimestamp, but we include
         # CreatedTimestamp just in case
@@ -51,8 +57,7 @@ def delete_old_task_queues(region_name: str) -> None:
             datetime.datetime.fromtimestamp(int(attributes["LastModifiedTimestamp"])),
         )
         if (
-            attributes["ApproximateNumberOfMessages"] == "0"
-            and attributes["ApproximateNumberOfMessagesNotVisible"] == "0"
+            attributes["ApproximateNumberOfMessagesNotVisible"] == "0"
             and now - last_modified > _QUEUE_DELETION_TIMEOUT
         ):
             print(f"Deleting queue {queue_url}, was last modified at {last_modified}")

@@ -8,9 +8,9 @@ will
   creating packages and building Docker images
 - scale from a single function to thousands of parallel tasks
 
-For more information see Meadowrun's
-[documentation](https://docs.meadowrun.io/en/latest/), or the [project
-homepage](https://meadowrun.io).
+For more information see Meadowrun's [documentation](https://docs.meadowrun.io), the
+[project homepage](https://meadowrun.io), or [join the chat on
+Gitter](https://gitter.im/meadowdata/meadowrun)
 
 ## When would I use Meadowrun?
 

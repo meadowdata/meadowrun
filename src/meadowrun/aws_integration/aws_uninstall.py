@@ -4,12 +4,14 @@ import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
-from meadowrun.aws_integration.ec2 import _MEADOWRUN_SSH_SECURITY_GROUP
-from meadowrun.aws_integration.aws_permissions import (
-    _CLEAN_UP_LAMBDA_NAME,
-    _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
+import meadowrun.aws_integration.s3
+from meadowrun.aws_integration.aws_mgmt_lambda_setup import (
     _EC2_ALLOC_LAMBDA_NAME,
     _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
+    _CLEAN_UP_LAMBDA_NAME,
+    _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
+)
+from meadowrun.aws_integration.aws_permissions import (
     _EC2_ALLOC_ROLE,
     _EC2_ALLOC_ROLE_INSTANCE_PROFILE,
     _MANAGEMENT_LAMBDA_ROLE,
@@ -18,6 +20,7 @@ from meadowrun.aws_integration.aws_permissions import (
     _ensure_meadowrun_sqs_access_policy,
     _ensure_s3_access_policy,
 )
+from meadowrun.aws_integration.ec2 import _MEADOWRUN_SSH_SECURITY_GROUP
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     _MEADOWRUN_KEY_PAIR_SECRET_NAME,
@@ -27,7 +30,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     ignore_boto3_error_code,
 )
-import meadowrun.aws_integration.s3
 
 
 def _delete_iam_role(iam: Any, role_name: str) -> None:

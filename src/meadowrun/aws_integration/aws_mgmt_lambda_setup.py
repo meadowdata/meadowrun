@@ -9,16 +9,13 @@ from typing import Any, Tuple, Callable, TypeVar
 
 import boto3
 
-import meadowrun.aws_integration
+import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
+import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_core import (
     _get_account_number,
     _get_default_region_name,
 )
 from meadowrun.aws_integration.aws_permissions import (
-    _CLEAN_UP_LAMBDA_NAME,
-    _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
-    _EC2_ALLOC_LAMBDA_NAME,
-    _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
     _MANAGEMENT_LAMBDA_ROLE,
     _ensure_management_lambda_role,
 )
@@ -28,6 +25,14 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 
 
 _T = TypeVar("_T")
+
+# the name of the lambda that runs adjust_ec2_instances.py
+_EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
+# the EventBridge rule that triggers the lambda
+_EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowrun_ec2_alloc_lambda_schedule_rule"
+# the name of the lambda that runs clean_up.py
+_CLEAN_UP_LAMBDA_NAME = "meadowrun_clean_up"
+_CLEAN_UP_LAMBDA_SCHEDULE_RULE = "meadowrun_clean_up_lambda_schedule_rule"
 
 
 def _get_zipped_lambda_code() -> bytes:

@@ -170,15 +170,6 @@ _LAMBDA_ASSUME_ROLE_POLICY_DOCUMENT = """{
 }"""
 
 
-# the name of the lambda that runs adjust_ec2_instances.py
-_EC2_ALLOC_LAMBDA_NAME = "meadowrun_ec2_alloc_lambda"
-# the EventBridge rule that triggers the lambda
-_EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowrun_ec2_alloc_lambda_schedule_rule"
-
-# the name of the lambda that runs clean_up.py
-_CLEAN_UP_LAMBDA_NAME = "meadowrun_clean_up"
-_CLEAN_UP_LAMBDA_SCHEDULE_RULE = "meadowrun_clean_up_lambda_schedule_rule"
-
 # the role that these lambdas run as
 _MANAGEMENT_LAMBDA_ROLE = "meadowrun_management_lambda_role"
 

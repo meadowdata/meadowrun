@@ -5,9 +5,11 @@
 # 1. Update this file to be in sync with pyproject.toml, see the comments in this file
 #    for what needs to be synced from pyproject.toml
 # 2. Build the pip package using `poetry build`
-# 3. Unpack the resulting meadowrun-0.1.7.tar.gz file into /dist/meadowrun-0.1.7. (E.g.
-#    setup.py should be at /dist/meadowrun-0.1.7/setup.py.)
-# 4. Now run `conda build -c defaults -c conda-forge --python 3.9 .` from this directory
+# 3. Unpack the resulting meadowrun-0.1.7.tar.gz file into /dist/meadowrun-0.1.7 with
+#    `tar xzvf dist\meadowrun-0.1.8a1.tar.gz -C dist` (E.g. setup.py should be at
+#    /dist/meadowrun-0.1.7/setup.py)
+# 4. Now run `conda build -c defaults -c conda-forge --python 3.9
+#    build_scripts\conda-recipe`
 
 # 5a. To test this, you can install this package into a conda environment by running
 #     `conda install meadowrun -c c:\bin\Miniconda\conda-bld -c defaults -c conda-forge`
@@ -20,9 +22,9 @@
 
 package:
   name: meadowrun
-  version: 0.1.7  # from pyproject.toml
+  version: 0.1.8a1  # from pyproject.toml
 source:
-  path: ../../dist/meadowrun-0.1.7  # from pyproject.toml
+  path: ../../dist/meadowrun-0.1.8a1  # from pyproject.toml
 build:
   entry_points:  # from pyproject.toml
     - meadowrun-local = meadowrun.run_job_local_main:command_line_main

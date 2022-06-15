@@ -9,6 +9,7 @@ import aiohttp
 import meadowrun.azure_integration.mgmt_functions
 from meadowrun.azure_integration.azure_meadowrun_core import (
     _ensure_managed_identity,
+    _ensure_resource_provider_registered,
     ensure_meadowrun_resource_group,
     ensure_meadowrun_storage_account,
     get_subscription_id,
@@ -95,13 +96,29 @@ async def _create_or_update_mgmt_function_app(location: str) -> None:
     # first create some prerequisites:
 
     # create application insights component for logging
+    await _ensure_resource_provider_registered(
+        subscription_id, "Microsoft.OperationalInsights"
+    )
+    await _ensure_resource_provider_registered(subscription_id, "microsoft.insights")
     app_insights_component_task = asyncio.create_task(
         _create_application_insights_component(location)
     )
     # ensure storage account which is required by the functions runtime
+    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Storage")
     storage_account_task = ensure_meadowrun_storage_account(location, "create")
     # managed identity for the function
+    await _ensure_resource_provider_registered(
+        subscription_id, "Microsoft.ManagedIdentity"
+    )
     identity_id, identity_client_id = await _ensure_managed_identity(location)
+
+    # register misc resource providers we'll need while running
+    await _ensure_resource_provider_registered(subscription_id, "Microsoft.KeyVault")
+    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Network")
+    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Compute")
+    await _ensure_resource_provider_registered(
+        subscription_id, "Microsoft.ContainerRegistry"
+    )
 
     # now create the actual "function app"/"site"
     # https://docs.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update
@@ -109,6 +126,7 @@ async def _create_or_update_mgmt_function_app(location: str) -> None:
     # azure_rest_api_poll(poll_scheme="GetProvisioningState"), but there's no
     # "provisioningState" property to check. This seems like a bug/outdated
     # implementation in the SDK.
+    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Web")
     await azure_rest_api(
         "PUT",
         site_path,

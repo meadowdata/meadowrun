@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional, Literal, Tuple, Set
+from typing import Awaitable, Final, Optional, Literal, Tuple, Set
 
 import aiohttp
 
@@ -98,6 +98,17 @@ async def get_current_ip_address_on_vm() -> Optional[str]:
         return await response.text()
 
 
+def _ensure_resource_provider_registered(
+    subscription_id: str, resource_provider_ns: str
+) -> Awaitable[None]:
+    """Ensure the given resource provider is registered."""
+    return azure_rest_api(
+        "POST",
+        f"subscriptions/{subscription_id}/providers/{resource_provider_ns}/register",
+        "2021-04-01",
+    )
+
+
 _MEADOWRUN_MANAGED_IDENTITY = "meadowrun-managed-identity"
 
 
@@ -115,6 +126,7 @@ async def _ensure_managed_identity(location: str) -> Tuple[str, str]:
             f"Azure managed identity {_MEADOWRUN_MANAGED_IDENTITY} does not exist, "
             f"creating it now"
         )
+
         identity = await azure_rest_api(
             "PUT", path, "2018-11-30", json_content={"location": location}
         )

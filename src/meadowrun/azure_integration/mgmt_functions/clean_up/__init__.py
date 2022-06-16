@@ -229,7 +229,7 @@ async def delete_unused_images() -> List[str]:
             registry_name, _MEADOWRUN_GENERATED_DOCKER_REPO
         )
     except aiohttp.ClientConnectorError:
-        # assume the repository does not exist => no tags
+        # assume the registry does not exist => no tags
         tags = []
 
     for tag in tags:

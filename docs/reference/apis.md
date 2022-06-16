@@ -19,3 +19,19 @@
 ## Specifying deployments
 
 ::: meadowrun.Deployment
+
+---
+
+::: meadowrun.LocalInterpreter
+
+::: meadowrun.LocalCondaInterpreter
+
+::: meadowrun.LocalPipInterpreter
+
+---
+
+::: meadowrun.InterpreterSpecFile
+
+::: meadowrun.CondaEnvironmentYmlFile
+
+::: meadowrun.PipRequirementsFile

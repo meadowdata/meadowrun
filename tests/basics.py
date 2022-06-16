@@ -1,18 +1,22 @@
 import abc
 import os
 import sys
-from typing import Union
+from typing import Union, Callable, Tuple
 
 import pytest
 
 import meadowrun.docker_controller
 from meadowrun import (
     AllocCloudInstances,
+    CondaEnvironmentYmlFile,
     ContainerAtDigest,
     ContainerAtTag,
     Deployment,
     GitRepoBranch,
     GitRepoCommit,
+    LocalCondaInterpreter,
+    LocalPipInterpreter,
+    PipRequirementsFile,
     ServerAvailableInterpreter,
     run_command,
     run_function,
@@ -21,13 +25,9 @@ from meadowrun import (
 from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.deployment import (
     CodeDeployment,
-    VersionedCodeDeployment,
     InterpreterDeployment,
+    VersionedCodeDeployment,
     VersionedInterpreterDeployment,
-)
-from meadowrun.meadowrun_pb2 import (
-    EnvironmentSpecInCode,
-    EnvironmentType,
 )
 from meadowrun.meadowrun_pb2 import ServerAvailableContainer, ProcessState
 from meadowrun.run_job_core import (
@@ -58,6 +58,14 @@ class HostProvider(abc.ABC):
     @abc.abstractmethod
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         pass
+
+
+def _path_from_here(path: str) -> str:
+    """
+    Combines the specified path with the directory this file is in (tests). So e.g.
+    _relative_path_from_folder("../") is the root of this git repo
+    """
+    return os.path.join(os.path.dirname(__file__), path)
 
 
 class BasicsSuite(HostProvider, abc.ABC):
@@ -162,39 +170,131 @@ class BasicsSuite(HostProvider, abc.ABC):
         "running on >=3.8",
     )
     @pytest.mark.asyncio
-    async def test_meadowrun_environment_in_spec(self):
-        def remote_function():
-            import importlib
-
-            # we could just do import requests, but that messes with mypy
-            pd = importlib.import_module("pandas")  # from myenv.yml
-            requests = importlib.import_module("requests")  # from myenv.yml
-            example = importlib.import_module("example")  # from example_package
-            return requests.__version__, pd.__version__, example.join_strings("a", "b")
-
+    async def test_conda_file_in_git_repo(self):
         results = await run_function(
-            remote_function,
+            self._get_remote_function_for_deployment(),
             self.get_host(),
-            Deployment(
-                EnvironmentSpecInCode(
-                    environment_type=EnvironmentType.CONDA,
-                    path_to_spec="myenv.yml",
-                ),
-                GitRepoCommit(
-                    repo_url=self.get_test_repo_url(),
-                    commit="a249fc16",
-                    path_to_source="example_package",
-                ),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter_spec_file=CondaEnvironmentYmlFile("myenv.yml"),
             ),
         )
-        assert results == ("2.27.1", "1.4.1", "a, b")
+        assert results == ("2.27.1", "1.4.2", "a, b")
 
-    # see test_meadowrun_environment_in_spec
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_meadowrun_local_environment(self):
+    async def test_pip_file_in_git_repo(self):
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter_spec_file=PipRequirementsFile("requirements.txt", "3.9"),
+            ),
+        )
+        assert results == ("2.28.0", "1.4.2", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_local_conda_interpreter(self):
         # this currently needs a conda environment created from the test repo:
         # conda env create -n test_repo_conda_env -f myenv.yml
+        exception_raised = False
+        try:
+            results = await run_function(
+                self._get_remote_function_for_deployment(),
+                self.get_host(),
+                await Deployment.mirror_local(
+                    interpreter=LocalCondaInterpreter("test_repo_conda_env"),
+                    additional_paths=[
+                        _path_from_here("../../test_repo/example_package")
+                    ],
+                ),
+            )
+            assert results == ("2.27.1", "1.4.2", "a, b")
+        except ValueError:
+            if sys.platform == "win32":
+                exception_raised = True
+            else:
+                raise
+
+        if sys.platform == "win32":
+            assert exception_raised
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_local_pip_interpreter(self):
+        # this requires creating a virtualenv in this git repo's parent directory.
+        # For Windows:
+        # > python -m virtualenv test_venv_windows
+        # > test_venv_windows/Scripts/activate.bat
+        # > pip install -r test_repo/requirements.txt
+        # For Linux:
+        # > python -m virtualenv test_venv_linux
+        # > source test_venv_linux/bin/activate
+        # > pip install -r test_repo/requirements.txt
+        if sys.platform == "win32":
+            test_venv_interpreter = _path_from_here(
+                "../../test_venv_windows/Scripts/python.exe"
+            )
+        else:
+            test_venv_interpreter = _path_from_here("../../test_venv_linux/bin/python")
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            await Deployment.mirror_local(
+                interpreter=LocalPipInterpreter(test_venv_interpreter, "3.9"),
+                additional_paths=[_path_from_here("../../test_repo/example_package")],
+            ),
+        )
+        assert results == ("2.28.0", "1.4.2", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_local_conda_file(self):
+        # this requires creating a virtualenv in this git repo's parent directory called
+        # test_venv with the following steps:
+        # - virtualenv test_venv
+        # - test_venv/Scripts/activate.bat OR source test_venv/Scripts/activate,
+        # - pip install -r test_repo/requirements.txt
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            await Deployment.mirror_local(
+                interpreter=CondaEnvironmentYmlFile(
+                    _path_from_here("../../test_repo/myenv.yml")
+                ),
+                additional_paths=[_path_from_here("../../test_repo/example_package")],
+            ),
+        )
+        assert results == ("2.27.1", "1.4.2", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_local_pip_file(self):
+        # this requires creating a virtualenv in this git repo's parent directory called
+        # test_venv with the following steps:
+        # - virtualenv test_venv
+        # - test_venv/Scripts/activate.bat OR source test_venv/Scripts/activate,
+        # - pip install -r test_repo/requirements.txt
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            await Deployment.mirror_local(
+                interpreter=PipRequirementsFile(
+                    _path_from_here("../../test_repo/requirements.txt"), "3.9"
+                ),
+                additional_paths=[_path_from_here("../../test_repo/example_package")],
+            ),
+        )
+        assert results == ("2.28.0", "1.4.2", "a, b")
+
+    def _get_remote_function_for_deployment(self) -> Callable[[], Tuple[str, str, str]]:
+        # we have a wrapper around this so that the function gets pickled as a lambda
         def remote_function():
             import importlib
 
@@ -208,19 +308,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 example.join_strings("a", "b"),
             )
 
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            await Deployment.mirror_local(
-                conda_env="test_repo_conda_env",
-                additional_paths=[
-                    os.path.join(
-                        os.path.dirname(__file__), "../../test_repo/example_package"
-                    )
-                ],
-            ),
-        )
-        assert results == ("2.27.1", "1.4.1", "a, b")
+        return remote_function
 
 
 class ErrorsSuite(HostProvider, abc.ABC):

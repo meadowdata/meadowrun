@@ -104,7 +104,7 @@ enum EnvironmentType {
     // Reserved, not used
     DEFAULT = 0;
     CONDA = 1;
-    // TODO add others
+    PIP = 2;
 }
 
 // Represents the path to an environment spec in the code deployment.
@@ -116,6 +116,8 @@ enum EnvironmentType {
 message EnvironmentSpecInCode {
     EnvironmentType environment_type = 1;
     string path_to_spec = 2;
+    // python version is not used for CONDA environments
+    string python_version = 3;
 }
 
 // Represents an environment spec represented as a string.
@@ -125,6 +127,8 @@ message EnvironmentSpecInCode {
 message EnvironmentSpec {
     EnvironmentType environment_type = 1;
     string spec = 2;
+    // python version is not used for CONDA environments
+    string python_version = 3;
 }
 
 

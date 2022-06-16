@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Awaitable, Final, Optional, Literal, Tuple, Set
+from typing import Awaitable, Optional, Literal, Tuple, Set
 
 import aiohttp
 

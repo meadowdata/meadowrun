@@ -3,7 +3,7 @@ from typing import Literal, Optional, Tuple, List, Any
 
 import aiohttp
 
-from .azure_exceptions import raise_for_status
+from .azure_exceptions import AzureRestApiError, raise_for_status
 from .azure_identity import get_token
 from .azure_rest_api import (
     azure_rest_api,
@@ -184,16 +184,21 @@ async def get_tags_in_repository(registry_name: str, repository: str) -> List[An
     )
 
     results = []
-    async for page in azure_rest_api_paged(
-        method,
-        url_path,
-        "",
-        base_url=f"https://{registry_name}.azurecr.io",
-        token=token,
-    ):
-        tags = page.get("tags")
-        if tags:
-            results.extend(tags)
+    try:
+        async for page in azure_rest_api_paged(
+            method,
+            url_path,
+            "",
+            base_url=f"https://{registry_name}.azurecr.io",
+            token=token,
+        ):
+            tags = page.get("tags")
+            if tags:
+                results.extend(tags)
+    except AzureRestApiError as exn:
+        # repository does not exist, i.e. no image has been pushed yet.
+        if exn.status != 404:
+            raise
     return results
 
 

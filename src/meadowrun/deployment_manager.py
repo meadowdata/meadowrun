@@ -278,81 +278,89 @@ async def compile_environment_spec_to_container(
     TODO we should also consider creating conda environments locally rather than always
     making a container for them, that might be more efficient.
     """
-    if environment_spec.environment_type == EnvironmentType.CONDA:
-        path_to_spec, spec_hash = _get_path_and_hash(
-            environment_spec, interpreter_spec_path
-        )
+    path_to_spec, spec_hash = _get_path_and_hash(
+        environment_spec, interpreter_spec_path
+    )
 
-        if cloud is None:
-            helper = ContainerRegistryHelper(
-                False, None, f"{_MEADOWRUN_GENERATED_DOCKER_REPO}:{spec_hash}", False
+    if cloud is None:
+        helper = ContainerRegistryHelper(
+            False, None, f"{_MEADOWRUN_GENERATED_DOCKER_REPO}:{spec_hash}", False
+        )
+    else:
+        cloud_type, region_name = cloud
+        if cloud_type == "EC2":
+            helper = await get_ecr_helper(
+                _MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name
+            )
+        elif cloud_type == "AzureVM":
+            helper = await get_acr_helper(
+                _MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name
             )
         else:
-            cloud_type, region_name = cloud
-            if cloud_type == "EC2":
-                helper = await get_ecr_helper(
-                    _MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name
-                )
-            elif cloud_type == "AzureVM":
-                helper = await get_acr_helper(
-                    _MEADOWRUN_GENERATED_DOCKER_REPO, spec_hash, region_name
-                )
-            else:
-                raise ValueError(f"Unexpected cloud_type {cloud_type}")
+            raise ValueError(f"Unexpected cloud_type {cloud_type}")
 
-        result = ServerAvailableContainer(image_name=helper.image_name)
+    result = ServerAvailableContainer(image_name=helper.image_name)
 
-        # if the image already exists locally, just return it
-        if await _does_digest_exist_locally(helper.image_name):
-            return result
-
-        # if the image doesn't exist locally but does exist in ECR, try to pull it
-        if helper.does_image_exist:
-            try:
-                await pull_image(helper.image_name, helper.username_password)
-                # TODO we're assuming that once we pull the image it will be available
-                # locally until the job runs, which might not be true if we implement
-                # something to clean unused images.
-                return result
-            except (aiodocker_exceptions.DockerError, ValueError) as e:
-                print(
-                    f"Warning, image {helper.image_name} was supposed to exist, but we "
-                    "were unable to pull, so re-building locally. This could happen if "
-                    "the image was deleted between when we checked for it and when we "
-                    f"pulled, but that should be rare: {e}"
-                )
-
-        # the image doesn't exist locally or in ECR, so build it ourselves and cache it
-        # in ECR
-        spec_filename = os.path.basename(path_to_spec)
-        docker_file_path = os.path.join(
-            os.path.dirname(__file__), "docker_files", "CondaDockerfile"
-        )
-        await build_image(
-            [(docker_file_path, "Dockerfile"), (path_to_spec, spec_filename)],
-            helper.image_name,
-            {"ENV_FILE": spec_filename},
-        )
-
-        # try to push the image so that we can reuse it later
-        # TODO this should really happen asynchronously as it takes a long time and
-        # isn't critical.
-        # TODO we should also somehow avoid multiple processes on the same (or even on
-        # different machines) building the identical image at the same time.
-        if helper.should_push:
-            try:
-                await push_image(helper.image_name, helper.username_password)
-            except aiodocker_exceptions.DockerError as e:
-                print(
-                    f"Warning, image {helper.image_name} couldn't be pushed. Execution "
-                    f"can continue, but we won't be able to reuse this image later: {e}"
-                )
-
+    # if the image already exists locally, just return it
+    if await _does_digest_exist_locally(helper.image_name):
         return result
+
+    # if the image doesn't exist locally but does exist in ECR, try to pull it
+    if helper.does_image_exist:
+        try:
+            await pull_image(helper.image_name, helper.username_password)
+            # TODO we're assuming that once we pull the image it will be available
+            # locally until the job runs, which might not be true if we implement
+            # something to clean unused images.
+            return result
+        except (aiodocker_exceptions.DockerError, ValueError) as e:
+            print(
+                f"Warning, image {helper.image_name} was supposed to exist, but we were"
+                " unable to pull, so re-building locally. This could happen if the "
+                "image was deleted between when we checked for it and when we pulled, "
+                f"but that should be rare: {e}"
+            )
+
+    # the image doesn't exist locally or in ECR, so build it ourselves and cache it in
+    # ECR
+
+    build_args = {}
+    if environment_spec.environment_type == EnvironmentType.CONDA:
+        docker_file_name = "CondaDockerfile"
+    elif environment_spec.environment_type == EnvironmentType.PIP:
+        docker_file_name = "PipDockerfile"
+        build_args["PYTHON_VERSION"] = environment_spec.python_version
     else:
         raise ValueError(
             f"Unexpected environment_type {environment_spec.environment_type}"
         )
+
+    spec_filename = os.path.basename(path_to_spec)
+    build_args["ENV_FILE"] = spec_filename
+    docker_file_path = os.path.join(
+        os.path.dirname(__file__), "docker_files", docker_file_name
+    )
+    await build_image(
+        [(docker_file_path, "Dockerfile"), (path_to_spec, spec_filename)],
+        helper.image_name,
+        build_args,
+    )
+
+    # try to push the image so that we can reuse it later
+    # TODO this should really happen asynchronously as it takes a long time and isn't
+    # critical.
+    # TODO we should also somehow avoid multiple processes on the same (or even on
+    # different machines) building the identical image at the same time.
+    if helper.should_push:
+        try:
+            await push_image(helper.image_name, helper.username_password)
+        except aiodocker_exceptions.DockerError as e:
+            print(
+                f"Warning, image {helper.image_name} couldn't be pushed. Execution can "
+                f"continue, but we won't be able to reuse this image later: {e}"
+            )
+
+    return result
 
 
 def _get_path_and_hash(
@@ -377,8 +385,9 @@ def _get_path_and_hash(
         # in this case, interpreter_spec_path is a path to where we save the spec for
         # later processing.
         spec_hash = hash_spec(environment_spec.spec.encode("UTF-8"))
+        environment_type_name = EnvironmentType.Name(environment_spec.environment_type)
         path_to_spec = os.path.join(
-            interpreter_spec_path, f"conda_env_spec_{spec_hash}.yml"
+            interpreter_spec_path, f"{environment_type_name}_env_spec_{spec_hash}.yml"
         )
         with open(path_to_spec, "w") as env_spec:
             env_spec.write(environment_spec.spec)

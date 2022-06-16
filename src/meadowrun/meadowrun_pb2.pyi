@@ -27,7 +27,7 @@ class _EnvironmentTypeEnumTypeWrapper(
     """Reserved, not used"""
 
     CONDA: _EnvironmentType.ValueType  # 1
-    """TODO add others"""
+    PIP: _EnvironmentType.ValueType  # 2
 
 class EnvironmentType(_EnvironmentType, metaclass=_EnvironmentTypeEnumTypeWrapper):
     pass
@@ -36,8 +36,7 @@ DEFAULT: EnvironmentType.ValueType  # 0
 """Reserved, not used"""
 
 CONDA: EnvironmentType.ValueType  # 1
-"""TODO add others"""
-
+PIP: EnvironmentType.ValueType  # 2
 global___EnvironmentType = EnvironmentType
 
 class StringPair(google.protobuf.message.Message):
@@ -274,7 +273,8 @@ class ContainerAtTag(google.protobuf.message.Message):
     TAG_FIELD_NUMBER: builtins.int
     repository: typing.Text
     """Together, repository and tag should be such that `docker pull [repository]:[tag]`
-    works
+    works. The container should be configured so that `docker run [repository]:[tag]
+    python [additional arguments]` behaves as expected
     """
 
     tag: typing.Text
@@ -305,18 +305,26 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
     PATH_TO_SPEC_FIELD_NUMBER: builtins.int
+    PYTHON_VERSION_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     path_to_spec: typing.Text
+    python_version: typing.Text
     def __init__(
         self,
         *,
         environment_type: global___EnvironmentType.ValueType = ...,
         path_to_spec: typing.Text = ...,
+        python_version: typing.Text = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "environment_type", b"environment_type", "path_to_spec", b"path_to_spec"
+            "environment_type",
+            b"environment_type",
+            "path_to_spec",
+            b"path_to_spec",
+            "python_version",
+            b"python_version",
         ],
     ) -> None: ...
 
@@ -332,18 +340,26 @@ class EnvironmentSpec(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
     SPEC_FIELD_NUMBER: builtins.int
+    PYTHON_VERSION_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     spec: typing.Text
+    python_version: typing.Text
     def __init__(
         self,
         *,
         environment_type: global___EnvironmentType.ValueType = ...,
         spec: typing.Text = ...,
+        python_version: typing.Text = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "environment_type", b"environment_type", "spec", b"spec"
+            "environment_type",
+            b"environment_type",
+            "python_version",
+            b"python_version",
+            "spec",
+            b"spec",
         ],
     ) -> None: ...
 

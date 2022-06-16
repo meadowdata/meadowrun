@@ -128,7 +128,7 @@ async def test_conda_env_export_activated(mocker: MockerFixture):
     mocker.patch.dict(
         os.environ, {"CONDA_PREFIX": "/home/user/anaconda/envs/abc"}, clear=True
     )
-    result = await conda.env_export()
+    result = await conda.try_get_current_conda_env()
     _run_conda.assert_called_once()
     assert result == "some yaml"
 
@@ -137,8 +137,7 @@ async def test_conda_env_export_activated(mocker: MockerFixture):
 async def test_conda_env_export_not_activated(mocker: MockerFixture):
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     mocker.patch.dict(os.environ, {}, clear=True)
-    with pytest.raises(ValueError):
-        await conda.env_export()
+    assert await conda.try_get_current_conda_env() is None
     _run_conda.assert_not_called()
 
 

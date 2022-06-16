@@ -41,45 +41,48 @@ async def _run(args: List[str]) -> Tuple[str, str]:
     return stdout.decode(), stderr.decode()
 
 
-async def env_export(name_or_path: Optional[str] = None) -> str:
-    """Runs `conda env export` on the conda environment with the given name, and returns the
-    results.
+async def try_get_current_conda_env() -> Optional[str]:
+    """
+    Returns the result of conda env export on the current conda environment. Returns
+    None if there's no currently active conda environment
+    """
+    env_path = os.environ.get("CONDA_PREFIX")
+    if env_path is None:
+        return None
+    out, _ = await _run(["env", "export", "-p", env_path])
+    return out
 
-    :param name: name or full path to the conda environment - if None, tries to use the
-        currently activated conda environment.
+
+async def env_export(name_or_path: str) -> str:
+    """Runs `conda env export` on the conda environment with the given name, and returns
+    the results.
+
+    :param name_or_path: name or full path to the conda environment
     :return: Output of the conda env export command.
     """
-    if name_or_path is None:
-        env_path = os.environ.get("CONDA_PREFIX")
-        if env_path is None:
+    out, _ = await _run(["env", "list", "--json"])
+    result = json.loads(out)
+    envs: List[str] = result["envs"]
+    if len(envs) == 0:
+        raise ValueError("No conda environments found")
+    elif len(envs) == 1:
+        # praise conda: the first path is always the base path
+        if name_or_path != "base":
             raise ValueError(
-                "name_or_path must be given if there is no activated conda environment "
-                "(CONDA_PREFIX is not set)"
+                f"Conda environment {name_or_path} not found - only base environment is"
+                " defined"
             )
+        env_path = envs[0]
     else:
-        out, _ = await _run(["env", "list", "--json"])
-        result = json.loads(out)
-        envs: List[str] = result["envs"]
-        if len(envs) == 0:
-            raise ValueError("No conda environments found")
-        elif len(envs) == 1:
-            # praise conda: the first path is always the base path
-            if name_or_path != "base":
-                raise ValueError(
-                    f"Conda environment {name_or_path} not found - only base"
-                    " environment is defined"
-                )
-            env_path = envs[0]
+        if name_or_path in envs:
+            env_path = name_or_path
         else:
-            if name_or_path in envs:
-                env_path = name_or_path
+            for env in envs:
+                if name_or_path in env:
+                    env_path = env
+                    break
             else:
-                for env in envs:
-                    if name_or_path in env:
-                        env_path = env
-                        break
-                else:
-                    raise ValueError(f"Conda environment {name_or_path} not found.")
+                raise ValueError(f"Conda environment {name_or_path} not found.")
 
     # TODO: see https://github.com/conda/conda/issues/5253
     # there is also conda list --explicit/--export

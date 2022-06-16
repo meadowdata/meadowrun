@@ -8,7 +8,13 @@ import asyncio
 import datetime
 import logging
 import os
-from typing import List
+from typing import Any, Dict, List
+
+import aiohttp
+
+from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+    AzureRestApiError,
+)
 
 from ..azure.azure_acr import get_tags_in_repository, delete_tag
 from ..azure.azure_rest_api import (
@@ -17,6 +23,7 @@ from ..azure.azure_rest_api import (
     parse_azure_timestamp,
 )
 from ..azure.azure_storage_api import (
+    StorageAccount,
     azure_table_api,
     azure_table_api_paged,
     table_key_url,
@@ -30,6 +37,7 @@ from ..azure_constants import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     _REQUEST_QUEUE_NAME_PREFIX,
     _RESULT_QUEUE_NAME_PREFIX,
+    RESOURCE_TYPES_TYPE,
     meadowrun_container_registry_name,
 )
 from ..mgmt_functions_shared import get_storage_account, get_resource_group_path
@@ -38,6 +46,27 @@ from ..mgmt_functions_shared import get_storage_account, get_resource_group_path
 _QUEUE_INACTIVE_TIME = datetime.timedelta(hours=4)
 # a container image has not been used for this time will get cleaned up
 _CONTAINER_IMAGE_UNUSED_TIME = datetime.timedelta(days=4)
+
+
+async def _get_last_used_records(
+    storage_account: StorageAccount, resource_type: RESOURCE_TYPES_TYPE
+) -> Dict[Any, datetime.datetime]:
+    try:
+        last_used_records = {
+            item["RowKey"]: parse_azure_timestamp(item["Timestamp"])
+            async for page in azure_table_api_paged(
+                "GET",
+                storage_account,
+                f"{LAST_USED_TABLE_NAME}()",
+                query_parameters={"$filter": f"PartitionKey eq '{resource_type}'"},
+            )
+            for item in page["value"]
+        }
+        return last_used_records
+    except AzureRestApiError as exn:
+        if exn.status != 404 or exn.code != "TableNotFound":
+            raise
+        return {}
 
 
 async def delete_old_task_queues() -> List[str]:
@@ -53,16 +82,7 @@ async def delete_old_task_queues() -> List[str]:
     now = datetime.datetime.utcnow()
     delete_tasks = []
 
-    last_used_records = {
-        item["RowKey"]: parse_azure_timestamp(item["Timestamp"])
-        async for page in azure_table_api_paged(
-            "GET",
-            storage_account,
-            f"{LAST_USED_TABLE_NAME}()",
-            query_parameters={"$filter": f"PartitionKey eq '{GRID_TASK_QUEUE}'"},
-        )
-        for item in page["value"]
-    }
+    last_used_records = await _get_last_used_records(storage_account, GRID_TASK_QUEUE)
 
     surviving_job_ids = set()
     deleted_job_ids = set()
@@ -199,23 +219,20 @@ async def delete_unused_images() -> List[str]:
 
     now = datetime.datetime.now()
 
-    last_used_records = {
-        item["RowKey"]: parse_azure_timestamp(item["Timestamp"])
-        async for page in azure_table_api_paged(
-            "GET",
-            storage_account,
-            LAST_USED_TABLE_NAME,
-            query_parameters={"$filter": f"PartitionKey eq '{CONTAINER_IMAGE}'"},
-        )
-        for item in page["value"]
-    }
+    last_used_records = await _get_last_used_records(storage_account, CONTAINER_IMAGE)
 
     deleted_tags = set()
     surviving_tags = set()
 
-    for tag in await get_tags_in_repository(
-        registry_name, _MEADOWRUN_GENERATED_DOCKER_REPO
-    ):
+    try:
+        tags = await get_tags_in_repository(
+            registry_name, _MEADOWRUN_GENERATED_DOCKER_REPO
+        )
+    except aiohttp.ClientConnectorError:
+        # assume the repository does not exist => no tags
+        tags = []
+
+    for tag in tags:
         tag_name = tag["name"]
 
         # first see if we have a last used record for this tag

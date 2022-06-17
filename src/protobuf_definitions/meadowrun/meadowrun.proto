@@ -105,6 +105,7 @@ enum EnvironmentType {
     DEFAULT = 0;
     CONDA = 1;
     PIP = 2;
+    POETRY = 3;
 }
 
 // Represents the path to an environment spec in the code deployment.
@@ -127,8 +128,10 @@ message EnvironmentSpecInCode {
 message EnvironmentSpec {
     EnvironmentType environment_type = 1;
     string spec = 2;
+    // only applicable for poetry
+    string spec_lock = 3;
     // python version is not used for CONDA environments
-    string python_version = 3;
+    string python_version = 4;
 }
 
 

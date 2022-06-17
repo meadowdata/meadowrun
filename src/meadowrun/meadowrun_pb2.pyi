@@ -28,6 +28,7 @@ class _EnvironmentTypeEnumTypeWrapper(
 
     CONDA: _EnvironmentType.ValueType  # 1
     PIP: _EnvironmentType.ValueType  # 2
+    POETRY: _EnvironmentType.ValueType  # 3
 
 class EnvironmentType(_EnvironmentType, metaclass=_EnvironmentTypeEnumTypeWrapper):
     pass
@@ -37,6 +38,7 @@ DEFAULT: EnvironmentType.ValueType  # 0
 
 CONDA: EnvironmentType.ValueType  # 1
 PIP: EnvironmentType.ValueType  # 2
+POETRY: EnvironmentType.ValueType  # 3
 global___EnvironmentType = EnvironmentType
 
 class StringPair(google.protobuf.message.Message):
@@ -309,6 +311,8 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
     environment_type: global___EnvironmentType.ValueType
     path_to_spec: typing.Text
     python_version: typing.Text
+    """python version is not used for CONDA environments"""
+
     def __init__(
         self,
         *,
@@ -340,15 +344,22 @@ class EnvironmentSpec(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
     SPEC_FIELD_NUMBER: builtins.int
+    SPEC_LOCK_FIELD_NUMBER: builtins.int
     PYTHON_VERSION_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     spec: typing.Text
+    spec_lock: typing.Text
+    """only applicable for poetry"""
+
     python_version: typing.Text
+    """python version is not used for CONDA environments"""
+
     def __init__(
         self,
         *,
         environment_type: global___EnvironmentType.ValueType = ...,
         spec: typing.Text = ...,
+        spec_lock: typing.Text = ...,
         python_version: typing.Text = ...,
     ) -> None: ...
     def ClearField(
@@ -360,6 +371,8 @@ class EnvironmentSpec(google.protobuf.message.Message):
             b"python_version",
             "spec",
             b"spec",
+            "spec_lock",
+            b"spec_lock",
         ],
     ) -> None: ...
 

@@ -126,6 +126,26 @@ class PipRequirementsFile(InterpreterSpecFile):
     python_version: str
 
 
+@dataclasses.dataclass
+class PoetryProjectPath(InterpreterSpecFile):
+    """
+    Specifies a poetry project
+
+    Attributes:
+        path_to_project: In the context of mirror_local, this is the path to a folder on
+            the local disk that contains pyproject.toml and poetry.lock. In the context
+            of git_repo, this is a path to a folder in the git repo (use `""` to
+            indicate that pyproject.toml and poetry.lock are at the root of the repo).
+        python_version: A python version like "3.9" or "3.9.5". The version must be
+            available on docker: https://hub.docker.com/_/python as
+            python-<python_version>-slim-bullseye. This python version must be
+            compatible with the requirements in pyproject.toml2
+    """
+
+    path_to_project: str
+    python_version: str
+
+
 class LocalInterpreter(abc.ABC):
     """
     An abstract base class for specifying a python interpreter on the local machine
@@ -166,7 +186,7 @@ class LocalCondaInterpreter(LocalInterpreter):
 class LocalPipInterpreter(LocalInterpreter):
     """
     Specifies a locally available interpreter. It can be a "regular" install of a python
-    interpreter, a virtualenv, a poetry environment, or anything based on pip.
+    interpreter, a virtualenv, or anything based on pip.
 
     Attributes:
         path_to_interpreter: The path to the python executable. E.g.
@@ -242,8 +262,9 @@ class Deployment:
                 explicitly specify a locally installed python environment with
                 [LocalCondaInterpreter][meadowrun.LocalCondaInterpreter],
                 [LocalPipInterpreter][meadowrun.LocalPipInterpreter],
-                [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile], or
-                [PipRequirementsFile][meadowrun.PipRequirementsFile]
+                [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
+                [PipRequirementsFile][meadowrun.PipRequirementsFile],
+                [PoetryProjectPath][meadowrun.PoetryProjectPath]
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment.
 
@@ -265,6 +286,25 @@ class Deployment:
                     spec=f.read(),
                     python_version=interpreter.python_version,
                 )
+        elif isinstance(interpreter, PoetryProjectPath):
+            with open(
+                os.path.join(interpreter.path_to_project, "pyproject.toml"),
+                "r",
+                encoding="utf-8",
+            ) as spec_file:
+                spec = spec_file.read()
+            with open(
+                os.path.join(interpreter.path_to_project, "poetry.lock"),
+                "r",
+                encoding="utf-8",
+            ) as spec_lock_file:
+                spec_lock = spec_lock_file.read()
+            interpreter_spec = EnvironmentSpec(
+                environment_type=EnvironmentType.POETRY,
+                spec=spec,
+                spec_lock=spec_lock,
+                python_version=interpreter.python_version,
+            )
         elif isinstance(interpreter, LocalInterpreter):
             interpreter_spec = await interpreter.get_interpreter_spec()
         else:
@@ -307,8 +347,9 @@ class Deployment:
                 requirements.txt file in the Git repo (relative to the repo, note that
                 this IGNORES `path_to_source`) This file will be used to generate the
                 environment to run in. See
-                [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile] and
-                [PipRequirementsFile][meadowrun.PipRequirementsFile]
+                [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
+                [PipRequirementsFile][meadowrun.PipRequirementsFile], and
+                [PoetryProjectPath][meadowrun.PoetryProjectPath]
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment
             ssh_key_aws_secret: The name of an AWS secret that contains the contents
@@ -359,6 +400,12 @@ class Deployment:
             interpreter = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.PIP,
                 path_to_spec=interpreter_spec_file.path_to_requirements_file,
+                python_version=interpreter_spec_file.python_version,
+            )
+        elif isinstance(interpreter_spec_file, PoetryProjectPath):
+            interpreter = EnvironmentSpecInCode(
+                environment_type=EnvironmentType.POETRY,
+                path_to_spec=interpreter_spec_file.path_to_project,
                 python_version=interpreter_spec_file.python_version,
             )
         else:

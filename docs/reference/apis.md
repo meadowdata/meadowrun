@@ -35,3 +35,5 @@
 ::: meadowrun.CondaEnvironmentYmlFile
 
 ::: meadowrun.PipRequirementsFile
+
+::: meadowrun.PoetryProjectPath

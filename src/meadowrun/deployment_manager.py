@@ -325,26 +325,35 @@ async def compile_environment_spec_to_container(
     # ECR
 
     build_args = {}
+    files_to_copy = []
     if environment_spec.environment_type == EnvironmentType.CONDA:
         docker_file_name = "CondaDockerfile"
+        spec_filename = os.path.basename(path_to_spec)
+        build_args["ENV_FILE"] = spec_filename
+        files_to_copy.append((path_to_spec, spec_filename))
     elif environment_spec.environment_type == EnvironmentType.PIP:
         docker_file_name = "PipDockerfile"
+        spec_filename = os.path.basename(path_to_spec)
+        build_args["ENV_FILE"] = spec_filename
+        files_to_copy.append((path_to_spec, spec_filename))
         build_args["PYTHON_VERSION"] = environment_spec.python_version
+    elif environment_spec.environment_type == EnvironmentType.POETRY:
+        docker_file_name = "PoetryDockerfile"
+        build_args["PYTHON_VERSION"] = environment_spec.python_version
+        files_to_copy.append(
+            (os.path.join(path_to_spec, "pyproject.toml"), "pyproject.toml")
+        )
+        files_to_copy.append((os.path.join(path_to_spec, "poetry.lock"), "poetry.lock"))
     else:
         raise ValueError(
             f"Unexpected environment_type {environment_spec.environment_type}"
         )
 
-    spec_filename = os.path.basename(path_to_spec)
-    build_args["ENV_FILE"] = spec_filename
     docker_file_path = os.path.join(
         os.path.dirname(__file__), "docker_files", docker_file_name
     )
-    await build_image(
-        [(docker_file_path, "Dockerfile"), (path_to_spec, spec_filename)],
-        helper.image_name,
-        build_args,
-    )
+    files_to_copy.append((docker_file_path, "Dockerfile"))
+    await build_image(files_to_copy, helper.image_name, build_args)
 
     # try to push the image so that we can reuse it later
     # TODO this should really happen asynchronously as it takes a long time and isn't
@@ -378,18 +387,46 @@ def _get_path_and_hash(
         path_to_spec = os.path.join(
             interpreter_spec_path, environment_spec.path_to_spec
         )
-        with open(path_to_spec, "rb") as spec:
+        if environment_spec.environment_type == EnvironmentType.POETRY:
+            # in the case of Poetry, the path_to_spec should be a folder that contains
+            # pyproject.toml and poetry.lock
+            file_to_hash = os.path.join(path_to_spec, "poetry.lock")
+        else:
+            file_to_hash = path_to_spec
+        with open(file_to_hash, "rb") as spec:
             spec_hash = hash_spec(spec.read())
         return path_to_spec, spec_hash
     elif isinstance(environment_spec, EnvironmentSpec):
         # in this case, interpreter_spec_path is a path to where we save the spec for
         # later processing.
-        spec_hash = hash_spec(environment_spec.spec.encode("UTF-8"))
-        environment_type_name = EnvironmentType.Name(environment_spec.environment_type)
-        path_to_spec = os.path.join(
-            interpreter_spec_path, f"{environment_type_name}_env_spec_{spec_hash}.yml"
-        )
-        with open(path_to_spec, "w") as env_spec:
-            env_spec.write(environment_spec.spec)
+        if environment_spec.environment_type == EnvironmentType.POETRY:
+            # for poetry, path_to_spec will be a folder that contains pyproject.toml and
+            # poetry.lock
+            spec_hash = hash_spec(environment_spec.spec_lock.encode("UTF-8"))
+            path_to_spec = os.path.join(interpreter_spec_path, spec_hash)
+            os.makedirs(path_to_spec, exist_ok=True)
+            with open(os.path.join(path_to_spec, "pyproject.toml"), "w") as spec_file:
+                spec_file.write(environment_spec.spec)
+            with open(os.path.join(path_to_spec, "poetry.lock"), "w") as lock_file:
+                lock_file.write(environment_spec.spec_lock)
+        else:
+            spec_hash = hash_spec(environment_spec.spec.encode("UTF-8"))
+
+            if environment_spec.environment_type == EnvironmentType.CONDA:
+                spec_filename = f"conda_env_spec_{spec_hash}.yml"
+            elif environment_spec.environment_type == EnvironmentType.PIP:
+                spec_filename = f"pip_env_spec_{spec_hash}.txt"
+            else:
+                raise ValueError(
+                    f"Unexpected environment_type: {environment_spec.environment_type}"
+                )
+
+            path_to_spec = os.path.join(interpreter_spec_path, spec_filename)
+            with open(path_to_spec, "w") as env_spec:
+                env_spec.write(environment_spec.spec)
 
         return path_to_spec, spec_hash
+    else:
+        raise ValueError(
+            f"Unexpected type of environment_spec {type(environment_spec)}"
+        )

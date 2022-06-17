@@ -45,13 +45,14 @@ from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
 )
 from meadowrun.conda import env_export, try_get_current_conda_env
 from meadowrun.config import JOB_ID_VALID_CHARACTERS, MEADOWRUN_INTERPRETER
-from meadowrun.credentials import CredentialsSourceForService
+from meadowrun.credentials import CredentialsSourceForService, CredentialsService
 from meadowrun.deployment import (
     CodeDeployment,
     InterpreterDeployment,
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
+from meadowrun.docker_controller import get_registry_domain
 from meadowrun.meadowrun_pb2 import (
     AwsSecretProto,
     AzureSecretProto,
@@ -90,7 +91,14 @@ class Secret(abc.ABC):
     An abstract class for specifying a secret, e.g. a username/password or an SSH key
     """
 
-    pass
+    @abc.abstractmethod
+    def _to_credentials_source(
+        self,
+        service: CredentialsService,
+        service_url: str,
+        credentials_type: Credentials.Type.ValueType,
+    ) -> CredentialsSourceForService:
+        pass
 
 
 @dataclasses.dataclass
@@ -103,6 +111,21 @@ class AwsSecret(Secret):
     """
 
     secret_name: str
+
+    def _to_credentials_source(
+        self,
+        service: CredentialsService,
+        service_url: str,
+        credentials_type: Credentials.Type.ValueType,
+    ) -> CredentialsSourceForService:
+        return CredentialsSourceForService(
+            service=service,
+            service_url=service_url,
+            source=AwsSecretProto(
+                credentials_type=credentials_type,
+                secret_name=self.secret_name,
+            ),
+        )
 
 
 @dataclasses.dataclass
@@ -119,6 +142,106 @@ class AzureSecret(Secret):
 
     secret_name: str
     vault_name: Optional[str] = None
+
+    def _to_credentials_source(
+        self,
+        service: CredentialsService,
+        service_url: str,
+        credentials_type: Credentials.Type.ValueType,
+    ) -> CredentialsSourceForService:
+        if self.vault_name is None:
+            vault_name = get_meadowrun_vault_name(get_subscription_id_sync())
+        else:
+            vault_name = self.vault_name
+
+        return CredentialsSourceForService(
+            service=service,
+            service_url=service_url,
+            source=AzureSecretProto(
+                credentials_type=credentials_type,
+                secret_name=self.secret_name,
+                vault_name=vault_name,
+            ),
+        )
+
+
+class ContainerInterpreterBase(abc.ABC):
+    """An abstract base class for specifying a container as a python interpreter"""
+
+    @abc.abstractmethod
+    def get_interpreter_spec(
+        self,
+    ) -> Union[InterpreterDeployment, VersionedInterpreterDeployment]:
+        pass
+
+    @abc.abstractmethod
+    def _get_repository_name(self) -> str:
+        pass
+
+    @abc.abstractmethod
+    def _get_username_password_secret(self) -> Optional[Secret]:
+        pass
+
+
+@dataclasses.dataclass
+class ContainerInterpreter(ContainerInterpreterBase):
+    """
+    Specifies a container image. The container image must be configured so that running
+    `docker run -it repository_name:tag python` runs the right python interpreter.
+
+    Attributes:
+        repository_name: E.g. `python`, or `<my_azure_registry>.azurecr.io/foo`
+        tag: E.g. `3.9-slim-bullseye` or `latest` (the default)
+        username_password_secret: An AWS or Azure secret that has a username and
+            password for connecting to the container registry (as specified or implied
+            in image_name). Only needed if the image/container registry is private.
+    """
+
+    repository_name: str
+    tag: str = "latest"
+    username_password_secret: Optional[Secret] = None
+
+    def get_interpreter_spec(
+        self,
+    ) -> Union[InterpreterDeployment, VersionedInterpreterDeployment]:
+        return ContainerAtTag(repository=self.repository_name, tag=self.tag)
+
+    def _get_repository_name(self) -> str:
+        return self.repository_name
+
+    def _get_username_password_secret(self) -> Optional[Secret]:
+        return self.username_password_secret
+
+
+@dataclasses.dataclass
+class ContainerAtDigestInterpreter(ContainerInterpreterBase):
+    """
+    Like [ContainerInterpreter][meadowrun.ContainerInterpreter] but specifies a digest
+    instead of a tag. Running `docker run -it repository_name@digest python` must run
+    the right python interpreter.
+
+    Attributes:
+        repository_name: E.g. `python`, or `<my_azure_registry>.azurecr.io/foo`
+        digest: E.g. `sha256:97725c608...`
+        username_password_secret: An AWS or Azure secret that has a username and
+            password for connecting to the container registry (as specified or implied
+            in image_name). Only needed if the image/container registry is private.
+    """
+
+    repository_name: str
+    digest: str
+    username_password_secret: Optional[Secret] = None
+
+    def get_interpreter_spec(
+        self,
+    ) -> Union[InterpreterDeployment, VersionedInterpreterDeployment]:
+        return ContainerAtDigest(repository=self.repository_name, digest=self.digest)
+
+    def _get_repository_name(self) -> str:
+        return self.repository_name
+
+    def _get_username_password_secret(self) -> Optional[Secret]:
+        return self.username_password_secret
 
 
 class InterpreterSpecFile(abc.ABC):
@@ -283,7 +406,9 @@ class Deployment:
         cls,
         include_sys_path: bool = True,
         additional_paths: Iterable[str] = tuple(),
-        interpreter: Union[LocalInterpreter, InterpreterSpecFile, None] = None,
+        interpreter: Union[
+            LocalInterpreter, InterpreterSpecFile, ContainerInterpreterBase, None
+        ] = None,
         environment_variables: Optional[Dict[str, str]] = None,
     ) -> Deployment:
         """A deployment that mirrors the local environment and code.
@@ -307,8 +432,13 @@ class Deployment:
         Returns:
             A `Deployment` object that can be passed to the `run_*` functions.
         """
+
+        credentials_sources = []
+
         if interpreter is None:
-            interpreter_spec = await _get_current_local_interpreter()
+            interpreter_spec: Union[
+                InterpreterDeployment, VersionedInterpreterDeployment
+            ] = await _get_current_local_interpreter()
         elif isinstance(interpreter, CondaEnvironmentYmlFile):
             with open(interpreter.path_to_yml_file) as f:
                 interpreter_spec = EnvironmentSpec(
@@ -343,6 +473,17 @@ class Deployment:
             )
         elif isinstance(interpreter, LocalInterpreter):
             interpreter_spec = await interpreter.get_interpreter_spec()
+        elif isinstance(interpreter, ContainerInterpreterBase):
+            interpreter_spec = interpreter.get_interpreter_spec()
+            username_password_secret = interpreter._get_username_password_secret()
+            if username_password_secret is not None:
+                credentials_sources.append(
+                    username_password_secret._to_credentials_source(
+                        "DOCKER",
+                        get_registry_domain(interpreter._get_repository_name())[0],
+                        Credentials.Type.USERNAME_PASSWORD,
+                    )
+                )
         else:
             raise ValueError(f"Unexpected type of interpreter {type(interpreter)}")
 
@@ -356,7 +497,7 @@ class Deployment:
         url = urllib.parse.urlunparse(("file", "", zip_file_path, "", "", ""))
         code = CodeZipFile(url=url, code_paths=zip_paths)
 
-        return cls(interpreter_spec, code, environment_variables, [])
+        return cls(interpreter_spec, code, environment_variables, credentials_sources)
 
     @classmethod
     def git_repo(
@@ -365,7 +506,7 @@ class Deployment:
         branch: Optional[str] = None,
         commit: Optional[str] = None,
         path_to_source: Optional[str] = None,
-        interpreter: Optional[InterpreterSpecFile] = None,
+        interpreter: Union[InterpreterSpecFile, ContainerInterpreterBase, None] = None,
         environment_variables: Optional[Dict[str, str]] = None,
         ssh_key_secret: Optional[Secret] = None,
     ) -> Deployment:
@@ -420,8 +561,12 @@ class Deployment:
                 path_to_source=cast(str, path_to_source),
             )
 
+        credentials_sources = []
+
         if interpreter is None:
-            interpreter_spec: Optional[InterpreterDeployment] = None
+            interpreter_spec: Union[
+                InterpreterDeployment, VersionedInterpreterDeployment, None
+            ] = None
         elif isinstance(interpreter, CondaEnvironmentYmlFile):
             interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.CONDA,
@@ -439,43 +584,25 @@ class Deployment:
                 path_to_spec=interpreter.path_to_project,
                 python_version=interpreter.python_version,
             )
+        elif isinstance(interpreter, ContainerInterpreterBase):
+            interpreter_spec = interpreter.get_interpreter_spec()
+            username_password_secret = interpreter._get_username_password_secret()
+            if username_password_secret is not None:
+                credentials_sources.append(
+                    username_password_secret._to_credentials_source(
+                        "DOCKER",
+                        get_registry_domain(interpreter._get_repository_name())[0],
+                        Credentials.Type.USERNAME_PASSWORD,
+                    )
+                )
         else:
-            raise ValueError(
-                f"Unexpected type of interpreter: {type(interpreter)}"
-            )
+            raise ValueError(f"Unexpected type of interpreter: {type(interpreter)}")
 
-        if ssh_key_secret is None:
-            credentials_sources = []
-        elif isinstance(ssh_key_secret, AwsSecret):
-            credentials_sources = [
-                CredentialsSourceForService(
-                    service="GIT",
-                    service_url=repo_url,
-                    source=AwsSecretProto(
-                        credentials_type=Credentials.Type.SSH_KEY,
-                        secret_name=ssh_key_secret.secret_name,
-                    ),
+        if ssh_key_secret is not None:
+            credentials_sources.append(
+                ssh_key_secret._to_credentials_source(
+                    "GIT", repo_url, Credentials.Type.SSH_KEY
                 )
-            ]
-        elif isinstance(ssh_key_secret, AzureSecret):
-            if ssh_key_secret.vault_name is None:
-                vault_name = get_meadowrun_vault_name(get_subscription_id_sync())
-            else:
-                vault_name = ssh_key_secret.vault_name
-            credentials_sources = [
-                CredentialsSourceForService(
-                    service="GIT",
-                    service_url=repo_url,
-                    source=AzureSecretProto(
-                        credentials_type=Credentials.Type.SSH_KEY,
-                        vault_name=vault_name,
-                        secret_name=ssh_key_secret.secret_name,
-                    ),
-                )
-            ]
-        else:
-            raise ValueError(
-                f"Unexpected type of ssh_key_secret {type(ssh_key_secret)}"
             )
 
         return cls(interpreter_spec, code, environment_variables, credentials_sources)

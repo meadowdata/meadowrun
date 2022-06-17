@@ -10,8 +10,8 @@ from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.credentials import CredentialsSource, CredentialsSourceForService
 from meadowrun.docker_controller import delete_images_from_repository
 from meadowrun.meadowrun_pb2 import (
-    AwsSecret,
-    AzureSecret,
+    AwsSecretProto,
+    AzureSecretProto,
     ContainerAtTag,
     Credentials,
     GitRepoBranch,
@@ -64,7 +64,7 @@ async def manual_test_docker_credentials_aws_secret():
        dockerhub` should work.
     """
     await _manual_test_docker_credentials(
-        AwsSecret(
+        AwsSecretProto(
             credentials_type=Credentials.Type.USERNAME_PASSWORD, secret_name="dockerhub"
         )
     )
@@ -82,7 +82,7 @@ async def manual_test_docker_credentials_azure_secret():
         secret show --name dockerhub --vault-name <mr...>` should work.
     """
     await _manual_test_docker_credentials(
-        AzureSecret(
+        AzureSecretProto(
             credentials_type=Credentials.Type.USERNAME_PASSWORD,
             vault_name=get_meadowrun_vault_name(await get_subscription_id()),
             secret_name="dockerhub",
@@ -167,7 +167,7 @@ async def manual_test_git_ssh_key_aws_secret():
          line\netc."
     """
     await _manual_test_git_ssh_key(
-        AwsSecret(
+        AwsSecretProto(
             credentials_type=Credentials.Type.SSH_KEY,
             secret_name=r"meadowrun_test_ssh_key",
         )
@@ -185,7 +185,7 @@ async def manual_test_git_ssh_key_azure_secret():
         instructions on how to add a multi-line value to an Azure secret
     """
     await _manual_test_git_ssh_key(
-        AzureSecret(
+        AzureSecretProto(
             credentials_type=Credentials.Type.SSH_KEY,
             vault_name=get_meadowrun_vault_name(await get_subscription_id()),
             secret_name=r"meadowrun-test-ssh-key",

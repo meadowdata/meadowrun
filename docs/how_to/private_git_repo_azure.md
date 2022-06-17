@@ -3,6 +3,12 @@
 To use a private git repo, you'll need to give Meadowrun the name of an Azure secret
 that contains the private SSH key for the repo you want to use.
 
+## Prerequisites
+
+If you don't already have an SSH key for accessing your repo, you'll need to set one up
+with your git hosting provider. For example, see [GitHub's instructions for adding a
+deploy key](https://docs.github.com/en/developers/overview/managing-deploy-keys#setup-2)
+
 ## Get the name of your Meadowrun Key Vault
 
 The Meadowrun Key Vault will be created the first time you use Meadowrun, so if you
@@ -30,9 +36,16 @@ Now you can use the following [Deployment][meadowrun.Deployment] with
 [run_function][meadowrun.run_function] or [run_map][meadowrun.run_map]:
 
 ```python
-Deployment.git_repo(
-    "https://github.com/my_organization/my_private_repo",
-    conda_yml_file="myenv.yml",
-    ssh_key_azure_secret="my_ssh_key"
+import meadowrun
+
+meadowrun.Deployment.git_repo(
+    "git@github.com:my_organization/my_private_repo",
+    interpreter=meadowrun.CondaEnvironmentYmlFile("myenv.yml"),
+    ssh_key_secret=meadowrun.AzureSecret("my_ssh_key")
 )
 ```
+
+Note that we're using the SSH URL. The equivalent https URL (e.g.
+`https://github.com/my_organization/my_private_repo`) will NOT work because we're using
+an SSH key.
+

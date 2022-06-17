@@ -9,16 +9,11 @@ import meadowrun.docker_controller
 from meadowrun import (
     AllocCloudInstances,
     CondaEnvironmentYmlFile,
-    ContainerAtDigest,
-    ContainerAtTag,
     Deployment,
-    GitRepoBranch,
-    GitRepoCommit,
     LocalCondaInterpreter,
     LocalPipInterpreter,
     PipRequirementsFile,
     PoetryProjectPath,
-    ServerAvailableInterpreter,
     run_command,
     run_function,
     run_map,
@@ -30,7 +25,15 @@ from meadowrun.deployment import (
     VersionedCodeDeployment,
     VersionedInterpreterDeployment,
 )
-from meadowrun.meadowrun_pb2 import ServerAvailableContainer, ProcessState
+from meadowrun.meadowrun_pb2 import (
+    ContainerAtDigest,
+    ContainerAtTag,
+    GitRepoBranch,
+    GitRepoCommit,
+    ServerAvailableInterpreter,
+    ServerAvailableContainer,
+    ProcessState,
+)
 from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
@@ -179,7 +182,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 repo_url=self.get_test_repo_url(),
                 branch="main",
                 path_to_source="example_package",
-                interpreter_spec_file=CondaEnvironmentYmlFile("myenv.yml"),
+                interpreter=CondaEnvironmentYmlFile("myenv.yml"),
             ),
         )
         assert results == ("2.27.1", "1.4.2", "a, b")
@@ -194,7 +197,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 repo_url=self.get_test_repo_url(),
                 branch="main",
                 path_to_source="example_package",
-                interpreter_spec_file=PipRequirementsFile("requirements.txt", "3.9"),
+                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")
@@ -209,7 +212,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 repo_url=self.get_test_repo_url(),
                 branch="main",
                 path_to_source="example_package",
-                interpreter_spec_file=PoetryProjectPath("", "3.9"),
+                interpreter=PoetryProjectPath("", "3.9"),
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")

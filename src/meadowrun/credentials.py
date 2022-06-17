@@ -36,14 +36,14 @@ from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
     azure_rest_api,
 )
 from meadowrun.meadowrun_pb2 import (
-    AwsSecret,
-    AzureSecret,
+    AwsSecretProto,
+    AzureSecretProto,
     Credentials,
     ServerAvailableFile,
 )
 
 # Represents a way to get credentials
-CredentialsSource = Union[AwsSecret, AzureSecret, ServerAvailableFile]
+CredentialsSource = Union[AwsSecretProto, AzureSecretProto, ServerAvailableFile]
 # Represents a service that credentials can be used for
 CredentialsService = Literal["DOCKER", "GIT"]
 
@@ -87,7 +87,7 @@ class SshKey(RawCredentials):
 
 
 async def _get_credentials_from_source(source: CredentialsSource) -> RawCredentials:
-    if isinstance(source, AwsSecret):
+    if isinstance(source, AwsSecretProto):
         # TODO not sure if it's better to try to reuse a client/session or just create a
         #  new one each time? This seems related:
         #  https://github.com/boto/botocore/issues/619
@@ -103,7 +103,7 @@ async def _get_credentials_from_source(source: CredentialsSource) -> RawCredenti
             return SshKey(secret["private_key"])
         else:
             raise ValueError(f"Unknown credentials type {source.credentials_type}")
-    elif isinstance(source, AzureSecret):
+    elif isinstance(source, AzureSecretProto):
         result = await azure_rest_api(
             "GET",
             f"secrets/{source.secret_name}",

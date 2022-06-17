@@ -286,7 +286,7 @@ Credentials = _reflection.GeneratedProtocolMessageType(
 )
 _sym_db.RegisterMessage(Credentials)
 
-AwsSecret = _reflection.GeneratedProtocolMessageType(
+AwsSecretProto = _reflection.GeneratedProtocolMessageType(
     "AwsSecret",
     (_message.Message,),
     {
@@ -295,9 +295,9 @@ AwsSecret = _reflection.GeneratedProtocolMessageType(
         # @@protoc_insertion_point(class_scope:meadowrun.AwsSecret)
     },
 )
-_sym_db.RegisterMessage(AwsSecret)
+_sym_db.RegisterMessage(AwsSecretProto)
 
-AzureSecret = _reflection.GeneratedProtocolMessageType(
+AzureSecretProto = _reflection.GeneratedProtocolMessageType(
     "AzureSecret",
     (_message.Message,),
     {
@@ -306,7 +306,7 @@ AzureSecret = _reflection.GeneratedProtocolMessageType(
         # @@protoc_insertion_point(class_scope:meadowrun.AzureSecret)
     },
 )
-_sym_db.RegisterMessage(AzureSecret)
+_sym_db.RegisterMessage(AzureSecretProto)
 
 ServerAvailableFile = _reflection.GeneratedProtocolMessageType(
     "ServerAvailableFile",

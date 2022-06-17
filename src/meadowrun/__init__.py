@@ -45,6 +45,8 @@ if sys.platform == "win32":
 from meadowrun.run_job import (
     AllocCloudInstance,
     AllocCloudInstances,
+    AwsSecret,
+    AzureSecret,
     CondaEnvironmentYmlFile,
     Deployment,
     InterpreterSpecFile,
@@ -60,23 +62,12 @@ from meadowrun.run_job import (
 from meadowrun.run_job_local import LocalHost
 from meadowrun.run_job_core import SshHost
 
-from meadowrun.meadowrun_pb2 import (
-    AwsSecret,
-    AzureSecret,
-    ContainerAtDigest,
-    ContainerAtTag,
-    GitRepoBranch,
-    GitRepoCommit,
-    ServerAvailableContainer,
-    ServerAvailableFile,
-    ServerAvailableFolder,
-    ServerAvailableInterpreter,
-)
-
 
 __all__ = [
     "AllocCloudInstance",
     "AllocCloudInstances",
+    "AwsSecret",
+    "AzureSecret",
     "CondaEnvironmentYmlFile",
     "Deployment",
     "InterpreterSpecFile",
@@ -90,14 +81,4 @@ __all__ = [
     "run_map",
     "LocalHost",
     "SshHost",
-    "AwsSecret",
-    "AzureSecret",
-    "ContainerAtDigest",
-    "ContainerAtTag",
-    "GitRepoBranch",
-    "GitRepoCommit",
-    "ServerAvailableContainer",
-    "ServerAvailableFile",
-    "ServerAvailableFolder",
-    "ServerAvailableInterpreter",
 ]

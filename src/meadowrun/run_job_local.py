@@ -364,7 +364,8 @@ async def _launch_non_container_job(
     print(
         f"Running process ({job_spec_type}): "
         f"{' '.join(job_spec_transformed.command_line)}; cwd={working_directory}; "
-        f"PYTHONPATH={env_vars['PYTHONPATH']}; log_file_name={log_file_name}"
+        f"PYTHONPATH={env_vars['PYTHONPATH']}; log_file_name={log_file_name}; "
+        f"code paths={','.join(code_paths)}"
     )
 
     process = await asyncio.subprocess.create_subprocess_exec(
@@ -496,7 +497,7 @@ async def _launch_container_job(
         f"{' '.join(job_spec_transformed.command_line)}; "
         f"container image={container_image_name}; "
         f"PYTHONPATH={job_spec_transformed.environment_variables.get('PYTHONPATH')} "
-        f"log_file_name={log_file_name}"
+        f"log_file_name={log_file_name}; code paths={','.join(code_paths)}"
     )
 
     container, docker_client = await run_container(

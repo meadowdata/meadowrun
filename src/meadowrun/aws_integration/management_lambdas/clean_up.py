@@ -112,15 +112,16 @@ def delete_unused_images(region_name: str) -> None:
                 last_touched = image["imagePushedAt"]
 
             if last_touched < cutoff_datetime:
-                if len(image["imageTags"]) != 1:
+                if "imageTags" not in image or len(image["imageTags"]) == 0:
                     print(
-                        "Ignoring an image which unexpectedly has more than one tag: "
-                        + ", ".join(image["imageTags"])
+                        "Cannot delete image with no tags, you must delete it manually."
+                        f" Digest is {image['imageDigest']}"
                     )
                 else:
                     print(
-                        f"Will delete image with tag {image['imageTags'][0]} and digest"
-                        f" {image['imageDigest']} which was last pulled/pushed at "
+                        "Will delete image with tag(s) "
+                        f"{';'.join(image['imageTags'])} and digest "
+                        f"{image['imageDigest']} which was last pulled/pushed at "
                         f"{last_touched}"
                     )
                     images_to_delete.append(image["imageTags"][0])

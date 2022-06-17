@@ -20,7 +20,8 @@
 
 ::: meadowrun.Deployment
 
----
+
+### Specifying interpreters
 
 ::: meadowrun.LocalInterpreter
 
@@ -37,3 +38,11 @@
 ::: meadowrun.PipRequirementsFile
 
 ::: meadowrun.PoetryProjectPath
+
+---
+
+::: meadowrun.ContainerInterpreterBase
+
+::: meadowrun.ContainerInterpreter
+
+::: meadowrun.ContainerAtDigestInterpreter

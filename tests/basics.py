@@ -34,6 +34,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableContainer,
     ProcessState,
 )
+from meadowrun.run_job import ContainerInterpreter
 from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
@@ -219,6 +220,21 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_git_repo_with_container(self):
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
+            ),
+        )
+        assert results == ("2.28.0", "1.4.2", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_local_conda_interpreter(self):
         # this currently needs a conda environment created from the test repo:
         # conda env create -n test_repo_conda_env -f myenv.yml
@@ -322,6 +338,19 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PoetryProjectPath(
                     _path_from_here("../../test_repo/"), "3.9"
                 ),
+                additional_paths=[_path_from_here("../../test_repo/example_package")],
+            ),
+        )
+        assert results == ("2.28.0", "1.4.2", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_local_code_with_container(self):
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            await Deployment.mirror_local(
+                interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
                 additional_paths=[_path_from_here("../../test_repo/example_package")],
             ),
         )

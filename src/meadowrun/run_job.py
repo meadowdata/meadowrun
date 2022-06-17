@@ -53,8 +53,8 @@ from meadowrun.deployment import (
     VersionedInterpreterDeployment,
 )
 from meadowrun.meadowrun_pb2 import (
-    AwsSecret,
-    AzureSecret,
+    AwsSecretProto,
+    AzureSecretProto,
     CodeZipFile,
     ContainerAtDigest,
     ContainerAtTag,
@@ -83,6 +83,42 @@ from meadowrun.run_job_core import CloudProviderType, Host, JobCompletion, SshHo
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
+
+
+class Secret(abc.ABC):
+    """
+    An abstract class for specifying a secret, e.g. a username/password or an SSH key
+    """
+
+    pass
+
+
+@dataclasses.dataclass
+class AwsSecret(Secret):
+    """
+    An AWS secret
+
+    Attributes:
+        secret_name: The name of the secret (also sometimes called the id)
+    """
+
+    secret_name: str
+
+
+@dataclasses.dataclass
+class AzureSecret(Secret):
+    """
+    An Azure secret
+
+    Attributes:
+        secret_name: The name of the secret
+        vault_name: The name of the Key Vault that the secret is in. Defaults to None,
+            which implies the Meadowrun-managed Key Vault (mr<last 22 characters of your
+            subscription id>)
+    """
+
+    secret_name: str
+    vault_name: Optional[str] = None
 
 
 class InterpreterSpecFile(abc.ABC):
@@ -329,10 +365,9 @@ class Deployment:
         branch: Optional[str] = None,
         commit: Optional[str] = None,
         path_to_source: Optional[str] = None,
-        interpreter_spec_file: Optional[InterpreterSpecFile] = None,
+        interpreter: Optional[InterpreterSpecFile] = None,
         environment_variables: Optional[Dict[str, str]] = None,
-        ssh_key_aws_secret: Optional[str] = None,
-        ssh_key_azure_secret: Optional[str] = None,
+        ssh_key_secret: Optional[Secret] = None,
     ) -> Deployment:
         """
         A deployment based on a git repo.
@@ -343,23 +378,19 @@ class Deployment:
             commit: can be provided instead of branch to use a specific commit hash,
                 e.g. `"d018b54"`
             path_to_source: e.g. `"src/python"` to use a subdirectory of the repo
-            interpreter_spec_file: specifies either a Conda environment.yml or
-                requirements.txt file in the Git repo (relative to the repo, note that
-                this IGNORES `path_to_source`) This file will be used to generate the
-                environment to run in. See
+            interpreter: specifies either a Conda environment.yml or requirements.txt
+                file in the Git repo (relative to the repo, note that this IGNORES
+                `path_to_source`) This file will be used to generate the environment to
+                run in. See
                 [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
                 [PipRequirementsFile][meadowrun.PipRequirementsFile], and
                 [PoetryProjectPath][meadowrun.PoetryProjectPath]
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment
-            ssh_key_aws_secret: The name of an AWS secret that contains the contents
-                of a private SSH key that has read access to `repo_url`,
-                e.g. `"my_ssh_key"`. See How to use a private git
-                repo for [AWS](/how_to/private_git_repo_aws.md) or
-                [Azure](/how_to/private_git_repo_azure.md)
-            ssh_key_azure_secret: The name of a secret in the meadowrun-generated
-                Azure Vault (which will be named "mr" followed by the last 22
-                letters/numbers of the Azure subscription id).
+            ssh_key_secret: A secret that contains the contents of a private SSH key
+                that has read access to `repo_url`, e.g. `AwsSecret("my_ssh_key")`. See
+                How to use a private git repo for [AWS](/how_to/private_git_repo_aws.md)
+                or [Azure](/how_to/private_git_repo_azure.md)
 
         Returns:
             A `Deployment` object that can be passed to the `run_*` functions.
@@ -389,64 +420,65 @@ class Deployment:
                 path_to_source=cast(str, path_to_source),
             )
 
-        if interpreter_spec_file is None:
-            interpreter: Optional[InterpreterDeployment] = None
-        elif isinstance(interpreter_spec_file, CondaEnvironmentYmlFile):
-            interpreter = EnvironmentSpecInCode(
+        if interpreter is None:
+            interpreter_spec: Optional[InterpreterDeployment] = None
+        elif isinstance(interpreter, CondaEnvironmentYmlFile):
+            interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.CONDA,
-                path_to_spec=interpreter_spec_file.path_to_yml_file,
+                path_to_spec=interpreter.path_to_yml_file,
             )
-        elif isinstance(interpreter_spec_file, PipRequirementsFile):
-            interpreter = EnvironmentSpecInCode(
+        elif isinstance(interpreter, PipRequirementsFile):
+            interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.PIP,
-                path_to_spec=interpreter_spec_file.path_to_requirements_file,
-                python_version=interpreter_spec_file.python_version,
+                path_to_spec=interpreter.path_to_requirements_file,
+                python_version=interpreter.python_version,
             )
-        elif isinstance(interpreter_spec_file, PoetryProjectPath):
-            interpreter = EnvironmentSpecInCode(
+        elif isinstance(interpreter, PoetryProjectPath):
+            interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.POETRY,
-                path_to_spec=interpreter_spec_file.path_to_project,
-                python_version=interpreter_spec_file.python_version,
+                path_to_spec=interpreter.path_to_project,
+                python_version=interpreter.python_version,
             )
         else:
             raise ValueError(
-                "Unexpected type of interpreter_spec_file: "
-                f"{type(interpreter_spec_file)}"
+                f"Unexpected type of interpreter: {type(interpreter)}"
             )
 
-        if ssh_key_aws_secret is not None and ssh_key_azure_secret is not None:
-            # TODO this doesn't seem totally right--we could theoretically specify both
-            # if meadowrun was smart enough to use the right one depending on the
-            # environment
-            raise ValueError("Cannot specify both an AWS secret and an Azure secret")
-
-        if ssh_key_aws_secret is not None:
+        if ssh_key_secret is None:
+            credentials_sources = []
+        elif isinstance(ssh_key_secret, AwsSecret):
             credentials_sources = [
                 CredentialsSourceForService(
                     service="GIT",
                     service_url=repo_url,
-                    source=AwsSecret(
+                    source=AwsSecretProto(
                         credentials_type=Credentials.Type.SSH_KEY,
-                        secret_name=ssh_key_aws_secret,
+                        secret_name=ssh_key_secret.secret_name,
                     ),
                 )
             ]
-        elif ssh_key_azure_secret is not None:
+        elif isinstance(ssh_key_secret, AzureSecret):
+            if ssh_key_secret.vault_name is None:
+                vault_name = get_meadowrun_vault_name(get_subscription_id_sync())
+            else:
+                vault_name = ssh_key_secret.vault_name
             credentials_sources = [
                 CredentialsSourceForService(
                     service="GIT",
                     service_url=repo_url,
-                    source=AzureSecret(
+                    source=AzureSecretProto(
                         credentials_type=Credentials.Type.SSH_KEY,
-                        vault_name=get_meadowrun_vault_name(get_subscription_id_sync()),
-                        secret_name=ssh_key_azure_secret,
+                        vault_name=vault_name,
+                        secret_name=ssh_key_secret.secret_name,
                     ),
                 )
             ]
         else:
-            credentials_sources = []
+            raise ValueError(
+                f"Unexpected type of ssh_key_secret {type(ssh_key_secret)}"
+            )
 
-        return cls(interpreter, code, environment_variables, credentials_sources)
+        return cls(interpreter_spec, code, environment_variables, credentials_sources)
 
 
 def _credentials_source_message(
@@ -456,9 +488,9 @@ def _credentials_source_message(
         service=Credentials.Service.Value(credentials_source.service),
         service_url=credentials_source.service_url,
     )
-    if isinstance(credentials_source.source, AwsSecret):
+    if isinstance(credentials_source.source, AwsSecretProto):
         result.aws_secret.CopyFrom(credentials_source.source)
-    elif isinstance(credentials_source.source, AzureSecret):
+    elif isinstance(credentials_source.source, AzureSecretProto):
         result.azure_secret.CopyFrom(credentials_source.source)
     elif isinstance(credentials_source.source, ServerAvailableFile):
         result.server_available_file.CopyFrom(credentials_source.source)

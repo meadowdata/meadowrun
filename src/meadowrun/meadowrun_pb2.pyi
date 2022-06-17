@@ -992,9 +992,9 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     service: global___Credentials.Service.ValueType
     service_url: typing.Text
     @property
-    def aws_secret(self) -> global___AwsSecret: ...
+    def aws_secret(self) -> global__AwsSecretProto: ...
     @property
-    def azure_secret(self) -> global___AzureSecret: ...
+    def azure_secret(self) -> global__AzureSecretProto: ...
     @property
     def server_available_file(self) -> global___ServerAvailableFile: ...
     def __init__(
@@ -1002,8 +1002,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
         *,
         service: global___Credentials.Service.ValueType = ...,
         service_url: typing.Text = ...,
-        aws_secret: typing.Optional[global___AwsSecret] = ...,
-        azure_secret: typing.Optional[global___AzureSecret] = ...,
+        aws_secret: typing.Optional[global__AwsSecretProto] = ...,
+        azure_secret: typing.Optional[global__AzureSecretProto] = ...,
         server_available_file: typing.Optional[global___ServerAvailableFile] = ...,
     ) -> None: ...
     def HasField(
@@ -1104,7 +1104,7 @@ class Credentials(google.protobuf.message.Message):
 
 global___Credentials = Credentials
 
-class AwsSecret(google.protobuf.message.Message):
+class AwsSecretProto(google.protobuf.message.Message):
     """Represents credentials stored in AWS. Must be accessible by the coordinator.
     - For credentials_type = USERNAME_PASSWORD: Expected keys are "username" and
       "password", e.g. SecretString should be like
@@ -1131,9 +1131,9 @@ class AwsSecret(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global___AwsSecret = AwsSecret
+global__AwsSecretProto = AwsSecretProto
 
-class AzureSecret(google.protobuf.message.Message):
+class AzureSecretProto(google.protobuf.message.Message):
     """Represents credentials stored in Azure
     - For credentials_type = USERNAME_PASSWORD, expects a json like '{"username":
       "my_username", "password": "my_pasword}'
@@ -1167,7 +1167,7 @@ class AzureSecret(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global___AzureSecret = AzureSecret
+global__AzureSecretProto = AzureSecretProto
 
 class ServerAvailableFile(google.protobuf.message.Message):
     """Represents credentials in a file. Must be a file accessible by the coordinator.

@@ -299,8 +299,8 @@ message CredentialsSourceMessage {
     Credentials.Service service = 1;
     string service_url = 2;
     oneof source {
-        AwsSecret aws_secret = 3;
-        AzureSecret azure_secret = 5;
+        AwsSecretProto aws_secret = 3;
+        AzureSecretProto azure_secret = 5;
         ServerAvailableFile server_available_file = 4;
     }
 }
@@ -330,7 +330,7 @@ message Credentials {
 //   '{"username":"my_username","password":"my_password"}'
 // - For credentials_type = SSH_KEY: Expected key is "private_key", which should contain
 //   the contents of the SSH private key file
-message AwsSecret {
+message AwsSecretProto {
     Credentials.Type credentials_type = 1;
     string secret_name = 2;
 }
@@ -341,7 +341,7 @@ message AwsSecret {
 //   "my_username", "password": "my_pasword}'
 // - For credentials_type = SSH_KEY, expects a plain-text value containing the contents
 //   of the SSH private key file
-message AzureSecret {
+message AzureSecretProto {
     Credentials.Type credentials_type = 1;
     string vault_name = 2;
     string secret_name = 3;

@@ -97,19 +97,17 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         "up unused temporary resources. Must be re-run when meadowrun is updated "
         f"so that {lambdas} pick up updated code.",
     )
-    if cloud_provider == "EC2":
-        install_parser.add_argument(
-            "--allow-authorize-ips",
-            action="store_true",
-            help=(
-                "Users' machines need to be authorized to access Meadowrun-created "
-                f"{ec2_instances}. If this option is set, users will be given "
-                "permissions to automatically authorize their IPs to SSH into "
-                f"Meadowrun-created {ec2_instances}. If this option is not set, an "
-                "administrator must manually edit the Meadowrun security group to "
-                "grant access for users."
-            ),
-        )
+    install_parser.add_argument(
+        "--allow-authorize-ips",
+        action="store_true",
+        help=(
+            "Users' machines need to be authorized to access Meadowrun-created "
+            f"{ec2_instances}. If this option is set, users will be given permissions "
+            "to automatically authorize their IPs to SSH into Meadowrun-created "
+            f"{ec2_instances}. If this option is not set, an administrator must "
+            "manually edit the Meadowrun security group to grant access for users."
+        ),
+    )
 
     subparsers.add_parser(
         "uninstall",

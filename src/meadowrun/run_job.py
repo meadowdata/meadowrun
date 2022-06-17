@@ -378,11 +378,30 @@ async def _get_current_local_interpreter() -> InterpreterDeployment:
                 "mirror_local from a Conda environment only works from Linux because "
                 "conda environments are not cross-platform."
             )
+        print("Mirroring current conda environment")
         return EnvironmentSpec(
             environment_type=EnvironmentType.CONDA, spec=conda_env_spec
         )
 
+    # next, check if we're in a poetry environment. Unfortunately it doesn't seem like
+    # there's a way to detect that we're in a poetry environment unless the current
+    # working directory contains the pyproject.toml and poetry.lock files. If for smoe
+    # reason this isn't the case, we'll fall through to the pip-based case, which will
+    # mostly work for poetry environments.
+    if os.path.isfile("pyproject.toml") and os.path.isfile("poetry.lock"):
+        with open("pyproject.toml") as project_file:
+            project_file_contents = project_file.read()
+        with open("poetry.lock") as lock_file:
+            lock_file_contents = lock_file.read()
+        print("Mirroring current poetry environment")
+        return EnvironmentSpec(
+            environment_type=EnvironmentType.POETRY,
+            spec=project_file_contents,
+            spec_lock=lock_file_contents,
+        )
+
     # if not, assume this is a pip-based environment
+    print("Mirroring current pip environment")
     return EnvironmentSpec(
         environment_type=EnvironmentType.PIP,
         spec=await pip_freeze_without_local_current_interpreter(),
@@ -530,8 +549,8 @@ class Deployment:
                 variables will be set in the remote environment
             ssh_key_secret: A secret that contains the contents of a private SSH key
                 that has read access to `repo_url`, e.g. `AwsSecret("my_ssh_key")`. See
-                How to use a private git repo for [AWS](/how_to/private_git_repo_aws.md)
-                or [Azure](/how_to/private_git_repo_azure.md)
+                How to use a private git repo for [AWS](/how_to/private_git_repo_aws)
+                or [Azure](/how_to/private_git_repo_azure)
 
         Returns:
             A `Deployment` object that can be passed to the `run_*` functions.

@@ -5,6 +5,9 @@ that contains the private SSH key for the repo you want to use.
 
 ## Prerequisites
 
+We'll assume you have a private git repo at
+`https://github.com/my_organization/my_private_repo`.
+
 If you don't already have an SSH key for accessing your repo, you'll need to set one up
 with your git hosting provider. For example, see [GitHub's instructions for adding a
 deploy key](https://docs.github.com/en/developers/overview/managing-deploy-keys#setup-2)
@@ -12,7 +15,7 @@ deploy key](https://docs.github.com/en/developers/overview/managing-deploy-keys#
 ## Get the name of your Meadowrun Key Vault
 
 The Meadowrun Key Vault will be created the first time you use Meadowrun, so if you
-haven't done so, [run a function with Meadowrun](/tutorial/run_function.md). Next, go to
+haven't done so, [run a function with Meadowrun](/tutorial/run_function). Next, go to
 the Azure portal, and go to "Key Vaults". You should see a Key Vault named something
 like "mr724792bd295194e79d5881" in the Meadowrun-rg Resource Group. The actual name will
 be "mr" followed by the last 22 letters/numbers of your subscription id (Azure Key Vault

@@ -5,25 +5,24 @@ contains the private SSH key for the repo you want to use.
 
 ## Prerequisites
 
-If you don't already have an SSH key for accessing your repo, you'll need to set one up
-with your git hosting provider. For example, see [GitHub's instructions for adding a
-deploy key](https://docs.github.com/en/developers/overview/managing-deploy-keys#setup-2)
+We'll assume you have a private git repo at
+`https://github.com/my_organization/my_private_repo`.
+
+If you don't already have an SSH key for accessing your private repo, you'll need to set
+one up with your git hosting provider. For example, see [GitHub's instructions for
+adding a deploy
+key](https://docs.github.com/en/developers/overview/managing-deploy-keys#setup-2)
 
 ## Create an AWS Secret
 
 First, [create an AWS
-secret](<https://docs.aws.amazon.com/secretsmanager/latest/userguide/tutorials_basic.html#tutorial-basic-step1>)
+secret](https://docs.aws.amazon.com/secretsmanager/latest/userguide/tutorials_basic.html#tutorial-basic-step1)
 called `my_ssh_key` that contains a key-value pair where the key is `private_key` and
 the value is the contents of a private SSH key that has permission to read your private
 git repo. If you're using the AWS Console, you'll need to use the "Plaintext" view and
-use explicit newline characters to create the appropriate line breaks. The "plaintext"
-will look something like:
+use explicit newline characters to create the appropriate line breaks.
 
-```json
-{
-  "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nLINE1\nLINE2\n-----END OPENSSH PRIVATE KEY-----\n"
-}
-```
+![`"private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nLINE1\nLINE2\n-----END OPENSSH PRIVATE KEY-----\n"`](aws-ssh-key-secret.png)
 
 Note that the trailing newline is very important!
 

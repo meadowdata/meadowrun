@@ -22,3 +22,7 @@ plugins:
             show_source: no
   - search
   - awesome-pages
+markdown_extensions:
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true

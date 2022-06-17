@@ -1,0 +1,7 @@
+nav:
+- user_permissions.md
+- access_resources.md
+- private_container_aws.md
+- private_container_azure.md
+- private_git_repo_aws.md
+- private_git_repo_azure.md

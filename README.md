@@ -23,32 +23,45 @@ Gitter](https://gitter.im/meadowdata/meadowrun)
 - You can't/don't want to run tests or analysis on your laptop and you want a better
   experience than SSHing into an EC2 machine.
 
-## Quick demo
+## Quickstart
 
-First, install meadowrun:
+First, install Meadowrun using pip: 
 
 ```
-> conda install -c defaults -c conda-forge -c meadowdata meadowrun
+pip install meadowrun
 ```
 
-Next, make sure you've [configured the AWS
-CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html).
+conda:
 
-Now you can run:
+```
+conda install -c defaults -c conda-forge -c meadowdata meadowrun
+```
+
+or poetry:
+
+```
+poetry add meadowrun
+```
+
+Next, assuming you've [configured the AWS
+CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html)
+and are a root/administrator user, you can run:
 
 ```python
-from meadowrun import run_function, AllocCloudInstance, Deployment
-await run_function(
-    lambda: sum(range(1000)) / 1000,
-    AllocCloudInstance(
-        logical_cpu_required=4,
-        memory_gb_required=32,
-        interruption_probability_threshold=15,
-        cloud_provider="EC2"
-    ),
-    Deployment.git_repo(
-        "https://github.com/meadowdata/test_repo",
-        conda_yml_file="myenv.yml"
+import meadowrun
+import asyncio
+
+def run_meadowrun_function():
+    return await meadowrun.run_function(
+        lambda: sum(range(1000)) / 1000,
+        meadowrun.AllocCloudInstance(
+            logical_cpu_required=4,
+            memory_gb_required=32,
+            interruption_probability_threshold=15,
+            cloud_provider="EC2"
+        ),
+        await meadowrun.Deployment.mirror_local()
     )
-)
+
+print(asyncio.run(run_meadowrun_function()))
 ```

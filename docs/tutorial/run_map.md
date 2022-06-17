@@ -5,32 +5,9 @@ different cores/instances.
 
 ## Prerequisites
 
-1. Choose a GitHub repo you'd like to run a function from. Third party dependencies,
-   like pandas and numpy, are supported and should be installed using Conda. If you
-   don't have any repo to hand, try our test repo
-   https://github.com/meadowdata/test_repo.
-2. Install meadowrun in the target repo, see [Installing Meadowrun](/tutorial/install)
-
-
-Create a Conda environment export file
---------------------------------------
-
-Meadowrun needs to know what the third-party dependencies are to execute the function.
-With Conda, the easiest way to do that is:
-
-```shell
-conda env export > myenv.yml
-``` 
-
-Check this file into the repository, and push the change.
-
-If you already have such a file in the repository, you can skip this step.
-
-Meadowrun can be used from Windows or Linux, but only Linux is supported for the remote
-environment, so `myenv.yml` must describe a Linux-compatible conda environment.
-
-Unlike for `run_function`, the conda environment (`myenv.yml`) for `run_map` must have
-meadowrun installed.
+This assumes that you've successfully run a function by following [Run a
+function](/tutorial/run_function) or [Run a function from a git repo using
+Conda](/tutorial/run_function_git_conda)
 
 ## Write a Python script to run the distributed map
 
@@ -52,10 +29,7 @@ async def main():
             cloud_provider="EC2",  # to run on AWS EC2 instances
             # cloud_provider="AzureVM",  # to run on Azure VMs
             num_concurrent_tasks=3),
-        Deployment.git_repo(
-            "https://github.com/meadowdata/test_repo",
-            conda_yml_file="myenv.yml"
-        )
+        await Deployment.mirror_local()
     )
 
 if __name__ == "__main__":
@@ -78,24 +52,17 @@ Launched 1 new EC2 instances (total $0.0898/hr) for the remaining 2 workers:
 
 The output will walk you through what Meadowrun's [run_map][meadowrun.run_map] is doing:
 
-1. Based on the options specified in
-   [AllocCloudInstances][meadowrun.AllocCloudInstances], `run_map` launches the cheapest
-   combination of EC2 instances/Azure VMs such that we can run 3 workers that each are
-   allocated at least 4 CPU and 32GB of memory. (In this case, we already have one
-   instance that can run a worker, so we'll use that in addition to launching another
-   instance for the remaining 2 workers.) The instances will have <15% chance of being
-   interrupted. You can set this to 0 to exclude spot instances and only use on-demand
-   instances. The exact instance types chosen depends on current EC2/Azure VM prices.
+Based on the options specified in [AllocCloudInstances][meadowrun.AllocCloudInstances],
+`run_map` launches the cheapest combination of EC2 instances/Azure VMs such that we can
+run 3 workers that each are allocated at least 4 CPU and 32GB of memory. (In this case,
+we already have one instance that can run a worker, so we'll use that in addition to
+launching another instance for the remaining 2 workers.) The instances will have <15%
+chance of being interrupted. You can set this to 0 to exclude spot instances and only
+use on-demand instances. The exact instance types chosen depends on current EC2/Azure VM
+prices.
 
-2. Based on the options specified in
-   [Deployment.git_repo][meadowrun.Deployment.git_repo], `run_map` grabs code from the
-   `main` branch of the `test_repo` git repo, and creates a Conda environment (in a
-   container) using the `myenv.yml` file in the git repo as the environment
-   specification. Creating the Conda environment takes some time, but once it has been
-   created, it gets cached and reused using AWS ECR/Azure Container Registry.
-
-3. Finally, the workers will execute tasks until there are none left, returning a list
-   of results:
+The workers will execute tasks until there are none left, eventually returning a list of
+results:
 
 ```shell
 [1, 4, 27, 256]

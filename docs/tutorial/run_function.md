@@ -1,36 +1,27 @@
-# Run a function remotely
+# Run a function
 
-Run a Python function on a single EC2 instance or Azure VM.
+This walks you through running a function on an EC2 instance using your local code and
+libraries.
+
+This tutorial won't work for you if you're using Conda on Windows or Mac, as you won't
+be able to recreate your local Conda environment on a remote Linux machine, because
+Conda doesn't work across platforms. You can either give
+[Poetry](https://python-poetry.org/) a try, or follow a [Git repo-based
+tutorial](/tutorial/run_function_git_conda) instead. See [Cross-platform
+compatibility](/explanation/deployment/#cross-platform-compatibility) for more
+information as well.
+
 
 ## Prerequisites
 
-Choose a GitHub repo you'd like to run a function from. Third party dependencies, like
-pandas and numpy, are supported and should be installed using Conda. If you don't have
-any repo to hand, try our test repo https://github.com/meadowdata/test_repo.
+You'll need to have [installed meadowrun](/tutorial/install). For this tutorial, we'll
+use a poetry environment, but it should be straightforward to translate the steps to a
+pip or Conda environment.
 
-## Create a Conda environment export file
 
-Meadowrun needs to know what the third-party dependencies are to execute the function.
-With Conda, the easiest way to do that is:
+## Write a Python script to run a function remotely
 
-```shell
-conda env export > myenv.yml
-```
-
-Check this file into the repository, and push the change.
-
-If you already have such a file in the repository, you can skip this step.
-
-Meadowrun can be used from Windows or Linux, but only Linux is supported for the remote
-environment, so `myenv.yml` must describe a Linux-compatible conda environment.
-
-Unlike for `run_map`, the Conda environment (`myenv.yml`) for `run_function` does not
-need to have meadowrun installed.
-
-## Write a Python script to run the function remotely
-
-Here is an example template—add it to a file in a local checkout of the test repo, or
-where you can easily run it from an environment with meadowrun installed.
+Here is an example template, create a file like this locally:
 
 ```python
 import asyncio
@@ -46,14 +37,8 @@ async def main():
             memory_gb_required=4,
             interruption_probability_threshold=15,
             cloud_provider="EC2"  # to run on AWS EC2 instance
-            # cloud_provider="AzureVM"  # to run on an Azure VM
         ),
-        Deployment.git_repo(
-            # URL to the repo
-            "https://github.com/meadowdata/test_repo",
-            # name of the environment file we created in step 1
-            conda_yml_file="myenv.yml"
-        )
+        await Deployment.mirror_local()
     )
     print(f"Meadowrun worked! Got {result}")
 
@@ -65,11 +50,13 @@ if __name__ == "__main__":
 
 Assuming you saved the file above as mdr.py:
 
-```python
+```
 > python -m mdr
 Size of pickled function is 40
 Job was not allocated to any existing EC2 instances, will launch a new EC2 instance
-Launched a new EC2 instance for the job: ec2-18-216-7-235.us-east-2.compute.amazonaws.com: t2.medium (2 CPU/4.0 GB), spot ($0.0139/hr, 2.5% chance of interruption), will run 1 job/worker
+Launched a new EC2 instance for the job: ec2-18-216-7-235.us-east-2.compute.amazonaws.com:
+t2.medium (2 CPU/4.0 GB), spot ($0.0139/hr, 2.5% chance of interruption), will run 1
+job/worker
 Meadowrun worked! Got 499.5
 ```
 
@@ -83,17 +70,22 @@ is doing:
    chosen depends on current EC2 prices, but in this case we can see that it's a spot
    t2.medium, and we're paying $0.0139/hr for it.
 
-2. Based on the options specified in
-   [Deployment.git_repo][meadowrun.Deployment.git_repo], `run_function` grabs code from
-   the `main` branch of the `test_repo` git repo, and then creates a conda environment
-   (in a container) using the `myenv.yml` file in the git repo as the environment
-   specification. Creating the conda environment takes some time, but once it has been
-   created, it gets cached and reused using AWS ECR/Azure Container Registry. Creating
-   the container happens on the EC2 instance/Azure VM, so make sure to size your
-   `AllocCloudInstance` appropriately.
+2. [Deployment.mirror_local][meadowrun.Deployment.mirror_local] tells Meadowrun to copy
+   your local environment and code to the provisioned EC2 instance. Meadowrun detects what
+   kind of environment (conda, pip, or poetry) you're currently in, and for a poetry
+   environment, sends the pyproject.toml and poetry.lock files to the EC2 instance. The EC2
+   instance will create a new docker container based on that poetry environment and cache
+   it for reuse in a Meadowrun-managed AWS ECR container registry. Meadowrun will also zip
+   up your local code and send it to the EC2 instance.
 
 3. Meadowrun runs the specified function in that environment on the remote machine and
    returns the result.
 
 
-You can also log or print to stdout, meadowrun shows that in the local output.
+You can also log or print to stdout in your remote function--meadowrun will copy the
+remote output to the local output.
+
+
+## Next steps
+
+Try running a [distributed map](/tutorial/run_map)!

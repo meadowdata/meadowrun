@@ -1,0 +1,5 @@
+nav:
+- install.md
+- run_function.md
+- run_map.md
+- run_function_git_conda.md

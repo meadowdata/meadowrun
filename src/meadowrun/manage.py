@@ -5,11 +5,10 @@ import os.path
 import time
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.aws_install_uninstall import (
-    delete_meadowrun_resources,
-    install,
-    terminate_all_instances,
-)
+
+import meadowrun.aws_integration.aws_install_uninstall as aws
+import meadowrun.azure_integration.azure_install_uninstall as azure
+
 from meadowrun.aws_integration.aws_permissions_install import (
     grant_permission_to_secret,
 )
@@ -24,15 +23,12 @@ from meadowrun.aws_integration.management_lambdas.clean_up import (
     delete_unused_images as aws_delete_unused_images,
 )
 from meadowrun.azure_integration.azure_meadowrun_core import (
-    delete_meadowrun_resource_group,
     ensure_meadowrun_resource_group,
     ensure_meadowrun_storage_account,
     get_default_location,
     get_subscription_id,
 )
-from meadowrun.azure_integration.azure_mgmt_functions_setup import (
-    create_or_update_mgmt_function,
-)
+
 from meadowrun.azure_integration.azure_ssh_keys import (
     download_ssh_key as azure_download_ssh_key,
     _ensure_meadowrun_vault,
@@ -77,54 +73,54 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
     # equivalent language for logging
     if cloud_provider == "EC2":
-        lambdas = "AWS lambdas"
-        aws = "AWS"
-        ec2_role = "EC2 role"
+        functions = "AWS lambdas"
+        cloud_name = "AWS"
+        role = "EC2 role"
         secret = "AWS secret"
-        ec2_instances = "EC2 instances"
+        vm_instances = "EC2 instances"
     elif cloud_provider == "AzureVM":
-        lambdas = "Azure Functions"
-        aws = "Azure"
-        ec2_role = "managed identity"
+        functions = "Azure Functions"
+        cloud_name = "Azure"
+        role = "managed identity"
         secret = "Azure secret"
-        ec2_instances = "Azure VMs"
+        vm_instances = "Azure VMs"
     else:
         raise ValueError(f"Unexpected value for cloud_provider {cloud_provider}")
 
     install_parser = subparsers.add_parser(
         "install",
-        help=f"Does one-time setup of {lambdas} that automatically periodically clean "
-        "up unused temporary resources. Must be re-run when meadowrun is updated "
-        f"so that {lambdas} pick up updated code.",
+        help=f"Does one-time setup of {functions} that automatically periodically "
+        "clean up unused temporary resources. Must be re-run when meadowrun is updated "
+        f"so that {functions} pick up updated code.",
     )
     install_parser.add_argument(
         "--allow-authorize-ips",
         action="store_true",
         help=(
             "Users' machines need to be authorized to access Meadowrun-created "
-            f"{ec2_instances}. If this option is set, users will be given permissions "
+            f"{vm_instances}. If this option is set, users will be given permissions "
             "to automatically authorize their IPs to SSH into Meadowrun-created "
-            f"{ec2_instances}. If this option is not set, an administrator must "
+            f"{vm_instances}. If this option is not set, an administrator must "
             "manually edit the Meadowrun security group to grant access for users."
         ),
     )
 
     subparsers.add_parser(
         "uninstall",
-        help=f"Removes all {aws} resources created by meadowrun",
+        help=f"Removes all {cloud_name} resources created by meadowrun",
     )
 
     clean_parser = subparsers.add_parser(
         "clean",
-        help=f"Cleans up all temporary resources, runs the same code as the {lambdas} "
-        "created by install",
+        help=f"Cleans up all temporary resources, runs the same code as the {functions}"
+        " created by install",
     )
     clean_parser.add_argument("--clean-active", action="store_true")
 
     if cloud_provider == "EC2":
         grant_permission_to_secret_parser = subparsers.add_parser(
             "grant-permission-to-secret",
-            help=f"Gives the meadowrun {ec2_role} access to the specified {secret}",
+            help=f"Gives the meadowrun {role} access to the specified {secret}",
         )
         grant_permission_to_secret_parser.add_argument(
             "secret_name", help=f"The name of the {secret} to give permissions to"
@@ -133,7 +129,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     get_ssh_key_parser = subparsers.add_parser(
         "get-ssh-key",
         help="Downloads the SSH key used to connect meadowrun-launched "
-        f"{ec2_instances}",
+        f"{vm_instances}",
     )
     get_ssh_key_parser.add_argument(
         "--output",
@@ -155,18 +151,18 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     if args.command == "install":
         print("Creating resources for running meadowrun")
         if cloud_provider == "EC2":
-            await install(region_name, args.allow_authorize_ips)
+            await aws.install(region_name, args.allow_authorize_ips)
         elif cloud_provider == "AzureVM":
-            await create_or_update_mgmt_function(region_name)
+            await azure.install(region_name)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(f"Created resources in {time.perf_counter() - t0:.2f} seconds")
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")
         if cloud_provider == "EC2":
-            delete_meadowrun_resources(region_name)
+            aws.delete_meadowrun_resources(region_name)
         elif cloud_provider == "AzureVM":
-            await delete_meadowrun_resource_group()
+            await azure.delete_meadowrun_resource_group()
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(
@@ -175,18 +171,18 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     elif args.command == "clean":
         if args.clean_active:
             print(
-                f"Terminating and deregistering all {ec2_instances}. This will "
+                f"Terminating and deregistering all {vm_instances}. This will "
                 f"interrupt actively running jobs."
             )
         else:
             print(
-                f"Terminating and deregistering all inactive {ec2_instances} (specify "
+                f"Terminating and deregistering all inactive {vm_instances} (specify "
                 "--clean-active to also terminate and deregister active instances)"
             )
 
         if cloud_provider == "EC2":
             if args.clean_active:
-                terminate_all_instances(region_name, False)
+                aws.terminate_all_instances(region_name, False)
             _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
         elif cloud_provider == "AzureVM":
             resource_group_path = await ensure_meadowrun_resource_group(region_name)
@@ -202,7 +198,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(
-            f"Terminated and deregistered {ec2_instances} in "
+            f"Terminated and deregistered {vm_instances} in "
             f"{time.perf_counter() - t0:.2f} seconds"
         )
         t0 = time.perf_counter()
@@ -240,9 +236,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             f"{time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "grant-permission-to-secret":
-        print(
-            f"Granting access to the meadowrun {ec2_role} to access {args.secret_name}"
-        )
+        print(f"Granting access to the meadowrun {role} to access {args.secret_name}")
         if cloud_provider == "EC2":
             grant_permission_to_secret(args.secret_name, region_name)
         elif cloud_provider == "AzureVM":

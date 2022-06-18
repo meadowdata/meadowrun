@@ -23,22 +23,27 @@ from .azure_identity import CACHED_AZURE_VARIABLES, get_token, get_token_sync
 _BASE_URL = "https://management.azure.com"
 
 
-async def _return_response_json(response: aiohttp.ClientResponse) -> Any:
-    """
-    If there's nothing to return, the Azure APIs will return content-type:
-    application/octet-stream with no actual content. It's easier to just return this as
-    None rather than having to fully support another content type
-    """
+async def _return_response(response: aiohttp.ClientResponse) -> Any:
+    # If there's nothing to return, the Azure APIs will return content-type:
+    # application/octet-stream with no actual content. It's easier to just return this
+    # as None rather than having to fully support another content type
     if response.content_length == 0:
-        return
+        return None
 
     # this is a bit sloppy, but sometimes content-length is not set, content-type is
     # text/plain, and the actual content is empty. We don't want response.json() to
     # throw in that scenario either
-    if response.headers.get("Content-Type", "").startswith("text/plain"):
+    if response.content_type.startswith("text/plain"):
         return await response.text()
 
-    return await response.json()
+    if response.content_type.startswith("application/xml"):
+        return await response.text()
+
+    if response.content_type.startswith("application/json"):
+        return await response.json()
+
+    # assuming binary
+    return await response.content.read()
 
 
 def _prepare_request(
@@ -98,7 +103,7 @@ async def azure_rest_api(
         )
     ) as response:
         await raise_for_status(response)
-        return await _return_response_json(response)
+        return await _return_response(response)
 
 
 async def azure_rest_api_paged(
@@ -350,7 +355,7 @@ async def azure_rest_api_poll(
 
     async with aiohttp.request(**prepared_request) as response:
         await raise_for_status(response)
-        response_json = await _return_response_json(response)
+        response_json = await _return_response(response)
 
         prepared_poll_request = _prepare_poll_request(
             poll_scheme,
@@ -396,7 +401,7 @@ async def _azure_rest_api_poll_continuation(
             "GET", **prepared_poll_request.poll_request_args
         ) as response:
             await raise_for_status(response)
-            response_json = await _return_response_json(response)
+            response_json = await _return_response(response)
 
             next_poll_request = _prepare_poll_request(
                 poll_scheme,

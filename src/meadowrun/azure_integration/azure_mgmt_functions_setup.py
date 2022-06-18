@@ -10,7 +10,6 @@ import aiohttp
 import meadowrun.azure_integration.mgmt_functions
 from meadowrun.azure_integration.azure_meadowrun_core import (
     _ensure_managed_identity,
-    _ensure_resource_provider_registered,
     ensure_meadowrun_resource_group,
     ensure_meadowrun_storage_account,
     get_subscription_id,
@@ -22,6 +21,9 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
     azure_rest_api,
     azure_rest_api_poll,
     wait_for_poll,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (
+    StorageAccount,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
@@ -90,10 +92,12 @@ def _meadowrun_mgmt_function_app_name(subscription_id: str) -> str:
     return "mr" + subscription_id.replace("-", "")
 
 
-async def _create_or_update_mgmt_function_app(location: str) -> None:
+async def _create_or_update_mgmt_function_app(
+    location: str, subscription_id: str
+) -> StorageAccount:
     """ "Function app" and "site" seem to be interchangeable terms"""
     resource_group_path = await ensure_meadowrun_resource_group(location)
-    subscription_id = await get_subscription_id()
+
     site_path = (
         f"{resource_group_path}/providers/Microsoft.Web/sites/"
         f"{_meadowrun_mgmt_function_app_name(subscription_id)}"
@@ -102,29 +106,15 @@ async def _create_or_update_mgmt_function_app(location: str) -> None:
     # first create some prerequisites:
 
     # create application insights component for logging
-    await _ensure_resource_provider_registered(
-        subscription_id, "Microsoft.OperationalInsights"
-    )
-    await _ensure_resource_provider_registered(subscription_id, "microsoft.insights")
     app_insights_component_task = asyncio.create_task(
         _create_application_insights_component(location)
     )
-    # ensure storage account which is required by the functions runtime
-    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Storage")
-    storage_account_task = ensure_meadowrun_storage_account(location, "create")
-    # managed identity for the function
-    await _ensure_resource_provider_registered(
-        subscription_id, "Microsoft.ManagedIdentity"
-    )
-    identity_id, identity_client_id = await _ensure_managed_identity(location)
 
-    # register misc resource providers we'll need while running
-    await _ensure_resource_provider_registered(subscription_id, "Microsoft.KeyVault")
-    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Network")
-    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Compute")
-    await _ensure_resource_provider_registered(
-        subscription_id, "Microsoft.ContainerRegistry"
-    )
+    # ensure storage account which is required by the functions runtime
+    storage_account_task = ensure_meadowrun_storage_account(location, "create")
+
+    # managed identity for the function
+    identity_id, identity_client_id = await _ensure_managed_identity(location)
 
     # now create the actual "function app"/"site"
     # https://docs.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update
@@ -132,7 +122,6 @@ async def _create_or_update_mgmt_function_app(location: str) -> None:
     # azure_rest_api_poll(poll_scheme="GetProvisioningState"), but there's no
     # "provisioningState" property to check. This seems like a bug/outdated
     # implementation in the SDK.
-    await _ensure_resource_provider_registered(subscription_id, "Microsoft.Web")
     await azure_rest_api(
         "PUT",
         site_path,
@@ -190,6 +179,7 @@ async def _create_or_update_mgmt_function_app(location: str) -> None:
             }
         },
     )
+    return storage_account
 
 
 _IGNORE_FOR_ZIP = {".git", ".venv", ".vscode"}
@@ -283,18 +273,3 @@ async def _retry(
             else:
                 print(f"{retry_message}: {e}")
                 await asyncio.sleep(delay_seconds)
-
-
-async def create_or_update_mgmt_function(location: str) -> None:
-    await _create_or_update_mgmt_function_app(location)
-    # Sometimes, even though the previous call has completed, the
-    # _update_mgmt_function_code call will fail in a weird way--the initial call will
-    # succeed, but then polling for the status of the deployment will throw a 400, so we
-    # retry it.
-    await _retry(
-        _update_mgmt_function_code,
-        Exception,
-        3,
-        5,
-        "Waiting for Azure function creation to complete",
-    )

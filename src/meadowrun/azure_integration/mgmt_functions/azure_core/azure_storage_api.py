@@ -4,13 +4,16 @@ import datetime
 import hashlib
 import hmac
 import xml.dom.minidom
-from typing import Optional, Dict, Any, Sequence, AsyncIterator
+from typing import Any, AsyncIterator, Dict, Iterable, Optional, Sequence, Tuple
 
 import aiohttp
 import multidict
-
-from .azure_exceptions import raise_for_status
-from .azure_rest_api import _return_response_json
+from .azure_exceptions import (
+    raise_for_status,
+)
+from .azure_rest_api import (
+    _return_response,
+)
 
 
 def _sign_string(key: str, string_to_sign: str) -> str:
@@ -97,7 +100,7 @@ async def azure_table_api(
         json=json_content,
     ) as response:
         await raise_for_status(response)
-        return await _return_response_json(response)
+        return await _return_response(response)
 
 
 _CONTINUATION_HEADER_PREFIX = "x-ms-continuation-"
@@ -135,7 +138,7 @@ async def azure_table_api_paged(
         headers=_get_default_table_api_headers(storage_account, url_path),
     ) as response:
         await raise_for_status(response)
-        yield await _return_response_json(response)
+        yield await _return_response(response)
 
         page_parameters = _get_page_parameters(response.headers)
 
@@ -150,13 +153,24 @@ async def azure_table_api_paged(
             headers=_get_default_table_api_headers(storage_account, url_path),
         ) as response:
             await raise_for_status(response)
-            yield await _return_response_json(response)
+            yield await _return_response(response)
 
             page_parameters = _get_page_parameters(response.headers)
 
 
 def _replace_linear_whitespace(s: str) -> str:
     return s.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+
+
+def _canonicalized_headers(headers: Dict[str, str]) -> str:
+    "Produce the CanonicalizedHeaders for authorization."
+    # https://docs.microsoft.com/en-us/rest/api/storageservices/authorize-with-shared-key#constructing-the-canonicalized-headers-string
+    headers_to_sign = []
+    for key, value in headers.items():
+        key = key.lower()
+        if key.startswith("x-ms-"):
+            headers_to_sign.append(f"{key}:{_replace_linear_whitespace(value)}")
+    return "\n".join(sorted(headers_to_sign))
 
 
 async def azure_queue_api(
@@ -170,19 +184,11 @@ async def azure_queue_api(
     """Supports any Azure Queue API"""
 
     # headers and signing
-
     headers = {
         "x-ms-version": "2021-02-12",
         "x-ms-date": _get_ms_date_time(),
         "Content-Type": "application/xml",
     }
-
-    # https://docs.microsoft.com/en-us/rest/api/storageservices/authorize-with-shared-key#constructing-the-canonicalized-headers-string
-    headers_to_sign = []
-    for key, value in headers.items():
-        key = key.lower()
-        if key.startswith("x-ms-"):
-            headers_to_sign.append(f"{key}:{_replace_linear_whitespace(value)}")
 
     signature = _sign_string(
         storage_account.key,
@@ -194,7 +200,7 @@ async def azure_queue_api(
                 # according to the docs, x-ms-date should be here, but the python Azure
                 # SDK leaves this blank, and this seems to work
                 "",
-                "\n".join(sorted(headers_to_sign)),
+                _canonicalized_headers(headers),
                 f"/{storage_account.name}/{url_path}",
             ]
         ),
@@ -313,3 +319,69 @@ async def queue_delete_message(
         f"{queue_name}/messages/{message_id}",
         query_parameters={"popreceipt": pop_receipt},
     )
+
+
+def _get_default_blob_api_headers(
+    method: str,
+    storage_account: StorageAccount,
+    url_path: str,
+    content_type: str,
+    additional_headers: Optional[Dict[str, str]],
+) -> Dict[str, str]:
+    """Creates default headers, including importantly the signed Authorization header"""
+    VERSION = "2021-08-06"
+    request_date_time = _get_ms_date_time()
+    headers = {
+        "x-ms-version": VERSION,
+        "x-ms-date": request_date_time,
+        "Content-Type": content_type,
+    }
+    if additional_headers:
+        headers.update(additional_headers)
+    # https://docs.microsoft.com/en-us/rest/api/storageservices/authorize-with-shared-key#blob-queue-and-file-services-shared-key-lite-authorization
+    s_str = "\n".join(
+        [
+            method,
+            "",  # Content-MD5
+            content_type,
+            "",  # Date
+            # CanonicalizedHeaders
+            _canonicalized_headers(headers),
+            # CanonicalizedResource
+            f"/{storage_account.name}/{url_path}",
+        ]
+    )
+    signature = _sign_string(storage_account.key, s_str)
+    headers["Authorization"] = f"SharedKeyLite {storage_account.name}:{signature}"
+    return headers
+
+
+async def azure_blob_api(
+    method: str,
+    storage_account: StorageAccount,
+    url_path: str,
+    *,
+    query_parameters: Optional[Dict[str, str]] = None,
+    json_content: Any = None,
+    binary_content: Any = None,
+    additional_headers: Optional[Dict[str, str]] = None,
+    ignored_status_codes: Iterable[Tuple[int, str]] = tuple(),
+) -> Any:
+    """Supports any Azure Blob Storage API"""
+    content_type = (
+        "application/octet-stream" if binary_content is not None else "application/json"
+    )
+    headers = _get_default_blob_api_headers(
+        method, storage_account, url_path, content_type, additional_headers
+    )
+
+    async with aiohttp.request(
+        method,
+        f"https://{storage_account.name}.blob.core.windows.net/{url_path}",
+        params=query_parameters,
+        headers=headers,
+        json=json_content,
+        data=binary_content,
+    ) as response:
+        await raise_for_status(response, ignored_status_codes=ignored_status_codes)
+        return await _return_response(response)

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Awaitable, Optional, Literal, Tuple, Set
+from typing import Optional, Literal, Tuple, Set
 
 import aiohttp
 
@@ -96,17 +96,6 @@ async def get_current_ip_address_on_vm() -> Optional[str]:
             return None
 
         return await response.text()
-
-
-def _ensure_resource_provider_registered(
-    subscription_id: str, resource_provider_ns: str
-) -> Awaitable[None]:
-    """Ensure the given resource provider is registered."""
-    return azure_rest_api(
-        "POST",
-        f"subscriptions/{subscription_id}/providers/{resource_provider_ns}/register",
-        "2021-04-01",
-    )
 
 
 _MEADOWRUN_MANAGED_IDENTITY = "meadowrun-managed-identity"
@@ -201,26 +190,6 @@ async def assign_role_to_principal(
         )
     except ResourceExistsError:
         # this means the role assignment already exists
-        pass
-
-
-async def delete_meadowrun_resource_group() -> None:
-    """
-    This should delete all meadowrun-generated resources as deletes everything in the
-    meadowrun resource group.
-    """
-    try:
-        # https://docs.microsoft.com/en-us/rest/api/resources/resource-groups/delete
-        await wait_for_poll(
-            await azure_rest_api_poll(
-                "DELETE",
-                f"subscriptions/{await get_subscription_id()}/resourcegroups/"
-                f"{MEADOWRUN_RESOURCE_GROUP_NAME}",
-                "2021-04-01",
-                "LocationStatusCode",
-            )
-        )
-    except ResourceNotFoundError:
         pass
 
 

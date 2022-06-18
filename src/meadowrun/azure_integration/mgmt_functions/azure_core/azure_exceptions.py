@@ -1,5 +1,5 @@
 import xml.dom.minidom
-from typing import Optional, Any, Tuple, Type
+from typing import Iterable, Optional, Any, Tuple, Type
 
 import aiohttp
 import requests
@@ -84,7 +84,10 @@ def _exception_type_from_code(code: Optional[str]) -> Type:
         return AzureRestApiError
 
 
-async def raise_for_status(response: aiohttp.ClientResponse) -> None:
+async def raise_for_status(
+    response: aiohttp.ClientResponse,
+    ignored_status_codes: Iterable[Tuple[int, str]] = tuple(),
+) -> None:
     """
     Like response.raise_for_status, but raises AzureRestApiError based on parsing the
     response content
@@ -118,7 +121,8 @@ async def raise_for_status(response: aiohttp.ClientResponse) -> None:
                 response_text = await response.text()
             message = response_text
 
-        raise _exception_type_from_code(code)(response.status, code, message)
+        if code is None or (response.status, code) not in ignored_status_codes:
+            raise _exception_type_from_code(code)(response.status, code, message)
 
 
 def raise_for_status_sync(response: requests.Response) -> None:

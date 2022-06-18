@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import urllib.parse
 import zipfile
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Coroutine, List, Optional, Sequence, Tuple, Union
 
 import filelock
 
@@ -19,6 +19,7 @@ from meadowrun.aws_integration.ecr import (
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
+from meadowrun.azure_integration import blob_storage
 from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
@@ -249,18 +250,33 @@ async def _get_zip_file_code_paths(
             for zip_path in code_paths
         ]
 
-    if decoded_url.scheme == "s3":
+    async def download_and_unzip(
+        download: Callable[
+            [
+                str,
+                str,
+                str,
+            ],
+            Coroutine[Any, Any, None],
+        ]
+    ) -> List[str]:
         bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
         extracted_folder = os.path.join(local_copies_folder, object_name)
 
         if not os.path.exists(extracted_folder):
             zip_file_path = extracted_folder + ".zip"
-            await s3.download_file(bucket_name, object_name, zip_file_path)
+            await download(bucket_name, object_name, zip_file_path)
             with zipfile.ZipFile(zip_file_path) as zip_file:
                 zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
 
         return [os.path.join(extracted_folder, zip_path) for zip_path in code_paths]
+
+    if decoded_url.scheme == "s3":
+        return await download_and_unzip(s3.download_file)
+
+    if decoded_url.scheme == "azblob":
+        return await download_and_unzip(blob_storage.download_file)
 
     raise ValueError(f"Unknown URL scheme in {zip_file_url}")
 

@@ -16,6 +16,7 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
+    Coroutine,
     Dict,
     Iterable,
     List,
@@ -35,6 +36,7 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
     run_job_ec2_instance_registrar,
 )
 from meadowrun.aws_integration.grid_tasks_sqs import prepare_ec2_run_map
+from meadowrun.azure_integration import blob_storage
 from meadowrun.azure_integration.azure_instance_allocation import (
     run_job_azure_vm_instance_registrar,
 )
@@ -720,10 +722,11 @@ async def _prepare_code_deployment(
     if not isinstance(code_deploy, CodeZipFile):
         return code_deploy
 
-    if target == _DeploymentTarget.LOCAL:
-        return code_deploy
-    elif target == _DeploymentTarget.S3:
-        # need to deploy zip file to S3, and update the CodeZipFile
+    async def upload(
+        code_deploy: CodeZipFile,
+        ensure_upload: Callable[[str], Coroutine[Any, Any, Tuple[str, str]]],
+        scheme_name: str,
+    ) -> CodeZipFile:
         file_url = urllib.parse.urlparse(code_deploy.url)
         if file_url.scheme != "file":
             raise ValueError(f"Expected file URI: {code_deploy.url}")
@@ -733,13 +736,20 @@ async def _prepare_code_deployment(
             file_path = file_url.path[1:]
         else:
             file_path = file_url.path
-        bucket_name, object_name = await s3.ensure_uploaded(file_path)
-        s3_url = urllib.parse.urlunparse(("s3", bucket_name, object_name, "", "", ""))
-        code_deploy.url = s3_url
+        bucket_name, object_name = await ensure_upload(file_url.path)
+        code_deploy.url = urllib.parse.urlunparse(
+            (scheme_name, bucket_name, object_name, "", "", "")
+        )
         shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
         return code_deploy
+
+    if target == _DeploymentTarget.LOCAL:
+        return code_deploy
+    elif target == _DeploymentTarget.S3:
+        return await upload(code_deploy, s3.ensure_uploaded, "s3")
+
     elif target == _DeploymentTarget.AZURE_BLOB_STORAGE:
-        raise NotImplementedError("Azure Blob Storage is not implemented yet")
+        return await upload(code_deploy, blob_storage.ensure_uploaded, "azblob")
     else:
         raise ValueError(f"Unexpected value for target {target}")
 

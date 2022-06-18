@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 import aiohttp
 
-from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
+from ..azure_core.azure_exceptions import (
     AzureRestApiError,
 )
 

@@ -24,7 +24,9 @@ All Meadowrun-created resources will be in the Meadowrun-rg Resource Group.
     * Table: meadowrunVmAlloc. Keeps track of which jobs are running on which VMs.
     * Table: meadowrunLastUsed. Keeps track of when various resources were last used so
       for cleanup
-    * Containers: Azure Functions will generate containers
+    * Containers: 
+        * Azure Functions will generate containers
+        * A container called "meadowrun" to store zipped source code by content hash
 * Container Registries:
     * Container Registry: mr<subscription id>
     * Repository: meadowrun_generated

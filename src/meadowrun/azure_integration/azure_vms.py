@@ -43,7 +43,7 @@ _MEADOWRUN_COMMUNITY_IMAGE_ID = (
     "/CommunityGalleries/meadowprodeastus-e8b60fd5-8978-467b-a1b0-5b83cbf5393d/Images/"
     "meadowrun"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.1.8"
+_MEADOWRUN_IMAGE_VERSION = "0.1.9"
 
 
 async def _ensure_virtual_network_and_subnet(location: str) -> str:

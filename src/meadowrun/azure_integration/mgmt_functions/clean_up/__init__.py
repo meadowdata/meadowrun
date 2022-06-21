@@ -12,17 +12,17 @@ from typing import Any, Dict, List
 
 import aiohttp
 
-from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     AzureRestApiError,
 )
 
-from ..azure.azure_acr import get_tags_in_repository, delete_tag
-from ..azure.azure_rest_api import (
+from ..azure_core.azure_acr import get_tags_in_repository, delete_tag
+from ..azure_core.azure_rest_api import (
     azure_rest_api_paged,
     azure_rest_api,
     parse_azure_timestamp,
 )
-from ..azure.azure_storage_api import (
+from ..azure_core.azure_storage_api import (
     StorageAccount,
     azure_table_api,
     azure_table_api_paged,

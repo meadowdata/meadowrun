@@ -32,7 +32,7 @@ from typing_extensions import Literal
 
 import meadowrun.docker_controller
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
 )
 from meadowrun.meadowrun_pb2 import (

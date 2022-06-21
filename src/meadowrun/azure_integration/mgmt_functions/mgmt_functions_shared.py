@@ -2,7 +2,7 @@
 
 import os
 
-from .azure.azure_storage_api import StorageAccount
+from .azure_core.azure_storage_api import StorageAccount
 from .azure_constants import (
     MEADOWRUN_RESOURCE_GROUP_NAME,
     MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,

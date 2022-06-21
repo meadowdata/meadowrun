@@ -6,14 +6,14 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_subscription_id,
     record_last_used,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_acr import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_acr import (
     get_acr_token,
     get_tags_in_repository,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     ResourceNotFoundError,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
     azure_rest_api_poll,
     wait_for_poll,

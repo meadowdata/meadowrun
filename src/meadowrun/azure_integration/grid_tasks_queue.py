@@ -28,10 +28,10 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     record_last_used,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_storage_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (
     StorageAccount,
     queue_delete_message,
     queue_receive_messages,

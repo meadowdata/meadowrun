@@ -15,7 +15,7 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_resource_group,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api_paged,
     azure_rest_api,
 )

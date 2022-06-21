@@ -11,13 +11,13 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_resource_group,
     get_subscription_id,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     ResourceNotFoundError,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_identity import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_identity import (
     get_current_user_id,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
     azure_rest_api_paged,
     azure_rest_api_poll,

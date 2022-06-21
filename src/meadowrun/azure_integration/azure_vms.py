@@ -10,10 +10,10 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
 )
 from meadowrun.azure_integration.azure_vm_pricing import get_vm_types
-from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     ResourceNotFoundError,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
     azure_rest_api_poll,
     wait_for_poll,

@@ -11,14 +11,14 @@ import json
 import logging
 from typing import Optional, Sequence, List
 
-from ..azure.azure_exceptions import ResourceModifiedError
-from ..azure.azure_rest_api import (
+from ..azure_core.azure_exceptions import ResourceModifiedError
+from ..azure_core.azure_rest_api import (
     azure_rest_api_paged,
     azure_rest_api_poll,
     parse_azure_timestamp,
     wait_for_poll,
 )
-from ..azure.azure_storage_api import (
+from ..azure_core.azure_storage_api import (
     StorageAccount,
     azure_table_api,
     azure_table_api_paged,

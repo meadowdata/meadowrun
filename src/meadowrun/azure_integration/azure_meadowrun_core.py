@@ -11,21 +11,21 @@ from typing import Awaitable, Optional, Literal, Tuple, Set
 
 import aiohttp
 
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
     azure_rest_api_paged,
     azure_rest_api_poll,
     get_subscription_id,
     wait_for_poll,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_identity import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_identity import (
     IMDS_AUTHORITY,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_exceptions import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     ResourceExistsError,
     ResourceNotFoundError,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_storage_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (
     StorageAccount,
     azure_table_api,
     table_key_url,

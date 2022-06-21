@@ -3,7 +3,7 @@ from typing import Dict, Tuple, Optional, Iterable, Any, List, cast
 import aiohttp
 
 from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api_paged,
 )
 from meadowrun.instance_selection import (

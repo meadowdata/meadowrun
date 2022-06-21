@@ -21,7 +21,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
-    cast,
+    Type,
 )
 
 import fabric
@@ -40,7 +40,7 @@ CloudProviderType = Literal["EC2", "AzureVM"]
 
 async def _retry(
     function: Callable[[], _T],
-    exception_types: Union[Exception, Tuple[Exception, ...]],
+    exception_types: Union[Type, Tuple[Type, ...]],
     max_num_attempts: int = 5,
     delay_seconds: float = 1,
 ) -> _T:
@@ -48,7 +48,7 @@ async def _retry(
     while True:
         try:
             return function()
-        except exception_types as e:  # type: ignore
+        except exception_types as e:
             i += 1
             if i >= max_num_attempts:
                 raise
@@ -97,10 +97,7 @@ class SshHost(Host):
                 # connect to the remote machine.
                 home_result = await _retry(
                     lambda: connection.run("echo $HOME", hide=True, in_stream=False),
-                    (
-                        cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
-                        cast(Exception, TimeoutError),
-                    ),
+                    (paramiko.ssh_exception.NoValidConnectionsError, TimeoutError),
                     max_num_attempts=20,
                 )
                 if not home_result.ok:

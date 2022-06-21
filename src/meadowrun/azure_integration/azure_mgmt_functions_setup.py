@@ -1,8 +1,9 @@
 import asyncio
 import io
 import os
+import time
 import zipfile
-from typing import Tuple
+from typing import Tuple, Callable, Awaitable, TypeVar, Union, Type
 
 import aiohttp
 
@@ -14,8 +15,10 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_storage_account,
     get_subscription_id,
 )
-from meadowrun.azure_integration.mgmt_functions.azure.azure_identity import get_token
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_identity import (
+    get_token,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
     azure_rest_api_poll,
     wait_for_poll,
@@ -25,6 +28,9 @@ from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,
     MEADOWRUN_SUBSCRIPTION_ID,
 )
+
+
+_T = TypeVar("_T")
 
 _MEADOWRUN_MGMT_FUNCTIONS_LOGS_COMPONENT_NAME = "meadowrun-mgmt-functions-logs"
 _MEADOWRUN_MGMT_FUNCTIONS_LOGS_WORKSPACE = "meadowrun-mgmt-functions-logs-workspace"
@@ -219,20 +225,76 @@ def _zip_azure_mgmt_function_code() -> bytes:
         return buffer.read()
 
 
-async def _update_mgmt_function_code() -> None:
+async def _update_mgmt_function_code(total_timeout_secs: float = 300) -> None:
     """Assumes the function app already exists, uploads the code for the function app"""
     # https://github.com/Azure/azure-cli/blob/ccdc56e7806b6544ddf228bb04be83e485a7611a/src/azure-cli/azure/cli/command_modules/appservice/custom.py#L498
     # https://docs.microsoft.com/en-us/azure/azure-functions/deployment-zip-push#with-curl
+
+    headers = {"Authorization": f"Bearer {await get_token()}"}
+
+    # this is effectively the same code as azure_rest_api_poll, but we don't have an
+    # api-version parameter
+
     async with aiohttp.request(
         "POST",
         f"https://{_meadowrun_mgmt_function_app_name(await get_subscription_id())}"
         ".scm.azurewebsites.net/api/zipdeploy",
+        params={"isAsync": "true"},
         data=_zip_azure_mgmt_function_code(),
-        headers={"Authorization": f"Bearer {await get_token()}"},
+        headers=headers,
     ) as response:
         response.raise_for_status()
+
+        if response.status not in (201, 202):
+            return
+
+        poll_url = response.headers["Location"]
+
+    t0 = time.time()
+    while time.time() - t0 < total_timeout_secs:
+        print(f"Waiting for a long-running Azure operation ({5}s)")
+        await asyncio.sleep(5)
+        async with aiohttp.request("GET", poll_url, headers=headers) as response:
+            response.raise_for_status()
+
+            if response.status not in (201, 202):
+                return
+
+    raise TimeoutError(
+        f"_update_mgmt_function_code timed out after {total_timeout_secs}"
+    )
+
+
+async def _retry(
+    function: Callable[[], Awaitable[_T]],
+    exception_types: Union[Type, Tuple[Type, ...]],
+    max_num_attempts: int = 5,
+    delay_seconds: float = 1,
+    retry_message: str = "Retrying on error",
+) -> _T:
+    i = 0
+    while True:
+        try:
+            return await function()
+        except exception_types as e:
+            i += 1
+            if i >= max_num_attempts:
+                raise
+            else:
+                print(f"{retry_message}: {e}")
+                await asyncio.sleep(delay_seconds)
 
 
 async def create_or_update_mgmt_function(location: str) -> None:
     await _create_or_update_mgmt_function_app(location)
-    await _update_mgmt_function_code()
+    # Sometimes, even though the previous call has completed, the
+    # _update_mgmt_function_code call will fail in a weird way--the initial call will
+    # succeed, but then polling for the status of the deployment will throw a 400, so we
+    # retry it.
+    await _retry(
+        _update_mgmt_function_code,
+        Exception,
+        3,
+        5,
+        "Waiting for Azure function creation to complete",
+    )

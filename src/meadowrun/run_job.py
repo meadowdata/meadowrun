@@ -40,7 +40,7 @@ from meadowrun.azure_integration.azure_instance_allocation import (
 )
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.azure_integration.grid_tasks_queue import prepare_azure_vm_run_map
-from meadowrun.azure_integration.mgmt_functions.azure.azure_rest_api import (
+from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     get_subscription_id_sync,
 )
 from meadowrun.conda import env_export, try_get_current_conda_env

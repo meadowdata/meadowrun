@@ -400,6 +400,7 @@ async def _get_current_local_interpreter() -> InterpreterDeployment:
             environment_type=EnvironmentType.POETRY,
             spec=project_file_contents,
             spec_lock=lock_file_contents,
+            python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
         )
 
     # if not, assume this is a pip-based environment

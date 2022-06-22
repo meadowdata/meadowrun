@@ -24,11 +24,38 @@ def _sign_string(key: str, string_to_sign: str) -> str:
     ).decode("utf-8")
 
 
-def _get_ms_date_time() -> str:
+def _get_now_rfc1123() -> str:
     """
     This is a specific datetime format required for authentication with the storage APIs
     """
-    return datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+    # Copied from
+    # https://github.com/Azure/azure-sdk-for-python/blob/1d5096eb1bc8cbd77223ecc7a628738a5f88751c/sdk/storage/azure-storage-file-datalake/azure/storage/filedatalake/_serialize.py#L45
+    dt = datetime.datetime.utcnow()
+
+    weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][dt.weekday()]
+    month = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ][dt.month - 1]
+    return "%s, %02d %s %04d %02d:%02d:%02d GMT" % (
+        weekday,
+        dt.day,
+        month,
+        dt.year,
+        dt.hour,
+        dt.minute,
+        dt.second,
+    )
 
 
 def table_key_url(table_name: str, partition_key: str, row_key: str) -> str:
@@ -62,7 +89,7 @@ def _get_default_table_api_headers(
 
     headers = {
         "x-ms-version": "2019-02-02",
-        "x-ms-date": _get_ms_date_time(),
+        "x-ms-date": _get_now_rfc1123(),
         "DataServiceVersion": "3.0",
         "Accept": "application/json;odata=minimalmetadata",
     }
@@ -186,7 +213,7 @@ async def azure_queue_api(
     # headers and signing
     headers = {
         "x-ms-version": "2021-02-12",
-        "x-ms-date": _get_ms_date_time(),
+        "x-ms-date": _get_now_rfc1123(),
         "Content-Type": "application/xml",
     }
 
@@ -330,7 +357,7 @@ def _get_default_blob_api_headers(
 ) -> Dict[str, str]:
     """Creates default headers, including importantly the signed Authorization header"""
     VERSION = "2021-08-06"
-    request_date_time = _get_ms_date_time()
+    request_date_time = _get_now_rfc1123()
     headers = {
         "x-ms-version": VERSION,
         "x-ms-date": request_date_time,

@@ -132,7 +132,7 @@ def _prepare_py_command(
         result_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}.result"
         # we create an empty file here so that we can expose it to the docker container,
         # docker does not let us bind non-existent files
-        open(result_path, "w").close()
+        open(result_path, "w", encoding="utf-8").close()
     else:
         result_path_container = result_path
     io_files.append(job.job_id + ".result")

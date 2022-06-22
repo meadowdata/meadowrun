@@ -38,7 +38,7 @@ def _get_region_description_for_pricing(region_code: str) -> str:
     region_code, but the pricing API weirdly uses description.
     """
     endpoint_file = resource_filename("botocore", "data/endpoints.json")
-    with open(endpoint_file, "r") as f:
+    with open(endpoint_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     # Botocore is using Europe while Pricing API using EU...sigh...
     return data["partitions"][0]["regions"][region_code]["description"].replace(

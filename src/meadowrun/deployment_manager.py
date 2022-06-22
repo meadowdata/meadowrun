@@ -421,9 +421,13 @@ def _get_path_and_hash(
             spec_hash = hash_spec(environment_spec.spec_lock.encode("UTF-8"))
             path_to_spec = os.path.join(interpreter_spec_path, spec_hash)
             os.makedirs(path_to_spec, exist_ok=True)
-            with open(os.path.join(path_to_spec, "pyproject.toml"), "w") as spec_file:
+            with open(
+                os.path.join(path_to_spec, "pyproject.toml"), "w", encoding="utf-8"
+            ) as spec_file:
                 spec_file.write(environment_spec.spec)
-            with open(os.path.join(path_to_spec, "poetry.lock"), "w") as lock_file:
+            with open(
+                os.path.join(path_to_spec, "poetry.lock"), "w", encoding="utf-8"
+            ) as lock_file:
                 lock_file.write(environment_spec.spec_lock)
         else:
             spec_hash = hash_spec(environment_spec.spec.encode("UTF-8"))
@@ -438,7 +442,7 @@ def _get_path_and_hash(
                 )
 
             path_to_spec = os.path.join(interpreter_spec_path, spec_filename)
-            with open(path_to_spec, "w") as env_spec:
+            with open(path_to_spec, "w", encoding="utf-8") as env_spec:
                 env_spec.write(environment_spec.spec)
 
         return path_to_spec, spec_hash

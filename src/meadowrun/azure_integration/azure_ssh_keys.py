@@ -211,5 +211,5 @@ async def download_ssh_key(output_path: str, location: str) -> None:
     if key is None:
         raise ValueError("Azure SSH key secret's value was None")
 
-    with open(output_path, "w") as output_file:
+    with open(output_path, "w", encoding="utf-8") as output_file:
         output_file.write(key)

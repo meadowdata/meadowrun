@@ -391,9 +391,9 @@ async def _get_current_local_interpreter() -> InterpreterDeployment:
     # reason this isn't the case, we'll fall through to the pip-based case, which will
     # mostly work for poetry environments.
     if os.path.isfile("pyproject.toml") and os.path.isfile("poetry.lock"):
-        with open("pyproject.toml") as project_file:
+        with open("pyproject.toml", encoding="utf-8") as project_file:
             project_file_contents = project_file.read()
-        with open("poetry.lock") as lock_file:
+        with open("poetry.lock", encoding="utf-8") as lock_file:
             lock_file_contents = lock_file.read()
         print("Mirroring current poetry environment")
         return EnvironmentSpec(
@@ -462,13 +462,13 @@ class Deployment:
                 InterpreterDeployment, VersionedInterpreterDeployment
             ] = await _get_current_local_interpreter()
         elif isinstance(interpreter, CondaEnvironmentYmlFile):
-            with open(interpreter.path_to_yml_file) as f:
+            with open(interpreter.path_to_yml_file, encoding="utf-8") as f:
                 interpreter_spec = EnvironmentSpec(
                     environment_type=EnvironmentType.CONDA,
                     spec=f.read(),
                 )
         elif isinstance(interpreter, PipRequirementsFile):
-            with open(interpreter.path_to_requirements_file) as f:
+            with open(interpreter.path_to_requirements_file, encoding="utf-8") as f:
                 interpreter_spec = EnvironmentSpec(
                     environment_type=EnvironmentType.PIP,
                     spec=f.read(),
@@ -737,7 +737,7 @@ async def _prepare_code_deployment(
             file_path = file_url.path[1:]
         else:
             file_path = file_url.path
-        bucket_name, object_name = await ensure_upload(file_url.path)
+        bucket_name, object_name = await ensure_upload(file_path)
         code_deploy.url = urllib.parse.urlunparse(
             (scheme_name, bucket_name, object_name, "", "", "")
         )

@@ -104,13 +104,15 @@ async def build_meadowrun_ami():
     print("Launching EC2 instance:")
     region_name = await _get_default_region_name()
     pkey = get_meadowrun_ssh_key(region_name)
-    public_address = await launch_ec2_instance(
-        region_name,
-        "t2.micro",
-        "on_demand",
-        _BASE_AMI,
-        [get_ssh_security_group_id(region_name)],
-        key_name=MEADOWRUN_KEY_PAIR_NAME,
+    public_address = await (
+        await launch_ec2_instance(
+            region_name,
+            "t2.micro",
+            "on_demand",
+            _BASE_AMI,
+            [get_ssh_security_group_id(region_name)],
+            key_name=MEADOWRUN_KEY_PAIR_NAME,
+        )
     )
     print(f"Launched EC2 instance {public_address}")
 

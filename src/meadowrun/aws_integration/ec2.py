@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import threading
-from typing import Sequence, Callable, Optional, Dict, Any, TypeVar
+from typing import Sequence, Optional, Dict, Any, TypeVar, Awaitable
 
 import boto3
-import botocore.exceptions
 
 from meadowrun.aws_integration.aws_core import (
     MeadowrunNotInstalledError,
@@ -126,38 +125,6 @@ def ensure_security_group(group_name: str) -> str:
     return security_group.id
 
 
-async def _retry_iam_instance_profile(func: Callable[[], _T]) -> _T:
-    """
-    There is an issue where when you create a new IAM instance profile then launch an
-    EC2 instance with that profile, launching the EC2 instance will fail for the first
-    few seconds. This function will retry func for "Invalid IAM Instance Profile" errors
-    """
-    attempts = 7
-    seconds_to_wait = 2
-
-    for i in range(attempts):
-        try:
-            return func()
-        except botocore.exceptions.ClientError as e:
-            if "Error" in e.response:
-                error = e.response["Error"]
-                if (
-                    "Code" in error
-                    and error["Code"] == "InvalidParameterValue"
-                    and "Invalid IAM Instance Profile" in error["Message"]
-                ):
-                    if i < attempts - 1:
-                        print(
-                            "Retrying because IAM instance profile is not available yet"
-                        )
-                        await asyncio.sleep(seconds_to_wait)
-                        continue
-
-            raise
-
-    raise ValueError("This should never happen")
-
-
 async def launch_ec2_instance(
     region_name: str,
     instance_type: str,
@@ -168,15 +135,11 @@ async def launch_ec2_instance(
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
-    wait_for_dns_name: bool = True,
-) -> Optional[str]:
+) -> Optional[Awaitable[str]]:
     """
-    Launches the specified EC2 instance. If wait_for_dns_name is True, waits for the
-    instance to get a public dns name assigned, and then returns that. Otherwise returns
-    None.
-
-    One wrinkle is that if you specify tags for a spot instance, we have to wait for it
-    to launch, as there's no way to tag a spot instance before it's running.
+    Launches the specified EC2 instance. Returns None if the instance cannot be launched
+    because of capacity issues. If the instance can be launched, returns a continuation
+    that can be awaited to get the public dns name of the launched instance.
     """
 
     optional_args: Dict[str, Any] = {
@@ -217,50 +180,59 @@ async def launch_ec2_instance(
 
     ec2_resource = boto3.resource("ec2", region_name=region_name)
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
-    instance = (
-        await _retry_iam_instance_profile(
-            lambda: ec2_resource.create_instances(
-                ImageId=ami_id,
-                MinCount=1,
-                MaxCount=1,
-                InstanceType=instance_type,
-                **optional_args,
-            )
-        )
-    )[0]
-
-    if wait_for_dns_name:
-        # boto3 doesn't have any async APIs, which means that in order to run more than
-        # one launch_ec2_instance at the same time, we need to have a thread that waits.
-        # We use an asyncio.Future here to make the API async, so from the user
-        # perspective, it feels like this function is async
-
-        # boto3 should be threadsafe:
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html#multithreading-or-multiprocessing-with-clients
-        instance_running_future: asyncio.Future = asyncio.Future()
-        event_loop = asyncio.get_running_loop()
-
-        def wait_until_running() -> None:
-            try:
-                instance.wait_until_running()
-                event_loop.call_soon_threadsafe(
-                    lambda: instance_running_future.set_result(None)
-                )
-            except Exception as e:
-                exception = e
-                event_loop.call_soon_threadsafe(
-                    lambda: instance_running_future.set_exception(exception)
-                )
-
-        threading.Thread(target=wait_until_running).start()
-        await instance_running_future
-
-        instance.load()
-        if not instance.public_dns_name:
-            raise ValueError("Waited until running, but still no IP address!")
-        return instance.public_dns_name
-    else:
+    success, instances = ignore_boto3_error_code(
+        lambda: ec2_resource.create_instances(
+            ImageId=ami_id,
+            MinCount=1,
+            MaxCount=1,
+            InstanceType=instance_type,
+            **optional_args,
+        ),
+        "InsufficientInstanceCapacity",
+    )
+    if not success:
+        # None means there's not enough capacity
         return None
+
+    assert instances is not None  # just for mypy
+    return _launch_instance_continuation(instances[0])
+
+
+async def _launch_instance_continuation(instance: Any) -> str:
+    """
+    instance should be a boto3 EC2 instance, waits for the instance to be running and
+    then returns its public DNS name
+    """
+
+    # boto3 doesn't have any async APIs, which means that in order to run more than one
+    # launch_ec2_instance at the same time, we need to have a thread that waits. We use
+    # an asyncio.Future here to make the API async, so from the user perspective, it
+    # feels like this function is async
+
+    # boto3 should be threadsafe:
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html#multithreading-or-multiprocessing-with-clients
+    instance_running_future: asyncio.Future = asyncio.Future()
+    event_loop = asyncio.get_running_loop()
+
+    def wait_until_running() -> None:
+        try:
+            instance.wait_until_running()
+            event_loop.call_soon_threadsafe(
+                lambda: instance_running_future.set_result(None)
+            )
+        except Exception as e:
+            exception = e
+            event_loop.call_soon_threadsafe(
+                lambda: instance_running_future.set_exception(exception)
+            )
+
+    threading.Thread(target=wait_until_running).start()
+    await instance_running_future
+
+    instance.load()
+    if not instance.public_dns_name:
+        raise ValueError("Waited until running, but still no IP address!")
+    return instance.public_dns_name
 
 
 async def launch_ec2_instances(
@@ -288,26 +260,35 @@ async def launch_ec2_instances(
     if region_name is None:
         region_name = await _get_default_region_name()
 
-    chosen_instance_types = choose_instance_types_for_job(
-        Resources(memory_gb_required_per_job, logical_cpu_required_per_job, {}),
-        num_jobs,
-        interruption_probability_threshold,
-        await _get_ec2_instance_types(region_name),
-    )
-    if len(chosen_instance_types) < 1:
-        raise ValueError(
-            f"There were no instance types that could be selected for "
-            f"memory={memory_gb_required_per_job}, cpu={logical_cpu_required_per_job}"
-        )
+    instance_types = await _get_ec2_instance_types(region_name)
 
+    num_jobs_left_to_allocate = num_jobs
     public_dns_name_tasks = []
-    chosen_instance_types_repeated = []
+    launched_instance_types_repeated = []
+    unusable_instance_types = set()
 
-    for instance_type in chosen_instance_types:
-        for _ in range(instance_type.num_instances):
-            # should really launch these with a single API call
-            public_dns_name_tasks.append(
-                launch_ec2_instance(
+    while num_jobs_left_to_allocate > 0:
+        chosen_instance_types = choose_instance_types_for_job(
+            Resources(memory_gb_required_per_job, logical_cpu_required_per_job, {}),
+            num_jobs_left_to_allocate,
+            interruption_probability_threshold,
+            [
+                i
+                for i in instance_types
+                if (i.name, i.on_demand_or_spot) not in unusable_instance_types
+            ],
+        )
+        if len(chosen_instance_types) < 1:
+            raise ValueError(
+                "There were no instance types that could be selected for "
+                f"memory={memory_gb_required_per_job}, "
+                f"cpu={logical_cpu_required_per_job}"
+            )
+
+        num_jobs_left_to_allocate = 0
+        for instance_type in chosen_instance_types:
+            for _ in range(instance_type.num_instances):
+                launch_ec2_continuation = await launch_ec2_instance(
                     region_name,
                     instance_type.instance_type.name,
                     instance_type.instance_type.on_demand_or_spot,
@@ -317,17 +298,33 @@ async def launch_ec2_instances(
                     user_data=user_data,
                     key_name=key_name,
                     tags=tags,
-                    wait_for_dns_name=True,
                 )
-            )
-            chosen_instance_types_repeated.append(instance_type)
+                if launch_ec2_continuation is None:
+                    print(
+                        "Warning, no capacity to allocate "
+                        f"{instance_type.instance_type.name}/"
+                        f"{instance_type.instance_type.on_demand_or_spot}"
+                    )
+                    # TODO this isn't exactly right, we can end up over-allocating
+                    # because we might choose a larger instance than we "actually"
+                    # needed, but this shouldn't be a huge factor
+                    num_jobs_left_to_allocate += instance_type.workers_per_instance_full
+                    unusable_instance_types.add(
+                        (
+                            instance_type.instance_type.name,
+                            instance_type.instance_type.on_demand_or_spot,
+                        )
+                    )
+                else:
+                    public_dns_name_tasks.append(launch_ec2_continuation)
+                    launched_instance_types_repeated.append(instance_type)
 
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)
 
     return [
         CloudInstance(public_dns_name, "", instance_type)
         for public_dns_name, instance_type in zip(
-            public_dns_names, chosen_instance_types_repeated
+            public_dns_names, launched_instance_types_repeated
         )
     ]
 

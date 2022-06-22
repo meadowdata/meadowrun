@@ -69,6 +69,18 @@ _ACCESS_SECRET_POLICY = """{
     ]
 }"""
 
+# A policy for granting access to a bucket
+_ACCESS_S3_BUCKET_POLICY = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "s3:*Object",
+            "Resource": "arn:aws:s3:::$BUCKET_NAME/*"
+        }
+    ]
+}"""
+
 # A policy template that generally grants permissions needed to use Meadowrun
 _MEADOWRUN_POLICY_TEMPLATE = """{
     "Version": "2012-10-17",
@@ -464,4 +476,13 @@ def grant_permission_to_secret(secret_name: str, region_name: str) -> None:
         RoleName=_EC2_ROLE_NAME,
         PolicyName=f"AccessSecret_{secret_name}",
         PolicyDocument=_ACCESS_SECRET_POLICY.replace("$SECRET_ARN", secret_arn),
+    )
+
+
+def grant_permission_to_s3_bucket(bucket_name: str, region_name: str) -> None:
+    iam_client = boto3.client("iam", region_name=region_name)
+    iam_client.put_role_policy(
+        RoleName=_EC2_ROLE_NAME,
+        PolicyName=f"AccessS3Bucket_{bucket_name}",
+        PolicyDocument=_ACCESS_S3_BUCKET_POLICY.replace("$BUCKET_NAME", bucket_name),
     )

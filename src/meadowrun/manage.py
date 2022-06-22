@@ -10,6 +10,7 @@ import meadowrun.aws_integration.aws_install_uninstall as aws
 import meadowrun.azure_integration.azure_install_uninstall as azure
 
 from meadowrun.aws_integration.aws_permissions_install import (
+    grant_permission_to_s3_bucket,
     grant_permission_to_secret,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import (
@@ -34,6 +35,7 @@ from meadowrun.azure_integration.azure_ssh_keys import (
     _ensure_meadowrun_vault,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
+    MEADOWRUN_RESOURCE_GROUP_NAME,
     MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
     MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,
     MEADOWRUN_SUBSCRIPTION_ID,
@@ -124,6 +126,14 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         )
         grant_permission_to_secret_parser.add_argument(
             "secret_name", help=f"The name of the {secret} to give permissions to"
+        )
+
+        grant_permission_to_s3_bucket_parser = subparsers.add_parser(
+            "grant-permission-to-s3-bucket",
+            help=f"Gives the meadowrun {role} access to the specified S3 bucket",
+        )
+        grant_permission_to_s3_bucket_parser.add_argument(
+            "bucket_name", help="The name of the bucket to give permissions to"
         )
 
     get_ssh_key_parser = subparsers.add_parser(
@@ -245,6 +255,19 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
                 "Azure. The meadowrun managed identity already has permissions to all "
                 "secrets in the meadowrun-created Vault: "
                 f"{await _ensure_meadowrun_vault(get_default_location())}"
+            )
+        else:
+            raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
+        print(f"Granted access in {time.perf_counter() - t0:.2f} seconds")
+    elif args.command == "grant-permission-to-s3-bucket":
+        print(f"Granting access to the meadowrun {role} to access {args.bucket_name}")
+        if cloud_provider == "EC2":
+            grant_permission_to_s3_bucket(args.bucket_name, region_name)
+        elif cloud_provider == "AzureVM":
+            raise NotImplementedError(
+                "Granting permission to S3 buckets is not implemented for Azure. The "
+                "meadowrun managed identity already has permissions to all storage "
+                f"accounts in the {MEADOWRUN_RESOURCE_GROUP_NAME} resource group"
             )
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")

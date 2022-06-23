@@ -58,10 +58,10 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 testpaths = "tests"
-log_level = "DEBUG"
+log_level = "INFO"
 log_cli = true
-log_cli_level = "DEBUG"
-addopts = "-vvv --strict-markers"
+log_cli_level = "INFO"
+addopts = "-v --strict-markers --durations=10"
 asyncio_mode="auto"
 
 [tool.mypy]

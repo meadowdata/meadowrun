@@ -145,7 +145,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         "--output",
         help="The path to write the SSH key to. If it is not provided, the default is "
         "~/.ssh/meadowrun_id_rsa. This can be used with e.g. `ssh -i "
-        "~/.ssh/meadowrun_id_rsa ubuntu@<ec2-address>`",
+        "~/.ssh/meadowrun_id_rsa <username>@<public-address>`",
     )
 
     args = parser.parse_args()

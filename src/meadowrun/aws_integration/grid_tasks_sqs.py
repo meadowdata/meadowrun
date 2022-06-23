@@ -24,6 +24,7 @@ import aiobotocore.session
 import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.config import SSH_USER
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
@@ -443,6 +444,6 @@ async def prepare_ec2_run_map(
         functools.partial(
             worker_loop, function, request_queue, result_queue, region_name
         ),
-        {"user": "ubuntu", "connect_kwargs": {"pkey": pkey}},
+        {"user": SSH_USER, "connect_kwargs": {"pkey": pkey}},
         get_results(result_queue, region_name, len(tasks)),
     )

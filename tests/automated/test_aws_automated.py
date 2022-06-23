@@ -17,6 +17,7 @@ import fabric
 import pytest
 
 import meadowrun.aws_integration.aws_install_uninstall
+from meadowrun.aws_integration.config import SSH_USER
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
 from basics import BasicsSuite, HostProvider, ErrorsSuite, MapSuite
 from instance_registrar_suite import (
@@ -56,7 +57,7 @@ class AwsHostProvider(HostProvider):
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         with fabric.Connection(
             job_completion.public_address,
-            user="ubuntu",
+            user=SSH_USER,
             connect_kwargs={"pkey": get_meadowrun_ssh_key(REGION)},
         ) as conn:
             with io.BytesIO() as local_copy:

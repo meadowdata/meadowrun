@@ -1,0 +1,1 @@
+SSH_USER = "ubuntu"

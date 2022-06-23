@@ -33,9 +33,7 @@ async def upload_and_configure_meadowrun(
 
     # set deallocate_jobs to run from crontab
     crontab_line = (
-        "* * * * * /var/meadowrun/env/bin/python "
-        "/var/meadowrun/env/lib/python3.9/site-packages/meadowrun"
-        "/deallocate_jobs.py "
+        "* * * * * /var/meadowrun/env/bin/python -m meadowrun.deallocate_jobs "
         "--cloud EC2 --cloud-region-name default "
         ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
     )

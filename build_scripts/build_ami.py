@@ -182,7 +182,9 @@ async def build_meadowrun_ami():
         user=SSH_USER,
         connect_kwargs={"pkey": pkey},
     ) as connection:
-        await upload_and_configure_meadowrun(connection, version, package_root_dir)
+        await upload_and_configure_meadowrun(
+            connection, version, package_root_dir, pre_command="sudo swupd update"
+        )
 
     # get the instance id of our EC2 instance
     instances = client.describe_instances(

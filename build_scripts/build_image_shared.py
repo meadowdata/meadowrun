@@ -1,6 +1,6 @@
 import os
 import io
-from typing import cast
+from typing import Optional, cast
 
 import fabric
 import paramiko.ssh_exception
@@ -9,7 +9,10 @@ from meadowrun.run_job_core import _retry
 
 
 async def upload_and_configure_meadowrun(
-    connection: fabric.Connection, version: str, package_root_dir: str
+    connection: fabric.Connection,
+    version: str,
+    package_root_dir: str,
+    pre_command: Optional[str] = None,
 ) -> None:
     # retry with a no-op until we've established a connection
     await _retry(
@@ -19,6 +22,9 @@ async def upload_and_configure_meadowrun(
             cast(Exception, TimeoutError),
         ),
     )
+
+    if pre_command:
+        connection.run(pre_command)
 
     # install the meadowrun package
     connection.put(

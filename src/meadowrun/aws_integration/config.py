@@ -1,1 +1,1 @@
-SSH_USER = "ubuntu"
+SSH_USER = "clear"

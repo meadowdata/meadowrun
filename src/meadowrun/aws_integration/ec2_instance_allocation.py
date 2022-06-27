@@ -9,7 +9,6 @@ from typing_extensions import Literal
 import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.config import SSH_USER
 from meadowrun.aws_integration.ec2 import (
     authorize_current_ip_helper,
     get_ssh_security_group_id,
@@ -58,6 +57,7 @@ _EC2_ALLOC_AMIS = {
     "eu-west-3": "ami-0f8a2de09fa92ae08",
     "eu-north-1": "ami-024bb642686e9e0ca",
 }
+SSH_USER = "clear"
 
 
 def ensure_ec2_alloc_table(region_name: str) -> None:

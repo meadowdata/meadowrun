@@ -17,7 +17,6 @@ import fabric
 import pytest
 
 import meadowrun.aws_integration.aws_install_uninstall
-from meadowrun.aws_integration.config import SSH_USER
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
 from basics import BasicsSuite, HostProvider, ErrorsSuite, MapSuite
 from instance_registrar_suite import (
@@ -26,7 +25,10 @@ from instance_registrar_suite import (
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
 )
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
+from meadowrun.aws_integration.ec2_instance_allocation import (
+    EC2InstanceRegistrar,
+    SSH_USER,
+)
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.grid_tasks_sqs import (

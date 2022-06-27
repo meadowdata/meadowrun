@@ -116,7 +116,7 @@ import fabric
 
 from build_image_shared import upload_and_configure_meadowrun
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.config import SSH_USER
+from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER
 from meadowrun.aws_integration.ec2 import (
     authorize_current_ip_helper,
     get_ssh_security_group_id,

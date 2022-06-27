@@ -92,6 +92,7 @@ async def _get_ec2_metadata(url_suffix: str) -> Optional[str]:
             f"http://169.254.169.254/latest/meta-data/{url_suffix}",
             timeout=aiohttp.ClientTimeout(total=_EC2_METADATA_ENDPOINT_TIMEOUT_SECS),
         ) as response:
+            response.raise_for_status()
             return await response.text()
     except Exception:
         # the AWS metadata endpoint is not available, probably because we're not on
@@ -155,6 +156,7 @@ async def _get_current_ip_for_ssh() -> str:
 
     # otherwise, we'll use checkip.amazonaws.com to figure out how AWS sees our IP
     async with aiohttp.request("GET", "https://checkip.amazonaws.com/") as response:
+        response.raise_for_status()
         return (await response.text()).strip()
 
 

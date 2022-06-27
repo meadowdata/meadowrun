@@ -285,6 +285,7 @@ async def _get_ec2_interruption_probabilities(region_name: str) -> Dict[str, flo
     async with aiohttp.request(
         "GET", "https://spot-bid-advisor.s3.amazonaws.com/spot-advisor-data.json"
     ) as response:
+        response.raise_for_status()
         data = await response.json()
 
     # The data we get isn't documented, but appears straightforward and can be checked

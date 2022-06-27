@@ -4,15 +4,14 @@ import datetime
 import os.path
 import time
 
-from meadowrun.aws_integration.aws_core import _get_default_region_name
-
 import meadowrun.aws_integration.aws_install_uninstall as aws
 import meadowrun.azure_integration.azure_install_uninstall as azure
-
+from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_permissions_install import (
     grant_permission_to_s3_bucket,
     grant_permission_to_secret,
 )
+from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER
 from meadowrun.aws_integration.ec2_ssh_keys import (
     download_ssh_key as ec2_download_ssh_key,
 )
@@ -29,11 +28,11 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
     get_subscription_id,
 )
-
 from meadowrun.azure_integration.azure_ssh_keys import (
     download_ssh_key as azure_download_ssh_key,
     _ensure_meadowrun_vault,
 )
+from meadowrun.azure_integration.azure_vms import _MEADOWRUN_USERNAME
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_RESOURCE_GROUP_NAME,
     MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
@@ -80,12 +79,16 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         role = "EC2 role"
         secret = "AWS secret"
         vm_instances = "EC2 instances"
+        ssh_user = SSH_USER
+        vm_instance_address = "<ec2-instance-public-address>"
     elif cloud_provider == "AzureVM":
         functions = "Azure Functions"
         cloud_name = "Azure"
         role = "managed identity"
         secret = "Azure secret"
         vm_instances = "Azure VMs"
+        ssh_user = _MEADOWRUN_USERNAME
+        vm_instance_address = "<azure-vm-public-ip>"
     else:
         raise ValueError(f"Unexpected value for cloud_provider {cloud_provider}")
 
@@ -145,7 +148,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         "--output",
         help="The path to write the SSH key to. If it is not provided, the default is "
         "~/.ssh/meadowrun_id_rsa. This can be used with e.g. `ssh -i "
-        "~/.ssh/meadowrun_id_rsa <username>@<public-address>`",
+        f"~/.ssh/meadowrun_id_rsa {ssh_user}@{vm_instance_address}`",
     )
 
     args = parser.parse_args()

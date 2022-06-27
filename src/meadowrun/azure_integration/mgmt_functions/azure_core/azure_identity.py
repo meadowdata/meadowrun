@@ -381,4 +381,5 @@ async def get_current_user_id() -> str:
             "Authorization": f"Bearer {token}",
         },
     ) as response:
+        response.raise_for_status()
         return (await response.json())["id"]

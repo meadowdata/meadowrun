@@ -71,6 +71,7 @@ async def get_acr_token(
         data=urllib.parse.urlencode(content_exchange),
         headers=headers,
     ) as response:
+        response.raise_for_status()
         refresh_token = (await response.json())["refresh_token"]
 
     if token_type == "refresh":

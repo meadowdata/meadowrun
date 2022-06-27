@@ -84,6 +84,7 @@ async def _get_vm_prices(
     )
 
     async with aiohttp.request("GET", _initial_prices_url) as response:
+        response.raise_for_status()
         response_json = await response.json()
         _add_new_price_records(all_prices, response_json["Items"])
         next_page_link = response_json.get("NextPageLink")
@@ -94,6 +95,7 @@ async def _get_vm_prices(
             print(f"Getting page {i} of Azure VM prices")
         i += 1
         async with aiohttp.request("GET", next_page_link) as response:
+            response.raise_for_status()
             response_json = await response.json()
             _add_new_price_records(all_prices, response_json["Items"])
             next_page_link = response_json.get("NextPageLink")

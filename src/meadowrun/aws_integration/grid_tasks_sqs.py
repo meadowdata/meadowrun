@@ -24,8 +24,10 @@ import aiobotocore.session
 import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.config import SSH_USER
-from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
+from meadowrun.aws_integration.ec2_instance_allocation import (
+    EC2InstanceRegistrar,
+    SSH_USER,
+)
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,

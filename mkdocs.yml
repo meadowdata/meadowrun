@@ -1,5 +1,6 @@
 site_name: Meadowrun
 repo_url: https://github.com/meadowdata/meadowrun
+edit_uri: edit/main/docs/
 theme:
   name: material
   font:

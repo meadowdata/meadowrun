@@ -37,6 +37,13 @@ async def upload_and_configure_meadowrun(
     )
     connection.run(f"rm /var/meadowrun/meadowrun-{version}-py3-none-any.whl")
 
+    # compile the meadowrun env to pyc - this reduces initial startup time
+    connection.run(
+        "/var/meadowrun/env/bin/python -m compileall /var/meadowrun/env/lib",
+        # returns non-zero if syntax errors are found, but compiles most files anyway
+        warn=True,
+    )
+
     # set deallocate_jobs to run from crontab
     crontab_line = (
         "* * * * * /var/meadowrun/env/bin/python -m meadowrun.deallocate_jobs "

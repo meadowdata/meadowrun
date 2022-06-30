@@ -46,7 +46,7 @@ def _interpret_eviction_rate(rate: str) -> Optional[float]:
 
 
 def _parse_json_for_eviction_rates(location: str) -> Iterable[Tuple[str, str]]:
-    with open(f"{location}-eviction.json", "r") as f:
+    with open(f"{location}-eviction.json", "r", encoding="utf-8") as f:
         responses = json.load(f)
 
     result = {}
@@ -86,7 +86,7 @@ async def create_prices_eviction_json(location: str) -> None:
                 f"Unexpected value for on_demand_or_spot {on_demand_or_spot}"
             )
 
-    with open(f"{location}-prices-eviction.json", "w") as f:
+    with open(f"{location}-prices-eviction.json", "w", encoding="utf-8") as f:
         json.dump(result, f)
 
     # TODO upload to Azure blob, currently done manually

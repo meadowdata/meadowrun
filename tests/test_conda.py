@@ -139,10 +139,3 @@ async def test_conda_env_export_not_activated(mocker: MockerFixture):
     mocker.patch.dict(os.environ, {}, clear=True)
     assert await conda.try_get_current_conda_env() is None
     _run_conda.assert_not_called()
-
-
-def test_it():
-    import sys
-
-    path = sys.path, sys.prefix, sys.exec_prefix, sys.base_prefix, sys.base_exec_prefix
-    print(path)

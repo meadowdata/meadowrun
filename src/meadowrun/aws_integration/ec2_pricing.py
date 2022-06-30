@@ -11,21 +11,34 @@ from pkg_resources import resource_filename
 
 from meadowrun.aws_integration.aws_core import _boto3_paginate
 from meadowrun.instance_selection import CloudInstanceType
+from meadowrun.local_cache import get_cached_json, save_json_to_cache
+
+
+_CACHED_EC2_PRICES_FILENAME = "aws_ec2_prices.json"
 
 
 async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
     """
-    Gets a dataframe describing EC2 instance types and their prices in the format
-    expected by agent_creator:choose_instance_types_for_job
+    Gets a list of EC2 instance types and their prices in the format expected by
+    agent_creator:choose_instance_types_for_job
     """
 
     # TODO at some point add cross-region optimization
+
+    cached = get_cached_json(_CACHED_EC2_PRICES_FILENAME, datetime.timedelta(hours=4))
+    if cached:
+        return [CloudInstanceType.from_dict(cit) for cit in cached]
 
     result = list(_get_ec2_on_demand_prices(region_name))
     on_demand_instance_types = {
         instance_type.name: instance_type for instance_type in result
     }
     result.extend(await _get_ec2_spot_prices(region_name, on_demand_instance_types))
+
+    save_json_to_cache(
+        _CACHED_EC2_PRICES_FILENAME, [dataclasses.asdict(cit) for cit in result]
+    )
+
     return result
 
 

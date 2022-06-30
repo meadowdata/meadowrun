@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List
 from typing_extensions import Literal
 
 ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
@@ -117,6 +117,17 @@ class CloudInstanceType:
     # range from 0 to 100.
     interruption_probability: float
     on_demand_or_spot: OnDemandOrSpotType
+
+    @classmethod
+    def from_dict(cls, cit: Dict[str, Any]) -> CloudInstanceType:
+        return cls(
+            cit["name"],
+            float(cit["memory_gb"]),
+            int(cit["logical_cpu"]),
+            float(cit["price"]),
+            float(cit["interruption_probability"]),
+            cit["on_demand_or_spot"],
+        )
 
 
 @dataclasses.dataclass

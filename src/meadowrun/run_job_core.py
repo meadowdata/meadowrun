@@ -16,13 +16,13 @@ from typing import (
     Dict,
     Generic,
     List,
-    Literal,
     Optional,
     Tuple,
     TypeVar,
     Union,
     Type,
 )
+from typing_extensions import Literal
 
 import fabric
 import paramiko.ssh_exception

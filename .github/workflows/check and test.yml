@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.9"]
+        python-version: ["3.7", "3.8", "3.9", "3.10"]
       fail-fast: false # do not cancel all runs in the matrix if one fails.
     defaults:
       run:
@@ -53,3 +53,9 @@ jobs:
     - name: Checkout test repo/test_branch
       run: |
         git -C ../test_repo checkout test_branch
+    - name: Run Pytest
+      env:
+        PYTHONDEVMODE: 1 # see https://docs.python.org/3/library/devmode.html#devmode
+        GRPC_VERBOSITY: debug
+      run: |
+        poetry run pytest tests/test_conda.py tests/test_local_code.py

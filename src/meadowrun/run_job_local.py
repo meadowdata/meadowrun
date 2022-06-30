@@ -250,7 +250,7 @@ def _prepare_py_function(
         )
         io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}"
         for io_file in io_files:
-            open(os.path.join(io_folder, io_file), "w").close()
+            open(os.path.join(io_folder, io_file), "w", encoding="utf-8").close()
 
     command_line = [
         "python",

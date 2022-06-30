@@ -8,11 +8,11 @@ from typing import (
     Coroutine,
     Dict,
     Iterable,
-    Literal,
     Optional,
     Tuple,
     cast,
 )
+from typing_extensions import Literal
 
 import aiohttp
 import requests

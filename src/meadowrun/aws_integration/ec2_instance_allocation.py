@@ -3,7 +3,8 @@ from __future__ import annotations
 import datetime
 import decimal
 from types import TracebackType
-from typing import List, Tuple, Any, Dict, Sequence, Optional, Literal, Type
+from typing import List, Tuple, Any, Dict, Sequence, Optional, Type
+from typing_extensions import Literal
 
 import boto3
 

@@ -4,7 +4,8 @@ import dataclasses
 import datetime
 import json
 from types import TracebackType
-from typing import Tuple, List, Optional, Sequence, Literal, Type, Any, Dict
+from typing import Tuple, List, Optional, Sequence, Type, Any, Dict
+from typing_extensions import Literal
 
 import meadowrun.azure_integration.azure_vms
 from meadowrun.azure_integration.azure_meadowrun_core import (

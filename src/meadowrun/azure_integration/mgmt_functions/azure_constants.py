@@ -5,7 +5,7 @@ mgmt_functions.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing_extensions import Literal
 
 # this should almost never be used directly instead of ensure_meadowrun_resource_group.
 MEADOWRUN_RESOURCE_GROUP_NAME = "Meadowrun-rg"

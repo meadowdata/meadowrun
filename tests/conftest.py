@@ -4,7 +4,7 @@ import sys
 import pytest
 
 # See comment in meadowrun/__init__.py
-if sys.version_info < (3, 8):
+if sys.platform == "win32" and sys.version_info < (3, 8):
 
     @pytest.fixture
     def event_loop():

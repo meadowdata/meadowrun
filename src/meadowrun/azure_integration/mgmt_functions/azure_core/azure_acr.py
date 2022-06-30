@@ -1,5 +1,6 @@
 import urllib.parse
-from typing import Literal, Optional, Tuple, List, Any
+from typing import Optional, Tuple, List, Any
+from typing_extensions import Literal
 
 import aiohttp
 

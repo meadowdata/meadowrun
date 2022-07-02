@@ -127,8 +127,8 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     get_meadowrun_ssh_key,
 )
 
-_BASE_AMI = "ami-022142958961ee96e"
-_NEW_AMI_NAME = "meadowrun-ec2alloc-{}-clear-36520-docker-20.10.11-python-3.10.5"
+_BASE_AMI = "ami-01344892e448f48c2"
+_NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
 
 
 async def build_meadowrun_ami():
@@ -182,9 +182,7 @@ async def build_meadowrun_ami():
         user=SSH_USER,
         connect_kwargs={"pkey": pkey},
     ) as connection:
-        await upload_and_configure_meadowrun(
-            connection, version, package_root_dir, pre_command="sudo swupd update"
-        )
+        await upload_and_configure_meadowrun(connection, version, package_root_dir)
 
     # get the instance id of our EC2 instance
     instances = client.describe_instances(

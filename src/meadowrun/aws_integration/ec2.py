@@ -16,6 +16,7 @@ from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
+from meadowrun.aws_integration.quotas import SpotQuotaException
 from meadowrun.instance_selection import (
     CloudInstance,
     OnDemandOrSpotType,
@@ -180,7 +181,7 @@ async def launch_ec2_instance(
 
     ec2_resource = boto3.resource("ec2", region_name=region_name)
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
-    success, instances = ignore_boto3_error_code(
+    success, instances, error_code = ignore_boto3_error_code(
         lambda: ec2_resource.create_instances(
             ImageId=ami_id,
             MinCount=1,
@@ -188,11 +189,17 @@ async def launch_ec2_instance(
             InstanceType=instance_type,
             **optional_args,
         ),
-        "InsufficientInstanceCapacity",
+        {"InsufficientInstanceCapacity", "MaxSpotInstanceCountExceeded"},
+        True,
     )
     if not success:
-        # None means there's not enough capacity
-        return None
+        if error_code == "InsufficientInstanceCapacity":
+            # returning None means there's not enough capacity
+            return None
+        elif error_code == "MaxSpotInstanceCountExceeded":
+            raise SpotQuotaException(instance_type, region_name)
+        else:
+            raise ValueError(f"Unexpected boto3 error code {error_code}")
 
     assert instances is not None  # just for mypy
     return _launch_instance_continuation(instances[0])

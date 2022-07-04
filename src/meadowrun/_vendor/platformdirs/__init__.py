@@ -1,6 +1,6 @@
 """
-Utilities for determining application-specific dirs. See <https://github.com/platformdirs/platformdirs> for details and
-usage.
+Utilities for determining application-specific dirs. See
+<https://github.com/platformdirs/platformdirs> for details and usage.
 """
 from __future__ import annotations
 
@@ -18,21 +18,21 @@ from .version import __version__, __version_info__
 
 def _set_platform_dir_class() -> type[PlatformDirsABC]:
     if sys.platform == "win32":
-        from platformdirs.windows import Windows as Result
+        from .windows import Windows as Result
     elif sys.platform == "darwin":
-        from platformdirs.macos import MacOS as Result
+        from .macos import MacOS as Result
     else:
-        from platformdirs.unix import Unix as Result
+        from .unix import Unix as Result
 
     if os.getenv("ANDROID_DATA") == "/data" and os.getenv("ANDROID_ROOT") == "/system":
 
         if os.getenv("SHELL") is not None:
             return Result
 
-        from platformdirs.android import _android_folder
+        from .android import _android_folder
 
         if _android_folder() is not None:
-            from platformdirs.android import Android
+            from .android import Android
 
             return Android  # return to avoid redefinition of result
 

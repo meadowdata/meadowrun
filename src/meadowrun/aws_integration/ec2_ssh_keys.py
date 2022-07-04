@@ -22,35 +22,33 @@ def ensure_meadowrun_key_pair(region_name: str) -> None:
     ec2_client = boto3.client("ec2", region_name=region_name)
     secrets_client = boto3.client("secretsmanager", region_name=region_name)
 
-    private_key_text = None
-
     # first figure out the state of the secret, and if it has been deleted, restore it
 
-    success1, inner_result = ignore_boto3_error_code(
-        lambda: ignore_boto3_error_code(
-            lambda: secrets_client.get_secret_value(
-                SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME
-            ),
-            "ResourceNotFoundException",
+    success, secret_value_result, error_code = ignore_boto3_error_code(
+        lambda: secrets_client.get_secret_value(
+            SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME
         ),
-        "InvalidRequestException",
+        {
+            "ResourceNotFoundException",
+            "InvalidRequestException",
+        },
+        True,
     )
 
-    if not success1:
-        # this means we got an InvalidRequestException, which we assume means the secret
-        # is marked for deletion, so we need to restore it then overwrite it
+    if success:
+        secret_state = "exists"
+    elif error_code == "InvalidRequestException":
+        # this means the secret is marked for deletion, so we need to restore it then
+        # overwrite it
         secrets_client.restore_secret(SecretId=_MEADOWRUN_KEY_PAIR_SECRET_NAME)
         secret_state = "restored"
+    elif error_code == "ResourceNotFoundException":
+        # this means the secret doesn't exist
+        secret_state = "does not exist"
     else:
-        assert inner_result is not None  # just for mypy
-        success2, secret_value_result = inner_result
-        if not success2:
-            # this means the secret doesn't exist
-            secret_state = "does not exist"
-        else:
-            secret_state = "exists"
-            assert secret_value_result is not None  # just for mypy
-            private_key_text = secret_value_result["SecretString"]
+        raise ValueError(
+            f"success was not True, but error_code was an unexpected value {error_code}"
+        )
 
     # next figure out the state of the key pair
 

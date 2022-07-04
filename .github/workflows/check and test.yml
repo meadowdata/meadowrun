@@ -58,4 +58,4 @@ jobs:
         PYTHONDEVMODE: 1 # see https://docs.python.org/3/library/devmode.html#devmode
         GRPC_VERBOSITY: debug
       run: |
-        poetry run pytest tests/test_conda.py tests/test_local_code.py
+        poetry run pytest tests/test_conda.py tests/test_local_code.py tests/test_local_cache.py

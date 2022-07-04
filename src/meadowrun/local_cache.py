@@ -1,9 +1,9 @@
 from datetime import timedelta
 import json
 import os
-from time import monotonic
+import time
 from typing import Any, Optional
-from platformdirs import PlatformDirs
+from meadowrun._vendor.platformdirs import PlatformDirs
 
 
 MEADOWRUN_DIRS = PlatformDirs(appname="meadowrun", appauthor=False)
@@ -23,7 +23,7 @@ def get_cached_json(name: str, freshness: timedelta) -> Optional[Any]:
     file = os.path.join(MEADOWRUN_DIRS.user_cache_dir, name)
     if (
         not os.path.exists(file)
-        or os.path.getmtime(file) + freshness.total_seconds() < monotonic()
+        or os.path.getmtime(file) + freshness.total_seconds() < time.time()
     ):
         return None
 

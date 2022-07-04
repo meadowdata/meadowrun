@@ -15,52 +15,21 @@ Clear Linux
 -----------
 Clear Linux has the fastest boot times, see https://www.daemonology.net/blog/2021-08-12-EC2-boot-time-benchmarking.html)
 
-New option: use Clear Linux - Launch an EC2 instance using the Clear Linux AMI
-(https://clearlinux.org/download). Use a 4Gb EBS volume.
+To create a new base image, launch an EC2 instance with 2Gb of storage using the Clear Linux AMI ami-04ce26dd385676bc2 in us-east-2.
 
-- ssh into the instance: `ssh -i key_pair.pem clear@public-dns-of-instance`
-- Run `sudo swupd update`
-- Disable automatic updates (otherwise swupd will automatically update at at startup, using resources): sudo swupd autoupdate --disable
-- Enable SFTP: https://docs.01.org/clearlinux/latest/guides/network/openssh-server.html?highlight=ssh#id4
-    ```echo 'subsystem sftp /usr/libexec/sftp-server' | sudo tee -a /etc/ssh/sshd_config```
-- Install cron & allow clear user to use it
-    `sudo swupd bundle-add cronie`
-    `sudo systemctl enable cronie`
-    `echo clear | sudo tee -a /etc/cron.allow`
-- Install Docker: `sudo swupd bundle-add containers-basic`
-- [Add the current user (clear) to the docker group](https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket): `sudo usermod -aG docker ${USER}`
-- Install Python: `sudo swupd bundle-add python-basic`
+(That AMI - the base base ami - was created by following the instructions at
+https://docs.01.org/clearlinux/latest/get-started/cloud-install/import-clr-aws.html and
+with a little help from
+https://stackoverflow.com/questions/69581704/an-error-occurred-invalidparameter-when-calling-the-importimage-operation-the
+There is a Clear Linu AMI on AWS marketplace, but AMIs created via the marketplace can't
+be changed and then made public.)
 
--
-Prepare a virtualenv for meadowrun
-```shell
-sudo mkdir /var/meadowrun 
-sudo chown clear:clear /var/meadowrun
-mkdir /var/meadowrun/env
-python -m venv /var/meadowrun/env
-source /var/meadowrun/env/bin/activate
-python -m pip install --upgrade pip
-pip install wheel  # not sure why this is necessary...
-```
+From a bash shell, run:
+cat build_scripts/clear-linux-prepare-base.sh | ssh -i <key> clear@<public address>
 
-- Get the versions of everything we've installed:
-```shell
-swupd info  # Clear Linux version
-docker --version
-python --version
-```
-Now, since the Clean Linux image is "sold" for 0 dollars on AWS Marketplace, we can't make any AMIs public.
-This is not a problem for Clear Linux, as it's free anyway, but some technical AWS limitation to protect actually
-for-pay marketplace AMIs.
-To work around this, we'll remove the AWS marketplace code: https://www.caseylabs.com/remove-the-aws-marketplace-code-from-a-centos-ami/
-- Create a 4Gb EBS volume in the same availability region as your EC2 instance.
-- Attach the volume to your EC2 instance.
-- Prepare the volume:
-    - `sudo lsblk -f` should show the volumne id. It might be different from what AWS tells you. Assuming in what follows it's /dev/xvdf.
-    - format it: `sudo mkfs -t ext4 /dev/xvdf`
-- Copy the root volume to the new volume - assuming root volume is /dev/xvda: `sudo dd bs=1M if=/dev/xvda of=/dev/xvdf` 
-- Shutdown (do not terminate yet!) the instance.
-- 
+Now, create an AMI from this image, naming it based on the versions that were actually
+installed, e.g. `clear-36520-docker-20.10.11-python-3.10.5`. The srcipt should print these out.
+This AMI won't actually be used for anything other than to build meadowrun AMIs.
 
 
 Ubuntu
@@ -127,8 +96,8 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     get_meadowrun_ssh_key,
 )
 
-_BASE_AMI = "ami-01344892e448f48c2"
-_NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
+_BASE_AMI = "ami-02d4450c98101f83a"
+_NEW_AMI_NAME = "meadowrun-ec2alloc-{}-clear-36600-docker-20.10.11-python-3.10.5"
 
 
 async def build_meadowrun_ami():
@@ -182,7 +151,19 @@ async def build_meadowrun_ami():
         user=SSH_USER,
         connect_kwargs={"pkey": pkey},
     ) as connection:
-        await upload_and_configure_meadowrun(connection, version, package_root_dir)
+        await upload_and_configure_meadowrun(
+            connection,
+            version,
+            package_root_dir,
+            # see comments in clear-linux-prepare-base.sh for explanation of shreds
+            pre_command=(
+                "sudo swupd update; "
+                "sudo shred -u /etc/ssh/*_key /etc/ssh/*_key.pub; "
+                "shred -u ~/.ssh/authorized_keys; "
+                "sudo shred -u /var/lib/cloud/aws-user-data; "
+                "sudo shred -u /etc/machine-id"
+            ),
+        )
 
     # get the instance id of our EC2 instance
     instances = client.describe_instances(

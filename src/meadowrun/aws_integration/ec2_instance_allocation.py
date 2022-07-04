@@ -47,7 +47,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # AMIs that have meadowrun pre-installed. These are all identical, we just need to
 # replicate into each region.
 _EC2_ALLOC_AMIS = {
-    "us-east-2": "ami-03ef5e2fa1ff3e8c7",
+    "us-east-2": "ami-0d7a68274f98aca02",
     "us-east-1": "ami-07eb3f5f0d7528aa2",
     "us-west-1": "ami-018a31e052d1e1a0e",
     "us-west-2": "ami-07d4a3ab5f97408a1",
@@ -57,7 +57,7 @@ _EC2_ALLOC_AMIS = {
     "eu-west-3": "ami-0acc373d53927f8e3",
     "eu-north-1": "ami-09e2ff4f607d2eb4e",
 }
-SSH_USER = "ubuntu"
+SSH_USER = "clear"
 
 
 def ensure_ec2_alloc_table(region_name: str) -> None:

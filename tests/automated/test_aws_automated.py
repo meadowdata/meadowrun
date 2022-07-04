@@ -51,7 +51,7 @@ REGION = "us-east-2"
 
 class AwsHostProvider(HostProvider):
     def get_host(self) -> Host:
-        return AllocCloudInstance(1, 2, 80, "EC2", REGION)
+        return AllocCloudInstance(1, 4, 80, "EC2", REGION)
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"

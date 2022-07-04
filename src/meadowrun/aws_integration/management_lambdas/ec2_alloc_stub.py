@@ -86,7 +86,7 @@ def ignore_boto3_error_code(
         if return_error_code:
             return True, result, None
         else:
-            return True, func()
+            return True, result
     except botocore.exceptions.ClientError as e:
         if "Error" in e.response:
             error = e.response["Error"]

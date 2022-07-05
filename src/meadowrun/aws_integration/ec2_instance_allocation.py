@@ -47,15 +47,15 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # AMIs that have meadowrun pre-installed. These are all identical, we just need to
 # replicate into each region.
 _EC2_ALLOC_AMIS = {
-    "us-east-2": "ami-0e182595fec4be09f",
-    "us-east-1": "ami-07cb0642ba5a955ee",
-    "us-west-1": "ami-0c3cd5aad30277b85",
-    "us-west-2": "ami-0f906ecf5a4f138a6",
-    "eu-central-1": "ami-0eee11df36ae849d8",
-    "eu-west-1": "ami-0e538c08887e45c2c",
-    "eu-west-2": "ami-0fbc9d58ab3e9520e",
-    "eu-west-3": "ami-03d8f9e1a0f754d2a",
-    "eu-north-1": "ami-012bd105670f414bb",
+    "us-east-2": "ami-03ef5e2fa1ff3e8c7",
+    "us-east-1": "ami-07eb3f5f0d7528aa2",
+    "us-west-1": "ami-018a31e052d1e1a0e",
+    "us-west-2": "ami-07d4a3ab5f97408a1",
+    "eu-central-1": "ami-09d497a6c352622e4",
+    "eu-west-1": "ami-00eb14c6e74b73d0c",
+    "eu-west-2": "ami-00bcfdae29cd067d4",
+    "eu-west-3": "ami-0acc373d53927f8e3",
+    "eu-north-1": "ami-09e2ff4f607d2eb4e",
 }
 SSH_USER = "ubuntu"
 

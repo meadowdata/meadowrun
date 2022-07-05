@@ -1847,7 +1847,7 @@ python-versions = "*"
 
 [[package]]
 name = "types-pytz"
-version = "2021.3.8"
+version = "2022.1.1"
 description = "Typing stubs for pytz"
 category = "dev"
 optional = false
@@ -1959,7 +1959,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "46b5f11614299748816a38c92e96281ac12f1b295d8ea7a48cc69fe83295ebf2"
+content-hash = "1d18b46579ada83362c2ec5f46ebd4ca9e8538f110905f399cba277812be5b1b"
 
 [metadata.files]
 aiobotocore = [
@@ -2924,8 +2924,8 @@ types-psutil = [
     {file = "types_psutil-5.9.1-py3-none-any.whl", hash = "sha256:dc628917044747f6803ea1a6bde48599394aeda98ce4b9203e18fc8022e8b881"},
 ]
 types-pytz = [
-    {file = "types-pytz-2021.3.8.tar.gz", hash = "sha256:41253a3a2bf028b6a3f17b58749a692d955af0f74e975de94f6f4d2d3cd01dbd"},
-    {file = "types_pytz-2021.3.8-py3-none-any.whl", hash = "sha256:aef4a917ab28c585d3f474bfce4f4b44b91e95d9d47d4de29dd845e0db8e3910"},
+    {file = "types-pytz-2022.1.1.tar.gz", hash = "sha256:4e7add70886dc2ee6ee7535c8184a26eeb0ac9dbafae9962cb882d74b9f67330"},
+    {file = "types_pytz-2022.1.1-py3-none-any.whl", hash = "sha256:581467742f32f15fff1098698b11fd511057a2a8a7568d33b604083f2b03c24f"},
 ]
 types-requests = [
     {file = "types-requests-2.28.0.tar.gz", hash = "sha256:9863d16dfbb3fa55dcda64fa3b989e76e8859033b26c1e1623e30465cfe294d3"},

@@ -52,8 +52,8 @@ def _parse_json_for_eviction_rates(location: str) -> Iterable[Tuple[str, str]]:
     result = {}
 
     for response in responses["responses"]:
-        if "value" in response["content"]:
-            for record in response["content"]["value"]:
+        if "data" in response["content"]:
+            for record in response["content"]["data"]:
                 if record["skuName"] not in result:
                     eviction_rate_number = _interpret_eviction_rate(
                         record["evictionRate"]
@@ -64,7 +64,7 @@ def _parse_json_for_eviction_rates(location: str) -> Iterable[Tuple[str, str]]:
                             f"how to interpret {record['evictionRate']}"
                         )
                     else:
-                        result[record["skuName"]] = eviction_rate_number
+                        result[record["skuName"].lower()] = eviction_rate_number
                 else:
                     print(f"Warning ignoring duplicate record for {record['skuName']}")
 
@@ -74,23 +74,47 @@ def _parse_json_for_eviction_rates(location: str) -> Iterable[Tuple[str, str]]:
 async def create_prices_eviction_json(location: str) -> None:
     eviction_rates = dict(_parse_json_for_eviction_rates(location))
     result = []
+    num_spot_rates_found = 0
+    total_instance_types = 0
     for (name, on_demand_or_spot), price in (await _get_vm_prices(location)).items():
         if on_demand_or_spot == "on_demand":
-            result.append(((name, on_demand_or_spot), (price, 0)))
+            result.append(((name, on_demand_or_spot), (price[0], 0)))
         elif on_demand_or_spot == "spot":
+            if name.lower() in eviction_rates:
+                num_spot_rates_found += 1
             result.append(
-                ((name, on_demand_or_spot), (price, eviction_rates.get(name)))
+                (
+                    (name, on_demand_or_spot),
+                    (price[0], eviction_rates.get(name.lower())),
+                )
             )
         else:
             raise ValueError(
                 f"Unexpected value for on_demand_or_spot {on_demand_or_spot}"
             )
 
+        total_instance_types += 1
+
     with open(f"{location}-prices-eviction.json", "w", encoding="utf-8") as f:
         json.dump(result, f)
 
-    # TODO upload to Azure blob, currently done manually
+    print(
+        f"Wrote {location}-prices.eviction.json. "
+        f"{num_spot_rates_found}/{total_instance_types} spot rates found"
+    )
+
+    # TODO do this via API
+    print(
+        "Please update the resulting file to Azure: with `az storage blob upload "
+        "--account-name meadowrunprod --container-name azure-pricing --name "
+        f"{location}-prices-eviction.json --file {location}-prices-eviction.json "
+        "--auth-mode login --overwrite --content-type application/json`"
+    )
 
 
 def main() -> None:
     asyncio.run(create_prices_eviction_json("eastus"))
+
+
+if __name__ == "__main__":
+    main()

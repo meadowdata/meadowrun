@@ -4,7 +4,7 @@ import dataclasses
 import decimal
 import math
 import sys
-from typing import Any, Dict, Optional, Tuple, List, Iterable
+from typing import Any, Dict, Optional, Tuple, Iterable
 
 from typing_extensions import Literal
 
@@ -324,8 +324,8 @@ class CloudInstance:
 def choose_instance_types_for_job(
     resources_required: Resources,
     num_workers_to_allocate: int,
-    original_instance_types: List[CloudInstanceType],
-) -> List[ChosenCloudInstanceType]:
+    original_instance_types: Iterable[CloudInstanceType],
+) -> Iterable[ChosenCloudInstanceType]:
     """
     This chooses how many of which instance types we should launch for a job with 1 or
     more tasks where each task requires resources_required so that
@@ -458,8 +458,8 @@ def choose_instance_types_for_job(
             best[i].num_instances += 1
             num_workers_to_allocate -= best[i].workers_per_instance_current
 
-    return [
+    return (
         instance_type
         for instance_type in instance_types
         if instance_type.num_instances > 0
-    ]
+    )

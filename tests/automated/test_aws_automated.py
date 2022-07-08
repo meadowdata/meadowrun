@@ -52,7 +52,7 @@ REGION = "us-east-2"
 
 class AwsHostProvider(HostProvider):
     def get_host(self) -> Host:
-        return AllocCloudInstance(1, 4, 80, "EC2", REGION)
+        return AllocCloudInstance(1, 4, 80, "EC2", region_name=REGION)
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"
@@ -132,8 +132,10 @@ async def test_get_ec2_instance_types():
     # the actual number of instance types will fluctuate based on AWS' whims.
     assert len(instance_types) > 600
 
-    chosen_instance_types = choose_instance_types_for_job(
-        Resources.from_cpu_and_memory(3, 5, 10), 52, instance_types
+    chosen_instance_types = list(
+        choose_instance_types_for_job(
+            Resources.from_cpu_and_memory(3, 5, 10), 52, instance_types
+        )
     )
     total_cpu = sum(
         instance_type.instance_type.resources.consumable[LOGICAL_CPU]
@@ -159,8 +161,10 @@ async def test_get_ec2_instance_types():
     )
     pprint.pprint(chosen_instance_types)
 
-    chosen_instance_types = choose_instance_types_for_job(
-        Resources.from_cpu_and_memory(1000, 24000, 10), 1, instance_types
+    chosen_instance_types = list(
+        choose_instance_types_for_job(
+            Resources.from_cpu_and_memory(1000, 24000, 10), 1, instance_types
+        )
     )
     assert len(chosen_instance_types) == 0
 

@@ -769,13 +769,15 @@ class AllocCloudInstance(Host):
             interruption probability less than 80% can be used. Use `0` to indicate that
             only on-demand instance are acceptable (i.e. do not use spot instances)
         cloud_provider: `EC2` or `AzureVM`
+        gpus_required:
         region_name:
     """
 
-    logical_cpu_required: int
+    logical_cpu_required: float
     memory_gb_required: float
     interruption_probability_threshold: float
     cloud_provider: CloudProviderType
+    gpus_required: Optional[float] = None
     region_name: Optional[str] = None
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
@@ -783,6 +785,7 @@ class AllocCloudInstance(Host):
             self.logical_cpu_required,
             self.memory_gb_required,
             self.interruption_probability_threshold,
+            self.gpus_required,
         )
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
@@ -813,6 +816,7 @@ class AllocCloudInstances:
         interruption_probability_threshold: See
             [AllocCloudInstance][meadowrun.AllocCloudInstance]
         cloud_provider: Either `EC2` or `AzureVM`
+        gpus_required_per_task:
         num_concurrent_tasks: The number of workers to launch. In the context of a
             [run_map][meadowrun.run_map] call, this can be less than or equal to the
             number of args/tasks. Will default to half the total number of tasks if set
@@ -820,10 +824,11 @@ class AllocCloudInstances:
         region_name:
     """
 
-    logical_cpu_required_per_task: int
+    logical_cpu_required_per_task: float
     memory_gb_required_per_task: float
     interruption_probability_threshold: float
     cloud_provider: CloudProviderType
+    gpus_required_per_task: Optional[float] = None
     num_concurrent_tasks: Optional[int] = None
     region_name: Optional[str] = None
 
@@ -1057,6 +1062,7 @@ async def run_map(
         hosts.logical_cpu_required_per_task,
         hosts.memory_gb_required_per_task,
         hosts.interruption_probability_threshold,
+        hosts.gpus_required_per_task,
     )
 
     if hosts.cloud_provider == "EC2":

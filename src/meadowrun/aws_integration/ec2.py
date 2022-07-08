@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import abc
 import asyncio
+import dataclasses
 import ipaddress
 import threading
-from typing import Sequence, Optional, Dict, Any, TypeVar, Awaitable
+from typing import (
+    Any,
+    Awaitable,
+    Dict,
+    Iterable,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+)
 
 import boto3
 
@@ -16,9 +28,13 @@ from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
-from meadowrun.aws_integration.quotas import SpotQuotaException
+from meadowrun.aws_integration.quotas import (
+    get_quota_for_instance_type,
+    instance_family_from_type,
+)
 from meadowrun.instance_selection import (
     CloudInstance,
+    CloudInstanceType,
     OnDemandOrSpotType,
     Resources,
     choose_instance_types_for_job,
@@ -126,6 +142,85 @@ def ensure_security_group(group_name: str) -> str:
     return security_group.id
 
 
+class LaunchEC2InstanceResult(abc.ABC):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class LaunchEC2InstanceSuccess(LaunchEC2InstanceResult):
+    """
+    Indicates that launch_ec2_instance succeeded. public_address_continuation can be
+    awaited to get the public address of the launched instance.
+    """
+
+    public_address_continuation: Awaitable[str]
+
+
+class LaunchEC2InstanceTypeUnavailable(LaunchEC2InstanceResult):
+    """
+    Indicates that launch_ec2_instance failed because the specified instance type is not
+    available.
+    """
+
+    @abc.abstractmethod
+    def get_message(self) -> str:
+        """Explains the failure"""
+        pass
+
+    @abc.abstractmethod
+    def unusable_instance_types(
+        self, all_instance_types: Iterable[CloudInstanceType]
+    ) -> Iterable[Tuple[str, OnDemandOrSpotType]]:
+        """
+        Given all instance types, returns the instance types that are now considered
+        unusable because we encountered this error. E.g. for a quota issue, we should
+        ignore any instance types that are under the same quota that is being hit.
+        """
+        pass
+
+
+@dataclasses.dataclass(frozen=True)
+class LaunchEC2InstanceAwsCapacity(LaunchEC2InstanceTypeUnavailable):
+    """
+    Indicates that an EC2 instance couldn't be launched because of AWS capacity
+    constraints
+    """
+
+    message: str
+    instance_type: str
+    on_demand_or_spot: OnDemandOrSpotType
+
+    def get_message(self) -> str:
+        return self.message
+
+    def unusable_instance_types(
+        self, all_instance_types: Iterable[CloudInstanceType]
+    ) -> Iterable[Tuple[str, OnDemandOrSpotType]]:
+        yield self.instance_type, self.on_demand_or_spot
+
+
+@dataclasses.dataclass(frozen=True)
+class LaunchEC2InstanceQuota(LaunchEC2InstanceTypeUnavailable):
+    """Indicates that an EC2 instance couldn't be launched because a quota was hit"""
+
+    message: str
+    quota_code: str
+    quota_instance_families: Tuple[str, ...]
+
+    def get_message(self) -> str:
+        return self.message
+
+    def unusable_instance_types(
+        self, all_instance_types: Iterable[CloudInstanceType]
+    ) -> Iterable[Tuple[str, OnDemandOrSpotType]]:
+        return (
+            (instance_type.name, instance_type.on_demand_or_spot)
+            for instance_type in all_instance_types
+            if instance_family_from_type(instance_type.name)
+            in self.quota_instance_families
+        )
+
+
 async def launch_ec2_instance(
     region_name: str,
     instance_type: str,
@@ -136,11 +231,10 @@ async def launch_ec2_instance(
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
-) -> Optional[Awaitable[str]]:
+) -> LaunchEC2InstanceResult:
     """
-    Launches the specified EC2 instance. Returns None if the instance cannot be launched
-    because of capacity issues. If the instance can be launched, returns a continuation
-    that can be awaited to get the public dns name of the launched instance.
+    Launches the specified EC2 instance. See derived classes of LaunchEC2InstanceResult
+    for possible return values.
     """
 
     optional_args: Dict[str, Any] = {
@@ -189,20 +283,34 @@ async def launch_ec2_instance(
             InstanceType=instance_type,
             **optional_args,
         ),
-        {"InsufficientInstanceCapacity", "MaxSpotInstanceCountExceeded"},
+        {
+            "InsufficientInstanceCapacity",
+            "MaxSpotInstanceCountExceeded",
+            "VcpuLimitExceeded",
+        },
         True,
     )
     if not success:
         if error_code == "InsufficientInstanceCapacity":
-            # returning None means there's not enough capacity
-            return None
-        elif error_code == "MaxSpotInstanceCountExceeded":
-            raise SpotQuotaException(instance_type, region_name)
+            return LaunchEC2InstanceAwsCapacity(
+                f"AWS does not have enough capacity in region {region_name} to create a"
+                f" {on_demand_or_spot} instance of type {instance_type}",
+                instance_type,
+                on_demand_or_spot,
+            )
+        elif error_code in ("MaxSpotInstanceCountExceeded", "VcpuLimitExceeded"):
+            # I believe these error codes have the same meaning for spot/on-demand
+            # instances
+            return LaunchEC2InstanceQuota(
+                *get_quota_for_instance_type(
+                    instance_type, on_demand_or_spot, region_name
+                )
+            )
         else:
             raise ValueError(f"Unexpected boto3 error code {error_code}")
 
     assert instances is not None  # just for mypy
-    return _launch_instance_continuation(instances[0])
+    return LaunchEC2InstanceSuccess(_launch_instance_continuation(instances[0]))
 
 
 async def _launch_instance_continuation(instance: Any) -> str:
@@ -270,28 +378,35 @@ async def launch_ec2_instances(
     num_jobs_left_to_allocate = num_jobs
     public_dns_name_tasks = []
     launched_instance_types_repeated = []
-    unusable_instance_types = set()
+
+    # As we try to launch instances, we will realize that some of them cannot be
+    # launched due to lack of capacity in AWS or quotas. We'll keep track of what
+    # instance types aren't actually available in this variable
+    unusable_instance_types: Set[Tuple[str, OnDemandOrSpotType]] = set()
 
     while num_jobs_left_to_allocate > 0:
+        if unusable_instance_types:
+            print(
+                "Trying to proceed with less optimal instance types. This can result in"
+                " significantly more expensive instances"
+            )
+
         chosen_instance_types = choose_instance_types_for_job(
             resources_required_per_job,
             num_jobs_left_to_allocate,
-            [
+            (
                 i
                 for i in instance_types
                 if (i.name, i.on_demand_or_spot) not in unusable_instance_types
-            ],
+            ),
         )
-        if len(chosen_instance_types) < 1:
-            raise ValueError(
-                "There were no instance types that could be selected for: "
-                f"{resources_required_per_job}"
-            )
 
+        at_least_one_chosen_instance_type = False
         num_jobs_left_to_allocate = 0
         for instance_type in chosen_instance_types:
+            at_least_one_chosen_instance_type = True
             for _ in range(instance_type.num_instances):
-                launch_ec2_continuation = await launch_ec2_instance(
+                launch_ec2_result = await launch_ec2_instance(
                     region_name,
                     instance_type.instance_type.name,
                     instance_type.instance_type.on_demand_or_spot,
@@ -302,25 +417,32 @@ async def launch_ec2_instances(
                     key_name=key_name,
                     tags=tags,
                 )
-                if launch_ec2_continuation is None:
-                    print(
-                        "Warning, no capacity to allocate "
-                        f"{instance_type.instance_type.name}/"
-                        f"{instance_type.instance_type.on_demand_or_spot}"
+                if isinstance(launch_ec2_result, LaunchEC2InstanceSuccess):
+                    public_dns_name_tasks.append(
+                        launch_ec2_result.public_address_continuation
                     )
+                    launched_instance_types_repeated.append(instance_type)
+                elif isinstance(launch_ec2_result, LaunchEC2InstanceTypeUnavailable):
+                    print(launch_ec2_result.get_message())
+
                     # TODO this isn't exactly right, we can end up over-allocating
                     # because we might choose a larger instance than we "actually"
                     # needed, but this shouldn't be a huge factor
                     num_jobs_left_to_allocate += instance_type.workers_per_instance_full
-                    unusable_instance_types.add(
-                        (
-                            instance_type.instance_type.name,
-                            instance_type.instance_type.on_demand_or_spot,
-                        )
+                    unusable_instance_types.update(
+                        launch_ec2_result.unusable_instance_types(instance_types)
                     )
                 else:
-                    public_dns_name_tasks.append(launch_ec2_continuation)
-                    launched_instance_types_repeated.append(instance_type)
+                    raise ValueError(
+                        "Unexpected type of launch_ec2_result "
+                        f"{type(launch_ec2_result)}"
+                    )
+
+        if not at_least_one_chosen_instance_type:
+            raise ValueError(
+                "There were no instance types that could be selected for: "
+                f"{resources_required_per_job}"
+            )
 
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)
 

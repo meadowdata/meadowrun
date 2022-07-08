@@ -313,11 +313,6 @@ async def launch_vms(
         num_jobs,
         await get_vm_types(location),
     )
-    if len(chosen_instance_types) < 1:
-        raise ValueError(
-            "There were no instance types that could be selected for "
-            f"{resources_required_per_job}"
-        )
 
     vm_detail_tasks = []
     chosen_instance_types_repeated = []
@@ -331,7 +326,9 @@ async def launch_vms(
     # and replace "Community" with "Regular" below
     image_id = f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/{_MEADOWRUN_IMAGE_VERSION}"
 
+    at_least_one_chosen_instance_type = False
     for instance_type in chosen_instance_types:
+        at_least_one_chosen_instance_type = True
         for _ in range(instance_type.num_instances):
             vm_detail_tasks.append(
                 _provision_vm(
@@ -344,6 +341,12 @@ async def launch_vms(
                 )
             )
             chosen_instance_types_repeated.append(instance_type)
+
+    if not at_least_one_chosen_instance_type:
+        raise ValueError(
+            "There were no instance types that could be selected for "
+            f"{resources_required_per_job}"
+        )
 
     vm_details = await asyncio.gather(*vm_detail_tasks)
 

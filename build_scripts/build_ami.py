@@ -115,6 +115,7 @@ import boto3
 from meadowrun.ssh import connect
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
+    LaunchEC2InstanceSuccess,
     authorize_current_ip_helper,
     get_ssh_security_group_id,
     launch_ec2_instance,
@@ -164,16 +165,17 @@ async def build_meadowrun_ami():
     print("Launching EC2 instance:")
     region_name = await _get_default_region_name()
     pkey = get_meadowrun_ssh_key(region_name)
-    public_address = await (
-        await launch_ec2_instance(
-            region_name,
-            "t2.micro",
-            "on_demand",
-            _BASE_AMI,
-            [get_ssh_security_group_id(region_name)],
-            key_name=MEADOWRUN_KEY_PAIR_NAME,
-        )
+    launch_result = await launch_ec2_instance(
+        region_name,
+        "t2.micro",
+        "on_demand",
+        _BASE_AMI,
+        [get_ssh_security_group_id(region_name)],
+        key_name=MEADOWRUN_KEY_PAIR_NAME,
     )
+    if not isinstance(launch_result, LaunchEC2InstanceSuccess):
+        raise ValueError(f"Failed to launch EC2 instance: {launch_result}")
+    public_address = await launch_result.public_address_continuation
     print(f"Launched EC2 instance {public_address}")
 
     await authorize_current_ip_helper(region_name)

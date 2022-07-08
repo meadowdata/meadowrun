@@ -31,7 +31,7 @@ class AzureHostProvider(HostProvider):
     # TODO don't always run tests in us-east-2
 
     def get_host(self) -> Host:
-        return AllocCloudInstance(1, 4, 80, "AzureVM", "eastus")
+        return AllocCloudInstance(1, 4, 80, "AzureVM", region_name="eastus")
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"

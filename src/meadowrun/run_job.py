@@ -55,6 +55,7 @@ from meadowrun.deployment import (
     VersionedInterpreterDeployment,
 )
 from meadowrun.docker_controller import get_registry_domain
+from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import (
     AwsSecretProto,
     AzureSecretProto,
@@ -778,21 +779,20 @@ class AllocCloudInstance(Host):
     region_name: Optional[str] = None
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
+        resources_required = Resources.from_cpu_and_memory(
+            self.logical_cpu_required,
+            self.memory_gb_required,
+            self.interruption_probability_threshold,
+        )
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
                 job,
-                self.logical_cpu_required,
-                self.memory_gb_required,
-                self.interruption_probability_threshold,
+                resources_required,
                 self.region_name,
             )
         elif self.cloud_provider == "AzureVM":
             return await run_job_azure_vm_instance_registrar(
-                job,
-                self.logical_cpu_required,
-                self.memory_gb_required,
-                self.interruption_probability_threshold,
-                self.region_name,
+                job, resources_required, self.region_name
             )
         else:
             raise ValueError(
@@ -1053,14 +1053,18 @@ async def run_map(
     else:
         num_concurrent_tasks = min(hosts.num_concurrent_tasks, len(args))
 
+    resources_required_per_task = Resources.from_cpu_and_memory(
+        hosts.logical_cpu_required_per_task,
+        hosts.memory_gb_required_per_task,
+        hosts.interruption_probability_threshold,
+    )
+
     if hosts.cloud_provider == "EC2":
         helper = await prepare_ec2_run_map(
             function,
             args,
             hosts.region_name,
-            hosts.logical_cpu_required_per_task,
-            hosts.memory_gb_required_per_task,
-            hosts.interruption_probability_threshold,
+            resources_required_per_task,
             num_concurrent_tasks,
         )
     elif hosts.cloud_provider == "AzureVM":
@@ -1068,9 +1072,7 @@ async def run_map(
             function,
             args,
             hosts.region_name,
-            hosts.logical_cpu_required_per_task,
-            hosts.memory_gb_required_per_task,
-            hosts.interruption_probability_threshold,
+            resources_required_per_task,
             num_concurrent_tasks,
         )
     else:

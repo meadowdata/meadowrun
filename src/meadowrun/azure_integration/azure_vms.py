@@ -42,9 +42,9 @@ _MEADOWRUN_USERNAME = "meadowrunuser"
 # https://docs.microsoft.com/en-us/cli/azure/sig/image-definition?view=azure-cli-latest#az-sig-image-definition-list-community
 _MEADOWRUN_COMMUNITY_IMAGE_ID = (
     "/CommunityGalleries/meadowprodeastus-e8b60fd5-8978-467b-a1b0-5b83cbf5393d/Images/"
-    "meadowrun"
+    "meadowrun-dev"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.1.13"
+_MEADOWRUN_IMAGE_VERSION = "0.1.14"
 
 
 async def _ensure_virtual_network_and_subnet(location: str) -> str:
@@ -298,10 +298,8 @@ async def _provision_vm(
 
 
 async def launch_vms(
-    logical_cpu_required_per_job: int,
-    memory_gb_required_per_job: float,
+    resources_required_per_job: Resources,
     num_jobs: int,
-    eviction_rate: float,
     ssh_public_key_data: str,
     location: Optional[str] = None,
 ) -> Sequence[CloudInstance]:
@@ -311,15 +309,14 @@ async def launch_vms(
         location = get_default_location()
 
     chosen_instance_types = choose_instance_types_for_job(
-        Resources(memory_gb_required_per_job, logical_cpu_required_per_job, {}),
+        resources_required_per_job,
         num_jobs,
-        eviction_rate,
         await get_vm_types(location),
     )
     if len(chosen_instance_types) < 1:
         raise ValueError(
-            f"There were no instance types that could be selected for "
-            f"memory={memory_gb_required_per_job}, cpu={logical_cpu_required_per_job}"
+            "There were no instance types that could be selected for "
+            f"{resources_required_per_job}"
         )
 
     vm_detail_tasks = []

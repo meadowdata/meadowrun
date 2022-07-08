@@ -22,10 +22,9 @@ _EC2_ALLOC_TABLE_NAME = "meadowrun_ec2_alloc_table"
 
 # names of attributes/keys in the EC2 alloc table
 _PUBLIC_ADDRESS = "public_address"
-_LOGICAL_CPU_AVAILABLE = "logical_cpu_available"
-_LOGICAL_CPU_ALLOCATED = "logical_cpu_allocated"
-_MEMORY_GB_AVAILABLE = "memory_gb_available"
-_MEMORY_GB_ALLOCATED = "memory_gb_allocated"
+_RESOURCES_AVAILABLE = "resources_available"
+_NON_CONSUMABLE_RESOURCES = "non_consumable_resources"
+_RESOURCES_ALLOCATED = "resources_allocated"
 _ALLOCATED_TIME = "allocated_time"
 _LAST_UPDATE_TIME = "last_update_time"
 _RUNNING_JOBS = "running_jobs"

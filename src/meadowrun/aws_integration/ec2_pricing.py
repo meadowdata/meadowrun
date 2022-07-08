@@ -10,7 +10,16 @@ import boto3
 from pkg_resources import resource_filename
 
 from meadowrun.aws_integration.aws_core import _boto3_paginate
-from meadowrun.instance_selection import CloudInstanceType
+from meadowrun.config import (
+    AVX,
+    AvxVersion,
+    GPU,
+    INTEL_DEEP_LEARNING_BOOST,
+    INTERRUPTION_PROBABILITY_INVERSE,
+    LOGICAL_CPU,
+    MEMORY_GB,
+)
+from meadowrun.instance_selection import CloudInstanceType, Resources
 from meadowrun.local_cache import get_cached_json, save_json_to_cache
 
 
@@ -25,9 +34,17 @@ async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
 
     # TODO at some point add cross-region optimization
 
-    cached = get_cached_json(_CACHED_EC2_PRICES_FILENAME, datetime.timedelta(hours=4))
-    if cached:
-        return [CloudInstanceType.from_dict(cit) for cit in cached]
+    try:
+        cached = get_cached_json(
+            _CACHED_EC2_PRICES_FILENAME, datetime.timedelta(hours=4)
+        )
+        if cached:
+            return [CloudInstanceType.from_dict(cit) for cit in cached]
+    except Exception as e:
+        print(
+            "Warning, cached EC2 prices file appears to be created by an old version "
+            f"of Meadowrun or is corrupted, will regenerate: {e}"
+        )
 
     result = list(_get_ec2_on_demand_prices(region_name))
     on_demand_instance_types = {
@@ -35,9 +52,7 @@ async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
     }
     result.extend(await _get_ec2_spot_prices(region_name, on_demand_instance_types))
 
-    save_json_to_cache(
-        _CACHED_EC2_PRICES_FILENAME, [dataclasses.asdict(cit) for cit in result]
-    )
+    save_json_to_cache(_CACHED_EC2_PRICES_FILENAME, [cit.to_dict() for cit in result])
 
     return result
 
@@ -109,6 +124,9 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
         attributes = product["product"]["attributes"]
         instance_type = attributes["instanceType"]
 
+        consumable_resources = {}
+        non_consumable_resources = {INTERRUPTION_PROBABILITY_INVERSE: 100.0}
+
         # We don't expect the "warnings" to get hit, we just don't want to get thrown
         # off if the data format changes unexpectedly or something like that.
 
@@ -119,19 +137,26 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
             )
             continue
 
+        physical_processor = attributes["physicalProcessor"].lower()
+        if "intel" in physical_processor:
+            processor_brand = "intel"
+        elif "amd" in physical_processor:
+            processor_brand = "amd"
+        elif "aws graviton" in physical_processor:
+            processor_brand = "graviton"
+        else:
+            processor_brand = "other"
         # effectively, this skips Graviton (ARM-based) processors
         # TODO eventually support Graviton processors.
-        if (
-            "intel" not in attributes["physicalProcessor"].lower()
-            and "amd" not in attributes["physicalProcessor"].lower()
-        ):
+        if processor_brand not in ("intel", "amd"):
             # only log if we see non-Graviton processors
-            if "AWS Graviton" not in attributes["physicalProcessor"]:
+            if processor_brand != "graviton":
                 print(
                     "Skipping non-Intel/AMD processor "
                     f"{attributes['physicalProcessor']} in {instance_type}"
                 )
             continue
+        non_consumable_resources[processor_brand] = 1.0
 
         if "OnDemand" not in product["terms"]:
             print(
@@ -185,7 +210,7 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
             )
             continue
         try:
-            memory_gb_float = float(memory[: -len(" GiB")])
+            consumable_resources[MEMORY_GB] = float(memory[: -len(" GiB")])
         except ValueError:
             print(
                 f"Warning, skipping {instance_type} because memory isn't an float: "
@@ -194,26 +219,49 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
             continue
 
         try:
-            vcpu_int = int(attributes["vcpu"])
+            consumable_resources[LOGICAL_CPU] = float(attributes["vcpu"])
         except ValueError:
             print(
-                f"Warning, skipping {instance_type} because vcpu isn't an int: "
+                f"Warning, skipping {instance_type} because vcpu isn't a number: "
                 f"{attributes['vcpu']}"
             )
             continue
 
+        if "gpu" in attributes:
+            try:
+                consumable_resources[GPU] = float(attributes["gpu"])
+            except ValueError:
+                print(
+                    f"Warning, not including gpu resources for {instance_type} because "
+                    f"gpu isn't a number: {attributes['gpu']}"
+                )
+
+        avx_version = AvxVersion.NONE
+        for feature in attributes.get("processorFeatures", "").split("; "):
+            if feature in ("Intel AVX", "AVX"):
+                avx_version = max(avx_version, AvxVersion.AVX)
+            elif feature in ("Intel AVX2", "AVX2"):
+                avx_version = max(avx_version, AvxVersion.AVX2)
+            elif feature == "Intel AVX512":
+                avx_version = max(avx_version, AvxVersion.AVX512)
+            elif feature == "Intel Deep Learning Boost":
+                non_consumable_resources[INTEL_DEEP_LEARNING_BOOST] = 1.0
+            # ignore unknown features
+        if avx_version != AvxVersion.NONE:
+            non_consumable_resources[AVX] = float(avx_version)
+
         yield CloudInstanceType(
-            instance_type, memory_gb_float, vcpu_int, usd_price_float, 0, "on_demand"
+            instance_type,
+            "on_demand",
+            usd_price_float,
+            Resources(consumable_resources, non_consumable_resources),
         )
 
 
 async def _get_ec2_spot_prices(
     region_name: str, on_demand_instance_types: Dict[str, CloudInstanceType]
 ) -> List[CloudInstanceType]:
-    """
-    Returns a dataframe with columns instance_type and price, where price is the latest
-    spot price
-    """
+    """Returns a list of CloudInstanceTypes for spot instances"""
     ec2_client = boto3.client("ec2", region_name=region_name)
 
     # There doesn't appear to be an API for "give me the latest spot price for each
@@ -258,17 +306,17 @@ async def _get_ec2_spot_prices(
         # information
         if instance_type in on_demand_instance_types:
             on_demand_instance_type = on_demand_instance_types[instance_type]
-            results.append(
-                dataclasses.replace(
-                    on_demand_instance_type,
-                    price=price,
-                    # if interruption_probability is missing, just default to 80%
-                    interruption_probability=interruption_probabilities.get(
-                        instance_type, 80
-                    ),
-                    on_demand_or_spot="spot",
-                )
+            spot_instance_type = dataclasses.replace(
+                on_demand_instance_type,
+                price=price,
+                on_demand_or_spot="spot",
+                resources=on_demand_instance_type.resources.copy(),
             )
+            # if interruption_probability is missing, just default to 80%
+            spot_instance_type.resources.non_consumable[
+                INTERRUPTION_PROBABILITY_INVERSE
+            ] = 100 - interruption_probabilities.get(instance_type, 80)
+            results.append(spot_instance_type)
 
     return results
 

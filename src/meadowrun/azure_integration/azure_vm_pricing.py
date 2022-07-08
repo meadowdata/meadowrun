@@ -6,18 +6,32 @@ from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api_paged,
 )
+from meadowrun.config import (
+    GPU,
+    INTERRUPTION_PROBABILITY_INVERSE,
+    LOGICAL_CPU,
+    MEMORY_GB,
+)
 from meadowrun.instance_selection import (
     CloudInstanceType,
     ON_DEMAND_OR_SPOT_VALUES,
     OnDemandOrSpotType,
+    Resources,
 )
 
-_RELEVANT_CAPABILITIES = {"HyperVGenerations", "vCPUsAvailable", "vCPUs", "MemoryGB"}
+_RELEVANT_CAPABILITIES = {
+    "GPUs",
+    "HyperVGenerations",
+    "MemoryGB",
+    "vCPUs",
+    "vCPUsAvailable",
+}
 
 
-async def _get_vm_skus(location: str) -> Dict[str, Tuple[float, int]]:
-    """Returns name -> (memory_gb, logical_cpu)"""
-    result = {}
+async def _get_vm_skus(location: str) -> Iterable[Tuple[str, Dict[str, float]]]:
+    """Returns [(name, consumable_resources), ...]"""
+    seen_names = set()
+    result = []
 
     # Unfortunately the slightly friendlier client.virtual_machine_sizes.list function
     # is deprecated as per
@@ -39,25 +53,57 @@ async def _get_vm_skus(location: str) -> Dict[str, Tuple[float, int]]:
                     if c["name"] in _RELEVANT_CAPABILITIES
                 }
                 if "V2" in capabilities.get("HyperVGenerations", ""):
+                    consumable_resources: Dict[str, float] = {}
+
                     # can't find documentation on the difference between vCPUsAvailable
                     # and vCPUs. When they are different, vCPUsAvailable seems to match
                     # what appears on the Azure Portal. vCPUsAvailable is not always
                     # available, though, in that case vCPUs seems to be accurate, but
                     # have not checked this exhaustively
-                    logical_cpu = capabilities.get("vCPUsAvailable")
-                    if logical_cpu is None:
-                        logical_cpu = capabilities.get("vCPUs")
-                    memory_gb = capabilities.get("MemoryGB")
-
-                    if not logical_cpu or not memory_gb:
+                    logical_cpu_str = capabilities.get("vCPUsAvailable")
+                    if logical_cpu_str is None:
+                        logical_cpu_str = capabilities.get("vCPUs")
+                    try:
+                        consumable_resources[LOGICAL_CPU] = float(
+                            cast(str, logical_cpu_str)
+                        )
+                    except ValueError:
                         print(
                             f"Warning {r['name']} could not be processed because vCPUs "
-                            "and/or MemoryGB is missing"
+                            "is missing or cannot be parsed to a float "
+                            f"{logical_cpu_str}"
                         )
-                    elif r["name"] in result:
-                        print(f"Warning ignoring duplicate record for {r['name']}")
-                    else:
-                        result[r["name"]] = float(memory_gb), int(logical_cpu)
+                        break
+
+                    memory_gb_str = capabilities.get("MemoryGB")
+                    try:
+                        consumable_resources[MEMORY_GB] = float(
+                            cast(str, memory_gb_str)
+                        )
+                    except ValueError:
+                        print(
+                            f"Warning {r['name']} could not be processed because "
+                            "MemoryGB is missing or cannot be parsed to a float "
+                            f"{memory_gb_str}"
+                        )
+                        break
+
+                    if "GPUs" in capabilities:
+                        try:
+                            consumable_resources[GPU] = float(capabilities["GPUs"])
+                        except ValueError:
+                            print(
+                                f"Warning ignoring GPUs available on {r['name']} "
+                                "because the field could not be parsed to a float "
+                                f"{capabilities['GPUs']}"
+                            )
+
+                    if r["name"] in seen_names:
+                        print(f"Warning skipping duplicate entry for {r['name']}")
+                        break
+
+                    seen_names.add(r["name"])
+                    result.append((r["name"], consumable_resources))
 
     return result
 
@@ -244,7 +290,7 @@ async def get_vm_types(location: str) -> List[CloudInstanceType]:
 
     results = []
 
-    for name, (memory_gb, logical_cpu) in vm_skus.items():
+    for name, consumable_resources in vm_skus:
         for on_demand_or_spot in ON_DEMAND_OR_SPOT_VALUES:
             price_eviction = pricing_eviction_data.get((name, on_demand_or_spot))
             if price_eviction is None:
@@ -260,11 +306,12 @@ async def get_vm_types(location: str) -> List[CloudInstanceType]:
                 results.append(
                     CloudInstanceType(
                         name,
-                        memory_gb,
-                        logical_cpu,
-                        price,
-                        eviction_rate,
                         on_demand_or_spot,
+                        price,
+                        Resources(
+                            consumable_resources,
+                            {INTERRUPTION_PROBABILITY_INVERSE: 100 - eviction_rate},
+                        ),
                     )
                 )
 

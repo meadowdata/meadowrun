@@ -27,10 +27,9 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
     LAST_UPDATE_TIME,
-    LOGICAL_CPU_ALLOCATED,
-    LOGICAL_CPU_AVAILABLE,
-    MEMORY_GB_ALLOCATED,
-    MEMORY_GB_AVAILABLE,
+    NON_CONSUMABLE_RESOURCES,
+    RESOURCES_ALLOCATED,
+    RESOURCES_AVAILABLE,
     RUNNING_JOBS,
     SINGLE_PARTITION_KEY,
     VM_NAME,
@@ -105,13 +104,14 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                     "PartitionKey": SINGLE_PARTITION_KEY,
                     "RowKey": public_address,
                     VM_NAME: name,
-                    LOGICAL_CPU_AVAILABLE: resources_available.logical_cpu,
-                    MEMORY_GB_AVAILABLE: resources_available.memory_gb,
+                    RESOURCES_AVAILABLE: json.dumps(resources_available.consumable),
+                    NON_CONSUMABLE_RESOURCES: json.dumps(
+                        resources_available.non_consumable
+                    ),
                     RUNNING_JOBS: json.dumps(
                         {
                             job_id: {
-                                LOGICAL_CPU_ALLOCATED: allocated_resources.logical_cpu,
-                                MEMORY_GB_ALLOCATED: allocated_resources.memory_gb,
+                                RESOURCES_ALLOCATED: allocated_resources.consumable,
                                 ALLOCATED_TIME: now,
                             }
                             for job_id, allocated_resources in running_jobs
@@ -145,9 +145,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             AzureVMInstanceState(
                 item["RowKey"],
                 Resources(
-                    float(item[MEMORY_GB_AVAILABLE]),
-                    int(item[LOGICAL_CPU_AVAILABLE]),
-                    {},
+                    json.loads(item[RESOURCES_AVAILABLE]),
+                    json.loads(item[NON_CONSUMABLE_RESOURCES]),
                 ),
                 json.loads(item[RUNNING_JOBS]),
                 item[VM_NAME],
@@ -161,8 +160,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                     "$select": ",".join(
                         [
                             "RowKey",
-                            LOGICAL_CPU_AVAILABLE,
-                            MEMORY_GB_AVAILABLE,
+                            RESOURCES_AVAILABLE,
+                            NON_CONSUMABLE_RESOURCES,
                             RUNNING_JOBS,
                             VM_NAME,
                         ]
@@ -196,8 +195,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                     "$select": ",".join(
                         [
                             "RowKey",
-                            LOGICAL_CPU_AVAILABLE,
-                            MEMORY_GB_AVAILABLE,
+                            RESOURCES_AVAILABLE,
+                            NON_CONSUMABLE_RESOURCES,
                             RUNNING_JOBS,
                             VM_NAME,
                         ]
@@ -210,7 +209,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         return AzureVMInstanceState(
             item["RowKey"],
             Resources(
-                float(item[MEMORY_GB_AVAILABLE]), int(item[LOGICAL_CPU_AVAILABLE]), {}
+                json.loads(item[RESOURCES_AVAILABLE]),
+                json.loads(item[NON_CONSUMABLE_RESOURCES]),
             ),
             json.loads(item[RUNNING_JOBS]),
             item[VM_NAME],
@@ -240,19 +240,15 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 return False
 
             new_running_jobs[job_id] = {
-                LOGICAL_CPU_ALLOCATED: resources_allocated_per_job.logical_cpu,
-                MEMORY_GB_ALLOCATED: resources_allocated_per_job.memory_gb,
+                RESOURCES_ALLOCATED: resources_allocated_per_job.consumable,
                 ALLOCATED_TIME: now,
             }
 
-        new_logical_cpu_available = (
-            instance.get_available_resources().logical_cpu
-            - resources_allocated_per_job.logical_cpu * len(new_job_ids)
+        new_resources_available = instance.get_available_resources().subtract(
+            resources_allocated_per_job.multiply(len(new_job_ids))
         )
-        new_memory_gb_available = (
-            instance.get_available_resources().memory_gb
-            - resources_allocated_per_job.memory_gb * len(new_job_ids)
-        )
+        if new_resources_available is None:
+            return False  # this shouldn't really happen
 
         try:
             # https://docs.microsoft.com/en-us/rest/api/storageservices/update-entity2
@@ -264,8 +260,10 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 ),
                 json_content={
                     VM_NAME: instance.name,
-                    LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
-                    MEMORY_GB_AVAILABLE: new_memory_gb_available,
+                    RESOURCES_AVAILABLE: json.dumps(new_resources_available.consumable),
+                    NON_CONSUMABLE_RESOURCES: json.dumps(
+                        new_resources_available.non_consumable
+                    ),
                     RUNNING_JOBS: json.dumps(new_running_jobs),
                     LAST_UPDATE_TIME: now,
                 },
@@ -289,11 +287,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             return False
 
         job = instance.get_running_jobs()[job_id]
-        new_logical_cpu_available = (
-            instance.get_available_resources().logical_cpu + job[LOGICAL_CPU_ALLOCATED]
-        )
-        new_memory_gb_available = (
-            instance.get_available_resources().memory_gb + job[MEMORY_GB_ALLOCATED]
+        new_resources_available = instance.get_available_resources().add(
+            Resources(job[RESOURCES_ALLOCATED], {})
         )
         new_running_jobs = instance.get_running_jobs().copy()
         del new_running_jobs[job_id]
@@ -309,8 +304,10 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 ),
                 json_content={
                     VM_NAME: instance.name,
-                    LOGICAL_CPU_AVAILABLE: new_logical_cpu_available,
-                    MEMORY_GB_AVAILABLE: new_memory_gb_available,
+                    RESOURCES_AVAILABLE: json.dumps(new_resources_available.consumable),
+                    NON_CONSUMABLE_RESOURCES: json.dumps(
+                        new_resources_available.non_consumable
+                    ),
                     RUNNING_JOBS: json.dumps(new_running_jobs),
                     LAST_UPDATE_TIME: now,
                 },
@@ -326,10 +323,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         self, instances_spec: AllocCloudInstancesInternal
     ) -> Sequence[CloudInstance]:
         return await meadowrun.azure_integration.azure_vms.launch_vms(
-            instances_spec.logical_cpu_required_per_task,
-            instances_spec.memory_gb_required_per_task,
+            instances_spec.resources_required_per_task,
             instances_spec.num_concurrent_tasks,
-            instances_spec.interruption_probability_threshold,
             (await ensure_meadowrun_key_pair(instances_spec.region_name))[1],
             instances_spec.region_name,
         )
@@ -341,9 +336,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
 async def run_job_azure_vm_instance_registrar(
     job: Job,
-    logical_cpu_required: int,
-    memory_gb_required: float,
-    eviction_rate: float,
+    resources_required: Resources,
     location: Optional[str],
 ) -> JobCompletion[Any]:
     if not location:
@@ -353,9 +346,7 @@ async def run_job_azure_vm_instance_registrar(
     async with AzureInstanceRegistrar(location, "create") as instance_registrar:
         hosts = await allocate_jobs_to_instances(
             instance_registrar,
-            AllocCloudInstancesInternal(
-                logical_cpu_required, memory_gb_required, eviction_rate, 1, location
-            ),
+            AllocCloudInstancesInternal(resources_required, 1, location),
         )
 
     if len(hosts) != 1:

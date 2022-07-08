@@ -327,28 +327,15 @@ async def _launch_new_instances(
         await instance_registrar.register_instance(
             instance.public_dns_name,
             instance.name,
-            Resources(
-                instance_info.memory_gb
-                - (
-                    num_allocated_jobs
-                    * alloc_cloud_instances.memory_gb_required_per_task
-                ),
-                instance_info.logical_cpu
-                - (
-                    num_allocated_jobs
-                    * alloc_cloud_instances.logical_cpu_required_per_task
-                ),
-                {},
+            assert_is_not_none(
+                instance_info.resources.subtract(
+                    alloc_cloud_instances.resources_required_per_task.multiply(
+                        num_allocated_jobs
+                    )
+                )
             ),
             [
-                (
-                    job_id,
-                    Resources(
-                        alloc_cloud_instances.memory_gb_required_per_task,
-                        alloc_cloud_instances.logical_cpu_required_per_task,
-                        {},
-                    ),
-                )
+                (job_id, alloc_cloud_instances.resources_required_per_task)
                 for job_id in job_ids
             ],
         )
@@ -356,10 +343,10 @@ async def _launch_new_instances(
         allocated_jobs[instance.public_dns_name] = job_ids
         description_strings.append(
             f"{instance.public_dns_name}: {instance_info.name} "
-            f"({instance_info.logical_cpu} CPU/{instance_info.memory_gb} GB), "
+            f"({instance_info.resources.format_cpu_memory_gpu()}), "
             f"{instance_info.on_demand_or_spot} (${instance_info.price}/hr, "
-            f"{instance_info.interruption_probability}% chance of interruption), "
-            f"will run {num_allocated_jobs} job/worker"
+            f"{instance_info.resources.format_interruption_probability()}), will run "
+            f"{num_allocated_jobs} workers"
         )
         total_cost_per_hour += instance_info.price
 
@@ -396,11 +383,7 @@ async def allocate_jobs_to_instances(
     # instances as well
     allocated = await _choose_existing_instances(
         instance_registrar,
-        Resources(
-            alloc_cloud_instances.memory_gb_required_per_task,
-            alloc_cloud_instances.logical_cpu_required_per_task,
-            {},
-        ),
+        alloc_cloud_instances.resources_required_per_task,
         alloc_cloud_instances.num_concurrent_tasks,
     )
     num_jobs_remaining = alloc_cloud_instances.num_concurrent_tasks - sum(

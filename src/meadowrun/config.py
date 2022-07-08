@@ -1,4 +1,5 @@
 # TODO turn this into a real module that allows the user to specify configurations
+import enum
 import string
 
 JOB_ID_VALID_CHARACTERS = set(string.ascii_letters + string.digits + "-_.")
@@ -17,6 +18,22 @@ MEADOWRUN_IO_MOUNT_LINUX = "/meadowrun/io"
 # names of resources and default values
 MEMORY_GB = "memory_gb"
 LOGICAL_CPU = "logical_cpu"
+GPU = "gpu"
+# in the resources, we set 100 - interruption probability as a non-consumable resource
+INTERRUPTION_PROBABILITY_INVERSE = "interruption_probability_inverse"
+INTEL = "intel"
+AMD = "amd"
+AVX = "avx"
+INTEL_DEEP_LEARNING_BOOST = "intel_deep_learning_boost"
+
+
+class AvxVersion(enum.IntEnum):
+    NONE = 0
+    AVX = 1
+    AVX2 = 2
+    AVX512 = 3
+
+
 # these are totally arbitrary values...
 DEFAULT_MEMORY_GB_REQUIRED = 2
 DEFAULT_LOGICAL_CPU_REQUIRED = 1

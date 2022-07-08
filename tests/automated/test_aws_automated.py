@@ -39,6 +39,7 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results,
     worker_loop,
 )
+from meadowrun.config import LOGICAL_CPU, MEMORY_GB, INTERRUPTION_PROBABILITY_INVERSE
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import choose_instance_types_for_job, Resources
 from meadowrun.meadowrun_pb2 import ProcessState
@@ -132,26 +133,34 @@ async def test_get_ec2_instance_types():
     assert len(instance_types) > 600
 
     chosen_instance_types = choose_instance_types_for_job(
-        Resources(5, 3, {}), 52, 10, instance_types
+        Resources.from_cpu_and_memory(3, 5, 10), 52, instance_types
     )
     total_cpu = sum(
-        instance_type.instance_type.logical_cpu * instance_type.num_instances
+        instance_type.instance_type.resources.consumable[LOGICAL_CPU]
+        * instance_type.num_instances
         for instance_type in chosen_instance_types
     )
     assert total_cpu >= 3 * 52
     total_memory_gb = sum(
-        instance_type.instance_type.memory_gb * instance_type.num_instances
+        instance_type.instance_type.resources.consumable[MEMORY_GB]
+        * instance_type.num_instances
         for instance_type in chosen_instance_types
     )
     assert total_memory_gb >= 5 * 52
     assert all(
-        instance_type.instance_type.interruption_probability <= 10
+        (
+            100
+            - instance_type.instance_type.resources.non_consumable[
+                INTERRUPTION_PROBABILITY_INVERSE
+            ]
+        )
+        <= 10
         for instance_type in chosen_instance_types
     )
     pprint.pprint(chosen_instance_types)
 
     chosen_instance_types = choose_instance_types_for_job(
-        Resources(24000, 1000, {}), 1, 10, instance_types
+        Resources.from_cpu_and_memory(1000, 24000, 10), 1, instance_types
     )
     assert len(chosen_instance_types) == 0
 

@@ -34,6 +34,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG_VALUE,
 )
 from meadowrun.instance_allocation import allocate_jobs_to_instances
+from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import GridTask, ProcessState, GridTaskStateResponse
 from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
 from meadowrun.shared import pickle_exception
@@ -410,9 +411,7 @@ async def prepare_ec2_run_map(
     function: Callable[[_T], _U],
     tasks: Sequence[_T],
     region_name: Optional[str],
-    logical_cpu_required_per_task: int,
-    memory_gb_required_per_task: float,
-    interruption_probability_threshold: float,
+    resources_required_per_task: Resources,
     num_concurrent_tasks: int,
 ) -> RunMapHelper:
     """This code is tightly coupled with run_map"""
@@ -430,9 +429,7 @@ async def prepare_ec2_run_map(
         allocated_hosts = await allocate_jobs_to_instances(
             instance_registrar,
             AllocCloudInstancesInternal(
-                logical_cpu_required_per_task,
-                memory_gb_required_per_task,
-                interruption_probability_threshold,
+                resources_required_per_task,
                 num_concurrent_tasks,
                 region_name,
             ),

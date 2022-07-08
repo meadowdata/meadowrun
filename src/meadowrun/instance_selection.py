@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 import dataclasses
+import decimal
 import math
-from typing import Any, Dict, Optional, Tuple, List
+import sys
+from typing import Any, Dict, Optional, Tuple, List, Iterable
+
 from typing_extensions import Literal
+
+from meadowrun.config import (
+    GPU,
+    INTERRUPTION_PROBABILITY_INVERSE,
+    LOGICAL_CPU,
+    MEMORY_GB,
+)
 
 ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
     "on_demand",
@@ -12,56 +22,192 @@ ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
 OnDemandOrSpotType = Literal["on_demand", "spot"]
 
 
-@dataclasses.dataclass(frozen=True)
 class Resources:
     """
     Can represent both resources available (i.e. on a agent) as well as resources
     required (i.e. by a job)
     """
 
-    memory_gb: float
-    logical_cpu: int
-    custom: Dict[str, float]
+    def __init__(self, consumable: Dict[str, float], non_consumable: Dict[str, float]):
+        self.consumable = consumable
+        self.non_consumable = non_consumable
 
     def subtract(self, required: Resources) -> Optional[Resources]:
         """
-        Subtracts "resources required" for a job from self, which is interpreted as
-        "resources available" on a agent.
+        Interpreting self as "resources available" on an instance, subtracts "resources
+        required" for a job on this instance
 
         Returns None if the required resources are not available in self.
         """
-        if self.memory_gb < required.memory_gb:
-            return None
-        if self.logical_cpu < required.logical_cpu:
-            return None
-        for key, value in required.custom.items():
-            if key not in self.custom:
+
+        for key, value in required.non_consumable.items():
+            if key not in self.non_consumable:
                 return None
-            if self.custom[key] < required.custom[key]:
+            if self.non_consumable[key] < required.non_consumable[key]:
+                return None
+
+        for key, value in required.consumable.items():
+            if key not in self.consumable:
+                return None
+            if self.consumable[key] < required.consumable[key]:
                 return None
 
         return Resources(
-            self.memory_gb - required.memory_gb,
-            self.logical_cpu - required.logical_cpu,
             {
-                key: value - required.custom.get(key, 0)
-                for key, value in self.custom.items()
+                key: value - required.consumable.get(key, 0)
+                for key, value in self.consumable.items()
             },
+            self.non_consumable,
         )
 
     def add(self, returned: Resources) -> Resources:
         """
-        Adds back "resources required" for a job to self, which is usually resources
-        available on a agent.
+        Interpreting `self` as the available resources on an instance, adds back
+        "resources required" for a job that has completed
         """
         return Resources(
-            self.memory_gb + returned.memory_gb,
-            self.logical_cpu + returned.logical_cpu,
             {
-                key: self.custom.get(key, 0) + returned.custom.get(key, 0)
-                for key in set().union(self.custom, returned.custom)
+                key: self.consumable.get(key, 0) + returned.consumable.get(key, 0)
+                for key in set().union(self.consumable, returned.consumable)
             },
+            self.non_consumable,
         )
+
+    def divide_by(self, required: Resources) -> int:
+        """
+        Interpreting `self` as available resources on an instance, returns how many
+        tasks that require `required` resources could fit into this instance
+        """
+        # if a non_consumable required resource isn't available, then we won't be able
+        # to fit any tasks
+        for key, value in required.non_consumable.items():
+            if key not in self.non_consumable:
+                return 0
+            if self.non_consumable[key] < required.non_consumable[key]:
+                return 0
+
+        # find the "binding" consumable that will determine how many tasks can fit on
+        # this instance
+        result = float(sys.maxsize)
+        for key, value in required.consumable.items():
+            if key not in self.consumable:
+                return 0
+            result = min(result, self.consumable[key] / required.consumable[key])
+
+        return math.floor(result)
+
+    def multiply(self, n: int) -> Resources:
+        """
+        available.subtract(required.multiply(2)) should be equivalent to
+        available.subtract(required).subtract(required)
+        """
+        return Resources(
+            {key: value * n for key, value in self.consumable.items()},
+            self.non_consumable,
+        )
+
+    def non_standard_consumables(self) -> Iterable[Tuple[str, float]]:
+        return (
+            item
+            for item in self.consumable.items()
+            if item[0] != LOGICAL_CPU and item[0] != MEMORY_GB
+        )
+
+    def format_cpu_memory_gpu(self) -> str:
+        if GPU in self.consumable:
+            gpu_string = f", {self.consumable[GPU]} GPU"
+        else:
+            gpu_string = ""
+
+        return (
+            f"{self.consumable[LOGICAL_CPU]} CPU, {self.consumable[MEMORY_GB]} GB"
+            + gpu_string
+        )
+
+    def format_interruption_probability(self) -> str:
+        return (
+            f"{100 - self.non_consumable[INTERRUPTION_PROBABILITY_INVERSE]}% chance of "
+            "interruption"
+        )
+
+    def consumable_as_decimals(self) -> Dict[str, decimal.Decimal]:
+        return {key: decimal.Decimal(value) for key, value in self.consumable.items()}
+
+    def non_consumable_as_decimals(self) -> Dict[str, decimal.Decimal]:
+        return {
+            key: decimal.Decimal(value) for key, value in self.non_consumable.items()
+        }
+
+    def __str__(self) -> str:
+        # TODO implement better
+        other_consumables_str = ", ".join(
+            f"{key}: {value}"
+            for key, value in self.consumable.items()
+            if key not in (LOGICAL_CPU, MEMORY_GB, GPU)
+        )
+        if other_consumables_str:
+            other_consumables_str = ", " + other_consumables_str
+        other_non_consumables_str = ", ".join(
+            f"{key}: {value}"
+            for key, value in self.non_consumable.items()
+            if key != INTERRUPTION_PROBABILITY_INVERSE
+        )
+        if other_non_consumables_str:
+            other_non_consumables_str = ", " + other_non_consumables_str
+        return (
+            "Resources: consumables("
+            f"{self.format_cpu_memory_gpu()}{other_consumables_str}), "
+            f"non_consumables("
+            f"{self.format_interruption_probability()}{other_non_consumables_str}"
+            f")"
+        )
+
+    def copy(self) -> Resources:
+        return Resources(self.consumable.copy(), self.non_consumable.copy())
+
+    @classmethod
+    def from_decimals(
+        cls,
+        consumable: Dict[str, decimal.Decimal],
+        non_consumable: Dict[str, decimal.Decimal],
+    ) -> Resources:
+        return cls(
+            {key: float(value) for key, value in consumable.items()},
+            {key: float(value) for key, value in non_consumable.items()},
+        )
+
+    @classmethod
+    def from_cpu_and_memory(
+        cls,
+        logical_cpu: float,
+        memory_gb: float,
+        interruption_probability: Optional[float] = None,
+        gpus: Optional[float] = None,
+        *,
+        other_consumables: Optional[Dict[str, float]] = None,
+        other_non_consumables: Optional[Dict[str, float]] = None,
+    ) -> Resources:
+        """A friendly constructor"""
+        if other_consumables is None:
+            consumables = {}
+        else:
+            consumables = other_consumables.copy()
+        consumables[LOGICAL_CPU] = logical_cpu
+        consumables[MEMORY_GB] = memory_gb
+        if gpus is not None:
+            consumables[GPU] = gpus
+
+        if other_non_consumables is None:
+            non_consumables = {}
+        else:
+            non_consumables = other_non_consumables.copy()
+
+        if interruption_probability is not None:
+            non_consumables[INTERRUPTION_PROBABILITY_INVERSE] = (
+                100.0 - interruption_probability
+            )
+
+        return cls(consumables, non_consumables)
 
 
 def remaining_resources_sort_key(
@@ -99,8 +245,10 @@ def remaining_resources_sort_key(
     if remaining_resources is not None:
         # 0 is an indicator saying we can run this job
         return 0, (
-            sum(remaining_resources.custom.values()),
-            remaining_resources.memory_gb + 2 * remaining_resources.logical_cpu,
+            # TODO take non-consumables into account here?
+            sum(value for key, value in remaining_resources.non_standard_consumables()),
+            remaining_resources.consumable[MEMORY_GB]
+            + 2 * remaining_resources.consumable[LOGICAL_CPU],
         )
     else:
         # 1 is an indicator saying we cannot run this job
@@ -110,23 +258,40 @@ def remaining_resources_sort_key(
 @dataclasses.dataclass(frozen=True)
 class CloudInstanceType:
     name: str  # e.g. t2.micro
-    memory_gb: float  # e.g. 4 means 4 GiB
-    logical_cpu: int  # e.g. 2 means 2 logical (aka virtual) cpus
-    price: float  # 0.023 means 0.023 USD per hour to run the instance
-    # e.g. 0 for on-demand instances, >0 for spot instances, as a percentage, so values
-    # range from 0 to 100.
-    interruption_probability: float
     on_demand_or_spot: OnDemandOrSpotType
+    price: float  # 0.023 means 0.023 USD per hour to run the instance
+
+    # Must include consumables:
+    # - MEMORY_GB (e.g. 4 means 4 GiB)
+    # - LOGICAL CPU (2 means 2 logical aka virtual cpus)
+    # And non_consumables:
+    # - INTERRUPTION_PROBABILITY_INVERSE (e.g. 100 for on-demand instances, <0 for spot
+    #   instances as (100 - percentage), so e.g. 75 means 25% chance of interruption)
+    # TODO instance_type.interruption_probability should always use the latest data
+    # rather than always using the number from when the instance was launched
+    resources: Resources
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "on_demand_or_spot": self.on_demand_or_spot,
+            "price": self.price,
+            "resources": {
+                "consumable": self.resources.consumable,
+                "non_consumable": self.resources.non_consumable,
+            },
+        }
 
     @classmethod
     def from_dict(cls, cit: Dict[str, Any]) -> CloudInstanceType:
         return cls(
             cit["name"],
-            float(cit["memory_gb"]),
-            int(cit["logical_cpu"]),
-            float(cit["price"]),
-            float(cit["interruption_probability"]),
             cit["on_demand_or_spot"],
+            float(cit["price"]),
+            Resources(
+                cit["resources"]["consumable"],
+                cit["resources"]["non_consumable"],
+            ),
         )
 
 
@@ -153,15 +318,12 @@ class CloudInstance:
     public_dns_name: str
     name: str
 
-    # TODO instance_type.interruption_probability should always use the latest data
-    # rather than always using the number from when the instance was launched
     instance_type: ChosenCloudInstanceType
 
 
 def choose_instance_types_for_job(
     resources_required: Resources,
     num_workers_to_allocate: int,
-    interruption_probability_threshold: float,
     original_instance_types: List[CloudInstanceType],
 ) -> List[ChosenCloudInstanceType]:
     """
@@ -185,36 +347,25 @@ def choose_instance_types_for_job(
     instance_types = []
 
     for orig_instance_type in original_instance_types:
-        # ignore anything with a higher interruption probability than what we want to
-        # tolerate
-        if (
-            orig_instance_type.interruption_probability
-            <= interruption_probability_threshold
-        ):
-            workers_per_instance_full = math.floor(
-                min(
-                    orig_instance_type.memory_gb / resources_required.memory_gb,
-                    orig_instance_type.logical_cpu / resources_required.logical_cpu,
+        workers_per_instance_full = orig_instance_type.resources.divide_by(
+            resources_required
+        )
+        # ignore instance types where we won't be able to fit even 1 worker
+        if workers_per_instance_full >= 1:
+            # if we get the maximum number of workers packed onto the instance type,
+            # what is our effective price per worker
+            price_per_worker_full = orig_instance_type.price / workers_per_instance_full
+
+            instance_types.append(
+                ChosenCloudInstanceType(
+                    orig_instance_type,
+                    0,
+                    workers_per_instance_full,
+                    price_per_worker_full,
+                    workers_per_instance_full,
+                    price_per_worker_full,
                 )
             )
-            # ignore instance types where we won't be able to fit even 1 worker
-            if workers_per_instance_full >= 1:
-                # if we get the maximum number of workers packed onto the instance type,
-                # what is our effective price per worker
-                price_per_worker_full = (
-                    orig_instance_type.price / workers_per_instance_full
-                )
-
-                instance_types.append(
-                    ChosenCloudInstanceType(
-                        orig_instance_type,
-                        0,
-                        workers_per_instance_full,
-                        price_per_worker_full,
-                        workers_per_instance_full,
-                        price_per_worker_full,
-                    )
-                )
 
     # no instance types can run even one worker
     if len(instance_types) == 0:
@@ -250,15 +401,19 @@ def choose_instance_types_for_job(
             for instance_type in instance_types
             if instance_type.price_per_worker_current - best_price_per_worker < 0.005
         ]
-        best_interruption_probability = min(
-            instance_type.instance_type.interruption_probability
+        best_interruption_probability = max(
+            instance_type.instance_type.resources.non_consumable[
+                INTERRUPTION_PROBABILITY_INVERSE
+            ]
             for instance_type in best
         )
         best = [
             instance_type
             for instance_type in best
-            if instance_type.instance_type.interruption_probability
-            - best_interruption_probability
+            if best_interruption_probability
+            - instance_type.instance_type.resources.non_consumable[
+                INTERRUPTION_PROBABILITY_INVERSE
+            ]
             < 1
         ]
 

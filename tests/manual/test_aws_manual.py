@@ -13,6 +13,7 @@ from meadowrun.aws_integration.aws_mgmt_lambda_install import (
 )
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.instance_allocation import allocate_jobs_to_instances
+from meadowrun.instance_selection import Resources
 from meadowrun.run_job import run_function, AllocCloudInstance
 from meadowrun.run_job_core import AllocCloudInstancesInternal
 
@@ -49,7 +50,9 @@ async def manual_test_deallocate_before_running():
         result = await allocate_jobs_to_instances(
             instance_registrar,
             AllocCloudInstancesInternal(
-                1, 0.5, 100, 1, await _get_default_region_name()
+                Resources.from_cpu_and_memory(1, 0.5, 100),
+                1,
+                await _get_default_region_name(),
             ),
         )
         print(result)

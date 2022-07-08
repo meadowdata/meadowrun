@@ -27,6 +27,7 @@ from typing_extensions import Literal
 
 import meadowrun.ssh as ssh
 from meadowrun.credentials import UsernamePassword
+from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 
 _T = TypeVar("_T")
@@ -198,9 +199,7 @@ class SshHost(Host):
 class AllocCloudInstancesInternal:
     """Identical to AllocCloudInstances but all values must be set"""
 
-    logical_cpu_required_per_task: int
-    memory_gb_required_per_task: float
-    interruption_probability_threshold: float
+    resources_required_per_task: Resources
     num_concurrent_tasks: int
     region_name: str
 

@@ -243,10 +243,8 @@ async def _launch_instance_continuation(instance: Any) -> str:
 
 
 async def launch_ec2_instances(
-    logical_cpu_required_per_job: int,
-    memory_gb_required_per_job: float,
+    resources_required_per_job: Resources,
     num_jobs: int,
-    interruption_probability_threshold: float,
     ami_id: str,
     region_name: Optional[str] = None,
     security_group_ids: Optional[Sequence[str]] = None,
@@ -276,9 +274,8 @@ async def launch_ec2_instances(
 
     while num_jobs_left_to_allocate > 0:
         chosen_instance_types = choose_instance_types_for_job(
-            Resources(memory_gb_required_per_job, logical_cpu_required_per_job, {}),
+            resources_required_per_job,
             num_jobs_left_to_allocate,
-            interruption_probability_threshold,
             [
                 i
                 for i in instance_types
@@ -287,9 +284,8 @@ async def launch_ec2_instances(
         )
         if len(chosen_instance_types) < 1:
             raise ValueError(
-                "There were no instance types that could be selected for "
-                f"memory={memory_gb_required_per_job}, "
-                f"cpu={logical_cpu_required_per_job}"
+                "There were no instance types that could be selected for: "
+                f"{resources_required_per_job}"
             )
 
         num_jobs_left_to_allocate = 0

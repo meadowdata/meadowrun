@@ -9,6 +9,7 @@ import datetime
 import pytest
 
 from meadowrun import run_function, AllocCloudInstance
+from meadowrun.config import LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
@@ -101,19 +102,25 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await self.clear_instance_registrar(instance_registrar)
 
             await instance_registrar.register_instance(
-                "testhost-1", "testhost-1-name", Resources(64, 8, {}), []
+                "testhost-1",
+                "testhost-1-name",
+                Resources.from_cpu_and_memory(8, 64),
+                [],
             )
             await instance_registrar.register_instance(
                 "testhost-2",
                 "testhost-2-name",
-                Resources(32, 4, {}),
-                [("worker-1", Resources(1, 2, {}))],
+                Resources.from_cpu_and_memory(4, 32),
+                [("worker-1", Resources.from_cpu_and_memory(2, 1))],
             )
 
             # Can't register the same instance twice
             with pytest.raises(ValueError):
                 await instance_registrar.register_instance(
-                    "testhost-2", "testhost-2-name", Resources(32, 4, {}), []
+                    "testhost-2",
+                    "testhost-2-name",
+                    Resources.from_cpu_and_memory(4, 32),
+                    [],
                 )
 
             host2 = await instance_registrar.get_registered_instance("testhost-2")
@@ -132,28 +139,28 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 ][0]
 
             testhost1, testhost2 = await get_instances()
-            assert testhost2.get_available_resources().logical_cpu == 6
-            assert testhost2.get_available_resources().memory_gb == 33
+            assert testhost2.get_available_resources().consumable[LOGICAL_CPU] == 6
+            assert testhost2.get_available_resources().consumable[MEMORY_GB] == 33
 
             assert await instance_registrar.allocate_jobs_to_instance(
                 testhost1,
-                Resources(4, 2, {}),
+                Resources.from_cpu_and_memory(2, 4),
                 ["worker-2", "worker-3"],
             )
             testhost1, _ = await get_instances()
             assert await instance_registrar.allocate_jobs_to_instance(
-                testhost1, Resources(3, 1, {}), ["worker-4"]
+                testhost1, Resources.from_cpu_and_memory(1, 3), ["worker-4"]
             )
             # cannot allocate if the worker id already is in use
             testhost1, _ = await get_instances()
             assert not await instance_registrar.allocate_jobs_to_instance(
-                testhost1, Resources(4, 2, {}), ["worker-2"]
+                testhost1, Resources.from_cpu_and_memory(2, 4), ["worker-2"]
             )
 
             # make sure our resources available is correct
             testhost1, _ = await get_instances()
-            assert testhost1.get_available_resources().logical_cpu == 3
-            assert testhost1.get_available_resources().memory_gb == 53
+            assert testhost1.get_available_resources().consumable[LOGICAL_CPU] == 3
+            assert testhost1.get_available_resources().consumable[MEMORY_GB] == 53
 
             # we've kind of already tested deallocation, but just for good measure
             testhost1 = await instance_registrar.get_registered_instance("testhost-1")
@@ -161,8 +168,8 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 testhost1, "worker-4"
             )
             testhost1, _ = await get_instances()
-            assert testhost1.get_available_resources().logical_cpu == 4
-            assert testhost1.get_available_resources().memory_gb == 56
+            assert testhost1.get_available_resources().consumable[LOGICAL_CPU] == 4
+            assert testhost1.get_available_resources().consumable[MEMORY_GB] == 56
 
     @pytest.mark.asyncio
     async def test_allocate_existing_instances(self):
@@ -174,13 +181,19 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await self.clear_instance_registrar(instance_registrar)
 
             await instance_registrar.register_instance(
-                "testhost-3", "testhost-3-name", Resources(16, 2, {}), []
+                "testhost-3",
+                "testhost-3-name",
+                Resources.from_cpu_and_memory(2, 16),
+                [],
             )
             await instance_registrar.register_instance(
-                "testhost-4", "testhost-4-name", Resources(32, 4, {}), []
+                "testhost-4",
+                "testhost-4-name",
+                Resources.from_cpu_and_memory(4, 32),
+                [],
             )
 
-            resources_required = Resources(2, 1, {})
+            resources_required = Resources.from_cpu_and_memory(1, 2)
             results = await _choose_existing_instances(
                 instance_registrar, resources_required, 3
             )
@@ -217,8 +230,8 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             instances = await instance_registrar.get_registered_instances()
             assert len(instances) == 1
-            assert instances[0].get_available_resources().logical_cpu >= 1
-            assert instances[0].get_available_resources().memory_gb >= 0.5
+            assert instances[0].get_available_resources().consumable[LOGICAL_CPU] >= 1
+            assert instances[0].get_available_resources().consumable[MEMORY_GB] >= 0.5
 
             # remember to kill the instance when you're done!
 
@@ -259,8 +272,8 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             instances = await instance_registrar.get_registered_instances()
             assert len(instances) == 3
             assert all(
-                instance.get_available_resources().logical_cpu >= 1
-                and instance.get_available_resources().memory_gb >= 0.5
+                instance.get_available_resources().consumable[LOGICAL_CPU] >= 1
+                and instance.get_available_resources().consumable[MEMORY_GB] >= 0.5
                 for instance in instances
             )
 
@@ -271,13 +284,16 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await self.clear_instance_registrar(instance_registrar)
 
             await instance_registrar.register_instance(
-                "testhost-1", "testhost-1-name", Resources(64, 8, {}), []
+                "testhost-1",
+                "testhost-1-name",
+                Resources.from_cpu_and_memory(8, 64),
+                [],
             )
             await instance_registrar.register_instance(
                 "testhost-2",
                 "testhost-2-name",
-                Resources(32, 4, {}),
-                [("worker-1", Resources(1, 2, {}))],
+                Resources.from_cpu_and_memory(4, 32),
+                [("worker-1", Resources.from_cpu_and_memory(2, 1))],
             )
 
             assert await self.deregister_instance(
@@ -310,8 +326,8 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await instance_registrar.register_instance(
                 "testhost-1",
                 "testhost-1-name",
-                Resources(64, 8, {}),
-                [("worker-1", Resources(1, 2, {}))],
+                Resources.from_cpu_and_memory(8, 64),
+                [("worker-1", Resources.from_cpu_and_memory(2, 1))],
             )
             assert len(await instance_registrar.get_registered_instances()) == 1
 
@@ -324,7 +340,9 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             instances1 = await allocate_jobs_to_instances(
                 instance_registrar,
                 AllocCloudInstancesInternal(
-                    1, 0.5, 15, 1, instance_registrar.get_region_name()
+                    Resources.from_cpu_and_memory(1, 0.5, 15),
+                    1,
+                    instance_registrar.get_region_name(),
                 ),
             )
             assert len(instances1) == 1
@@ -333,7 +351,9 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             instances2 = await allocate_jobs_to_instances(
                 instance_registrar,
                 AllocCloudInstancesInternal(
-                    1, 0.5, 15, 1, instance_registrar.get_region_name()
+                    Resources.from_cpu_and_memory(1, 0.5, 15),
+                    1,
+                    instance_registrar.get_region_name(),
                 ),
             )
             assert len(instances2) == 1

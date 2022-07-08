@@ -255,7 +255,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             ((pid1, host1), (pid2, host2), (pid3, host3)) = results
 
             # These should all have ended up on different hosts
-            assert host1 != host2 and host2 != host3, f"{host1} {host2} {host3}"
+            assert host1 != host2 and host2 != host3
             instances = await instance_registrar.get_registered_instances()
             assert len(instances) == 3
             assert all(

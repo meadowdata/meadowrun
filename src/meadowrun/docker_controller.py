@@ -30,10 +30,13 @@ import json
 import tarfile
 import urllib.parse
 import urllib.request
-from typing import Tuple, Optional, List, Dict, Iterable, Any
+from typing import TYPE_CHECKING, Tuple, Optional, List, Dict, Iterable, Any
 
 from meadowrun._vendor import aiodocker
-from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+
+if TYPE_CHECKING:
+    from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+
 import aiohttp
 
 import meadowrun.credentials

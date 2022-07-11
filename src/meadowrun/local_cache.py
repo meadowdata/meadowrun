@@ -1,7 +1,7 @@
+import datetime
 import json
 import os
 import time
-import datetime
 from typing import Any, Optional
 
 from meadowrun._vendor.platformdirs import PlatformDirs

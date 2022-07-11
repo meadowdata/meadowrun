@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import datetime
 import os.path
 import time
+from typing import TYPE_CHECKING
 
 import meadowrun.aws_integration.aws_install_uninstall as aws
 import meadowrun.azure_integration.azure_install_uninstall as azure
@@ -48,7 +51,9 @@ from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     _deregister_and_terminate_vms,
     terminate_all_vms,
 )
-from meadowrun.run_job_core import CloudProviderType
+
+if TYPE_CHECKING:
+    from meadowrun.run_job_core import CloudProviderType
 
 
 def _strtobool(val: str) -> int:

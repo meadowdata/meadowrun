@@ -1,4 +1,5 @@
 """See grid_tasks_sqs.py"""
+from __future__ import annotations
 
 import asyncio
 import dataclasses
@@ -10,6 +11,7 @@ import time
 import traceback
 import uuid
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Iterable,
@@ -44,7 +46,9 @@ from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     _RESULT_QUEUE_NAME_PREFIX,
 )
 from meadowrun.instance_allocation import allocate_jobs_to_instances
-from meadowrun.instance_selection import Resources
+
+if TYPE_CHECKING:
+    from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
 from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
 from meadowrun.shared import pickle_exception

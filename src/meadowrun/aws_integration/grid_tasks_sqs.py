@@ -8,6 +8,7 @@ import pickle
 import traceback
 import uuid
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Iterable,
@@ -34,7 +35,9 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG_VALUE,
 )
 from meadowrun.instance_allocation import allocate_jobs_to_instances
-from meadowrun.instance_selection import Resources
+
+if TYPE_CHECKING:
+    from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import GridTask, ProcessState, GridTaskStateResponse
 from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
 from meadowrun.shared import pickle_exception

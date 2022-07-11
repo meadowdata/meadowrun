@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import os
 import pickle
-from typing import Any, Dict, Optional, Tuple, Union
-from typing_extensions import Literal, Final
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal, Final
 
 _UNINITIALIZED: Final = "__UNINITIALIZED__"
 

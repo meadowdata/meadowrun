@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import asyncio
-from typing import Awaitable
-from typing_extensions import Final
+from typing import TYPE_CHECKING, Awaitable
+
+if TYPE_CHECKING:
+    from typing_extensions import Final
 
 from meadowrun.azure_integration import blob_storage
 from meadowrun.azure_integration.azure_mgmt_functions_setup import (

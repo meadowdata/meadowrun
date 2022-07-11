@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import urllib.parse
-from typing import Optional, Tuple, List, Any
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Optional, Tuple, List, Any
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
 import aiohttp
 

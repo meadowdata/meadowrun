@@ -14,6 +14,7 @@ import urllib.parse
 import uuid
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Coroutine,
@@ -48,12 +49,14 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
 from meadowrun.conda import env_export, try_get_current_conda_env
 from meadowrun.config import JOB_ID_VALID_CHARACTERS, MEADOWRUN_INTERPRETER
 from meadowrun.credentials import CredentialsSourceForService, CredentialsService
-from meadowrun.deployment import (
-    CodeDeployment,
-    InterpreterDeployment,
-    VersionedCodeDeployment,
-    VersionedInterpreterDeployment,
-)
+
+if TYPE_CHECKING:
+    from meadowrun.deployment import (
+        CodeDeployment,
+        InterpreterDeployment,
+        VersionedCodeDeployment,
+        VersionedInterpreterDeployment,
+    )
 from meadowrun.docker_controller import get_registry_domain
 from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import (

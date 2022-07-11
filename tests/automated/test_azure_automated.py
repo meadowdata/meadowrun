@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import datetime
+from typing import TYPE_CHECKING
 
 import meadowrun.ssh as ssh
 
@@ -24,7 +27,9 @@ from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     terminate_all_vms,
 )
 from meadowrun.run_job import AllocCloudInstance
-from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
+
+if TYPE_CHECKING:
+    from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
 
 
 class AzureHostProvider(HostProvider):

@@ -15,3 +15,6 @@ exclude=
     # vendorized code
     src/meadowrun/_vendor
     dist
+
+# for flake8-type-checking
+enable-extensions = TC, TC1

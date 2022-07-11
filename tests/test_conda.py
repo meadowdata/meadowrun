@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import json
 import os
+from typing import TYPE_CHECKING
 import pytest
-from pytest_mock import MockerFixture
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 from meadowrun import conda
 
 pytestmark = pytest.mark.skipif(

@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import re
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import boto3
 
-from meadowrun.instance_selection import OnDemandOrSpotType
+if TYPE_CHECKING:
+    from meadowrun.instance_selection import OnDemandOrSpotType
 
 
 # data manually copied from

@@ -8,6 +8,7 @@ import asyncio
 import dataclasses
 import pickle
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -26,8 +27,10 @@ import asyncssh
 from typing_extensions import Literal
 
 import meadowrun.ssh as ssh
-from meadowrun.credentials import UsernamePassword
-from meadowrun.instance_selection import Resources
+
+if TYPE_CHECKING:
+    from meadowrun.credentials import UsernamePassword
+    from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 
 _T = TypeVar("_T")

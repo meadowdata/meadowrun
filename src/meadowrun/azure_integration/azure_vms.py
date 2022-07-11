@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Optional, Tuple, Sequence, Awaitable, Any, Dict
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Optional, Tuple, Sequence, Awaitable, Any, Dict
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
 from meadowrun.azure_integration.azure_meadowrun_core import (
     _ensure_managed_identity,

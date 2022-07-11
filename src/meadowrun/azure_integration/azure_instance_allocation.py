@@ -3,9 +3,11 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import json
-from types import TracebackType
-from typing import Tuple, List, Optional, Sequence, Type, Any, Iterable
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Sequence, Tuple, Type
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
+    from types import TracebackType
 
 import meadowrun.azure_integration.azure_vms
 from meadowrun.azure_integration.azure_meadowrun_core import (
@@ -13,6 +15,16 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.azure_integration.mgmt_functions.azure_constants import (
+    ALLOCATED_TIME,
+    LAST_UPDATE_TIME,
+    NON_CONSUMABLE_RESOURCES,
+    RESOURCES_ALLOCATED,
+    RESOURCES_AVAILABLE,
+    RUNNING_JOBS,
+    SINGLE_PARTITION_KEY,
+    VM_NAME,
+)
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     ResourceExistsError,
     ResourceModifiedError,
@@ -24,16 +36,6 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
     azure_table_api_paged,
     table_key_url,
 )
-from meadowrun.azure_integration.mgmt_functions.azure_constants import (
-    ALLOCATED_TIME,
-    LAST_UPDATE_TIME,
-    NON_CONSUMABLE_RESOURCES,
-    RESOURCES_ALLOCATED,
-    RESOURCES_AVAILABLE,
-    RUNNING_JOBS,
-    SINGLE_PARTITION_KEY,
-    VM_NAME,
-)
 from meadowrun.azure_integration.mgmt_functions.vm_adjust import VM_ALLOC_TABLE_NAME
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
@@ -41,8 +43,11 @@ from meadowrun.instance_allocation import (
     _TInstanceState,
     allocate_jobs_to_instances,
 )
-from meadowrun.instance_selection import Resources, CloudInstance
-from meadowrun.meadowrun_pb2 import Job
+from meadowrun.instance_selection import CloudInstance, Resources
+
+if TYPE_CHECKING:
+    from meadowrun.meadowrun_pb2 import Job
+
 from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, SshHost
 
 

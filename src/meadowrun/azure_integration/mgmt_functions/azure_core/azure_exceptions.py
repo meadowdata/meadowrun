@@ -1,8 +1,11 @@
-import xml.dom.minidom
-from typing import Iterable, Optional, Any, Tuple, Type
+from __future__ import annotations
 
-import aiohttp
-import requests
+import xml.dom.minidom
+from typing import TYPE_CHECKING, Any, Iterable, Optional, Tuple, Type
+
+if TYPE_CHECKING:
+    import aiohttp
+    import requests
 
 
 class AzureRestApiError(Exception):

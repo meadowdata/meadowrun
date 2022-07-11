@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional, Tuple, Set
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Optional, Tuple, Set
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
 import aiohttp
 

@@ -7,11 +7,12 @@ should not refer to any outside code
 """
 from __future__ import annotations
 
-from typing import Callable, Tuple, TypeVar, Union, Set, overload
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Callable, Set, Tuple, TypeVar, Union, overload
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
 import botocore.exceptions
-
 
 _T = TypeVar("_T")
 

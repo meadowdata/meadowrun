@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 These tests require an AWS account to be set up, but don't require any manual
 intervention beyond some initial setup. Also, these tests create instances (which cost
@@ -9,6 +11,7 @@ import asyncio
 import datetime
 import pprint
 import threading
+from typing import TYPE_CHECKING
 import uuid
 
 import boto3
@@ -44,7 +47,9 @@ from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import choose_instance_types_for_job, Resources
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job import AllocCloudInstance
-from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
+
+if TYPE_CHECKING:
+    from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
 
 # TODO don't always run tests in us-east-2
 REGION = "us-east-2"

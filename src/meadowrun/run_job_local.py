@@ -12,6 +12,7 @@ import shutil
 import sys
 import traceback
 from typing import (
+    TYPE_CHECKING,
     Any,
     Coroutine,
     Dict,
@@ -22,10 +23,12 @@ from typing import (
     Tuple,
 )
 
-from typing_extensions import Literal
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
-from meadowrun._vendor import aiodocker
-from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+    from meadowrun._vendor import aiodocker
+    from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
     MEADOWRUN_CODE_MOUNT_LINUX,

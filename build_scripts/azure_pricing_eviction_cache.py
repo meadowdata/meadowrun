@@ -10,12 +10,16 @@
 # inspector's network tab, search for "getSpotEvictionRatesMemoized" in one of the
 # calls to https://management.azure.com/batch?api-version=2020-06-01 > Copy the
 # response for that request into <location>-eviction.json
+from __future__ import annotations
+
 import asyncio
 import json
-from typing import Tuple, Optional, List, Dict
+from typing import TYPE_CHECKING, Tuple, Optional, List, Dict
 
 from meadowrun.azure_integration.azure_vm_pricing import _get_vm_prices
-from meadowrun.instance_selection import OnDemandOrSpotType
+
+if TYPE_CHECKING:
+    from meadowrun.instance_selection import OnDemandOrSpotType
 
 
 def _try_parse_int(s: str) -> Optional[int]:

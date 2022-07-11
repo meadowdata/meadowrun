@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import asyncio.subprocess
 import datetime
 import logging
-from typing import Optional, Dict, Any, ItemsView, Union, Iterable, Tuple
+from typing import TYPE_CHECKING, Optional, Dict, Any, ItemsView, Union, Iterable, Tuple
 
 import psutil
 
@@ -18,7 +20,9 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_current_ip_address_on_vm,
 )
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
-from meadowrun.instance_allocation import InstanceRegistrar
+
+if TYPE_CHECKING:
+    from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.run_job_core import CloudProvider, CloudProviderType
 from meadowrun.run_job_local import _get_default_working_folder
 

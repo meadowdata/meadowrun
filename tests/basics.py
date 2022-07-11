@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import abc
 import os
 import sys
-from typing import Union, Callable, Tuple
+from typing import TYPE_CHECKING, Union, Callable, Tuple
 
 import pytest
 
@@ -19,12 +21,14 @@ from meadowrun import (
     run_map,
 )
 from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.deployment import (
-    CodeDeployment,
-    InterpreterDeployment,
-    VersionedCodeDeployment,
-    VersionedInterpreterDeployment,
-)
+
+if TYPE_CHECKING:
+    from meadowrun.deployment import (
+        CodeDeployment,
+        InterpreterDeployment,
+        VersionedCodeDeployment,
+        VersionedInterpreterDeployment,
+    )
 from meadowrun.meadowrun_pb2 import (
     ContainerAtDigest,
     ContainerAtTag,

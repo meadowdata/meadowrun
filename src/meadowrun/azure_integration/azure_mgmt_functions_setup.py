@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import asyncio
 import io
 import os
 import time
 import zipfile
-from typing import Tuple, Callable, Awaitable, TypeVar, Union, Type
+from typing import TYPE_CHECKING, Tuple, Callable, Awaitable, TypeVar, Union, Type
 
 import aiohttp
 
@@ -22,9 +24,11 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
     azure_rest_api_poll,
     wait_for_poll,
 )
-from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (
-    StorageAccount,
-)
+
+if TYPE_CHECKING:
+    from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (  # noqa: E501
+        StorageAccount,
+    )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_STORAGE_ACCOUNT_KEY_VARIABLE,
     MEADOWRUN_STORAGE_ACCOUNT_VARIABLE,

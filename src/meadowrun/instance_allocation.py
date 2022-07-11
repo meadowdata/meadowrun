@@ -4,8 +4,8 @@ import abc
 import asyncio
 import dataclasses
 import uuid
-from types import TracebackType
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generic,
@@ -25,7 +25,10 @@ from meadowrun.instance_selection import (
     remaining_resources_sort_key,
 )
 from meadowrun.shared import assert_is_not_none
-from meadowrun.run_job_core import AllocCloudInstancesInternal
+
+if TYPE_CHECKING:
+    from types import TracebackType
+    from meadowrun.run_job_core import AllocCloudInstancesInternal
 
 
 @dataclasses.dataclass

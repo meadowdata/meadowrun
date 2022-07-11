@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 These tests should (mostly) not require an internet connection and not require any
 manual intervention beyond some initial setup.
@@ -5,6 +7,7 @@ manual intervention beyond some initial setup.
 
 
 import pathlib
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -17,7 +20,9 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableInterpreter,
 )
 from meadowrun.run_job import run_command, Deployment
-from meadowrun.run_job_core import Host, JobCompletion
+
+if TYPE_CHECKING:
+    from meadowrun.run_job_core import Host, JobCompletion
 from meadowrun.run_job_local import LocalHost
 
 EXAMPLE_CODE = str(

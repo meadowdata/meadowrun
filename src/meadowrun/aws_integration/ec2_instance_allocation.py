@@ -4,9 +4,21 @@ import asyncio
 import datetime
 import decimal
 import itertools
-from types import TracebackType
-from typing import List, Tuple, Any, Dict, Sequence, Optional, Type, Iterable
-from typing_extensions import Literal
+from typing import (
+    TYPE_CHECKING,
+    List,
+    Tuple,
+    Any,
+    Dict,
+    Sequence,
+    Optional,
+    Type,
+    Iterable,
+)
+
+if TYPE_CHECKING:
+    from types import TracebackType
+    from typing_extensions import Literal
 
 import boto3
 
@@ -43,7 +55,9 @@ from meadowrun.instance_allocation import (
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import Resources, CloudInstance
-from meadowrun.meadowrun_pb2 import Job
+
+if TYPE_CHECKING:
+    from meadowrun.meadowrun_pb2 import Job
 from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, SshHost
 
 # SEE ALSO ec2_alloc_stub.py

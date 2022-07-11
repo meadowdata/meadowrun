@@ -1,9 +1,23 @@
 """Tests allocate_jobs_to_instances using fake data"""
+from __future__ import annotations
+
+import datetime
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+)
 
 import pytest
-import datetime
-from types import TracebackType
-from typing import Type, Tuple, List, Sequence, Optional, Dict, Any, Iterable
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
@@ -12,10 +26,10 @@ from meadowrun.instance_allocation import (
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import (
-    Resources,
     CloudInstance,
-    choose_instance_types_for_job,
     CloudInstanceType,
+    Resources,
+    choose_instance_types_for_job,
 )
 from meadowrun.run_job_core import AllocCloudInstancesInternal
 

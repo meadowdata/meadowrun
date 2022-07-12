@@ -280,4 +280,4 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unexpected type {args.type}")
 
-    asyncio.run(build_meadowrun_ami(base_ami, new_ami_name, ami_type))
+    asyncio.run(build_meadowrun_ami(base_ami, new_ami_name, args.type))

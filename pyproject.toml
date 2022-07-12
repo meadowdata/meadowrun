@@ -65,7 +65,7 @@ addopts = "-v --strict-markers --durations=10"
 asyncio_mode="auto"
 
 [tool.mypy]
-files = "src,tests"
+files = "src,tests,build_scripts"
 
 show_column_numbers = true
 show_error_codes = true

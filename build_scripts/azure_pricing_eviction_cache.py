@@ -12,9 +12,10 @@
 # response for that request into <location>-eviction.json
 import asyncio
 import json
-from typing import Iterable, Tuple, Optional
+from typing import Tuple, Optional, List, Dict
 
 from meadowrun.azure_integration.azure_vm_pricing import _get_vm_prices
+from meadowrun.instance_selection import OnDemandOrSpotType
 
 
 def _try_parse_int(s: str) -> Optional[int]:
@@ -37,19 +38,19 @@ def _interpret_eviction_rate(rate: str) -> Optional[float]:
     # if that didn't work, try to interpret strings like 20+ by interpreting it as
     # 20-100 and taking the average
     if rate.endswith("+"):
-        a = _try_parse_int(rate[:-1])
-        if a is not None:
-            return (a + 100) / 2
+        a_optional_int = _try_parse_int(rate[:-1])
+        if a_optional_int is not None:
+            return (a_optional_int + 100) / 2
 
     # we don't know how to interpret
     return None
 
 
-def _parse_json_for_eviction_rates(location: str) -> Iterable[Tuple[str, str]]:
+def _parse_json_for_eviction_rates(location: str) -> Dict[str, Optional[float]]:
     with open(f"{location}-eviction.json", "r", encoding="utf-8") as f:
         responses = json.load(f)
 
-    result = {}
+    result: Dict[str, Optional[float]] = {}
 
     for response in responses["responses"]:
         if "data" in response["content"]:
@@ -72,8 +73,10 @@ def _parse_json_for_eviction_rates(location: str) -> Iterable[Tuple[str, str]]:
 
 
 async def create_prices_eviction_json(location: str) -> None:
-    eviction_rates = dict(_parse_json_for_eviction_rates(location))
-    result = []
+    eviction_rates = _parse_json_for_eviction_rates(location)
+    result: List[
+        Tuple[Tuple[str, OnDemandOrSpotType], Tuple[float, Optional[float]]]
+    ] = []
     num_spot_rates_found = 0
     total_instance_types = 0
     for (name, on_demand_or_spot), price in (await _get_vm_prices(location)).items():

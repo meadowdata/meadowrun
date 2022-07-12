@@ -141,7 +141,7 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
         if "intel" in physical_processor:
             processor_brand = "intel"
         elif "amd" in physical_processor:
-            processor_brand = "amd"
+            processor_brand = "amd_cpu"
         elif "aws graviton" in physical_processor:
             processor_brand = "graviton"
         else:
@@ -235,6 +235,13 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
                     f"Warning, not including gpu resources for {instance_type} because "
                     f"gpu isn't a number: {attributes['gpu']}"
                 )
+            else:
+                # If we have a GPU, we should label what kind of GPU we have. All EC2
+                # instance types have nvidia GPUs except for the g4ad family
+                if instance_type.lower().startswith("g4ad"):
+                    non_consumable_resources["amd_gpu"] = 1.0
+                else:
+                    non_consumable_resources["nvidia"] = 1.0
 
         avx_version = AvxVersion.NONE
         for feature in attributes.get("processorFeatures", "").split("; "):

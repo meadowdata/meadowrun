@@ -244,7 +244,7 @@ async def launch_ec2_instance(
                 "DeviceName": "/dev/sda1",
                 "Ebs": {
                     "DeleteOnTermination": True,
-                    "VolumeSize": 16,
+                    "VolumeSize": 100,
                     "VolumeType": "gp2",
                 },
             }

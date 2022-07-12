@@ -86,7 +86,7 @@ class SshHost(Host):
             lambda: ssh.connect(
                 self.address, username=self.username, private_key=self.private_key
             ),
-            (TimeoutError, ConnectionRefusedError),
+            (TimeoutError, ConnectionRefusedError, OSError),
             max_num_attempts=20,
         )
 

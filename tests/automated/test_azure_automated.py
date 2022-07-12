@@ -1,7 +1,6 @@
 import datetime
-import io
 
-import fabric
+import meadowrun.ssh as ssh
 
 from basics import HostProvider, BasicsSuite, MapSuite, ErrorsSuite
 from instance_registrar_suite import (
@@ -39,14 +38,12 @@ class AzureHostProvider(HostProvider):
 
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         private_key, public_key = await ensure_meadowrun_key_pair("eastus")
-        with fabric.Connection(
+        async with ssh.connect(
             job_completion.public_address,
-            user="meadowrunuser",
-            connect_kwargs={"pkey": private_key},
+            username="meadowrunuser",
+            private_key=private_key,
         ) as conn:
-            with io.BytesIO() as local_copy:
-                conn.get(job_completion.log_file_name, local_copy)
-                return local_copy.getvalue().decode("utf-8")
+            return await ssh.read_text_from_file(conn, job_completion.log_file_name)
 
 
 class TestBasicsAzure(AzureHostProvider, BasicsSuite):

@@ -112,20 +112,21 @@ import subprocess
 import time
 
 import boto3
-import fabric
-
-from build_image_shared import upload_and_configure_meadowrun
+from meadowrun.ssh import connect
 from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER
 from meadowrun.aws_integration.ec2 import (
     authorize_current_ip_helper,
     get_ssh_security_group_id,
     launch_ec2_instance,
 )
+from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     get_meadowrun_ssh_key,
 )
+from meadowrun.run_job_core import _retry
+
+from build_image_shared import upload_and_configure_meadowrun
 
 _BASE_AMI = "ami-01344892e448f48c2"
 _NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
@@ -177,11 +178,17 @@ async def build_meadowrun_ami():
 
     await authorize_current_ip_helper(region_name)
 
-    with fabric.Connection(
-        public_address,
-        user=SSH_USER,
-        connect_kwargs={"pkey": pkey},
-    ) as connection:
+    connection = await _retry(
+        lambda: connect(
+            public_address,
+            username=SSH_USER,
+            private_key=pkey,
+        ),
+        (TimeoutError, ConnectionRefusedError),
+        max_num_attempts=20,
+    )
+
+    async with connection:
         await upload_and_configure_meadowrun(connection, version, package_root_dir)
 
     # get the instance id of our EC2 instance

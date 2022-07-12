@@ -4,12 +4,12 @@ import asyncio
 import os.path
 import subprocess
 
-import fabric
-
-from build_image_shared import upload_and_configure_meadowrun
 from meadowrun.azure_integration.azure_meadowrun_core import get_default_location
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.azure_integration.azure_vms import _provision_vm
+from meadowrun.ssh import connect
+
+from build_image_shared import upload_and_configure_meadowrun
 
 _BASE_IMAGE = (
     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/resourceGroups/meadowrun-dev/"
@@ -41,10 +41,10 @@ async def build_meadowrun_azure_image():
     )
     print(f"Launched VM {ip_address}")
 
-    with fabric.Connection(
+    async with connect(
         ip_address,
-        user="meadowrunuser",
-        connect_kwargs={"pkey": private_key},
+        username="meadowrunuser",
+        private_key=private_key,
     ) as connection:
         await upload_and_configure_meadowrun(connection, version, package_root_dir)
 

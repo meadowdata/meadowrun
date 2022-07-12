@@ -443,9 +443,10 @@ async def prepare_ec2_run_map(
     return RunMapHelper(
         region_name,
         allocated_hosts,
-        functools.partial(
+        worker_function=functools.partial(
             worker_loop, function, request_queue, result_queue, region_name
         ),
-        {"user": SSH_USER, "connect_kwargs": {"pkey": pkey}},
-        get_results(result_queue, region_name, len(tasks)),
+        ssh_username=SSH_USER,
+        ssh_private_key=pkey,
+        results_future=get_results(result_queue, region_name, len(tasks)),
     )

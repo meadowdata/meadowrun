@@ -4,7 +4,7 @@ import dataclasses
 import datetime
 import json
 from types import TracebackType
-from typing import Tuple, List, Optional, Sequence, Type, Any, Dict
+from typing import Tuple, List, Optional, Sequence, Type, Any
 from typing_extensions import Literal
 
 import meadowrun.azure_integration.azure_vms
@@ -358,11 +358,6 @@ async def run_job_azure_vm_instance_registrar(
             ),
         )
 
-    fabric_kwargs: Dict[str, Any] = {
-        "user": "meadowrunuser",
-        "connect_kwargs": {"pkey": pkey},
-    }
-
     if len(hosts) != 1:
         raise ValueError(f"Asked for one host, but got back {len(hosts)}")
     host, job_ids = list(hosts.items())[0]
@@ -373,4 +368,6 @@ async def run_job_azure_vm_instance_registrar(
     # remains mostly an internal concept
     job.job_id = job_ids[0]
 
-    return await SshHost(host, fabric_kwargs, ("AzureVM", location)).run_job(job)
+    return await SshHost(host, "meadowrunuser", pkey, ("AzureVM", location)).run_job(
+        job
+    )

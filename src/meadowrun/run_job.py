@@ -1118,7 +1118,8 @@ async def run_map(
                 asyncio.create_task(
                     SshHost(
                         public_address,
-                        helper.fabric_kwargs,
+                        helper.ssh_username,
+                        helper.ssh_private_key,
                         (hosts.cloud_provider, helper.region_name),
                     ).run_job(job)
                 )

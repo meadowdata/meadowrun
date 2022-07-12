@@ -225,7 +225,7 @@ async def build_meadowrun_ami(
             username=SSH_USER,
             private_key=pkey,
         ),
-        (TimeoutError, ConnectionRefusedError),
+        (TimeoutError, ConnectionRefusedError, OSError),
         max_num_attempts=20,
     )
 

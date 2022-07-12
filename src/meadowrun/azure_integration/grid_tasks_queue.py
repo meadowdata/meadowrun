@@ -319,10 +319,10 @@ async def prepare_azure_vm_run_map(
     return RunMapHelper(
         location,
         allocated_hosts,
-        functools.partial(worker_loop, function, request_queue, result_queue),
-        {
-            "user": "meadowrunuser",
-            "connect_kwargs": {"pkey": private_key},
-        },
-        get_results(result_queue, len(tasks), location),
+        worker_function=functools.partial(
+            worker_loop, function, request_queue, result_queue
+        ),
+        ssh_username="meadowrunuser",
+        ssh_private_key=private_key,
+        results_future=get_results(result_queue, len(tasks), location),
     )

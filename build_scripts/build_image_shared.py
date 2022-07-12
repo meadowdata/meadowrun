@@ -1,47 +1,42 @@
 import os
-import io
-from typing import Optional, cast
+from typing import Optional
 
-import fabric
-import paramiko.ssh_exception
-
-from meadowrun.run_job_core import _retry
+import asyncssh
+from meadowrun.ssh import run_and_print, write_text_to_file, upload_file
 
 
 async def upload_and_configure_meadowrun(
-    connection: fabric.Connection,
+    connection: asyncssh.SSHClientConnection,
     version: str,
     package_root_dir: str,
     pre_command: Optional[str] = None,
 ) -> None:
-    # retry with a no-op until we've established a connection
-    await _retry(
-        lambda: connection.run("echo $HOME"),
-        (
-            cast(Exception, paramiko.ssh_exception.NoValidConnectionsError),
-            cast(Exception, TimeoutError),
-        ),
-    )
 
     if pre_command:
-        connection.run(pre_command)
+        await connection.run(pre_command, check=True)
 
     # install the meadowrun package
-    connection.put(
+    await upload_file(
+        connection,
         os.path.join(package_root_dir, "dist", f"meadowrun-{version}-py3-none-any.whl"),
         "/var/meadowrun/",
     )
-    connection.run(
+    await run_and_print(
+        connection,
         "source /var/meadowrun/env/bin/activate "
-        f"&& pip install /var/meadowrun/meadowrun-{version}-py3-none-any.whl"
+        f"&& pip install /var/meadowrun/meadowrun-{version}-py3-none-any.whl",
     )
-    connection.run(f"rm /var/meadowrun/meadowrun-{version}-py3-none-any.whl")
+    await run_and_print(
+        connection,
+        f"rm /var/meadowrun/meadowrun-{version}-py3-none-any.whl",
+    )
 
     # compile the meadowrun env to pyc - this reduces initial startup time
-    connection.run(
+    await run_and_print(
+        connection,
         "/var/meadowrun/env/bin/python -m compileall /var/meadowrun/env/lib",
         # returns non-zero if syntax errors are found, but compiles most files anyway
-        warn=True,
+        check=False,
     )
 
     # set deallocate_jobs to run from crontab
@@ -50,7 +45,12 @@ async def upload_and_configure_meadowrun(
         "--cloud EC2 --cloud-region-name default "
         ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
     )
-    with io.StringIO(crontab_line) as sio:
-        connection.put(sio, "/var/meadowrun/meadowrun_crontab")
-    connection.run("crontab < /var/meadowrun/meadowrun_crontab")
-    connection.run("rm /var/meadowrun/meadowrun_crontab")
+    await write_text_to_file(
+        connection, crontab_line, "/var/meadowrun/meadowrun_crontab"
+    )
+
+    await run_and_print(
+        connection,
+        "crontab < /var/meadowrun/meadowrun_crontab",
+    )
+    await run_and_print(connection, "rm /var/meadowrun/meadowrun_crontab")

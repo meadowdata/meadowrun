@@ -400,11 +400,6 @@ async def run_job_ec2_instance_registrar(
             ),
         )
 
-    fabric_kwargs: Dict[str, Any] = {
-        "user": SSH_USER,
-        "connect_kwargs": {"pkey": pkey},
-    }
-
     if len(hosts) != 1:
         raise ValueError(f"Asked for one host, but got back {len(hosts)}")
     host, job_ids = list(hosts.items())[0]
@@ -415,4 +410,4 @@ async def run_job_ec2_instance_registrar(
     # remains mostly an internal concept
     job.job_id = job_ids[0]
 
-    return await SshHost(host, fabric_kwargs, ("EC2", region_name)).run_job(job)
+    return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_job(job)

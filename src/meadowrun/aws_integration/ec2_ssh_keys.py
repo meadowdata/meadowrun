@@ -1,7 +1,6 @@
-import io
+import asyncssh
 
 import boto3
-import paramiko
 
 from meadowrun.aws_integration.aws_core import wrap_access_or_install_errors
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
@@ -89,14 +88,13 @@ def _get_meadowrun_ssh_key_text(region_name: str) -> str:
     return secret_result["SecretString"]
 
 
-def get_meadowrun_ssh_key(region_name: str) -> paramiko.PKey:
+def get_meadowrun_ssh_key(region_name: str) -> asyncssh.SSHKey:
     """
     and returns a paramiko.PKey that is compatible with that EC2 key pair and can be
     passed to paramiko.connect(pkey=pkey).
     """
     private_key_text = _get_meadowrun_ssh_key_text(region_name)
-    with io.StringIO(private_key_text) as s:
-        return paramiko.RSAKey(file_obj=s)
+    return asyncssh.import_private_key(private_key_text)
 
 
 def download_ssh_key(output_path: str, region_name: str) -> None:

@@ -1,8 +1,7 @@
 import asyncio
-import io
 from typing import Tuple, Optional
 
-import paramiko
+import asyncssh
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
@@ -123,10 +122,10 @@ async def _ensure_meadowrun_vault(location: str) -> str:
         return vault["properties"]["vaultUri"]
 
 
-_private_key: Optional[paramiko.RSAKey] = None
+_private_key: Optional[asyncssh.SSHKey] = None
 
 
-async def ensure_meadowrun_key_pair(location: str) -> Tuple[paramiko.PKey, str]:
+async def ensure_meadowrun_key_pair(location: str) -> Tuple[asyncssh.SSHKey, str]:
     """
     Makes sure that a private key is stored in a Key Vault secret. If it does not exist,
     creates a fresh private key and uploads it.
@@ -182,10 +181,9 @@ async def ensure_meadowrun_key_pair(location: str) -> Tuple[paramiko.PKey, str]:
                 json_content={"value": private_key_text},
             )
 
-        with io.StringIO(private_key_text) as s:
-            _private_key = paramiko.RSAKey(file_obj=s)
+        _private_key = asyncssh.import_private_key(private_key_text)
 
-    rsa_key = _private_key.key
+    rsa_key = _private_key.pyca_key
     if not isinstance(rsa_key, RSAPrivateKey):
         raise ValueError(
             "Private key text is bad, the resulting RSAKey.key is of type "

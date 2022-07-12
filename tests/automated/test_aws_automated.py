@@ -7,14 +7,14 @@ clean` needs to be run periodically
 
 import asyncio
 import datetime
-import io
 import pprint
 import threading
 import uuid
 
 import boto3
-import fabric
+
 import pytest
+from meadowrun import ssh
 
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
@@ -57,14 +57,12 @@ class AwsHostProvider(HostProvider):
         return "https://github.com/meadowdata/test_repo"
 
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
-        with fabric.Connection(
+        async with ssh.connect(
             job_completion.public_address,
-            user=SSH_USER,
-            connect_kwargs={"pkey": get_meadowrun_ssh_key(REGION)},
+            username=SSH_USER,
+            private_key=get_meadowrun_ssh_key(REGION),
         ) as conn:
-            with io.BytesIO() as local_copy:
-                conn.get(job_completion.log_file_name, local_copy)
-                return local_copy.getvalue().decode("utf-8")
+            return await ssh.read_text_from_file(conn, job_completion.log_file_name)
 
 
 class TestBasicsAws(AwsHostProvider, BasicsSuite):

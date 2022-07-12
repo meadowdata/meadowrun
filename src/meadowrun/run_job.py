@@ -770,6 +770,7 @@ class AllocCloudInstance(Host):
             only on-demand instance are acceptable (i.e. do not use spot instances)
         cloud_provider: `EC2` or `AzureVM`
         gpus_required:
+        flags_required: E.g. "intel", "avx512", etc.
         region_name:
     """
 
@@ -778,6 +779,7 @@ class AllocCloudInstance(Host):
     interruption_probability_threshold: float
     cloud_provider: CloudProviderType
     gpus_required: Optional[float] = None
+    flags_required: Union[Iterable[str], str, None] = None
     region_name: Optional[str] = None
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
@@ -786,6 +788,7 @@ class AllocCloudInstance(Host):
             self.memory_gb_required,
             self.interruption_probability_threshold,
             self.gpus_required,
+            self.flags_required,
         )
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
@@ -817,6 +820,7 @@ class AllocCloudInstances:
             [AllocCloudInstance][meadowrun.AllocCloudInstance]
         cloud_provider: Either `EC2` or `AzureVM`
         gpus_required_per_task:
+        flags_required: e.g. "intel", "avx512", etc.
         num_concurrent_tasks: The number of workers to launch. In the context of a
             [run_map][meadowrun.run_map] call, this can be less than or equal to the
             number of args/tasks. Will default to half the total number of tasks if set
@@ -829,6 +833,7 @@ class AllocCloudInstances:
     interruption_probability_threshold: float
     cloud_provider: CloudProviderType
     gpus_required_per_task: Optional[float] = None
+    flags_required: Union[Iterable[str], str, None] = None
     num_concurrent_tasks: Optional[int] = None
     region_name: Optional[str] = None
 
@@ -1063,6 +1068,7 @@ async def run_map(
         hosts.memory_gb_required_per_task,
         hosts.interruption_probability_threshold,
         hosts.gpus_required_per_task,
+        hosts.flags_required,
     )
 
     if hosts.cloud_provider == "EC2":

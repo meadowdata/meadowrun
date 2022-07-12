@@ -4,15 +4,17 @@ import dataclasses
 import decimal
 import math
 import sys
-from typing import Any, Dict, Optional, Tuple, Iterable
+from typing import Any, Dict, Optional, Tuple, Iterable, Union
 
 from typing_extensions import Literal
 
 from meadowrun.config import (
+    AVX,
     GPU,
     INTERRUPTION_PROBABILITY_INVERSE,
     LOGICAL_CPU,
     MEMORY_GB,
+    avx_from_string,
 )
 
 ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
@@ -183,6 +185,7 @@ class Resources:
         memory_gb: float,
         interruption_probability: Optional[float] = None,
         gpus: Optional[float] = None,
+        flags_required: Union[Iterable[str], str, None] = None,
         *,
         other_consumables: Optional[Dict[str, float]] = None,
         other_non_consumables: Optional[Dict[str, float]] = None,
@@ -206,6 +209,16 @@ class Resources:
             non_consumables[INTERRUPTION_PROBABILITY_INVERSE] = (
                 100.0 - interruption_probability
             )
+
+        if flags_required is not None:
+            if isinstance(flags_required, str):
+                flags_required = (flags_required,)
+            for flag in flags_required:
+                avx_version = avx_from_string(flag)
+                if avx_version is not None:
+                    non_consumables[AVX] = float(avx_version)
+                else:
+                    non_consumables[flag] = 1.0
 
         return cls(consumables, non_consumables)
 

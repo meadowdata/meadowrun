@@ -45,16 +45,21 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 
 # AMIs that have meadowrun pre-installed. These are all identical, we just need to
 # replicate into each region.
-_EC2_ALLOC_AMIS = {
-    "us-east-2": "ami-03ef5e2fa1ff3e8c7",
-    "us-east-1": "ami-07eb3f5f0d7528aa2",
-    "us-west-1": "ami-018a31e052d1e1a0e",
-    "us-west-2": "ami-07d4a3ab5f97408a1",
-    "eu-central-1": "ami-09d497a6c352622e4",
-    "eu-west-1": "ami-00eb14c6e74b73d0c",
-    "eu-west-2": "ami-00bcfdae29cd067d4",
-    "eu-west-3": "ami-0acc373d53927f8e3",
-    "eu-north-1": "ami-09e2ff4f607d2eb4e",
+_AMIS = {
+    "plain": {
+        "us-east-2": "ami-066ad321a2c9bcc76",
+        "us-east-1": "ami-07eb3f5f0d7528aa2",
+        "us-west-1": "ami-018a31e052d1e1a0e",
+        "us-west-2": "ami-07d4a3ab5f97408a1",
+        "eu-central-1": "ami-09d497a6c352622e4",
+        "eu-west-1": "ami-00eb14c6e74b73d0c",
+        "eu-west-2": "ami-00bcfdae29cd067d4",
+        "eu-west-3": "ami-0acc373d53927f8e3",
+        "eu-north-1": "ami-09e2ff4f607d2eb4e",
+    },
+    "cuda": {
+        "us-east-2": "ami-051a05375446ca34d",
+    },
 }
 SSH_USER = "ubuntu"
 
@@ -339,13 +344,18 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def launch_instances(
         self, instances_spec: AllocCloudInstancesInternal
     ) -> Sequence[CloudInstance]:
-        if instances_spec.region_name not in _EC2_ALLOC_AMIS:
+        if "nvidia" in instances_spec.resources_required_per_task.non_consumable:
+            ami_type = "cuda"
+        else:
+            ami_type = "plain"
+
+        if instances_spec.region_name not in _AMIS[ami_type]:
             raise ValueError(
                 f"The meadowrun AMI is not available in {instances_spec.region_name}. "
                 "Please ask the meadowrun maintainers to add support for this region: "
                 "https://github.com/meadowdata/meadowrun/issues"
             )
-        ami = _EC2_ALLOC_AMIS[instances_spec.region_name]
+        ami = _AMIS[ami_type][instances_spec.region_name]
 
         return await launch_ec2_instances(
             instances_spec.resources_required_per_task,

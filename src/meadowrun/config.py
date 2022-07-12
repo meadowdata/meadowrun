@@ -1,6 +1,7 @@
 # TODO turn this into a real module that allows the user to specify configurations
 import enum
 import string
+from typing import Optional
 
 JOB_ID_VALID_CHARACTERS = set(string.ascii_letters + string.digits + "-_.")
 
@@ -32,6 +33,17 @@ class AvxVersion(enum.IntEnum):
     AVX = 1
     AVX2 = 2
     AVX512 = 3
+
+
+def avx_from_string(s: str) -> Optional[AvxVersion]:
+    s = s.upper()
+    if s != "NONE":
+        try:
+            return AvxVersion[s]
+        except Exception:
+            pass
+
+    return None
 
 
 # these are totally arbitrary values...

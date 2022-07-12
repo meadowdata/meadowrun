@@ -104,8 +104,48 @@ python3.9 --version
 Now, create an AMI from this image, naming it based on the versions that were actually
 installed, e.g. `ubuntu-20.04.3-docker-20.10.12-python-3.9.5`. This AMI won't actually
 be used for anything other than to build meadowrun AMIs.
+
+Ubuntu with CUDA
+----------------
+- Launch an EC2 instance using the latest ubuntu deep learning base AMI: ami-01e2c6319392b1b40
+- ssh into the instance: `ssh -i path/to/key.pem ubuntu@public-dns-of-instance`. The following instructions should be run on the EC2 instance.
+- [Upgrade Cuda](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=20.04&target_type=deb_network):
+```shell
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
+sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
+sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub
+sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
+sudo apt-get update
+sudo apt-get -y install cuda
+sudo apt-get -y install libcudnn8 libcudnn8-dev
+```
+- Install venv
+```
+sudo apt-get install -y python3.8-venv
+```
+- Prepare a virtualenv for meadowrun
+```shell
+sudo mkdir /var/meadowrun
+sudo chown ubuntu:ubuntu /var/meadowrun
+mkdir /var/meadowrun/env
+python3.9 -m venv /var/meadowrun/env
+
+source /var/meadowrun/env/bin/activate
+pip install wheel  # not sure why this is necessat-gry...
+```
+- Get the versions of everything we've installed:
+```shell
+nvcc --version  # cuda version
+lsb_release -a  # ubuntu version
+docker --version
+python3.9 --version
+```
+
+Now, create an AMI from this image, naming it based on the versions that were actually
+installed, e.g. `cuda11.7-ubuntu20.04.3-python-3.8.10`.
 """
 
+import argparse
 import asyncio
 import os.path
 import subprocess
@@ -129,11 +169,10 @@ from meadowrun.run_job_core import _retry
 
 from build_image_shared import upload_and_configure_meadowrun
 
-_BASE_AMI = "ami-01344892e448f48c2"
-_NEW_AMI_NAME = "meadowrun-ec2alloc-{}-ubuntu-20.04.3-docker-20.10.12-python-3.9.5"
 
-
-async def build_meadowrun_ami():
+async def build_meadowrun_ami(
+    base_ami_id: str, new_ami_name: str, ami_type: str
+) -> None:
     client = boto3.client("ec2")
 
     # get version
@@ -144,8 +183,8 @@ async def build_meadowrun_ami():
         ["poetry", "version", "--short"], capture_output=True, cwd=package_root_dir
     )
     version = result.stdout.strip().decode("utf-8")
-    new_ami_name = _NEW_AMI_NAME.format(version)
-    print(f"New AMI name is: {new_ami_name}")
+    new_ami_name = new_ami_name.format(version)
+    print(f"New AMI ({ami_type}) name is: {new_ami_name}")
 
     # deregister existing image with the same name:
     existing_images = client.describe_images(
@@ -169,7 +208,7 @@ async def build_meadowrun_ami():
         region_name,
         "t2.micro",
         "on_demand",
-        _BASE_AMI,
+        base_ami_id,
         [get_ssh_security_group_id(region_name)],
         key_name=MEADOWRUN_KEY_PAIR_NAME,
     )
@@ -202,7 +241,7 @@ async def build_meadowrun_ami():
     # create an image, and wait for it to become available
     result = client.create_image(InstanceId=instance_id, Name=new_ami_name)
     image_id = result["ImageId"]
-    print(f"New image id: {image_id}")
+    print(f"New image id ({ami_type}): {image_id}")
     while True:
         images = client.describe_images(ImageIds=[image_id])
         if images["Images"][0]["State"] != "pending":
@@ -219,7 +258,7 @@ async def build_meadowrun_ami():
     # now terminate the instance as we don't need it anymore
     client.terminate_instances(InstanceIds=[instance_id])
 
-    print(f"New image id: {image_id}")
+    print(f"New image id ({ami_type}): {image_id}")
     print(
         "After testing, you will need to replicate to other regions via "
         f"`python build_scripts\\replicate_ami.py replicate {image_id}`"
@@ -228,4 +267,17 @@ async def build_meadowrun_ami():
 
 
 if __name__ == "__main__":
-    asyncio.run(build_meadowrun_ami())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("type", choices=["plain", "cuda"])
+    args = parser.parse_args()
+
+    if args.type == "plain":
+        base_ami = "ami-01344892e448f48c2"
+        new_ami_name = "meadowrun{}-ubuntu20.04.3-docker20.10.12-python3.9.5"
+    elif args.type == "cuda":
+        base_ami = "ami-0be86e82d6fe9b085"
+        new_ami_name = "meadowrun{}-cuda11.7-ubuntu20.04.4-python3.8.10"
+    else:
+        raise ValueError(f"Unexpected type {args.type}")
+
+    asyncio.run(build_meadowrun_ami(base_ami, new_ami_name, ami_type))

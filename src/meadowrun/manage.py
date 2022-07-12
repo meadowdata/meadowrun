@@ -12,6 +12,7 @@ from meadowrun.aws_integration.aws_permissions_install import (
     grant_permission_to_secret,
 )
 from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER
+from meadowrun.aws_integration.ec2_pricing import clear_prices_cache
 from meadowrun.aws_integration.ec2_ssh_keys import (
     download_ssh_key as ec2_download_ssh_key,
 )
@@ -197,6 +198,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             if args.clean_active:
                 aws.terminate_all_instances(region_name, False)
             _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
+            clear_prices_cache()
         elif cloud_provider == "AzureVM":
             resource_group_path = await ensure_meadowrun_resource_group(region_name)
             storage_account = await ensure_meadowrun_storage_account(

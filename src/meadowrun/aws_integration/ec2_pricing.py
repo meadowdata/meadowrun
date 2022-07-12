@@ -20,7 +20,7 @@ from meadowrun.config import (
     MEMORY_GB,
 )
 from meadowrun.instance_selection import CloudInstanceType, Resources
-from meadowrun.local_cache import get_cached_json, save_json_to_cache
+from meadowrun.local_cache import get_cached_json, save_json_to_cache, clear_cache
 
 
 _CACHED_EC2_PRICES_FILENAME = "aws_ec2_prices.json"
@@ -373,3 +373,7 @@ async def _get_ec2_interruption_probabilities(region_name: str) -> Dict[str, flo
         instance_type: range_averages[values["r"]]
         for instance_type, values in data["spot_advisor"][region_name]["Linux"].items()
     }
+
+
+def clear_prices_cache() -> None:
+    clear_cache(_CACHED_EC2_PRICES_FILENAME)

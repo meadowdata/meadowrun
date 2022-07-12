@@ -33,6 +33,7 @@ from meadowrun.aws_integration.ec2 import (
     ensure_security_group,
 )
 from meadowrun.aws_integration.ec2_instance_allocation import ensure_ec2_alloc_table
+from meadowrun.aws_integration.ec2_pricing import clear_prices_cache
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
     _MEADOWRUN_KEY_PAIR_SECRET_NAME,
@@ -291,3 +292,5 @@ def delete_meadowrun_resources(region_name: str) -> None:
         ),
         "RepositoryNotFoundException",
     )
+
+    clear_prices_cache()

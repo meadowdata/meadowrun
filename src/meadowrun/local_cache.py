@@ -1,15 +1,16 @@
-from datetime import timedelta
 import json
 import os
 import time
+import datetime
 from typing import Any, Optional
+
 from meadowrun._vendor.platformdirs import PlatformDirs
 
 
 MEADOWRUN_DIRS = PlatformDirs(appname="meadowrun", appauthor=False)
 
 
-def get_cached_json(name: str, freshness: timedelta) -> Optional[Any]:
+def get_cached_json(name: str, freshness: datetime.timedelta) -> Optional[Any]:
     """Returns the cached JSON file from the standard cache dir,
     if it is not too old.
 
@@ -43,3 +44,10 @@ def save_json_to_cache(name: str, json_data: Any) -> None:
     file = os.path.join(MEADOWRUN_DIRS.user_cache_dir, name)
     with open(file, "w", encoding="utf-8") as f:
         json.dump(json_data, f)
+
+
+def clear_cache(name: str) -> None:
+    try:
+        os.remove(os.path.join(MEADOWRUN_DIRS.user_cache_dir, name))
+    except OSError:
+        pass

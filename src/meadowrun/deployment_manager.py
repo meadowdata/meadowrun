@@ -294,7 +294,7 @@ async def compile_environment_spec_to_container(
     TODO we should also consider creating conda environments locally rather than always
     making a container for them, that might be more efficient.
     """
-    path_to_spec, spec_hash = _get_path_and_hash(
+    path_to_spec, spec_hash, has_git_dependency = _get_path_and_hash(
         environment_spec, interpreter_spec_path
     )
 
@@ -343,17 +343,22 @@ async def compile_environment_spec_to_container(
     build_args = {}
     files_to_copy = []
     if environment_spec.environment_type == EnvironmentType.CONDA:
+        # TODO add support for has_git_dependency
         docker_file_name = "CondaDockerfile"
         spec_filename = os.path.basename(path_to_spec)
         build_args["ENV_FILE"] = spec_filename
         files_to_copy.append((path_to_spec, spec_filename))
     elif environment_spec.environment_type == EnvironmentType.PIP:
-        docker_file_name = "PipDockerfile"
+        if has_git_dependency:
+            docker_file_name = "PipGitDockerfile"
+        else:
+            docker_file_name = "PipDockerfile"
         spec_filename = os.path.basename(path_to_spec)
         build_args["ENV_FILE"] = spec_filename
         files_to_copy.append((path_to_spec, spec_filename))
         build_args["PYTHON_VERSION"] = environment_spec.python_version
     elif environment_spec.environment_type == EnvironmentType.POETRY:
+        # TODO add support for has_git_dependency
         docker_file_name = "PoetryDockerfile"
         build_args["PYTHON_VERSION"] = environment_spec.python_version
         files_to_copy.append(
@@ -388,14 +393,21 @@ async def compile_environment_spec_to_container(
     return result
 
 
+def _hash_spec(spec_contents: bytes) -> str:
+    # TODO better to exclude the name and prefix for conda yml files as those
+    # are ignored
+    return hashlib.blake2b(spec_contents, digest_size=64).hexdigest()
+
+
 def _get_path_and_hash(
     environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
     interpreter_spec_path: str,
-) -> Tuple[str, str]:
-    def hash_spec(it: bytes) -> str:
-        # TODO probably better to exclude the name and prefix in the file as those
-        # are ignored
-        return hashlib.blake2b(it, digest_size=64).hexdigest()
+) -> Tuple[str, str, bool]:
+    """
+    Returns path_to_spec, spec_hash, has_git_dependency. spec_hash is a hash that
+    uniquely identifies the environment. path_to_spec is used slightly differently for
+    each environment type's Dockerfile. has_git_dependency is also specific to each
+    """
 
     if isinstance(environment_spec, EnvironmentSpecInCode):
         # in this case, interpreter_spec_path is a path to the root of the place where
@@ -410,15 +422,22 @@ def _get_path_and_hash(
         else:
             file_to_hash = path_to_spec
         with open(file_to_hash, "rb") as spec:
-            spec_hash = hash_spec(spec.read())
-        return path_to_spec, spec_hash
+            spec_contents_bytes = spec.read()
+        return (
+            path_to_spec,
+            _hash_spec(spec_contents_bytes),
+            _has_git_dependency(
+                spec_contents_bytes.decode("utf-8"), environment_spec.environment_type
+            ),
+        )
     elif isinstance(environment_spec, EnvironmentSpec):
         # in this case, interpreter_spec_path is a path to where we save the spec for
         # later processing.
         if environment_spec.environment_type == EnvironmentType.POETRY:
             # for poetry, path_to_spec will be a folder that contains pyproject.toml and
             # poetry.lock
-            spec_hash = hash_spec(environment_spec.spec_lock.encode("UTF-8"))
+            spec_contents_str = environment_spec.spec_lock
+            spec_hash = _hash_spec(spec_contents_str.encode("UTF-8"))
             path_to_spec = os.path.join(interpreter_spec_path, spec_hash)
             os.makedirs(path_to_spec, exist_ok=True)
             with open(
@@ -430,7 +449,8 @@ def _get_path_and_hash(
             ) as lock_file:
                 lock_file.write(environment_spec.spec_lock)
         else:
-            spec_hash = hash_spec(environment_spec.spec.encode("UTF-8"))
+            spec_contents_str = environment_spec.spec_lock
+            spec_hash = _hash_spec(spec_contents_str.encode("UTF-8"))
 
             if environment_spec.environment_type == EnvironmentType.CONDA:
                 spec_filename = f"conda_env_spec_{spec_hash}.yml"
@@ -445,8 +465,22 @@ def _get_path_and_hash(
             with open(path_to_spec, "w", encoding="utf-8") as env_spec:
                 env_spec.write(environment_spec.spec)
 
-        return path_to_spec, spec_hash
+        return (
+            path_to_spec,
+            spec_hash,
+            _has_git_dependency(spec_contents_str, environment_spec.environment_type),
+        )
     else:
         raise ValueError(
             f"Unexpected type of environment_spec {type(environment_spec)}"
         )
+
+
+def _has_git_dependency(
+    spec_contents: str, environment_type: EnvironmentType.ValueType
+) -> bool:
+    # We just operate on bytes rather than decoding the string
+    if environment_type == EnvironmentType.PIP:
+        return any(line.startswith("git+") for line in spec_contents.splitlines())
+    else:
+        return False

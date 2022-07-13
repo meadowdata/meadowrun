@@ -113,6 +113,22 @@ _MEADOWRUN_POLICY_TEMPLATE = """{
             }
         },
 
+        # Get and edit instance attributes, for modifying security groups
+        {
+            "Sid": "ec2attributes",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstanceAttribute",
+                "ec2:ModifyInstanceAttribute"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "ForAllValues:StringEquals": {
+                    "aws:TagKeys": "%MEADOWRUN_TAG%"
+                }
+            }
+        },
+
         # Create EC2 instances with the meadowrun role
         {
             "Sid": "iamrole",
@@ -272,11 +288,17 @@ _AUTHORIZE_IPS_STATEMENT = """
         {
             "Sid": "authorizeips",
             "Effect": "Allow",
-            "Action": "ec2:AuthorizeSecurityGroupIngress",
-            "Resource": [
-                "arn:aws:ec2:*:%ACCOUNT_NUMBER%:security-group/%SECURITY_GROUP_ID%",
-                "arn:aws:ec2:*:%ACCOUNT_NUMBER%:security-group-rule/*"
-            ]
+            "Action": [
+                "ec2:AuthorizeSecurityGroupIngress",
+                "ec2:CreateSecurityGroup",
+                "ec2:CreateTags"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "ForAllValues:StringEquals": {
+                    "aws:TagKeys": "%MEADOWRUN_TAG%"
+                }
+            }
         },
 """
 

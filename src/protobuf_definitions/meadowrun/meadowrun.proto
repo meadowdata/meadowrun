@@ -216,6 +216,8 @@ message Job {
     }
 
     repeated CredentialsSourceMessage credentials_sources = 17;
+
+    repeated string ports = 20;
 }
 
 

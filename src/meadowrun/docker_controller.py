@@ -30,7 +30,7 @@ import json
 import tarfile
 import urllib.parse
 import urllib.request
-from typing import Tuple, Optional, List, Dict, Iterable
+from typing import Tuple, Optional, List, Dict, Iterable, Any
 
 from meadowrun._vendor import aiodocker
 from meadowrun._vendor.aiodocker import containers as aiodocker_containers
@@ -393,6 +393,7 @@ async def run_container(
     cmd: List[str],
     environment_variables: Dict[str, str],
     binds: List[Tuple[str, str]],
+    ports: List[str],
 ) -> Tuple[aiodocker_containers.DockerContainer, aiodocker.Docker]:
     """
     Runs a docker container. Examples of parameters:
@@ -419,28 +420,47 @@ async def run_container(
     # Now actually run the container. For documentation on the config object:
     # https://docs.docker.com/engine/api/v1.41/#operation/ContainerCreate
     client = await aiodocker.Docker().__aenter__()
-    container = await client.containers.run(
-        {
-            "Image": image,
-            "Cmd": cmd,
-            "Env": [f"{key}={value}" for key, value in environment_variables.items()],
-            "HostConfig": {
-                "Binds": [
-                    f"{path_on_host}:{path_in_container}"
-                    for path_on_host, path_in_container in binds
-                ],
-                # Docker for Windows and Mac automatically enable containers to access
-                # the host with host.docker.internal, but we need to add this flag for
-                # Linux machines to use this (not supported in Linux at all before
-                # Docker v20.10). This is mostly for tests, so we include it and it
-                # shouldn't cause problems even if it doesn't work. See more at
-                # agent._prepare_py_grid's discussion of replacing localhost for the
-                # coordinator address. Also:
-                # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
-                "ExtraHosts": ["host.docker.internal:host-gateway"],
-            },
+
+    config: Dict[str, Any] = {
+        "Image": image,
+        "Cmd": cmd,
+        "Env": [f"{key}={value}" for key, value in environment_variables.items()],
+        "HostConfig": {
+            "Binds": [
+                f"{path_on_host}:{path_in_container}"
+                for path_on_host, path_in_container in binds
+            ],
+            # Docker for Windows and Mac automatically enable containers to access the
+            # host with host.docker.internal, but we need to add this flag for Linux
+            # machines to use this (not supported in Linux at all before Docker v20.10).
+            # This is mostly for tests, so we include it and it shouldn't cause problems
+            # even if it doesn't work. See more at agent._prepare_py_grid's discussion
+            # of replacing localhost for the coordinator address. Also:
+            # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
+            "ExtraHosts": ["host.docker.internal:host-gateway"],
+        },
+    }
+
+    # unfortunately PortBindings doesn't support port ranges so we expand them manually
+    # here
+    expanded_ports = []
+    for port in ports:
+        if "-" in port:
+            split = port.split("-")
+            if len(split) != 2:
+                raise ValueError(f"Bad port specification {port}")
+            for i in range(int(split[0]), int(split[1]) + 1):
+                expanded_ports.append(str(i))
+        else:
+            expanded_ports.append(port)
+
+    if expanded_ports:
+        config["HostConfig"]["PortBindings"] = {
+            f"{port}/tcp": [{"HostPort": port}] for port in expanded_ports
         }
-    )
+        config["ExposedPorts"] = {f"{port}/tcp": {} for port in expanded_ports}
+
+    container = await client.containers.run(config)
 
     return container, client
 

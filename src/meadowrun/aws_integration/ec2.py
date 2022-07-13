@@ -20,6 +20,7 @@ from typing import (
 import boto3
 
 from meadowrun.aws_integration.aws_core import (
+    MeadowrunAWSAccessError,
     MeadowrunNotInstalledError,
     _get_current_ip_for_ssh,
     _get_default_region_name,
@@ -157,6 +158,85 @@ def ensure_security_group(group_name: str, region_name: str) -> str:
     return security_group.id
 
 
+async def ensure_port_security_group(ports: str, region_name: str) -> str:
+    """
+    Creates a security group for opening the specified ports to the current ip address
+    as well as other machines in that security group. Returns a security group id.
+    """
+    group_name = f"meadowrun{ports}"
+
+    from_port, sep, to_port = ports.partition("-")
+    if sep == "-":
+        from_port_int = int(from_port)
+        to_port_int = int(to_port)
+    else:
+        from_port_int = int(ports)
+        to_port_int = from_port_int
+
+    ec2_resource = boto3.resource("ec2", region_name)
+    security_group = _get_ec2_security_group(ec2_resource, group_name)
+    if security_group is None:
+        try:
+            security_group = ec2_resource.create_security_group(
+                Description=group_name,
+                GroupName=group_name,
+                TagSpecifications=[
+                    {
+                        "ResourceType": "security-group",
+                        "Tags": [
+                            {"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}
+                        ],
+                    }
+                ],
+            )
+        except Exception as e:
+            raise MeadowrunAWSAccessError(
+                "Unable to create a security group. Please ask an administrator to run "
+                "`meadowrun-manage-ec2 install --allow-authorize-ips` or alternatively,"
+                " ask them to manually create this security group and authorize your "
+                "access to it with the following commands: `aws ec2 "
+                f"create-security-group --description {group_name} --group-name "
+                f"{group_name}` then `aws ec2 authorize-security-group-ingress "
+                f"--group-name {group_name} --protocol tcp --port {ports} "
+                f"--source-group {group_name}` then finally `aws ec2 "
+                f"authorize-security-group-ingress --group-name {group_name} --protocol"
+                f" tcp --port {ports} --cidr {await _get_current_ip_for_ssh()}/32`",
+                True,
+            ) from e
+
+        ignore_boto3_error_code(
+            lambda: security_group.authorize_ingress(
+                IpPermissions=[
+                    {
+                        "FromPort": from_port_int,
+                        "ToPort": to_port_int,
+                        "IpProtocol": "tcp",
+                        "UserIdGroupPairs": [{"GroupId": security_group.id}],
+                    }
+                ]
+            ),
+            "InvalidPermission.Duplicate",
+        )
+
+    current_ip = await _get_current_ip_for_ssh()
+    try:
+        _authorize_current_ip_for_security_group(
+            security_group, from_port_int, to_port_int, current_ip
+        )
+    except Exception as e:
+        print(
+            f"Warning, failed to authorize current IP address for ports {ports}. "
+            "Most likely you will fail to connect to your services on these ports. "
+            "Please ask an administrator to run `meadowrun-manage-ec2 install "
+            "--allow-authorize-ips` or alternatively, ask them to manually authorize "
+            "your access by running: `aws ec2 authorize-security-group-ingress "
+            f"--group-name {group_name} --protocol tcp --port {ports} --cidr "
+            f"{current_ip}/32` {e}",
+        )
+
+    return security_group.id
+
+
 class LaunchEC2InstanceResult(abc.ABC):
     pass
 
@@ -169,6 +249,7 @@ class LaunchEC2InstanceSuccess(LaunchEC2InstanceResult):
     """
 
     public_address_continuation: Awaitable[str]
+    instance_id: str
 
 
 class LaunchEC2InstanceTypeUnavailable(LaunchEC2InstanceResult):
@@ -325,7 +406,9 @@ async def launch_ec2_instance(
             raise ValueError(f"Unexpected boto3 error code {error_code}")
 
     assert instances is not None  # just for mypy
-    return LaunchEC2InstanceSuccess(_launch_instance_continuation(instances[0]))
+    return LaunchEC2InstanceSuccess(
+        _launch_instance_continuation(instances[0]), instances[0].id
+    )
 
 
 async def _launch_instance_continuation(instance: Any) -> str:
@@ -392,6 +475,7 @@ async def launch_ec2_instances(
 
     num_jobs_left_to_allocate = num_jobs
     public_dns_name_tasks = []
+    instance_ids = []
     launched_instance_types_repeated = []
 
     # As we try to launch instances, we will realize that some of them cannot be
@@ -436,6 +520,7 @@ async def launch_ec2_instances(
                     public_dns_name_tasks.append(
                         launch_ec2_result.public_address_continuation
                     )
+                    instance_ids.append(launch_ec2_result.instance_id)
                     launched_instance_types_repeated.append(instance_type)
                 elif isinstance(launch_ec2_result, LaunchEC2InstanceTypeUnavailable):
                     print(launch_ec2_result.get_message())
@@ -462,9 +547,9 @@ async def launch_ec2_instances(
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)
 
     return [
-        CloudInstance(public_dns_name, "", instance_type)
-        for public_dns_name, instance_type in zip(
-            public_dns_names, launched_instance_types_repeated
+        CloudInstance(public_dns_name, instance_id, instance_type)
+        for public_dns_name, instance_id, instance_type in zip(
+            public_dns_names, instance_ids, launched_instance_types_repeated
         )
     ]
 

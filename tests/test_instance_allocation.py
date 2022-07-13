@@ -3,11 +3,12 @@
 import pytest
 import datetime
 from types import TracebackType
-from typing import Type, Tuple, List, Sequence, Optional, Dict, Any
+from typing import Type, Tuple, List, Sequence, Optional, Dict, Any, Iterable
 
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
+    _TInstanceState,
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import (
@@ -58,6 +59,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         now = datetime.datetime.utcnow().isoformat()
         self._registered_instances[public_address] = _InstanceState(
             public_address,
+            name,
             resources_available,
             {
                 job_id: {
@@ -132,6 +134,14 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def authorize_current_ip(self) -> None:
         pass
 
+    async def open_ports(
+        self,
+        ports: Optional[Sequence[str]],
+        allocated_existing_instances: Iterable[_TInstanceState],
+        allocated_new_instances: Iterable[CloudInstance],
+    ) -> None:
+        pass
+
     # helpers for tests
 
     @classmethod
@@ -182,6 +192,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         instances_job_ids = await allocate_jobs_to_instances(
             self,
             AllocCloudInstancesInternal(resources, num_concurrent_jobs, "test_region"),
+            None,
         )
         all_job_ids = []
         instances = []

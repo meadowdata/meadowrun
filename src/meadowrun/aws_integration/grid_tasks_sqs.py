@@ -413,6 +413,7 @@ async def prepare_ec2_run_map(
     region_name: Optional[str],
     resources_required_per_task: Resources,
     num_concurrent_tasks: int,
+    ports: Optional[Sequence[str]],
 ) -> RunMapHelper:
     """This code is tightly coupled with run_map"""
 
@@ -433,6 +434,7 @@ async def prepare_ec2_run_map(
                 num_concurrent_tasks,
                 region_name,
             ),
+            ports,
         )
 
     request_queue, result_queue = await queues_future

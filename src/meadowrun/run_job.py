@@ -876,12 +876,26 @@ def _get_friendly_name(function: Callable[[_T], _U]) -> str:
     return _make_valid_friendly_name(friendly_name)
 
 
+def _prepare_ports(
+    ports: Union[Iterable[str], str, Iterable[int], int, None]
+) -> Optional[Sequence[str]]:
+    if ports is None:
+        return None
+    elif isinstance(ports, int):
+        return [str(ports)]
+    elif isinstance(ports, str):
+        return [ports]
+    else:
+        return [str(p) for p in ports]
+
+
 async def run_function(
     function: Union[Callable[..., _T], str],
     host: Host,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
+    ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
 ) -> _T:
     """
     Runs function on a remote machine, specified by "host".
@@ -897,6 +911,10 @@ async def run_function(
             environment (code and libraries) that are needed to run this function
         args: Passed to the function like `function(*args)`
         kwargs: Passed to the function like `function(**kwargs)`
+        ports: A specification of ports to make available on the machine that runs this
+            job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
+            duration of this job. Be careful as other jobs could be running on the same
+            machine at the same time!
 
     Returns:
         The result of calling `function`
@@ -965,6 +983,7 @@ async def run_function(
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
         credentials_sources=credentials_sources,
+        ports=_prepare_ports(ports),
     )
     _add_deployments_to_job(job, code, interpreter)
 
@@ -977,6 +996,7 @@ async def run_command(
     host: Host,
     deployment: Optional[Deployment] = None,
     context_variables: Optional[Dict[str, Any]] = None,
+    ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
 ) -> JobCompletion[None]:
     """
     Runs the specified command on a remote machine
@@ -990,6 +1010,10 @@ async def run_command(
         deployment: See [Deployment][meadowrun.Deployment]. Specifies
             the environment (code and libraries) that are needed to run this command
         context_variables: Experimental feature
+        ports: A specification of ports to make available on the machine that runs this
+            job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
+            duration of this job. Be careful as other jobs could be running on the same
+            machine at the same time!
 
     Returns:
         A JobCompletion object that contains metadata about the running of the job.
@@ -1029,6 +1053,7 @@ async def run_command(
             command_line=args, pickled_context_variables=pickled_context_variables
         ),
         credentials_sources=credentials_sources,
+        ports=_prepare_ports(ports),
     )
     _add_deployments_to_job(job, code, interpreter)
 
@@ -1040,6 +1065,7 @@ async def run_map(
     args: Sequence[_T],
     hosts: AllocCloudInstances,
     deployment: Optional[Deployment] = None,
+    ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
 ) -> Sequence[_U]:
     """
     Equivalent to `map(function, args)`, but runs distributed and in parallel.
@@ -1053,6 +1079,10 @@ async def run_map(
             many workers to provision and what resources are needed for each worker.
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run the function
+        ports: A specification of ports to make available on the machines that runs
+            tasks for this job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened
+            just for the duration of this job. Be careful as other jobs could be running
+            on the same machine at the same time!
 
     Returns:
         Returns the result of running `function` on each of `args`
@@ -1071,6 +1101,8 @@ async def run_map(
         hosts.flags_required,
     )
 
+    prepared_ports = _prepare_ports(ports)
+
     if hosts.cloud_provider == "EC2":
         helper = await prepare_ec2_run_map(
             function,
@@ -1078,6 +1110,7 @@ async def run_map(
             hosts.region_name,
             resources_required_per_task,
             num_concurrent_tasks,
+            prepared_ports,
         )
     elif hosts.cloud_provider == "AzureVM":
         helper = await prepare_azure_vm_run_map(
@@ -1086,6 +1119,7 @@ async def run_map(
             hosts.region_name,
             resources_required_per_task,
             num_concurrent_tasks,
+            prepared_ports,
         )
     else:
         raise ValueError(f"Unexpected value for cloud_provider {hosts.cloud_provider}")
@@ -1125,6 +1159,7 @@ async def run_map(
                     ),
                 ),
                 credentials_sources=credentials_sources,
+                ports=prepared_ports,
             )
             _add_deployments_to_job(job, code, interpreter)
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import decimal
+import itertools
 from types import TracebackType
-from typing import List, Tuple, Any, Dict, Sequence, Optional, Type
+from typing import List, Tuple, Any, Dict, Sequence, Optional, Type, Iterable
 from typing_extensions import Literal
 
 import boto3
@@ -11,6 +13,7 @@ import boto3
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
     authorize_current_ip_for_meadowrun_ssh,
+    ensure_port_security_group,
     get_ssh_security_group_id,
     launch_ec2_instances,
 )
@@ -24,6 +27,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
+    _INSTANCE_ID,
     _LAST_UPDATE_TIME,
     _NON_CONSUMABLE_RESOURCES,
     _PUBLIC_ADDRESS,
@@ -35,6 +39,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
+    _TInstanceState,
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import Resources, CloudInstance
@@ -157,6 +162,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
                 Item={
                     # the public address of the EC2 instance
                     _PUBLIC_ADDRESS: public_address,
+                    _INSTANCE_ID: name,
                     # the resources (e.g. CPU/memory) available on the EC2 instance
                     # (after allocating resources to the already running jobs below)
                     _RESOURCES_AVAILABLE: resources_available.consumable_as_decimals(),
@@ -202,7 +208,12 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         response = self._table.scan(
             Select="SPECIFIC_ATTRIBUTES",
             ProjectionExpression=",".join(
-                [_PUBLIC_ADDRESS, _RESOURCES_AVAILABLE, _NON_CONSUMABLE_RESOURCES]
+                [
+                    _PUBLIC_ADDRESS,
+                    _INSTANCE_ID,
+                    _RESOURCES_AVAILABLE,
+                    _NON_CONSUMABLE_RESOURCES,
+                ]
             ),
         )
 
@@ -220,6 +231,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         return [
             _InstanceState(
                 item[_PUBLIC_ADDRESS],
+                item[_INSTANCE_ID],
                 Resources.from_decimals(
                     item[_RESOURCES_AVAILABLE], item[_NON_CONSUMABLE_RESOURCES]
                 ),
@@ -233,13 +245,15 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
     async def get_registered_instance(self, public_address: str) -> _InstanceState:
         result = self._table.get_item(
-            Key={_PUBLIC_ADDRESS: public_address}, ProjectionExpression=_RUNNING_JOBS
+            Key={_PUBLIC_ADDRESS: public_address},
+            ProjectionExpression=",".join([_RUNNING_JOBS, _INSTANCE_ID]),
         )
         if "Item" not in result:
             raise ValueError(f"ec2 instance {public_address} was not found")
 
         return _InstanceState(
             public_address,
+            result["Item"][_INSTANCE_ID],
             # similar to above, also a hack. We know we won't need the
             # available_resources in the context that this function is called
             None,
@@ -375,6 +389,32 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def authorize_current_ip(self) -> None:
         await authorize_current_ip_for_meadowrun_ssh(self.get_region_name())
 
+    async def open_ports(
+        self,
+        ports: Optional[Sequence[str]],
+        allocated_existing_instances: Iterable[_TInstanceState],
+        allocated_new_instances: Iterable[CloudInstance],
+    ) -> None:
+        if ports:
+            security_group_ids = await asyncio.gather(
+                *(ensure_port_security_group(p, self.get_region_name()) for p in ports)
+            )
+            ec2 = boto3.client("ec2", region_name=self.get_region_name())
+            for instance_id in itertools.chain(
+                (i.name for i in allocated_existing_instances),
+                (i.name for i in allocated_new_instances),
+            ):
+                groups = {
+                    group["GroupId"]
+                    for group in ec2.describe_instance_attribute(
+                        InstanceId=instance_id, Attribute="groupSet"
+                    )["Groups"]
+                }
+                groups.update(security_group_ids)
+                ec2.modify_instance_attribute(
+                    InstanceId=instance_id, Groups=list(groups)
+                )
+
 
 async def run_job_ec2_instance_registrar(
     job: Job,
@@ -389,6 +429,7 @@ async def run_job_ec2_instance_registrar(
         hosts = await allocate_jobs_to_instances(
             instance_registrar,
             AllocCloudInstancesInternal(resources_required, 1, region_name),
+            job.ports,
         )
 
     if len(hosts) != 1:

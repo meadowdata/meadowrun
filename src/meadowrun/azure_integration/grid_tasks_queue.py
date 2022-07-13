@@ -292,6 +292,7 @@ async def prepare_azure_vm_run_map(
     location: Optional[str],
     resources_required_per_task: Resources,
     num_concurrent_tasks: int,
+    ports: Optional[Sequence[str]],
 ) -> RunMapHelper:
     """This code is tightly coupled with run_map"""
     if not location:
@@ -301,11 +302,17 @@ async def prepare_azure_vm_run_map(
     queues_future = asyncio.create_task(create_queues_and_add_tasks(location, tasks))
 
     async with AzureInstanceRegistrar(location, "create") as instance_registrar:
+        if ports:
+            raise NotImplementedError(
+                "Support for opening ports on Azure is not yet implemented, please "
+                "create an issue at https://github.com/meadowdata/meadowrun/issues"
+            )
         allocated_hosts = await allocate_jobs_to_instances(
             instance_registrar,
             AllocCloudInstancesInternal(
                 resources_required_per_task, num_concurrent_tasks, location
             ),
+            ports,
         )
 
     private_key, public_key = await key_pair_future

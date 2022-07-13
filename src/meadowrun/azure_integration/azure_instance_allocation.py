@@ -4,7 +4,7 @@ import dataclasses
 import datetime
 import json
 from types import TracebackType
-from typing import Tuple, List, Optional, Sequence, Type, Any
+from typing import Tuple, List, Optional, Sequence, Type, Any, Iterable
 from typing_extensions import Literal
 
 import meadowrun.azure_integration.azure_vms
@@ -36,8 +36,9 @@ from meadowrun.azure_integration.mgmt_functions.azure_constants import (
 )
 from meadowrun.azure_integration.mgmt_functions.vm_adjust import VM_ALLOC_TABLE_NAME
 from meadowrun.instance_allocation import (
-    _InstanceState,
     InstanceRegistrar,
+    _InstanceState,
+    _TInstanceState,
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import Resources, CloudInstance
@@ -47,7 +48,6 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 
 @dataclasses.dataclass
 class AzureVMInstanceState(_InstanceState):
-    name: str
     # See https://microsoft.github.io/AzureTipsAndTricks/blog/tip88.html
     etag: str
 
@@ -144,12 +144,12 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         return [
             AzureVMInstanceState(
                 item["RowKey"],
+                item[VM_NAME],
                 Resources(
                     json.loads(item[RESOURCES_AVAILABLE]),
                     json.loads(item[NON_CONSUMABLE_RESOURCES]),
                 ),
                 json.loads(item[RUNNING_JOBS]),
-                item[VM_NAME],
                 item["odata.etag"],
             )
             async for page in azure_table_api_paged(
@@ -208,12 +208,12 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
         return AzureVMInstanceState(
             item["RowKey"],
+            item[VM_NAME],
             Resources(
                 json.loads(item[RESOURCES_AVAILABLE]),
                 json.loads(item[NON_CONSUMABLE_RESOURCES]),
             ),
             json.loads(item[RUNNING_JOBS]),
-            item[VM_NAME],
             item["odata.etag"],
         )
 
@@ -333,6 +333,18 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         # TODO currently Azure instances are open to everyone
         pass
 
+    async def open_ports(
+        self,
+        ports: Optional[Sequence[str]],
+        allocated_existing_instances: Iterable[_TInstanceState],
+        allocated_new_instances: Iterable[CloudInstance],
+    ) -> None:
+        if ports:
+            raise NotImplementedError(
+                "Opening ports on Azure is not implemented, please create an issue at "
+                "https://github.com/meadowdata/meadowrun/issues"
+            )
+
 
 async def run_job_azure_vm_instance_registrar(
     job: Job,
@@ -344,9 +356,15 @@ async def run_job_azure_vm_instance_registrar(
     pkey, public_key = await ensure_meadowrun_key_pair(location)
 
     async with AzureInstanceRegistrar(location, "create") as instance_registrar:
+        if job.ports:
+            raise NotImplementedError(
+                "Support for opening ports on Azure is not yet implemented, please "
+                "create an issue at https://github.com/meadowdata/meadowrun/issues"
+            )
         hosts = await allocate_jobs_to_instances(
             instance_registrar,
             AllocCloudInstancesInternal(resources_required, 1, location),
+            job.ports,
         )
 
     if len(hosts) != 1:

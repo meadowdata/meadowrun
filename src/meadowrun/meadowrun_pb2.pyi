@@ -539,6 +539,7 @@ class Job(google.protobuf.message.Message):
     PY_COMMAND_FIELD_NUMBER: builtins.int
     PY_FUNCTION_FIELD_NUMBER: builtins.int
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
+    PORTS_FIELD_NUMBER: builtins.int
     job_id: typing.Text
     """job_id uniquely identifies this request to avoid duplicates and for getting the
     results later. Make sure job_id is unique! Multiple requests with the same job_id
@@ -596,6 +597,12 @@ class Job(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___CredentialsSourceMessage
     ]: ...
+    @property
+    def ports(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
+        typing.Text
+    ]: ...
     def __init__(
         self,
         *,
@@ -624,6 +631,7 @@ class Job(google.protobuf.message.Message):
         credentials_sources: typing.Optional[
             typing.Iterable[global___CredentialsSourceMessage]
         ] = ...,
+        ports: typing.Optional[typing.Iterable[typing.Text]] = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -691,6 +699,8 @@ class Job(google.protobuf.message.Message):
             b"job_id",
             "job_spec",
             b"job_spec",
+            "ports",
+            b"ports",
             "py_command",
             b"py_command",
             "py_function",
@@ -992,9 +1002,9 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     service: global___Credentials.Service.ValueType
     service_url: typing.Text
     @property
-    def aws_secret(self) -> global__AwsSecretProto: ...
+    def aws_secret(self) -> global___AwsSecretProto: ...
     @property
-    def azure_secret(self) -> global__AzureSecretProto: ...
+    def azure_secret(self) -> global___AzureSecretProto: ...
     @property
     def server_available_file(self) -> global___ServerAvailableFile: ...
     def __init__(
@@ -1002,8 +1012,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
         *,
         service: global___Credentials.Service.ValueType = ...,
         service_url: typing.Text = ...,
-        aws_secret: typing.Optional[global__AwsSecretProto] = ...,
-        azure_secret: typing.Optional[global__AzureSecretProto] = ...,
+        aws_secret: typing.Optional[global___AwsSecretProto] = ...,
+        azure_secret: typing.Optional[global___AzureSecretProto] = ...,
         server_available_file: typing.Optional[global___ServerAvailableFile] = ...,
     ) -> None: ...
     def HasField(
@@ -1131,7 +1141,7 @@ class AwsSecretProto(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global__AwsSecretProto = AwsSecretProto
+global___AwsSecretProto = AwsSecretProto
 
 class AzureSecretProto(google.protobuf.message.Message):
     """Represents credentials stored in Azure
@@ -1167,7 +1177,7 @@ class AzureSecretProto(google.protobuf.message.Message):
         ],
     ) -> None: ...
 
-global__AzureSecretProto = AzureSecretProto
+global___AzureSecretProto = AzureSecretProto
 
 class ServerAvailableFile(google.protobuf.message.Message):
     """Represents credentials in a file. Must be a file accessible by the coordinator.

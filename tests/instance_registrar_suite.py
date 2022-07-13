@@ -194,7 +194,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             )
 
             resources_required = Resources.from_cpu_and_memory(1, 2)
-            results = await _choose_existing_instances(
+            results, _ = await _choose_existing_instances(
                 instance_registrar, resources_required, 3
             )
 
@@ -344,6 +344,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                     1,
                     instance_registrar.get_region_name(),
                 ),
+                None,
             )
             assert len(instances1) == 1
             public_address1 = list(instances1.keys())[0]
@@ -355,6 +356,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                     1,
                     instance_registrar.get_region_name(),
                 ),
+                None,
             )
             assert len(instances2) == 1
             public_address2 = list(instances2.keys())[0]

@@ -54,6 +54,7 @@ async def manual_test_deallocate_before_running():
                 1,
                 await _get_default_region_name(),
             ),
+            None,
         )
         print(result)
 

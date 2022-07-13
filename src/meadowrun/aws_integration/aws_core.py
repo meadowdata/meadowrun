@@ -23,14 +23,19 @@ class MeadowrunNotInstalledError(Exception):
 
 
 class MeadowrunAWSAccessError(Exception):
-    def __init__(self, resource: str):
-        super().__init__(
-            f"Encountered an AWS access exception trying to access {resource}. If you "
-            f"are not a member of the {_MEADOWRUN_USER_GROUP_NAME} user group, please "
-            "add yourself/ask to to be added to this group. If this group does not "
-            "exist, please run `meadowrun-manage-ec2 install` as an AWS "
-            "root/Administrator account"
-        )
+    def __init__(self, resource: str, custom_exception_message: bool = False):
+        if custom_exception_message:
+            message = resource
+        else:
+            message = (
+                f"Encountered an AWS access exception trying to access {resource}. If "
+                f"you are not a member of the {_MEADOWRUN_USER_GROUP_NAME} user group, "
+                "please add yourself/ask to to be added to this group with `aws iam "
+                f"add-user-to-group --group-name {_MEADOWRUN_USER_GROUP_NAME} "
+                "--user-name <username>`. If this group does not exist, please run "
+                "`meadowrun-manage-ec2 install` as an AWS root/Administrator account"
+            )
+        super().__init__(message)
 
 
 def wrap_access_or_install_errors(

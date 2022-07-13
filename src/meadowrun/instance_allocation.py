@@ -5,7 +5,19 @@ import asyncio
 import dataclasses
 import uuid
 from types import TracebackType
-from typing import List, Tuple, Dict, Any, Optional, Sequence, Type, TypeVar, Generic
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+)
+
 
 from meadowrun.instance_selection import (
     CloudInstance,
@@ -21,6 +33,8 @@ class _InstanceState:
     """Represents an existing instance"""
 
     public_address: str
+
+    name: str
 
     available_resources: Optional[Resources]
 
@@ -166,33 +180,46 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
     async def authorize_current_ip(self) -> None:
         pass
 
+    @abc.abstractmethod
+    async def open_ports(
+        self,
+        ports: Optional[Sequence[str]],
+        allocated_existing_instances: Iterable[_TInstanceState],
+        allocated_new_instances: Iterable[CloudInstance],
+    ) -> None:
+        pass
+
 
 @dataclasses.dataclass
-class _InstanceWithProposedJobs:
+class _InstanceWithProposedJobs(Generic[_TInstanceState]):
     """Just used in _choose_existing_instances"""
 
-    orig_instance: _InstanceState
+    orig_instance: _TInstanceState
     proposed_jobs: List[str]
     proposed_available_resources: Resources
 
 
 async def _choose_existing_instances(
-    instance_registrar: InstanceRegistrar,
+    instance_registrar: InstanceRegistrar[_TInstanceState],
     resources_required_per_job: Resources,
     num_jobs: int,
-) -> Dict[str, List[str]]:
+) -> Tuple[Dict[str, List[str]], Dict[str, _TInstanceState]]:
     """
     Chooses existing registered instances to run the specified job(s). The general
     strategy is to pack instances as tightly as possible to allow larger jobs to come
     along later.
 
-    Returns {public_address: [job_ids]}
+    Returns two dictionaries: {public_address: [job_ids]}, {public_address:
+    instance_state}. The keys of the two dictionaries will be the same set of public
+    addresses.
     """
 
     # these represent jobs that have been allocated in the InstanceRegistrar
     num_jobs_allocated = 0
     # {public_address: [job_ids]}
     allocated_jobs: Dict[str, List[str]] = {}
+    # {public_address: instance_state}
+    allocated_instances: Dict[str, _TInstanceState] = {}
 
     # try to allocate a maximum of 3 times. We will retry if there's an optimistic
     # concurrency issue (i.e. someone else allocates to an instance at the same time
@@ -265,6 +292,9 @@ async def _choose_existing_instances(
                     allocated_jobs.setdefault(
                         instance.orig_instance.public_address, []
                     ).extend(instance.proposed_jobs)
+                    allocated_instances[
+                        instance.orig_instance.public_address
+                    ] = instance.orig_instance
                     num_jobs_allocated += len(instance.proposed_jobs)
                 else:
                     all_success = False
@@ -288,19 +318,20 @@ async def _choose_existing_instances(
             + " ".join(allocated_jobs.keys())
         )
 
-    return allocated_jobs
+    return allocated_jobs, allocated_instances
 
 
 async def _launch_new_instances(
     instance_registrar: InstanceRegistrar,
     alloc_cloud_instances: AllocCloudInstancesInternal,
     original_num_jobs: int,
-) -> Dict[str, List[str]]:
+) -> Tuple[Dict[str, List[str]], Dict[str, CloudInstance]]:
     """
     Chooses the cheapest instances to launch that can run the specified jobs, launches
     them, adds them to the InstanceRegistrar, and allocates the specified jobs to them.
 
-    Returns {public_address: [job_ids]}
+    Returns two dictionaries, {public_address: [job_ids]}, {public_address:
+    cloud_instance}. The keys of the two dictionaries will be the same.
 
     original_num_jobs is only needed to produce more coherent logging.
     """
@@ -311,6 +342,7 @@ async def _launch_new_instances(
     total_num_allocated_jobs = 0
     total_cost_per_hour: float = 0
     allocated_jobs = {}
+    allocated_instances = {}
 
     for instance in instances:
         # just to make the code more readable
@@ -341,6 +373,7 @@ async def _launch_new_instances(
         )
 
         allocated_jobs[instance.public_dns_name] = job_ids
+        allocated_instances[instance.public_dns_name] = instance
         description_strings.append(
             f"{instance.public_dns_name}: {instance_info.name} "
             f"({instance_info.resources.format_cpu_memory_gpu()}), "
@@ -361,12 +394,13 @@ async def _launch_new_instances(
             + "\n".join(["\t" + s for s in description_strings])
         )
 
-    return allocated_jobs
+    return allocated_jobs, allocated_instances
 
 
 async def allocate_jobs_to_instances(
     instance_registrar: InstanceRegistrar,
     alloc_cloud_instances: AllocCloudInstancesInternal,
+    ports: Optional[Sequence[str]],
 ) -> Dict[str, List[str]]:
     """
     This function first tries to re-use existing instances, and if necessary launches
@@ -381,26 +415,31 @@ async def allocate_jobs_to_instances(
 
     # TODO this should take interruption_probability_threshold into account for existing
     # instances as well
-    allocated = await _choose_existing_instances(
+    allocated_jobs, allocated_existing_instances = await _choose_existing_instances(
         instance_registrar,
         alloc_cloud_instances.resources_required_per_task,
         alloc_cloud_instances.num_concurrent_tasks,
     )
+
     num_jobs_remaining = alloc_cloud_instances.num_concurrent_tasks - sum(
-        len(jobs) for jobs in allocated.values()
+        len(jobs) for jobs in allocated_jobs.values()
     )
+
+    allocated_new_instances: Dict[str, CloudInstance] = {}
     if num_jobs_remaining > 0:
         remaining_alloc = dataclasses.replace(
             alloc_cloud_instances, num_concurrent_tasks=num_jobs_remaining
         )
-        allocated.update(
-            await _launch_new_instances(
-                instance_registrar,
-                remaining_alloc,
-                alloc_cloud_instances.num_concurrent_tasks,
-            )
+        allocated_new_jobs, allocated_new_instances = await _launch_new_instances(
+            instance_registrar,
+            remaining_alloc,
+            alloc_cloud_instances.num_concurrent_tasks,
         )
+        allocated_jobs.update(allocated_new_jobs)
 
+    await instance_registrar.open_ports(
+        ports, allocated_existing_instances.values(), allocated_new_instances.values()
+    )
     await authorize_current_ip_task
 
-    return allocated
+    return allocated_jobs

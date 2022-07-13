@@ -1,5 +1,4 @@
 import os
-import sys
 import tempfile
 
 import asyncssh
@@ -21,11 +20,28 @@ async def connect(
 async def run_and_print(
     connection: asyncssh.SSHClientConnection, command: str, check: bool = True
 ) -> asyncssh.SSHCompletedProcess:
-    # print(f"Running: {command}")
-    result = await connection.run(command, check=check)
-    print(result.stdout, end="")
-    print(result.stderr, file=sys.stderr, end="")
-    return result
+    """
+    Runs the command, printing stdout and stderr from the remote process locally.
+    result.stdout and result.stderr will be empty.
+    """
+    async with connection.create_process(command, stderr=asyncssh.STDOUT) as process:
+        # TODO should be able to interleave stdout and stderr but this seems somewhat
+        # non-trivial:
+        # https://stackoverflow.com/questions/55299564/join-multiple-async-generators-in-python
+        async for line in process.stdout:
+            print(line, end="")
+
+        return await process.wait(check)
+
+
+async def run_and_capture(
+    connection: asyncssh.SSHClientConnection, command: str, check: bool = True
+) -> asyncssh.SSHCompletedProcess:
+    """
+    Runs the command, does not print any stdout/stderr. The output is also available as
+    result.stdout and result.stderr.
+    """
+    return await connection.run(command, check=check)
 
 
 async def write_to_file(

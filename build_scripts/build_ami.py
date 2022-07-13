@@ -156,7 +156,7 @@ from meadowrun.ssh import connect
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
     LaunchEC2InstanceSuccess,
-    authorize_current_ip_helper,
+    authorize_current_ip_for_meadowrun_ssh,
     get_ssh_security_group_id,
     launch_ec2_instance,
 )
@@ -217,7 +217,7 @@ async def build_meadowrun_ami(
     public_address = await launch_result.public_address_continuation
     print(f"Launched EC2 instance {public_address}")
 
-    await authorize_current_ip_helper(region_name)
+    await authorize_current_ip_for_meadowrun_ssh(region_name)
 
     connection = await _retry(
         lambda: connect(

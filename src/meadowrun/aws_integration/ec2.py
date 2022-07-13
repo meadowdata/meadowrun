@@ -26,6 +26,8 @@ from meadowrun.aws_integration.aws_core import (
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    _EC2_ALLOC_TAG,
+    _EC2_ALLOC_TAG_VALUE,
     ignore_boto3_error_code,
 )
 from meadowrun.aws_integration.quotas import (
@@ -64,13 +66,49 @@ def get_ssh_security_group_id(region_name: str) -> str:
     return security_group.id
 
 
-async def authorize_current_ip_helper(region_name: str) -> None:
+def _authorize_current_ip_for_security_group(
+    security_group: Any, from_port: int, to_port: int, current_ip: str
+) -> None:
+    # check if our ip is already in the security group. This isn't watertight, as we
+    # might interpret these rules differently from how AWS does, and there are other
+    # options for granting access, e.g. via a security group. So we should usually catch
+    # any exceptions in the caller
+    already_authorized = False
+    current_ip_for_ssh_address = ipaddress.ip_address(current_ip)
+    for permission in security_group.ip_permissions:
+        if permission["FromPort"] <= from_port and to_port <= permission["ToPort"]:
+            for ip_range in permission.get("IpRanges", ()):
+                cidr_ip = ip_range.get("CidrIp")
+                if cidr_ip and current_ip_for_ssh_address in ipaddress.ip_network(
+                    cidr_ip
+                ):
+                    already_authorized = True
+                    break
+        if already_authorized:
+            break
+
+    if not already_authorized:
+        ignore_boto3_error_code(
+            lambda: security_group.authorize_ingress(
+                IpProtocol="tcp",
+                CidrIp=f"{current_ip}/32",
+                FromPort=from_port,
+                ToPort=to_port,
+            ),
+            "InvalidPermission.Duplicate",
+        )
+        print(
+            f"Authorized the current ip address {current_ip} for ports "
+            f"{from_port}-{to_port} to the {security_group.group_name} security group"
+        )
+
+
+async def authorize_current_ip_for_meadowrun_ssh(region_name: str) -> None:
     """
     Tries to add the current IP address to the list of IPs allowed to SSH into the
     meadowrun SSH security group (will warn rather than raise on error). Returns the
     security group id of the meadowrun SSH security group.
     """
-    current_ip_for_ssh = await _get_current_ip_for_ssh()
 
     ec2_resource = boto3.resource("ec2", region_name=region_name)
     security_group = _get_ec2_security_group(
@@ -81,63 +119,40 @@ async def authorize_current_ip_helper(region_name: str) -> None:
             f"security group {_MEADOWRUN_SSH_SECURITY_GROUP}"
         )
 
-    # check if our ip is already in the security group. This isn't watertight, as we
-    # might interpret these rules differently from how AWS does, and there are other
-    # options for granting access, e.g. via a security group. So we will just warn
-    # rather than raising an exception
-    already_authorized = False
-    current_ip_for_ssh_address = ipaddress.ip_address(current_ip_for_ssh)
-    for permission in security_group.ip_permissions:
-        if permission.get("FromPort", 100000) <= 22 <= permission.get("ToPort", -1):
-            for ip_range in permission.get("IpRanges", ()):
-                cidr_ip = ip_range.get("CidrIp")
-                if cidr_ip and current_ip_for_ssh_address in ipaddress.ip_network(
-                    cidr_ip
-                ):
-                    already_authorized = True
-
-    if not already_authorized:
-        try:
-            ignore_boto3_error_code(
-                lambda: security_group.authorize_ingress(
-                    IpProtocol="tcp",
-                    CidrIp=f"{current_ip_for_ssh}/32",
-                    FromPort=22,
-                    ToPort=22,
-                ),
-                "InvalidPermission.Duplicate",
-            )
-            print(
-                f"Authorized the current ip address {current_ip_for_ssh} to SSH into "
-                f"the {_MEADOWRUN_SSH_SECURITY_GROUP} security group"
-            )
-        except Exception as e:
-            print(
-                "Warning, failed to authorize current IP address for SSH. Connecting to"
-                " Meadowrun instances will fail unless your connection has been "
-                "authorized in a different way. Most likely, meadowrun was installed "
-                "with `meadowrun-manage-ec2 install --allow-authorize-ips False`. If "
-                "this is the case, you can rerun with `--allow-authorize-ips True`, or "
-                "have an administrator manually authorize your connection to the "
-                f"{_MEADOWRUN_SSH_SECURITY_GROUP} security group by running something "
-                f"like: `aws ec2 authorize-security-group-ingress --group-name "
-                f"{_MEADOWRUN_SSH_SECURITY_GROUP} --protocol tcp --port 22 --cidr "
-                f"{current_ip_for_ssh}/32` {e}"
-            )
+    current_ip = await _get_current_ip_for_ssh()
+    try:
+        _authorize_current_ip_for_security_group(security_group, 22, 22, current_ip)
+    except Exception as e:
+        print(
+            "Warning, failed to authorize current IP address for SSH. Connecting to"
+            " Meadowrun instances will fail unless your connection has been "
+            "authorized in a different way. Most likely, meadowrun was installed "
+            "with `meadowrun-manage-ec2 install --allow-authorize-ips False`. If "
+            "this is the case, you can rerun with `--allow-authorize-ips True`, or "
+            "have an administrator manually authorize your connection to the "
+            f"{_MEADOWRUN_SSH_SECURITY_GROUP} security group by running something "
+            f"like: `aws ec2 authorize-security-group-ingress --group-name "
+            f"{_MEADOWRUN_SSH_SECURITY_GROUP} --protocol tcp --port 22 --cidr "
+            f"{current_ip}/32` {e}"
+        )
 
 
-def ensure_security_group(group_name: str) -> str:
+def ensure_security_group(group_name: str, region_name: str) -> str:
     """
     Creates the specified security group if it doesn't exist. If it does exist, does not
     modify it (as there may be existing rules that should not be deleted).
 
     Returns the id of the security group.
     """
-    ec2_resource = boto3.resource("ec2")
+    ec2_resource = boto3.resource("ec2", region_name=region_name)
     security_group = _get_ec2_security_group(ec2_resource, group_name)
     if security_group is None:
         security_group = ec2_resource.create_security_group(
-            Description=group_name, GroupName=group_name
+            Description=group_name,
+            GroupName=group_name,
+            TagSpecifications=[
+                {"Tags": [{"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}]}
+            ],
         )
     return security_group.id
 

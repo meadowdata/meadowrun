@@ -10,7 +10,7 @@ import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2 import (
-    authorize_current_ip_helper,
+    authorize_current_ip_for_meadowrun_ssh,
     get_ssh_security_group_id,
     launch_ec2_instances,
 )
@@ -373,7 +373,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         )
 
     async def authorize_current_ip(self) -> None:
-        await authorize_current_ip_helper(self.get_region_name())
+        await authorize_current_ip_for_meadowrun_ssh(self.get_region_name())
 
 
 async def run_job_ec2_instance_registrar(

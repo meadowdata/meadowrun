@@ -52,7 +52,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-066ad321a2c9bcc76",
+        "us-east-2": "ami-0085e508c24550c7e",
         "us-east-1": "ami-07eb3f5f0d7528aa2",
         "us-west-1": "ami-018a31e052d1e1a0e",
         "us-west-2": "ami-07d4a3ab5f97408a1",
@@ -63,7 +63,7 @@ _AMIS = {
         "eu-north-1": "ami-09e2ff4f607d2eb4e",
     },
     "cuda": {
-        "us-east-2": "ami-051a05375446ca34d",
+        "us-east-2": "ami-0e4f396c325b3156a",
     },
 }
 SSH_USER = "ubuntu"

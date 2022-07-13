@@ -392,6 +392,7 @@ async def run_container(
     image: str,
     cmd: List[str],
     environment_variables: Dict[str, str],
+    working_directory: str,
     binds: List[Tuple[str, str]],
     ports: List[str],
 ) -> Tuple[aiodocker_containers.DockerContainer, aiodocker.Docker]:
@@ -425,6 +426,7 @@ async def run_container(
         "Image": image,
         "Cmd": cmd,
         "Env": [f"{key}={value}" for key, value in environment_variables.items()],
+        "WorkingDir": working_directory,
         "HostConfig": {
             "Binds": [
                 f"{path_on_host}:{path_in_container}"
@@ -465,13 +467,17 @@ async def run_container(
     return container, client
 
 
-async def get_image_environment_variables(image: str) -> Optional[List[str]]:
+async def get_image_environment_variables_and_working_dir(
+    image: str,
+) -> Tuple[Optional[List[str]], str]:
     """
-    Returns a list of strings like ["PATH=/foo/bar", "PYTHON_VERSION=3.9.7"] for the
-    image that we have locally.
+    Returns environment variables and working directory as set in the specified image.
+    The image must be available locally. Environment variables will be a list of strings
+    like ["PATH=/foo/bar", "PYTHON_VERSION=3.9.7"]. working_dir will be a string.
     """
     async with aiodocker.Docker() as client:
-        return (await client.images.inspect(image))["ContainerConfig"]["Env"]
+        container_config = (await client.images.inspect(image))["ContainerConfig"]
+        return container_config["Env"], container_config["WorkingDir"]
 
 
 async def delete_image(image: str) -> None:

@@ -16,6 +16,16 @@ COPY poetry.lock ./
 # TODO ideally we (or someone) would pre-build a bunch of versions python with poetry already installed
 RUN python -c 'import urllib.request; urllib.request.urlretrieve("https://install.python-poetry.org", "poetry_install.py")'
 RUN python poetry_install.py
+
+# When we actually run jobs, we will copy code for those jobs into paths like
+# /meadowrun/code0 and we'll want to run with the working directory as one of those
+# directories. But we're putting the pyproject.toml/project.lock files in /tmp and
+# poetry doesn't natively support running from a different working directory. Setting
+# virtualenvs.in-project means that poetry will create the virtual env in /tmp/.venv and
+# we'll just add this to our path. We could switch to using `poetry run` if something
+# like https://github.com/python-poetry/poetry/issues/2179 gets implemented
+RUN /root/.local/bin/poetry config virtualenvs.in-project true
+
 RUN /root/.local/bin/poetry install --no-root
 
-ENTRYPOINT ["/root/.local/bin/poetry", "run"]
+ENV PATH /tmp/.venv/bin:$PATH

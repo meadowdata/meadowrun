@@ -44,7 +44,7 @@ from meadowrun.deployment_manager import (
 )
 from meadowrun.docker_controller import (
     run_container,
-    get_image_environment_variables,
+    get_image_environment_variables_and_working_dir,
     pull_image,
 )
 from meadowrun.meadowrun_pb2 import (
@@ -462,6 +462,19 @@ async def _launch_container_job(
         mounted_code_paths.append(mounted_code_path)
         binds.append((path_on_host, mounted_code_path))
 
+    # get the image's environment variables and working directory
+    (
+        image_environment_variables,
+        working_dir,
+    ) = await get_image_environment_variables_and_working_dir(container_image_name)
+
+    # If the container image has a meaningful working directory set, then we want to
+    # leave that as it is. But if the working directory is "/tmp/", we use that as a
+    # placeholder to mean that we don't care about the container image's working
+    # directory. In that case, we set it to the first mounted code path.
+    if working_dir in ("/tmp/", "/tmp") and len(mounted_code_paths) > 0:
+        working_dir = mounted_code_paths[0]
+
     # If we've exposed any code paths, add them to PYTHONPATH. The normal behavior for
     # environment variables is that if they're specified in job_spec_transformed, those
     # override (rather than append to) what's defined in the container. If they aren't
@@ -475,9 +488,6 @@ async def _launch_container_job(
                 job_spec_transformed.environment_variables["PYTHONPATH"]
             ]
         else:
-            image_environment_variables = await get_image_environment_variables(
-                container_image_name
-            )
             if image_environment_variables:
                 for image_env_var in image_environment_variables:
                     if image_env_var.startswith("PYTHONPATH="):
@@ -510,6 +520,7 @@ async def _launch_container_job(
         # json serializer needs a real list, not a protobuf fake list
         job_spec_transformed.command_line,
         job_spec_transformed.environment_variables,
+        working_dir,
         binds,
         job_spec_transformed.ports,
     )

@@ -148,7 +148,7 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
             processor_brand = "other"
         # effectively, this skips Graviton (ARM-based) processors
         # TODO eventually support Graviton processors.
-        if processor_brand not in ("intel", "amd"):
+        if processor_brand not in ("intel", "amd_cpu"):
             # only log if we see non-Graviton processors
             if processor_brand != "graviton":
                 print(

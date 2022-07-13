@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 import asyncssh
-from meadowrun.ssh import run_and_print, write_text_to_file, upload_file
+from meadowrun.ssh import run_and_print, upload_file, write_text_to_file
 
 
 async def upload_and_configure_meadowrun(

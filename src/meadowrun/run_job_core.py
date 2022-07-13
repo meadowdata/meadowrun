@@ -96,7 +96,9 @@ class SshHost(Host):
             # should (but doesn't strictly need to) correspond to
             # agent._set_up_working_folder
 
-            home_result = await ssh.run_and_print(connection, "echo $HOME", check=False)
+            home_result = await ssh.run_and_capture(
+                connection, "echo $HOME", check=False
+            )
             if not home_result.exit_status == 0:
                 raise ValueError(
                     "Error getting home directory on remote machine "
@@ -107,7 +109,7 @@ class SshHost(Host):
             # in_stream is needed otherwise invoke listens to stdin, which
             # pytest doesn't like
             remote_working_folder = f"{home_out}/meadowrun"
-            mkdir_result = await ssh.run_and_print(
+            mkdir_result = await ssh.run_and_capture(
                 connection, f"mkdir -p {remote_working_folder}/io", check=False
             )
             if not mkdir_result.exit_status == 0:
@@ -122,6 +124,7 @@ class SshHost(Host):
             )
 
             command = (
+                "/usr/bin/env PYTHONUNBUFFERED=1 "
                 "/var/meadowrun/env/bin/python "
                 # "-X importtime "
                 # "-m cProfile -o remote.prof "
@@ -181,7 +184,7 @@ class SshHost(Host):
                 try:
                     # -f so that we don't throw an error on files that don't
                     # exist
-                    await ssh.run_and_print(
+                    await ssh.run_and_capture(
                         connection, f"rm -f {remote_paths}", check=True
                     )
                 except Exception as e:

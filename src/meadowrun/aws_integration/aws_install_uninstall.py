@@ -54,7 +54,9 @@ from meadowrun.aws_integration.s3 import ensure_bucket
 async def install(region_name: str, allow_authorize_ips: bool) -> None:
     """Installs resources needed to run Meadowrun jobs"""
 
-    security_group_id = ensure_security_group(_MEADOWRUN_SSH_SECURITY_GROUP)
+    security_group_id = ensure_security_group(
+        _MEADOWRUN_SSH_SECURITY_GROUP, region_name
+    )
 
     if not allow_authorize_ips:
         print(

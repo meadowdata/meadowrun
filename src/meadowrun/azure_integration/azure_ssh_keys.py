@@ -130,9 +130,9 @@ async def ensure_meadowrun_key_pair(location: str) -> Tuple[asyncssh.SSHKey, str
     Makes sure that a private key is stored in a Key Vault secret. If it does not exist,
     creates a fresh private key and uploads it.
 
-    Returns (private key, public key). Private key is a paramiko.PKey that can be passed
-    to paramiko.connect(pkey=pkey), public key is a string that can be passed into
-    launch_vms.
+    Returns (private key, public key). Private key is an asyncssh.SSHKey that can be
+    passed to ssh.connect(private_key=pkey), public key is a string that can be passed
+    into launch_vms.
     """
     global _private_key
 

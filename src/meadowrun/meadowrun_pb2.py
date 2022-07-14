@@ -15,7 +15,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x19meadowrun/meadowrun.proto\x12\tmeadowrun"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"+\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t".\n\x0b\x43odeZipFile\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x12\n\ncode_paths\x18\x02 \x03(\t"I\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x16\n\x0epath_to_source\x18\x03 \x01(\t"I\n\rGitRepoBranch\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x62ranch\x18\x02 \x01(\t\x12\x16\n\x0epath_to_source\x18\x03 \x01(\t"6\n\x1aServerAvailableInterpreter\x12\x18\n\x10interpreter_path\x18\x01 \x01(\t"7\n\x11\x43ontainerAtDigest\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0e\n\x06\x64igest\x18\x02 \x01(\t"1\n\x0e\x43ontainerAtTag\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0b\n\x03tag\x18\x02 \x01(\t"{\n\x15\x45nvironmentSpecInCode\x12\x34\n\x10\x65nvironment_type\x18\x01 \x01(\x0e\x32\x1a.meadowrun.EnvironmentType\x12\x14\n\x0cpath_to_spec\x18\x02 \x01(\t\x12\x16\n\x0epython_version\x18\x03 \x01(\t"\x80\x01\n\x0f\x45nvironmentSpec\x12\x34\n\x10\x65nvironment_type\x18\x01 \x01(\x0e\x32\x1a.meadowrun.EnvironmentType\x12\x0c\n\x04spec\x18\x02 \x01(\t\x12\x11\n\tspec_lock\x18\x03 \x01(\t\x12\x16\n\x0epython_version\x18\x04 \x01(\t".\n\x18ServerAvailableContainer\x12\x12\n\nimage_name\x18\x01 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa5\x01\n\rPyFunctionJob\x12\x43\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32 .meadowrun.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"\xe4\x07\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x05 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x06 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x33\n\x0fgit_repo_branch\x18\x07 \x01(\x0b\x32\x18.meadowrun.GitRepoBranchH\x00\x12/\n\rcode_zip_file\x18\x13 \x01(\x0b\x32\x16.meadowrun.CodeZipFileH\x00\x12M\n\x1cserver_available_interpreter\x18\x08 \x01(\x0b\x32%.meadowrun.ServerAvailableInterpreterH\x01\x12;\n\x13\x63ontainer_at_digest\x18\t \x01(\x0b\x32\x1c.meadowrun.ContainerAtDigestH\x01\x12\x35\n\x10\x63ontainer_at_tag\x18\n \x01(\x0b\x32\x19.meadowrun.ContainerAtTagH\x01\x12I\n\x1aserver_available_container\x18\x0b \x01(\x0b\x32#.meadowrun.ServerAvailableContainerH\x01\x12\x44\n\x18\x65nvironment_spec_in_code\x18\x0c \x01(\x0b\x32 .meadowrun.EnvironmentSpecInCodeH\x01\x12\x36\n\x10\x65nvironment_spec\x18\x12 \x01(\x0b\x32\x1a.meadowrun.EnvironmentSpecH\x01\x12\x34\n\x15\x65nvironment_variables\x18\r \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x0e \x01(\x05\x12-\n\npy_command\x18\x0f \x01(\x0b\x32\x17.meadowrun.PyCommandJobH\x02\x12/\n\x0bpy_function\x18\x10 \x01(\x0b\x32\x18.meadowrun.PyFunctionJobH\x02\x12@\n\x13\x63redentials_sources\x18\x11 \x03(\x0b\x32#.meadowrun.CredentialsSourceMessage\x12\r\n\x05ports\x18\x14 \x03(\tB\x11\n\x0f\x63ode_deploymentB\x18\n\x16interpreter_deploymentB\n\n\x08job_spec"\x8a\x03\n\x0cProcessState\x12\x37\n\x05state\x18\x01 \x01(\x0e\x32(.meadowrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x14\n\x0c\x63ontainer_id\x18\x03 \x01(\t\x12\x15\n\rlog_file_name\x18\x04 \x01(\t\x12\x16\n\x0epickled_result\x18\x05 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x06 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0b\n\x07RUNNING\x10\x02\x12\r\n\tSUCCEEDED\x10\x03\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x04\x12\x14\n\x10PYTHON_EXCEPTION\x10\x05\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x06\x12\x1b\n\x17RESOURCES_NOT_AVAILABLE\x10\x07\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t"P\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12.\n\rprocess_state\x18\x02 \x01(\x0b\x32\x17.meadowrun.ProcessState"X\n\x15GridTaskStateResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12.\n\rprocess_state\x18\x02 \x01(\x0b\x32\x17.meadowrun.ProcessState"\x91\x02\n\x18\x43redentialsSourceMessage\x12/\n\x07service\x18\x01 \x01(\x0e\x32\x1e.meadowrun.Credentials.Service\x12\x13\n\x0bservice_url\x18\x02 \x01(\t\x12/\n\naws_secret\x18\x03 \x01(\x0b\x32\x19.meadowrun.AwsSecretProtoH\x00\x12\x33\n\x0c\x61zure_secret\x18\x05 \x01(\x0b\x32\x1b.meadowrun.AzureSecretProtoH\x00\x12?\n\x15server_available_file\x18\x04 \x01(\x0b\x32\x1e.meadowrun.ServerAvailableFileH\x00\x42\x08\n\x06source"\x95\x01\n\x0b\x43redentials\x12\x13\n\x0b\x63redentials\x18\x01 \x01(\x0c"3\n\x07Service\x12\x13\n\x0f\x44\x45\x46\x41ULT_SERVICE\x10\x00\x12\n\n\x06\x44OCKER\x10\x01\x12\x07\n\x03GIT\x10\x02"<\n\x04Type\x12\x10\n\x0c\x44\x45\x46\x41ULT_TYPE\x10\x00\x12\x15\n\x11USERNAME_PASSWORD\x10\x01\x12\x0b\n\x07SSH_KEY\x10\x02"\\\n\x0e\x41wsSecretProto\x12\x35\n\x10\x63redentials_type\x18\x01 \x01(\x0e\x32\x1b.meadowrun.Credentials.Type\x12\x13\n\x0bsecret_name\x18\x02 \x01(\t"r\n\x10\x41zureSecretProto\x12\x35\n\x10\x63redentials_type\x18\x01 \x01(\x0e\x32\x1b.meadowrun.Credentials.Type\x12\x12\n\nvault_name\x18\x02 \x01(\t\x12\x13\n\x0bsecret_name\x18\x03 \x01(\t"Z\n\x13ServerAvailableFile\x12\x35\n\x10\x63redentials_type\x18\x01 \x01(\x0e\x32\x1b.meadowrun.Credentials.Type\x12\x0c\n\x04path\x18\x02 \x01(\t*>\n\x0f\x45nvironmentType\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x43ONDA\x10\x01\x12\x07\n\x03PIP\x10\x02\x12\n\n\x06POETRY\x10\x03\x62\x06proto3'
+    b'\n\x19meadowrun/meadowrun.proto\x12\tmeadowrun"(\n\nStringPair\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"+\n\x15ServerAvailableFolder\x12\x12\n\ncode_paths\x18\x01 \x03(\t".\n\x0b\x43odeZipFile\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x12\n\ncode_paths\x18\x02 \x03(\t"I\n\rGitRepoCommit\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x63ommit\x18\x02 \x01(\t\x12\x16\n\x0epath_to_source\x18\x03 \x01(\t"I\n\rGitRepoBranch\x12\x10\n\x08repo_url\x18\x01 \x01(\t\x12\x0e\n\x06\x62ranch\x18\x02 \x01(\t\x12\x16\n\x0epath_to_source\x18\x03 \x01(\t"6\n\x1aServerAvailableInterpreter\x12\x18\n\x10interpreter_path\x18\x01 \x01(\t"7\n\x11\x43ontainerAtDigest\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0e\n\x06\x64igest\x18\x02 \x01(\t"1\n\x0e\x43ontainerAtTag\x12\x12\n\nrepository\x18\x01 \x01(\t\x12\x0b\n\x03tag\x18\x02 \x01(\t"\x8d\x02\n\x15\x45nvironmentSpecInCode\x12\x34\n\x10\x65nvironment_type\x18\x01 \x01(\x0e\x32\x1a.meadowrun.EnvironmentType\x12\x14\n\x0cpath_to_spec\x18\x02 \x01(\t\x12\x16\n\x0epython_version\x18\x03 \x01(\t\x12U\n\x13\x61\x64\x64itional_software\x18\x05 \x03(\x0b\x32\x38.meadowrun.EnvironmentSpecInCode.AdditionalSoftwareEntry\x1a\x39\n\x17\x41\x64\x64itionalSoftwareEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"\x8c\x02\n\x0f\x45nvironmentSpec\x12\x34\n\x10\x65nvironment_type\x18\x01 \x01(\x0e\x32\x1a.meadowrun.EnvironmentType\x12\x0c\n\x04spec\x18\x02 \x01(\t\x12\x11\n\tspec_lock\x18\x03 \x01(\t\x12\x16\n\x0epython_version\x18\x04 \x01(\t\x12O\n\x13\x61\x64\x64itional_software\x18\x05 \x03(\x0b\x32\x32.meadowrun.EnvironmentSpec.AdditionalSoftwareEntry\x1a\x39\n\x17\x41\x64\x64itionalSoftwareEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01".\n\x18ServerAvailableContainer\x12\x12\n\nimage_name\x18\x01 \x01(\t"G\n\x0cPyCommandJob\x12\x14\n\x0c\x63ommand_line\x18\x01 \x03(\t\x12!\n\x19pickled_context_variables\x18\x02 \x01(\x0c"C\n\x15QualifiedFunctionName\x12\x13\n\x0bmodule_name\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t"\xa5\x01\n\rPyFunctionJob\x12\x43\n\x17qualified_function_name\x18\x01 \x01(\x0b\x32 .meadowrun.QualifiedFunctionNameH\x00\x12\x1a\n\x10pickled_function\x18\x02 \x01(\x0cH\x00\x12"\n\x1apickled_function_arguments\x18\x03 \x01(\x0c\x42\x0f\n\rfunction_spec"?\n\x08GridTask\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12"\n\x1apickled_function_arguments\x18\x02 \x01(\x0c"\xf6\x07\n\x03Job\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x19\n\x11job_friendly_name\x18\x02 \x01(\t\x12\x43\n\x17server_available_folder\x18\x05 \x01(\x0b\x32 .meadowrun.ServerAvailableFolderH\x00\x12\x33\n\x0fgit_repo_commit\x18\x06 \x01(\x0b\x32\x18.meadowrun.GitRepoCommitH\x00\x12\x33\n\x0fgit_repo_branch\x18\x07 \x01(\x0b\x32\x18.meadowrun.GitRepoBranchH\x00\x12/\n\rcode_zip_file\x18\x13 \x01(\x0b\x32\x16.meadowrun.CodeZipFileH\x00\x12M\n\x1cserver_available_interpreter\x18\x08 \x01(\x0b\x32%.meadowrun.ServerAvailableInterpreterH\x01\x12;\n\x13\x63ontainer_at_digest\x18\t \x01(\x0b\x32\x1c.meadowrun.ContainerAtDigestH\x01\x12\x35\n\x10\x63ontainer_at_tag\x18\n \x01(\x0b\x32\x19.meadowrun.ContainerAtTagH\x01\x12I\n\x1aserver_available_container\x18\x0b \x01(\x0b\x32#.meadowrun.ServerAvailableContainerH\x01\x12\x44\n\x18\x65nvironment_spec_in_code\x18\x0c \x01(\x0b\x32 .meadowrun.EnvironmentSpecInCodeH\x01\x12\x36\n\x10\x65nvironment_spec\x18\x12 \x01(\x0b\x32\x1a.meadowrun.EnvironmentSpecH\x01\x12\x34\n\x15\x65nvironment_variables\x18\r \x03(\x0b\x32\x15.meadowrun.StringPair\x12&\n\x1eresult_highest_pickle_protocol\x18\x0e \x01(\x05\x12-\n\npy_command\x18\x0f \x01(\x0b\x32\x17.meadowrun.PyCommandJobH\x02\x12/\n\x0bpy_function\x18\x10 \x01(\x0b\x32\x18.meadowrun.PyFunctionJobH\x02\x12@\n\x13\x63redentials_sources\x18\x11 \x03(\x0b\x32#.meadowrun.CredentialsSourceMessage\x12\r\n\x05ports\x18\x14 \x03(\t\x12\x10\n\x08uses_gpu\x18\x15 \x01(\x08\x42\x11\n\x0f\x63ode_deploymentB\x18\n\x16interpreter_deploymentB\n\n\x08job_spec"\x8a\x03\n\x0cProcessState\x12\x37\n\x05state\x18\x01 \x01(\x0e\x32(.meadowrun.ProcessState.ProcessStateEnum\x12\x0b\n\x03pid\x18\x02 \x01(\x05\x12\x14\n\x0c\x63ontainer_id\x18\x03 \x01(\t\x12\x15\n\rlog_file_name\x18\x04 \x01(\t\x12\x16\n\x0epickled_result\x18\x05 \x01(\x0c\x12\x13\n\x0breturn_code\x18\x06 \x01(\x05"\xd9\x01\n\x10ProcessStateEnum\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\x11\n\rRUN_REQUESTED\x10\x01\x12\x0b\n\x07RUNNING\x10\x02\x12\r\n\tSUCCEEDED\x10\x03\x12\x16\n\x12RUN_REQUEST_FAILED\x10\x04\x12\x14\n\x10PYTHON_EXCEPTION\x10\x05\x12\x18\n\x14NON_ZERO_RETURN_CODE\x10\x06\x12\x1b\n\x17RESOURCES_NOT_AVAILABLE\x10\x07\x12\x17\n\x13\x45RROR_GETTING_STATE\x10\x08\x12\x0b\n\x07UNKNOWN\x10\t"P\n\x0eJobStateUpdate\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12.\n\rprocess_state\x18\x02 \x01(\x0b\x32\x17.meadowrun.ProcessState"X\n\x15GridTaskStateResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\x05\x12.\n\rprocess_state\x18\x02 \x01(\x0b\x32\x17.meadowrun.ProcessState"\x91\x02\n\x18\x43redentialsSourceMessage\x12/\n\x07service\x18\x01 \x01(\x0e\x32\x1e.meadowrun.Credentials.Service\x12\x13\n\x0bservice_url\x18\x02 \x01(\t\x12/\n\naws_secret\x18\x03 \x01(\x0b\x32\x19.meadowrun.AwsSecretProtoH\x00\x12\x33\n\x0c\x61zure_secret\x18\x05 \x01(\x0b\x32\x1b.meadowrun.AzureSecretProtoH\x00\x12?\n\x15server_available_file\x18\x04 \x01(\x0b\x32\x1e.meadowrun.ServerAvailableFileH\x00\x42\x08\n\x06source"\x95\x01\n\x0b\x43redentials\x12\x13\n\x0b\x63redentials\x18\x01 \x01(\x0c"3\n\x07Service\x12\x13\n\x0f\x44\x45\x46\x41ULT_SERVICE\x10\x00\x12\n\n\x06\x44OCKER\x10\x01\x12\x07\n\x03GIT\x10\x02"<\n\x04Type\x12\x10\n\x0c\x44\x45\x46\x41ULT_TYPE\x10\x00\x12\x15\n\x11USERNAME_PASSWORD\x10\x01\x12\x0b\n\x07SSH_KEY\x10\x02"\\\n\x0e\x41wsSecretProto\x12\x35\n\x10\x63redentials_type\x18\x01 \x01(\x0e\x32\x1b.meadowrun.Credentials.Type\x12\x13\n\x0bsecret_name\x18\x02 \x01(\t"r\n\x10\x41zureSecretProto\x12\x35\n\x10\x63redentials_type\x18\x01 \x01(\x0e\x32\x1b.meadowrun.Credentials.Type\x12\x12\n\nvault_name\x18\x02 \x01(\t\x12\x13\n\x0bsecret_name\x18\x03 \x01(\t"Z\n\x13ServerAvailableFile\x12\x35\n\x10\x63redentials_type\x18\x01 \x01(\x0e\x32\x1b.meadowrun.Credentials.Type\x12\x0c\n\x04path\x18\x02 \x01(\t*>\n\x0f\x45nvironmentType\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x00\x12\t\n\x05\x43ONDA\x10\x01\x12\x07\n\x03PIP\x10\x02\x12\n\n\x06POETRY\x10\x03\x62\x06proto3'
 )
 
 _ENVIRONMENTTYPE = DESCRIPTOR.enum_types_by_name["EnvironmentType"]
@@ -37,7 +37,13 @@ _SERVERAVAILABLEINTERPRETER = DESCRIPTOR.message_types_by_name[
 _CONTAINERATDIGEST = DESCRIPTOR.message_types_by_name["ContainerAtDigest"]
 _CONTAINERATTAG = DESCRIPTOR.message_types_by_name["ContainerAtTag"]
 _ENVIRONMENTSPECINCODE = DESCRIPTOR.message_types_by_name["EnvironmentSpecInCode"]
+_ENVIRONMENTSPECINCODE_ADDITIONALSOFTWAREENTRY = (
+    _ENVIRONMENTSPECINCODE.nested_types_by_name["AdditionalSoftwareEntry"]
+)
 _ENVIRONMENTSPEC = DESCRIPTOR.message_types_by_name["EnvironmentSpec"]
+_ENVIRONMENTSPEC_ADDITIONALSOFTWAREENTRY = _ENVIRONMENTSPEC.nested_types_by_name[
+    "AdditionalSoftwareEntry"
+]
 _SERVERAVAILABLECONTAINER = DESCRIPTOR.message_types_by_name["ServerAvailableContainer"]
 _PYCOMMANDJOB = DESCRIPTOR.message_types_by_name["PyCommandJob"]
 _QUALIFIEDFUNCTIONNAME = DESCRIPTOR.message_types_by_name["QualifiedFunctionName"]
@@ -147,23 +153,43 @@ EnvironmentSpecInCode = _reflection.GeneratedProtocolMessageType(
     "EnvironmentSpecInCode",
     (_message.Message,),
     {
+        "AdditionalSoftwareEntry": _reflection.GeneratedProtocolMessageType(
+            "AdditionalSoftwareEntry",
+            (_message.Message,),
+            {
+                "DESCRIPTOR": _ENVIRONMENTSPECINCODE_ADDITIONALSOFTWAREENTRY,
+                "__module__": "meadowrun.meadowrun_pb2"
+                # @@protoc_insertion_point(class_scope:meadowrun.EnvironmentSpecInCode.AdditionalSoftwareEntry)
+            },
+        ),
         "DESCRIPTOR": _ENVIRONMENTSPECINCODE,
         "__module__": "meadowrun.meadowrun_pb2"
         # @@protoc_insertion_point(class_scope:meadowrun.EnvironmentSpecInCode)
     },
 )
 _sym_db.RegisterMessage(EnvironmentSpecInCode)
+_sym_db.RegisterMessage(EnvironmentSpecInCode.AdditionalSoftwareEntry)
 
 EnvironmentSpec = _reflection.GeneratedProtocolMessageType(
     "EnvironmentSpec",
     (_message.Message,),
     {
+        "AdditionalSoftwareEntry": _reflection.GeneratedProtocolMessageType(
+            "AdditionalSoftwareEntry",
+            (_message.Message,),
+            {
+                "DESCRIPTOR": _ENVIRONMENTSPEC_ADDITIONALSOFTWAREENTRY,
+                "__module__": "meadowrun.meadowrun_pb2"
+                # @@protoc_insertion_point(class_scope:meadowrun.EnvironmentSpec.AdditionalSoftwareEntry)
+            },
+        ),
         "DESCRIPTOR": _ENVIRONMENTSPEC,
         "__module__": "meadowrun.meadowrun_pb2"
         # @@protoc_insertion_point(class_scope:meadowrun.EnvironmentSpec)
     },
 )
 _sym_db.RegisterMessage(EnvironmentSpec)
+_sym_db.RegisterMessage(EnvironmentSpec.AdditionalSoftwareEntry)
 
 ServerAvailableContainer = _reflection.GeneratedProtocolMessageType(
     "ServerAvailableContainer",
@@ -322,8 +348,12 @@ _sym_db.RegisterMessage(ServerAvailableFile)
 if _descriptor._USE_C_DESCRIPTORS == False:
 
     DESCRIPTOR._options = None
-    _ENVIRONMENTTYPE._serialized_start = 3466
-    _ENVIRONMENTTYPE._serialized_end = 3528
+    _ENVIRONMENTSPECINCODE_ADDITIONALSOFTWAREENTRY._options = None
+    _ENVIRONMENTSPECINCODE_ADDITIONALSOFTWAREENTRY._serialized_options = b"8\001"
+    _ENVIRONMENTSPEC_ADDITIONALSOFTWAREENTRY._options = None
+    _ENVIRONMENTSPEC_ADDITIONALSOFTWAREENTRY._serialized_options = b"8\001"
+    _ENVIRONMENTTYPE._serialized_start = 3771
+    _ENVIRONMENTTYPE._serialized_end = 3833
     _STRINGPAIR._serialized_start = 40
     _STRINGPAIR._serialized_end = 80
     _SERVERAVAILABLEFOLDER._serialized_start = 82
@@ -340,42 +370,46 @@ if _descriptor._USE_C_DESCRIPTORS == False:
     _CONTAINERATDIGEST._serialized_end = 436
     _CONTAINERATTAG._serialized_start = 438
     _CONTAINERATTAG._serialized_end = 487
-    _ENVIRONMENTSPECINCODE._serialized_start = 489
-    _ENVIRONMENTSPECINCODE._serialized_end = 612
-    _ENVIRONMENTSPEC._serialized_start = 615
-    _ENVIRONMENTSPEC._serialized_end = 743
-    _SERVERAVAILABLECONTAINER._serialized_start = 745
-    _SERVERAVAILABLECONTAINER._serialized_end = 791
-    _PYCOMMANDJOB._serialized_start = 793
-    _PYCOMMANDJOB._serialized_end = 864
-    _QUALIFIEDFUNCTIONNAME._serialized_start = 866
-    _QUALIFIEDFUNCTIONNAME._serialized_end = 933
-    _PYFUNCTIONJOB._serialized_start = 936
-    _PYFUNCTIONJOB._serialized_end = 1101
-    _GRIDTASK._serialized_start = 1103
-    _GRIDTASK._serialized_end = 1166
-    _JOB._serialized_start = 1169
-    _JOB._serialized_end = 2165
-    _PROCESSSTATE._serialized_start = 2168
-    _PROCESSSTATE._serialized_end = 2562
-    _PROCESSSTATE_PROCESSSTATEENUM._serialized_start = 2345
-    _PROCESSSTATE_PROCESSSTATEENUM._serialized_end = 2562
-    _JOBSTATEUPDATE._serialized_start = 2564
-    _JOBSTATEUPDATE._serialized_end = 2644
-    _GRIDTASKSTATERESPONSE._serialized_start = 2646
-    _GRIDTASKSTATERESPONSE._serialized_end = 2734
-    _CREDENTIALSSOURCEMESSAGE._serialized_start = 2737
-    _CREDENTIALSSOURCEMESSAGE._serialized_end = 3010
-    _CREDENTIALS._serialized_start = 3013
-    _CREDENTIALS._serialized_end = 3162
-    _CREDENTIALS_SERVICE._serialized_start = 3049
-    _CREDENTIALS_SERVICE._serialized_end = 3100
-    _CREDENTIALS_TYPE._serialized_start = 3102
-    _CREDENTIALS_TYPE._serialized_end = 3162
-    _AWSSECRETPROTO._serialized_start = 3164
-    _AWSSECRETPROTO._serialized_end = 3256
-    _AZURESECRETPROTO._serialized_start = 3258
-    _AZURESECRETPROTO._serialized_end = 3372
-    _SERVERAVAILABLEFILE._serialized_start = 3374
-    _SERVERAVAILABLEFILE._serialized_end = 3464
+    _ENVIRONMENTSPECINCODE._serialized_start = 490
+    _ENVIRONMENTSPECINCODE._serialized_end = 759
+    _ENVIRONMENTSPECINCODE_ADDITIONALSOFTWAREENTRY._serialized_start = 702
+    _ENVIRONMENTSPECINCODE_ADDITIONALSOFTWAREENTRY._serialized_end = 759
+    _ENVIRONMENTSPEC._serialized_start = 762
+    _ENVIRONMENTSPEC._serialized_end = 1030
+    _ENVIRONMENTSPEC_ADDITIONALSOFTWAREENTRY._serialized_start = 702
+    _ENVIRONMENTSPEC_ADDITIONALSOFTWAREENTRY._serialized_end = 759
+    _SERVERAVAILABLECONTAINER._serialized_start = 1032
+    _SERVERAVAILABLECONTAINER._serialized_end = 1078
+    _PYCOMMANDJOB._serialized_start = 1080
+    _PYCOMMANDJOB._serialized_end = 1151
+    _QUALIFIEDFUNCTIONNAME._serialized_start = 1153
+    _QUALIFIEDFUNCTIONNAME._serialized_end = 1220
+    _PYFUNCTIONJOB._serialized_start = 1223
+    _PYFUNCTIONJOB._serialized_end = 1388
+    _GRIDTASK._serialized_start = 1390
+    _GRIDTASK._serialized_end = 1453
+    _JOB._serialized_start = 1456
+    _JOB._serialized_end = 2470
+    _PROCESSSTATE._serialized_start = 2473
+    _PROCESSSTATE._serialized_end = 2867
+    _PROCESSSTATE_PROCESSSTATEENUM._serialized_start = 2650
+    _PROCESSSTATE_PROCESSSTATEENUM._serialized_end = 2867
+    _JOBSTATEUPDATE._serialized_start = 2869
+    _JOBSTATEUPDATE._serialized_end = 2949
+    _GRIDTASKSTATERESPONSE._serialized_start = 2951
+    _GRIDTASKSTATERESPONSE._serialized_end = 3039
+    _CREDENTIALSSOURCEMESSAGE._serialized_start = 3042
+    _CREDENTIALSSOURCEMESSAGE._serialized_end = 3315
+    _CREDENTIALS._serialized_start = 3318
+    _CREDENTIALS._serialized_end = 3467
+    _CREDENTIALS_SERVICE._serialized_start = 3354
+    _CREDENTIALS_SERVICE._serialized_end = 3405
+    _CREDENTIALS_TYPE._serialized_start = 3407
+    _CREDENTIALS_TYPE._serialized_end = 3467
+    _AWSSECRETPROTO._serialized_start = 3469
+    _AWSSECRETPROTO._serialized_end = 3561
+    _AZURESECRETPROTO._serialized_start = 3563
+    _AZURESECRETPROTO._serialized_end = 3677
+    _SERVERAVAILABLEFILE._serialized_start = 3679
+    _SERVERAVAILABLEFILE._serialized_end = 3769
 # @@protoc_insertion_point(module_scope)

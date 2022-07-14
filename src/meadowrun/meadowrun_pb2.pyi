@@ -305,24 +305,54 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class AdditionalSoftwareEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: typing.Text
+        value: typing.Text
+        def __init__(
+            self,
+            *,
+            key: typing.Text = ...,
+            value: typing.Text = ...,
+        ) -> None: ...
+        def ClearField(
+            self,
+            field_name: typing_extensions.Literal["key", b"key", "value", b"value"],
+        ) -> None: ...
+
     ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
     PATH_TO_SPEC_FIELD_NUMBER: builtins.int
     PYTHON_VERSION_FIELD_NUMBER: builtins.int
+    ADDITIONAL_SOFTWARE_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     path_to_spec: typing.Text
     python_version: typing.Text
     """python version is not used for CONDA environments"""
 
+    @property
+    def additional_software(
+        self,
+    ) -> google.protobuf.internal.containers.ScalarMap[typing.Text, typing.Text]:
+        """right now just cuda is supported, maps software -> version requirement"""
+        pass
     def __init__(
         self,
         *,
         environment_type: global___EnvironmentType.ValueType = ...,
         path_to_spec: typing.Text = ...,
         python_version: typing.Text = ...,
+        additional_software: typing.Optional[
+            typing.Mapping[typing.Text, typing.Text]
+        ] = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
+            "additional_software",
+            b"additional_software",
             "environment_type",
             b"environment_type",
             "path_to_spec",
@@ -342,10 +372,29 @@ class EnvironmentSpec(google.protobuf.message.Message):
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class AdditionalSoftwareEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: typing.Text
+        value: typing.Text
+        def __init__(
+            self,
+            *,
+            key: typing.Text = ...,
+            value: typing.Text = ...,
+        ) -> None: ...
+        def ClearField(
+            self,
+            field_name: typing_extensions.Literal["key", b"key", "value", b"value"],
+        ) -> None: ...
+
     ENVIRONMENT_TYPE_FIELD_NUMBER: builtins.int
     SPEC_FIELD_NUMBER: builtins.int
     SPEC_LOCK_FIELD_NUMBER: builtins.int
     PYTHON_VERSION_FIELD_NUMBER: builtins.int
+    ADDITIONAL_SOFTWARE_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     spec: typing.Text
     spec_lock: typing.Text
@@ -354,6 +403,12 @@ class EnvironmentSpec(google.protobuf.message.Message):
     python_version: typing.Text
     """python version is not used for CONDA environments"""
 
+    @property
+    def additional_software(
+        self,
+    ) -> google.protobuf.internal.containers.ScalarMap[typing.Text, typing.Text]:
+        """right now just cuda is supported, maps software -> version requirement"""
+        pass
     def __init__(
         self,
         *,
@@ -361,10 +416,15 @@ class EnvironmentSpec(google.protobuf.message.Message):
         spec: typing.Text = ...,
         spec_lock: typing.Text = ...,
         python_version: typing.Text = ...,
+        additional_software: typing.Optional[
+            typing.Mapping[typing.Text, typing.Text]
+        ] = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
+            "additional_software",
+            b"additional_software",
             "environment_type",
             b"environment_type",
             "python_version",
@@ -540,6 +600,7 @@ class Job(google.protobuf.message.Message):
     PY_FUNCTION_FIELD_NUMBER: builtins.int
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
     PORTS_FIELD_NUMBER: builtins.int
+    USES_GPU_FIELD_NUMBER: builtins.int
     job_id: typing.Text
     """job_id uniquely identifies this request to avoid duplicates and for getting the
     results later. Make sure job_id is unique! Multiple requests with the same job_id
@@ -603,6 +664,7 @@ class Job(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
         typing.Text
     ]: ...
+    uses_gpu: builtins.bool
     def __init__(
         self,
         *,
@@ -632,6 +694,7 @@ class Job(google.protobuf.message.Message):
             typing.Iterable[global___CredentialsSourceMessage]
         ] = ...,
         ports: typing.Optional[typing.Iterable[typing.Text]] = ...,
+        uses_gpu: builtins.bool = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -713,6 +776,8 @@ class Job(google.protobuf.message.Message):
             b"server_available_folder",
             "server_available_interpreter",
             b"server_available_interpreter",
+            "uses_gpu",
+            b"uses_gpu",
         ],
     ) -> None: ...
     @typing.overload

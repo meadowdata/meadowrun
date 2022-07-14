@@ -119,6 +119,8 @@ message EnvironmentSpecInCode {
     string path_to_spec = 2;
     // python version is not used for CONDA environments
     string python_version = 3;
+    // right now just cuda is supported, maps software -> version requirement
+    map<string, string> additional_software = 5;
 }
 
 // Represents an environment spec represented as a string.
@@ -132,6 +134,8 @@ message EnvironmentSpec {
     string spec_lock = 3;
     // python version is not used for CONDA environments
     string python_version = 4;
+    // right now just cuda is supported, maps software -> version requirement
+    map<string, string> additional_software = 5;
 }
 
 
@@ -218,6 +222,7 @@ message Job {
     repeated CredentialsSourceMessage credentials_sources = 17;
 
     repeated string ports = 20;
+    bool uses_gpu = 21;
 }
 
 

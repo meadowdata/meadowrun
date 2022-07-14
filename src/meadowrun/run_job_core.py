@@ -58,6 +58,14 @@ async def _retry(
 
 class Host(abc.ABC):
     @abc.abstractmethod
+    def uses_gpu(self) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def needs_cuda(self) -> bool:
+        pass
+
+    @abc.abstractmethod
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         pass
 
@@ -77,6 +85,12 @@ class SshHost(Host):
     # via the right InstanceRegistrar when we're done. region name indicates where
     # the InstanceRegistrar that we used to allocate this job is.
     cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
+
+    def uses_gpu(self) -> bool:
+        return False
+
+    def needs_cuda(self) -> bool:
+        return False
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         # try the connection 20 times.

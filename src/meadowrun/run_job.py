@@ -756,6 +756,14 @@ async def _prepare_code_deployment(
         raise ValueError(f"Unexpected value for target {target}")
 
 
+def _needs_cuda(flags_required: Union[Iterable[str], str, None]) -> bool:
+    if flags_required is None:
+        return False
+    if isinstance(flags_required, str):
+        return "nvidia" == flags_required
+    return "nvidia" in flags_required
+
+
 @dataclasses.dataclass(frozen=True)
 class AllocCloudInstance(Host):
     """
@@ -781,6 +789,12 @@ class AllocCloudInstance(Host):
     gpus_required: Optional[float] = None
     flags_required: Union[Iterable[str], str, None] = None
     region_name: Optional[str] = None
+
+    def uses_gpu(self) -> bool:
+        return self.gpus_required is not None
+
+    def needs_cuda(self) -> bool:
+        return self.uses_gpu() and _needs_cuda(self.flags_required)
 
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         resources_required = Resources.from_cpu_and_memory(
@@ -971,6 +985,10 @@ async def run_function(
         environment_variables,
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
+    if host.needs_cuda() and isinstance(
+        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
+    ):
+        interpreter.additional_software["cuda"] = ""
 
     code = await _prepare_code_deployment(
         code, _DeploymentTarget.from_single_host(host)
@@ -984,6 +1002,7 @@ async def run_function(
         py_function=py_function,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
+        uses_gpu=host.uses_gpu(),
     )
     _add_deployments_to_job(job, code, interpreter)
 
@@ -1033,6 +1052,11 @@ async def run_command(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
+    if host.needs_cuda() and isinstance(
+        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
+    ):
+        interpreter.additional_software["cuda"] = ""
+
     code = await _prepare_code_deployment(
         code, _DeploymentTarget.from_single_host(host)
     )
@@ -1054,6 +1078,7 @@ async def run_command(
         ),
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
+        uses_gpu=host.uses_gpu(),
     )
     _add_deployments_to_job(job, code, interpreter)
 
@@ -1133,6 +1158,14 @@ async def run_map(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
+    uses_gpu = hosts.gpus_required_per_task is not None
+    if (
+        uses_gpu
+        and _needs_cuda(hosts.flags_required)
+        and isinstance(interpreter, (EnvironmentSpec, EnvironmentSpecInCode))
+    ):
+        interpreter.additional_software["cuda"] = ""
+
     code = await _prepare_code_deployment(code, _DeploymentTarget.from_hosts(hosts))
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
@@ -1160,6 +1193,7 @@ async def run_map(
                 ),
                 credentials_sources=credentials_sources,
                 ports=prepared_ports,
+                uses_gpu=uses_gpu,
             )
             _add_deployments_to_job(job, code, interpreter)
 

@@ -348,27 +348,48 @@ async def compile_environment_spec_to_container(
         spec_filename = os.path.basename(path_to_spec)
         build_args["ENV_FILE"] = spec_filename
         files_to_copy.append((path_to_spec, spec_filename))
-    elif environment_spec.environment_type == EnvironmentType.PIP:
-        if has_git_dependency:
-            docker_file_name = "PipGitDockerfile"
+        if "cuda" in environment_spec.additional_software:
+            build_args[
+                "CONDA_IMAGE"
+            ] = "meadowrun/cuda-conda:cuda11.6.2-cudnn8-ubuntu20.04"
         else:
-            docker_file_name = "PipDockerfile"
-        spec_filename = os.path.basename(path_to_spec)
-        build_args["ENV_FILE"] = spec_filename
-        files_to_copy.append((path_to_spec, spec_filename))
-        build_args["PYTHON_VERSION"] = environment_spec.python_version
-    elif environment_spec.environment_type == EnvironmentType.POETRY:
-        # TODO add support for has_git_dependency
-        docker_file_name = "PoetryDockerfile"
-        build_args["PYTHON_VERSION"] = environment_spec.python_version
-        files_to_copy.append(
-            (os.path.join(path_to_spec, "pyproject.toml"), "pyproject.toml")
-        )
-        files_to_copy.append((os.path.join(path_to_spec, "poetry.lock"), "poetry.lock"))
+            build_args["CONDA_IMAGE"] = "continuumio/miniconda3"
     else:
-        raise ValueError(
-            f"Unexpected environment_type {environment_spec.environment_type}"
-        )
+        # common to pip and poetry
+        if "cuda" in environment_spec.additional_software:
+            build_args["PYTHON_IMAGE"] = (
+                f"meadowrun/cuda-python:py{environment_spec.python_version}-"
+                f"cuda11.6.2-cudnn8-ubuntu20.04"
+            )
+        else:
+            build_args[
+                "PYTHON_IMAGE"
+            ] = f"python:{environment_spec.python_version}-slim-bullseye"
+
+        if environment_spec.environment_type == EnvironmentType.PIP:
+            if has_git_dependency:
+                docker_file_name = "PipGitDockerfile"
+            else:
+                docker_file_name = "PipDockerfile"
+            spec_filename = os.path.basename(path_to_spec)
+            files_to_copy.append((path_to_spec, spec_filename))
+            build_args["ENV_FILE"] = spec_filename
+        elif environment_spec.environment_type == EnvironmentType.POETRY:
+            # TODO add support for has_git_dependency
+            if has_git_dependency:
+                docker_file_name = "PoetryGitDockerfile"
+            else:
+                docker_file_name = "PoetryDockerfile"
+            files_to_copy.append(
+                (os.path.join(path_to_spec, "pyproject.toml"), "pyproject.toml")
+            )
+            files_to_copy.append(
+                (os.path.join(path_to_spec, "poetry.lock"), "poetry.lock")
+            )
+        else:
+            raise ValueError(
+                f"Unexpected environment_type {environment_spec.environment_type}"
+            )
 
     docker_file_path = os.path.join(
         os.path.dirname(__file__), "docker_files", docker_file_name
@@ -425,7 +446,13 @@ def _get_path_and_hash(
             spec_contents_bytes = spec.read()
         return (
             path_to_spec,
-            _hash_spec(spec_contents_bytes),
+            _hash_spec(
+                spec_contents_bytes
+                + (
+                    "\n\nmeadowrun-additional-software: "
+                    f"{environment_spec.additional_software}"
+                ).encode("utf-8")
+            ),
             _has_git_dependency(
                 spec_contents_bytes.decode("utf-8"), environment_spec.environment_type
             ),
@@ -437,7 +464,13 @@ def _get_path_and_hash(
             # for poetry, path_to_spec will be a folder that contains pyproject.toml and
             # poetry.lock
             spec_contents_str = environment_spec.spec_lock
-            spec_hash = _hash_spec(spec_contents_str.encode("UTF-8"))
+            spec_hash = _hash_spec(
+                (
+                    spec_contents_str
+                    + "\n\nmeadowrun-additional-software: "
+                    + f"{environment_spec.additional_software}"
+                ).encode("UTF-8")
+            )
             path_to_spec = os.path.join(interpreter_spec_path, spec_hash)
             os.makedirs(path_to_spec, exist_ok=True)
             with open(
@@ -449,8 +482,14 @@ def _get_path_and_hash(
             ) as lock_file:
                 lock_file.write(environment_spec.spec_lock)
         else:
-            spec_contents_str = environment_spec.spec_lock
-            spec_hash = _hash_spec(spec_contents_str.encode("UTF-8"))
+            spec_contents_str = environment_spec.spec
+            spec_hash = _hash_spec(
+                (
+                    spec_contents_str
+                    + "\n\nmeadowrun-additional-software: "
+                    + f"{environment_spec.additional_software}"
+                ).encode("UTF-8")
+            )
 
             if environment_spec.environment_type == EnvironmentType.CONDA:
                 spec_filename = f"conda_env_spec_{spec_hash}.yml"
@@ -482,5 +521,9 @@ def _has_git_dependency(
     # We just operate on bytes rather than decoding the string
     if environment_type == EnvironmentType.PIP:
         return any(line.startswith("git+") for line in spec_contents.splitlines())
+    elif environment_type == EnvironmentType.POETRY:
+        return any(
+            line.startswith('type = "git"') for line in spec_contents.splitlines()
+        )
     else:
         return False

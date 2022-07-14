@@ -395,6 +395,7 @@ async def run_container(
     working_directory: str,
     binds: List[Tuple[str, str]],
     ports: List[str],
+    all_gpus: bool,
 ) -> Tuple[aiodocker_containers.DockerContainer, aiodocker.Docker]:
     """
     Runs a docker container. Examples of parameters:
@@ -440,6 +441,7 @@ async def run_container(
             # of replacing localhost for the coordinator address. Also:
             # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
             "ExtraHosts": ["host.docker.internal:host-gateway"],
+            "AutoRemove": True,
         },
     }
 
@@ -461,6 +463,13 @@ async def run_container(
             f"{port}/tcp": [{"HostPort": port}] for port in expanded_ports
         }
         config["ExposedPorts"] = {f"{port}/tcp": {} for port in expanded_ports}
+
+    if all_gpus:
+        # it would be convenient if we could just always set this, but setting this when
+        # there are no GPUs will cause the container creation to fail
+        config["HostConfig"]["DeviceRequests"] = [
+            {"Count": -1, "Capabilities": [["gpu"]]}
+        ]
 
     container = await client.containers.run(config)
 

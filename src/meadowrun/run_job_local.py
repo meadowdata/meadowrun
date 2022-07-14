@@ -98,6 +98,8 @@ class _JobSpecTransformed:
 
     ports: List[str]
 
+    uses_gpu: bool
+
     environment_variables: Dict[str, str] = dataclasses.field(
         default_factory=lambda: {}
     )
@@ -170,6 +172,7 @@ def _prepare_py_command(
         list(job.py_command.command_line),
         _io_file_container_binds(io_folder, io_files),
         list(job.ports),
+        job.uses_gpu,
         environment,
     )
 
@@ -284,6 +287,7 @@ def _prepare_py_function(
         )
         + [(_FUNC_WORKER_PATH, func_worker_path)],
         list(job.ports),
+        job.uses_gpu,
     )
 
 
@@ -523,6 +527,7 @@ async def _launch_container_job(
         working_dir,
         binds,
         job_spec_transformed.ports,
+        job_spec_transformed.uses_gpu,
     )
     return container.id, _container_job_continuation(
         container,
@@ -960,6 +965,12 @@ async def run_local(
 
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
+    def uses_gpu(self) -> bool:
+        return False
+
+    def needs_cuda(self) -> bool:
+        return False
+
     async def run_job(self, job: Job) -> JobCompletion[Any]:
         initial_update, continuation = await run_local(job)
         if (

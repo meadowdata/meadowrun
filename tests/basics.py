@@ -237,6 +237,24 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_poetry_project_in_git_repo_with_git_dependency(self):
+        results = await run_function(
+            self._get_remote_function_for_deployment(),
+            self.get_host(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
+            ),
+        )
+        # the version number will keep changing, but we know it will be > 2.28.0
+        assert [int(part) for part in results[0].split(".")] > [2, 28, 0]
+        print(results)
+        assert results[1:] == ("1.4.3", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_git_repo_with_container(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),

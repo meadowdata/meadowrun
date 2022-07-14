@@ -1,0 +1,8 @@
+FROM nvidia/cuda:11.6.2-cudnn8-devel-ubuntu20.04
+
+RUN apt update && \
+    DEBIAN_FRONTEND=noninteractive apt install -y software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt purge -y software-properties-common && \
+    apt autoremove -y && \
+    apt update

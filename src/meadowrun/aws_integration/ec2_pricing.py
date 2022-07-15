@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import io
 import json
+import logging
 from typing import List, Iterable, Dict, Tuple
 
 import aiohttp
 import boto3
-from pkg_resources import resource_filename
+import pkg_resources
 
 from meadowrun.aws_integration.aws_core import _boto3_paginate
 from meadowrun.config import (
     AVX,
     AvxVersion,
     GPU,
+    GPU_MEMORY,
     INTEL_DEEP_LEARNING_BOOST,
     INTERRUPTION_PROBABILITY_INVERSE,
     LOGICAL_CPU,
@@ -65,7 +68,7 @@ def _get_region_description_for_pricing(region_code: str) -> str:
     Converts something like us-east-2 to US East (Ohio). Almost all APIs use
     region_code, but the pricing API weirdly uses description.
     """
-    endpoint_file = resource_filename("botocore", "data/endpoints.json")
+    endpoint_file = pkg_resources.resource_filename("botocore", "data/endpoints.json")
     with open(endpoint_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     # Botocore is using Europe while Pricing API using EU...sigh...
@@ -79,6 +82,26 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
     Returns a dataframe with columns instance_type, memory_gb, logical_cpu, and price
     where price is the on-demand price
     """
+
+    try:
+        s3_client = boto3.client("s3", region_name="us-east-2")
+        with io.BytesIO() as buffer:
+            s3_client.download_fileobj("meadowrunprod", "aws_gpu_memory.json", buffer)
+            buffer.seek(0)
+            gpu_memory = json.loads(buffer.getvalue().decode("utf-8"))
+    except Exception as e:
+        logging.warning(
+            "Unable to get most recent GPU memory data, will fall back to data in "
+            f"package: {e}"
+        )
+        with open(
+            pkg_resources.resource_filename(
+                "meadowrun", "aws_integration/aws_gpu_memory.json"
+            ),
+            "r",
+            encoding="utf-8",
+        ) as file:
+            gpu_memory = json.loads(file.read())
 
     # All comments about the pricing API are based on
     # https://www.sentiatechblog.com/using-the-ec2-price-list-api
@@ -242,6 +265,15 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
                     non_consumable_resources["amd_gpu"] = 1.0
                 else:
                     non_consumable_resources["nvidia"] = 1.0
+
+                # also, we'll try to assign it GPU memory from our data
+                if instance_type.lower() not in gpu_memory:
+                    print(
+                        f"Warning, skipping {instance_type.lower()} because we don't "
+                        "know how much GPU memory it has"
+                    )
+                else:
+                    consumable_resources[GPU_MEMORY] = gpu_memory[instance_type.lower()]
 
         avx_version = AvxVersion.NONE
         for feature in attributes.get("processorFeatures", "").split("; "):

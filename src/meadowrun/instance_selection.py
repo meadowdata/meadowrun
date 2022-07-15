@@ -11,6 +11,7 @@ from typing_extensions import Literal
 from meadowrun.config import (
     AVX,
     GPU,
+    GPU_MEMORY,
     INTERRUPTION_PROBABILITY_INVERSE,
     LOGICAL_CPU,
     MEMORY_GB,
@@ -185,6 +186,7 @@ class Resources:
         memory_gb: float,
         interruption_probability: Optional[float] = None,
         gpus: Optional[float] = None,
+        gpu_memory: Optional[float] = None,
         flags_required: Union[Iterable[str], str, None] = None,
         *,
         other_consumables: Optional[Dict[str, float]] = None,
@@ -199,6 +201,8 @@ class Resources:
         consumables[MEMORY_GB] = memory_gb
         if gpus is not None:
             consumables[GPU] = gpus
+        if gpu_memory is not None:
+            consumables[GPU_MEMORY] = gpu_memory
 
         if other_non_consumables is None:
             non_consumables = {}

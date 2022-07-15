@@ -20,6 +20,7 @@ MEADOWRUN_IO_MOUNT_LINUX = "/meadowrun/io"
 MEMORY_GB = "memory_gb"
 LOGICAL_CPU = "logical_cpu"
 GPU = "gpu"
+GPU_MEMORY = "gpu_memory"
 # in the resources, we set 100 - interruption probability as a non-consumable resource
 INTERRUPTION_PROBABILITY_INVERSE = "interruption_probability_inverse"
 INTEL = "intel"

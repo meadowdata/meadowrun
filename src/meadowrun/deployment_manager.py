@@ -298,6 +298,8 @@ async def compile_environment_spec_to_container(
         environment_spec, interpreter_spec_path
     )
 
+    print(f"Building python environment in container {spec_hash}")
+
     if cloud is None:
         helper = ContainerRegistryHelper(
             False, None, f"{_MEADOWRUN_GENERATED_DOCKER_REPO}:{spec_hash}", False
@@ -404,6 +406,7 @@ async def compile_environment_spec_to_container(
     # different machines) building the identical image at the same time.
     if helper.should_push:
         try:
+            print("Caching container")
             await push_image(helper.image_name, helper.username_password)
         except aiodocker_exceptions.DockerError as e:
             print(

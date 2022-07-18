@@ -460,7 +460,11 @@ async def _launch_container_job(
     continuation.
     """
 
-    binds: List[Tuple[str, str]] = []
+    os.makedirs("/var/meadowrun/machine_cache", exist_ok=True)
+
+    binds: List[Tuple[str, str]] = [
+        ("/var/meadowrun/machine_cache", "/meadowrun/machine_cache")
+    ]
     mounted_code_paths: List[str] = []
 
     # populate binds with code paths we need

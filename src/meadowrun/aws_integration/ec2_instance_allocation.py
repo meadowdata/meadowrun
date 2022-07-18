@@ -66,7 +66,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-0085e508c24550c7e",
+        "us-east-2": "ami-00aec5d6efa1cbbac",
         "us-east-1": "ami-07eb3f5f0d7528aa2",
         "us-west-1": "ami-018a31e052d1e1a0e",
         "us-west-2": "ami-07d4a3ab5f97408a1",
@@ -77,7 +77,15 @@ _AMIS = {
         "eu-north-1": "ami-09e2ff4f607d2eb4e",
     },
     "cuda": {
-        "us-east-2": "ami-0e4f396c325b3156a",
+        "us-east-2": "ami-0b1d180203e492022",
+        "us-east-1": "ami-0fe5a80cf7a77b6e1",
+        "us-west-1": "ami-05055f87e1e7a30a5",
+        "us-west-2": "ami-075ca8a49c80e0c11",
+        "eu-central-1": "ami-065d86c800129a4b9",
+        "eu-west-1": "ami-0eee8e607c43685e4",
+        "eu-west-2": "ami-0d692da15548727f8",
+        "eu-west-3": "ami-03978f2d5d83346ed",
+        "eu-north-1": "ami-0bbc402640525e34c",
     },
 }
 SSH_USER = "ubuntu"
@@ -381,7 +389,8 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             raise ValueError(
                 f"The meadowrun AMI is not available in {instances_spec.region_name}. "
                 "Please ask the meadowrun maintainers to add support for this region: "
-                "https://github.com/meadowdata/meadowrun/issues"
+                "https://github.com/meadowdata/meadowrun/issues and try a supported "
+                f"region for now: {', '.join(_AMIS[ami_type].keys())}"
             )
         ami = _AMIS[ami_type][instances_spec.region_name]
 

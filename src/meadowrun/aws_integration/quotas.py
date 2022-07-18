@@ -56,7 +56,7 @@ def instance_family_from_type(instance_type: str) -> Optional[str]:
 
 
 _NOTE_THAT_TERMINATED_INSTANCES = (
-    "(note that terminated instances sometimes count against this limit: "
+    "(Note that terminated instances sometimes count against this limit: "
     "https://stackoverflow.com/a/54538652/908704 Also, quota increases are not granted "
     "immediately.)"
 )
@@ -72,9 +72,9 @@ def get_quota_for_instance_type(
     )
     unknown_quota_exception = UnknownQuotaException(
         f"{unable_to_launch} a quota in your account. Please use the Service Quota tool"
-        f" in the AWS Console (https://us-east-2.console.aws.amazon.com/servicequotas/"
-        "home/services/ec2/quotas) to find the appropriate quota and increase it "
-        f"{_NOTE_THAT_TERMINATED_INSTANCES}."
+        " in the AWS Console (https://.console.aws.amazon.com/servicequotas/home/"
+        "services/ec2/quotas make sure the region is correct!) to find the appropriate"
+        f" quota and increase it {_NOTE_THAT_TERMINATED_INSTANCES}."
     )
 
     instance_family = instance_family_from_type(instance_type)

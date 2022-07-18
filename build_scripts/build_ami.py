@@ -84,6 +84,8 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io
 - [Add the current user (ubuntu) to the docker group](https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket): `sudo usermod -aG docker ${USER}`
 - TODO [docker docs recommend](https://docs.docker.com/config/containers/logging/configure/) setting "log-driver": "local" in docker config daemon.json
 - Install python: `sudo apt install -y python3.9 python3.9-venv`
+- Delete apt cache:
+sudo rm -rf /var/cache/apt
 - Prepare a virtualenv for meadowrun
 ```shell
 sudo mkdir /var/meadowrun
@@ -102,8 +104,8 @@ python3.9 --version
 ```
 
 Now, create an AMI from this image, naming it based on the versions that were actually
-installed, e.g. `ubuntu-20.04.3-docker-20.10.12-python-3.9.5`. This AMI won't actually
-be used for anything other than to build meadowrun AMIs.
+installed, e.g. `ubuntu-20.04.3-docker-20.10.12-python-3.9.5` and make it public. This
+AMI won't actually be used for anything other than to build meadowrun AMIs.
 
 Ubuntu with CUDA
 ----------------
@@ -119,6 +121,17 @@ sudo apt-get update
 sudo apt-get -y install cuda
 sudo apt-get -y install libcudnn8 libcudnn8-dev
 ```
+- Uninstall older versions of cuda (just leaving cuda-11.7). These take up a ton of disk
+  space
+sudo rm -rf /usr/local/cuda-11.0
+sudo rm -rf /usr/local/cuda-11.1
+sudo rm -rf /usr/local/cuda-11.2
+sudo rm -rf /usr/local/cuda-11.3
+sudo rm -rf /usr/local/cuda-11.4
+sudo rm -rf /usr/local/cuda-11.5
+sudo rm -rf /usr/local/cuda-11.6
+- Delete apt cache:
+sudo rm -rf /var/cache/apt
 - Install venv
 ```
 sudo apt-get install -y python3.8-venv
@@ -142,7 +155,7 @@ python3.9 --version
 ```
 
 Now, create an AMI from this image, naming it based on the versions that were actually
-installed, e.g. `cuda11.7-ubuntu20.04.3-python-3.8.10`.
+installed, e.g. `cuda11.7-ubuntu20.04.3-python-3.8.10` and make it public
 """
 
 import argparse
@@ -275,7 +288,7 @@ if __name__ == "__main__":
         base_ami = "ami-01344892e448f48c2"
         new_ami_name = "meadowrun{}-ubuntu20.04.3-docker20.10.12-python3.9.5"
     elif args.type == "cuda":
-        base_ami = "ami-0be86e82d6fe9b085"
+        base_ami = "ami-097043daaeabb3268"
         new_ami_name = "meadowrun{}-cuda11.7-ubuntu20.04.4-python3.8.10"
     else:
         raise ValueError(f"Unexpected type {args.type}")

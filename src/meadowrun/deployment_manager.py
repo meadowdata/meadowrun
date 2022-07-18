@@ -251,14 +251,7 @@ async def _get_zip_file_code_paths(
         ]
 
     async def download_and_unzip(
-        download: Callable[
-            [
-                str,
-                str,
-                str,
-            ],
-            Coroutine[Any, Any, None],
-        ]
+        download: Callable[[str, str, str], Coroutine[Any, Any, None]],
     ) -> List[str]:
         bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
@@ -297,8 +290,6 @@ async def compile_environment_spec_to_container(
     path_to_spec, spec_hash, has_git_dependency = _get_path_and_hash(
         environment_spec, interpreter_spec_path
     )
-
-    print(f"Building python environment in container {spec_hash}")
 
     if cloud is None:
         helper = ContainerRegistryHelper(
@@ -341,6 +332,8 @@ async def compile_environment_spec_to_container(
 
     # the image doesn't exist locally or in ECR, so build it ourselves and cache it in
     # ECR
+
+    print(f"Building python environment in container {spec_hash}")
 
     build_args = {}
     files_to_copy = []

@@ -87,6 +87,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         vm_instances = "EC2 instances"
         ssh_user = SSH_USER
         vm_instance_address = "<ec2-instance-public-address>"
+        ecr = "ECR"
     elif cloud_provider == "AzureVM":
         functions = "Azure Functions"
         cloud_name = "Azure"
@@ -95,6 +96,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         vm_instances = "Azure VMs"
         ssh_user = _MEADOWRUN_USERNAME
         vm_instance_address = "<azure-vm-public-ip>"
+        ecr = "ACR"
     else:
         raise ValueError(f"Unexpected value for cloud_provider {cloud_provider}")
 
@@ -243,7 +245,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         )
         t0 = time.perf_counter()
 
-        print("Deleting unused meadowrun-generated ECR images")
+        print(f"Deleting unused meadowrun-generated {ecr} images")
         if cloud_provider == "EC2":
             aws_delete_unused_images(region_name)
         elif cloud_provider == "AzureVM":
@@ -252,7 +254,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(
-            "Deleted unused meadowrun-generated ECR images in "
+            f"Deleted unused meadowrun-generated {ecr} images in "
             f"{time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "grant-permission-to-secret":

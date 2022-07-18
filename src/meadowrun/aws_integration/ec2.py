@@ -152,7 +152,10 @@ def ensure_security_group(group_name: str, region_name: str) -> str:
             Description=group_name,
             GroupName=group_name,
             TagSpecifications=[
-                {"Tags": [{"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}]}
+                {
+                    "ResourceType": "security-group",
+                    "Tags": [{"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}],
+                }
             ],
         )
     return security_group.id
@@ -444,7 +447,11 @@ async def _launch_instance_continuation(instance: Any) -> str:
 
     instance.load()
     if not instance.public_dns_name:
-        raise ValueError("Waited until running, but still no IP address!")
+        # try one more time after waiting 1 seconds
+        await asyncio.sleep(1.0)
+        instance.load()
+        if not instance.public_dns_name:
+            raise ValueError("Waited until running, but still no IP address!")
     return instance.public_dns_name
 
 

@@ -444,7 +444,10 @@ async def run_container(
             # of replacing localhost for the coordinator address. Also:
             # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
             "ExtraHosts": ["host.docker.internal:host-gateway"],
-            "AutoRemove": True,
+            # Ideally we would have some sort of "AutoRemove after 5 minutes". With
+            # AutoRemove turned on, containers can get deleted before we are able to
+            # read off their exit codes.
+            # "AutoRemove": True,
         },
     }
 

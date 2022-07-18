@@ -456,7 +456,9 @@ class MapSuite(abc.ABC):
         results = await run_map(
             lambda x: x**x,
             [1, 2, 3, 4],
-            AllocCloudInstances(1, 1, 15, self.cloud_provider(), 3),
+            AllocCloudInstances(
+                1, 1, 15, self.cloud_provider(), num_concurrent_tasks=3
+            ),
         )
 
         assert results == [1, 4, 27, 256]

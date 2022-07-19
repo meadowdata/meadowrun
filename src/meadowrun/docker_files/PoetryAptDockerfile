@@ -1,5 +1,5 @@
 # This is meant to turn pyproject.toml/poetry.lock files into a container. To be used like:
-# docker build -t image_name:tag --build-arg PYTHON_IMAGE=python:3.10-slim-bullseye -f src/meadowrun/docker_files/PoetryDockerfile .
+# docker build -t image_name:tag --build-arg PYTHON_IMAGE=python:3.10-slim-bullseye --build-arg APT_PACKAGES="git libgl1" -f src/meadowrun/docker_files/PoetryDockerfile .
 # This assumes that ./pyproject.toml and ./poetry.lock exist
 
 # See PoetryDockerfile and PipGitDockerfile for comments
@@ -8,11 +8,17 @@ ARG PYTHON_IMAGE
 
 FROM $PYTHON_IMAGE
 
+ARG APT_PACKAGES
 RUN python -c 'import urllib.request; urllib.request.urlretrieve("https://install.python-poetry.org", "poetry_install.py")' && \
     python poetry_install.py && \
     /root/.local/bin/poetry config virtualenvs.in-project true
 
-RUN apt update && apt install -y git && apt clean && git config --global --add safe.directory '*'
+RUN apt update && \
+    apt install -y $APT_PACKAGES && \
+    rm -rf /var/lib/apt
+
+# See PipAptDockerfile for comments
+RUN git config --global --add safe.directory '*'; exit 0
 
 WORKDIR /tmp/
 COPY pyproject.toml ./

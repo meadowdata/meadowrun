@@ -337,9 +337,19 @@ async def compile_environment_spec_to_container(
 
     build_args = {}
     files_to_copy = []
+    apt_packages = [
+        p for p in environment_spec.additional_software.keys() if p != "cuda"
+    ]
+    if has_git_dependency:
+        apt_packages.append("git")
+    if apt_packages:
+        build_args["APT_PACKAGES"] = " ".join(apt_packages)
+
     if environment_spec.environment_type == EnvironmentType.CONDA:
-        # TODO add support for has_git_dependency
-        docker_file_name = "CondaDockerfile"
+        if apt_packages:
+            docker_file_name = "CondaDockerfile"
+        else:
+            docker_file_name = "CondaAptDockerfile"
         spec_filename = os.path.basename(path_to_spec)
         build_args["ENV_FILE"] = spec_filename
         files_to_copy.append((path_to_spec, spec_filename))
@@ -362,17 +372,16 @@ async def compile_environment_spec_to_container(
             ] = f"python:{environment_spec.python_version}-slim-bullseye"
 
         if environment_spec.environment_type == EnvironmentType.PIP:
-            if has_git_dependency:
-                docker_file_name = "PipGitDockerfile"
+            if apt_packages:
+                docker_file_name = "PipAptDockerfile"
             else:
                 docker_file_name = "PipDockerfile"
             spec_filename = os.path.basename(path_to_spec)
             files_to_copy.append((path_to_spec, spec_filename))
             build_args["ENV_FILE"] = spec_filename
         elif environment_spec.environment_type == EnvironmentType.POETRY:
-            # TODO add support for has_git_dependency
-            if has_git_dependency:
-                docker_file_name = "PoetryGitDockerfile"
+            if apt_packages:
+                docker_file_name = "PoetryAptDockerfile"
             else:
                 docker_file_name = "PoetryDockerfile"
             files_to_copy.append(
@@ -522,4 +531,5 @@ def _has_git_dependency(
             line.startswith('type = "git"') for line in spec_contents.splitlines()
         )
     else:
+        # TODO add support for conda
         return False

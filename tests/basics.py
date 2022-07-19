@@ -226,6 +226,29 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_apt_dependency(self):
+        def remote_function():
+            import importlib
+
+            cv2 = importlib.import_module("cv2")
+            return cv2.__version__
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            Deployment.git_repo(
+                repo_url="https://github.com/hrichardlee/test_repo",
+                branch="cv2",
+                path_to_source="example_package",
+                interpreter=PipRequirementsFile(
+                    "requirements_with_cv2.txt", "3.9", ["libgl1", "libglib2.0-0"]
+                ),
+            ),
+        )
+        assert results == "4.6.0"
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_poetry_project_in_git_repo(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),

@@ -2,6 +2,8 @@ import os
 from typing import Optional
 
 import asyncssh
+
+from meadowrun.run_job_core import CloudProviderType
 from meadowrun.ssh import run_and_print, upload_file, write_text_to_file
 
 
@@ -9,6 +11,7 @@ async def upload_and_configure_meadowrun(
     connection: asyncssh.SSHClientConnection,
     version: str,
     package_root_dir: str,
+    cloud_provider: CloudProviderType,
     pre_command: Optional[str] = None,
 ) -> None:
 
@@ -42,7 +45,7 @@ async def upload_and_configure_meadowrun(
     # set deallocate_jobs to run from crontab
     crontab_line = (
         "* * * * * /var/meadowrun/env/bin/python -m meadowrun.deallocate_jobs "
-        "--cloud EC2 --cloud-region-name default "
+        f"--cloud {cloud_provider} --cloud-region-name default "
         ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
     )
     await write_text_to_file(

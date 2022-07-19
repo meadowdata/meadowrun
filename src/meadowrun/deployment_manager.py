@@ -7,7 +7,17 @@ import shutil
 import tempfile
 import urllib.parse
 import zipfile
-from typing import Any, Callable, Coroutine, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import filelock
 
@@ -425,6 +435,12 @@ def _hash_spec(spec_contents: bytes) -> str:
     return hashlib.blake2b(spec_contents, digest_size=64).hexdigest()
 
 
+def _format_additional_software(additional_software: Mapping[str, str]) -> str:
+    return "\n\nmeadowrun-additional-software: " + "; ".join(
+        f"{key}: {value}" for key, value in sorted(additional_software.items())
+    )
+
+
 def _get_path_and_hash(
     environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
     interpreter_spec_path: str,
@@ -453,9 +469,8 @@ def _get_path_and_hash(
             path_to_spec,
             _hash_spec(
                 spec_contents_bytes
-                + (
-                    "\n\nmeadowrun-additional-software: "
-                    f"{environment_spec.additional_software}"
+                + _format_additional_software(
+                    environment_spec.additional_software
                 ).encode("utf-8")
             ),
             _has_git_dependency(
@@ -472,8 +487,7 @@ def _get_path_and_hash(
             spec_hash = _hash_spec(
                 (
                     spec_contents_str
-                    + "\n\nmeadowrun-additional-software: "
-                    + f"{environment_spec.additional_software}"
+                    + _format_additional_software(environment_spec.additional_software)
                 ).encode("UTF-8")
             )
             path_to_spec = os.path.join(interpreter_spec_path, spec_hash)
@@ -491,8 +505,7 @@ def _get_path_and_hash(
             spec_hash = _hash_spec(
                 (
                     spec_contents_str
-                    + "\n\nmeadowrun-additional-software: "
-                    + f"{environment_spec.additional_software}"
+                    + _format_additional_software(environment_spec.additional_software)
                 ).encode("UTF-8")
             )
 

@@ -6,6 +6,9 @@ ARG PYTHON_IMAGE
 
 FROM $PYTHON_IMAGE
 
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 # - curl/wget isn't available, but we can just use python
 # - TODO ideally we (or someone) would pre-build a bunch of versions python with poetry already installed
 # - When we actually run jobs, we will copy code for those jobs into paths like

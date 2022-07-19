@@ -21,6 +21,7 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
@@ -250,6 +251,18 @@ class ContainerAtDigestInterpreter(ContainerInterpreterBase):
         return self.username_password_secret
 
 
+def _additional_software_to_dict(
+    additional_software: Union[Sequence[str], str, None],
+) -> Mapping[str, str]:
+    if additional_software is None:
+        return {}
+
+    if isinstance(additional_software, str):
+        return {additional_software: ""}
+
+    return {package: "" for package in additional_software}
+
+
 class InterpreterSpecFile(abc.ABC):
     """
     An abstract base class for specifying a Conda environment.yml file or a pip
@@ -268,9 +281,12 @@ class CondaEnvironmentYmlFile(InterpreterSpecFile):
         path_to_yml_file: In the context of mirror_local, this is the path to a file on
             the local disk. In the context of git_repo, this is a path to a file in the
             git repo
+        additional_software: apt packages that need to be installed to make the
+            environment work
     """
 
     path_to_yml_file: str
+    additional_software: Union[Sequence[str], str, None] = None
 
 
 @dataclasses.dataclass
@@ -285,10 +301,13 @@ class PipRequirementsFile(InterpreterSpecFile):
         python_version: A python version like "3.9" or "3.9.5". The version must be
             available on docker: https://hub.docker.com/_/python as
             python-<python_version>-slim-bullseye.
+        additional_software: apt packages that need to be installed to make the
+            environment work
     """
 
     path_to_requirements_file: str
     python_version: str
+    additional_software: Union[Sequence[str], str, None] = None
 
 
 @dataclasses.dataclass
@@ -304,11 +323,14 @@ class PoetryProjectPath(InterpreterSpecFile):
         python_version: A python version like "3.9" or "3.9.5". The version must be
             available on docker: https://hub.docker.com/_/python as
             python-<python_version>-slim-bullseye. This python version must be
-            compatible with the requirements in pyproject.toml2
+            compatible with the requirements in pyproject.toml
+        additional_software: apt packages that need to be installed to make the
+            environment work
     """
 
     path_to_project: str
     python_version: str
+    additional_software: Union[Sequence[str], str, None] = None
 
 
 class LocalInterpreter(abc.ABC):
@@ -322,6 +344,67 @@ class LocalInterpreter(abc.ABC):
 
 
 @dataclasses.dataclass
+class LocalCurrentInterpreter(LocalInterpreter):
+    """
+    Specifies the current python interpreter.
+
+    Attributes:
+        additional_software: apt packages that need to be installed to make the
+            environment work
+    """
+
+    additional_software: Union[Sequence[str], str, None] = None
+
+    async def get_interpreter_spec(self) -> InterpreterDeployment:
+        # first, check if we are in a conda environment
+        conda_env_spec = await try_get_current_conda_env()
+        if conda_env_spec is not None:
+            if platform.system() != "Linux":
+                raise ValueError(
+                    "mirror_local from a Conda environment only works from Linux "
+                    "because conda environments are not cross-platform."
+                )
+            print("Mirroring current conda environment")
+            return EnvironmentSpec(
+                environment_type=EnvironmentType.CONDA,
+                spec=conda_env_spec,
+                additional_software=_additional_software_to_dict(
+                    self.additional_software
+                ),
+            )
+
+        # next, check if we're in a poetry environment. Unfortunately it doesn't seem
+        # like there's a way to detect that we're in a poetry environment unless the
+        # current working directory contains the pyproject.toml and poetry.lock files.
+        # If for some reason this isn't the case, we'll fall through to the pip-based
+        # case, which will mostly work for poetry environments.
+        if os.path.isfile("pyproject.toml") and os.path.isfile("poetry.lock"):
+            with open("pyproject.toml", encoding="utf-8") as project_file:
+                project_file_contents = project_file.read()
+            with open("poetry.lock", encoding="utf-8") as lock_file:
+                lock_file_contents = lock_file.read()
+            print("Mirroring current poetry environment")
+            return EnvironmentSpec(
+                environment_type=EnvironmentType.POETRY,
+                spec=project_file_contents,
+                spec_lock=lock_file_contents,
+                python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
+                additional_software=_additional_software_to_dict(
+                    self.additional_software
+                ),
+            )
+
+        # if not, assume this is a pip-based environment
+        print("Mirroring current pip environment")
+        return EnvironmentSpec(
+            environment_type=EnvironmentType.PIP,
+            spec=await pip_freeze_without_local_current_interpreter(),
+            python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
+            additional_software=_additional_software_to_dict(self.additional_software),
+        )
+
+
+@dataclasses.dataclass
 class LocalCondaInterpreter(LocalInterpreter):
     """
     Specifies a locally installed conda environment
@@ -331,9 +414,12 @@ class LocalCondaInterpreter(LocalInterpreter):
             `my_env_name`) or the full path to the folder of a conda environment (e.g.
             `/home/user/miniconda3/envs/my_env_name`). Will be passed to conda env
             export
+        additional_software: apt packages that need to be installed to make the
+            environment work
     """
 
     environment_name_or_path: str
+    additional_software: Union[Sequence[str], str, None] = None
 
     async def get_interpreter_spec(self) -> InterpreterDeployment:
         if platform.system() != "Linux":
@@ -344,6 +430,7 @@ class LocalCondaInterpreter(LocalInterpreter):
         return EnvironmentSpec(
             environment_type=EnvironmentType.CONDA,
             spec=await env_export(self.environment_name_or_path),
+            additional_software=_additional_software_to_dict(self.additional_software),
         )
 
 
@@ -359,10 +446,13 @@ class LocalPipInterpreter(LocalInterpreter):
         python_version: A python version like "3.9" or "3.9.5". The version must be
             available on docker: https://hub.docker.com/_/python as
             python-<python_version>-slim-bullseye.
+        additional_software: apt packages that need to be installed to make the
+            environment work
     """
 
     path_to_interpreter: str
     python_version: str
+    additional_software: Union[Sequence[str], str, None] = None
 
     async def get_interpreter_spec(self) -> InterpreterDeployment:
         return EnvironmentSpec(
@@ -372,48 +462,8 @@ class LocalPipInterpreter(LocalInterpreter):
                 self.path_to_interpreter
             ),
             python_version=self.python_version,
+            additional_software=_additional_software_to_dict(self.additional_software),
         )
-
-
-async def _get_current_local_interpreter() -> InterpreterDeployment:
-    # first, check if we are in a conda environment
-    conda_env_spec = await try_get_current_conda_env()
-    if conda_env_spec is not None:
-        if platform.system() != "Linux":
-            raise ValueError(
-                "mirror_local from a Conda environment only works from Linux because "
-                "conda environments are not cross-platform."
-            )
-        print("Mirroring current conda environment")
-        return EnvironmentSpec(
-            environment_type=EnvironmentType.CONDA, spec=conda_env_spec
-        )
-
-    # next, check if we're in a poetry environment. Unfortunately it doesn't seem like
-    # there's a way to detect that we're in a poetry environment unless the current
-    # working directory contains the pyproject.toml and poetry.lock files. If for smoe
-    # reason this isn't the case, we'll fall through to the pip-based case, which will
-    # mostly work for poetry environments.
-    if os.path.isfile("pyproject.toml") and os.path.isfile("poetry.lock"):
-        with open("pyproject.toml", encoding="utf-8") as project_file:
-            project_file_contents = project_file.read()
-        with open("poetry.lock", encoding="utf-8") as lock_file:
-            lock_file_contents = lock_file.read()
-        print("Mirroring current poetry environment")
-        return EnvironmentSpec(
-            environment_type=EnvironmentType.POETRY,
-            spec=project_file_contents,
-            spec_lock=lock_file_contents,
-            python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
-        )
-
-    # if not, assume this is a pip-based environment
-    print("Mirroring current pip environment")
-    return EnvironmentSpec(
-        environment_type=EnvironmentType.PIP,
-        spec=await pip_freeze_without_local_current_interpreter(),
-        python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
-    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -462,14 +512,18 @@ class Deployment:
         credentials_sources = []
 
         if interpreter is None:
-            interpreter_spec: Union[
-                InterpreterDeployment, VersionedInterpreterDeployment
-            ] = await _get_current_local_interpreter()
-        elif isinstance(interpreter, CondaEnvironmentYmlFile):
+            interpreter = LocalCurrentInterpreter()
+
+        if isinstance(interpreter, CondaEnvironmentYmlFile):
             with open(interpreter.path_to_yml_file, encoding="utf-8") as f:
-                interpreter_spec = EnvironmentSpec(
+                interpreter_spec: Union[
+                    InterpreterDeployment, VersionedInterpreterDeployment
+                ] = EnvironmentSpec(
                     environment_type=EnvironmentType.CONDA,
                     spec=f.read(),
+                    additional_software=_additional_software_to_dict(
+                        interpreter.additional_software
+                    ),
                 )
         elif isinstance(interpreter, PipRequirementsFile):
             with open(interpreter.path_to_requirements_file, encoding="utf-8") as f:
@@ -477,6 +531,9 @@ class Deployment:
                     environment_type=EnvironmentType.PIP,
                     spec=f.read(),
                     python_version=interpreter.python_version,
+                    additional_software=_additional_software_to_dict(
+                        interpreter.additional_software
+                    ),
                 )
         elif isinstance(interpreter, PoetryProjectPath):
             with open(
@@ -496,6 +553,9 @@ class Deployment:
                 spec=spec,
                 spec_lock=spec_lock,
                 python_version=interpreter.python_version,
+                additional_software=_additional_software_to_dict(
+                    interpreter.additional_software
+                ),
             )
         elif isinstance(interpreter, LocalInterpreter):
             interpreter_spec = await interpreter.get_interpreter_spec()
@@ -597,18 +657,27 @@ class Deployment:
             interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.CONDA,
                 path_to_spec=interpreter.path_to_yml_file,
+                additional_software=_additional_software_to_dict(
+                    interpreter.additional_software
+                ),
             )
         elif isinstance(interpreter, PipRequirementsFile):
             interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.PIP,
                 path_to_spec=interpreter.path_to_requirements_file,
                 python_version=interpreter.python_version,
+                additional_software=_additional_software_to_dict(
+                    interpreter.additional_software
+                ),
             )
         elif isinstance(interpreter, PoetryProjectPath):
             interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.POETRY,
                 path_to_spec=interpreter.path_to_project,
                 python_version=interpreter.python_version,
+                additional_software=_additional_software_to_dict(
+                    interpreter.additional_software
+                ),
             )
         elif isinstance(interpreter, ContainerInterpreterBase):
             interpreter_spec = interpreter.get_interpreter_spec()

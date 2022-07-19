@@ -144,7 +144,7 @@ mkdir /var/meadowrun/env
 python3.9 -m venv /var/meadowrun/env
 
 source /var/meadowrun/env/bin/activate
-pip install wheel  # not sure why this is necessat-gry...
+pip install wheel  # not sure why this is necessary...
 ```
 - Get the versions of everything we've installed:
 ```shell
@@ -243,7 +243,9 @@ async def build_meadowrun_ami(
     )
 
     async with connection:
-        await upload_and_configure_meadowrun(connection, version, package_root_dir)
+        await upload_and_configure_meadowrun(
+            connection, version, package_root_dir, "EC2"
+        )
 
     # get the instance id of our EC2 instance
     instances = client.describe_instances(

@@ -96,13 +96,15 @@ def list_all_images() -> None:
             print(f"{region}, {image['ImageId']}, {image['Name']}")
 
 
-def delete_replicated_images(image_starts_with: str, dry_run: bool) -> None:
+def delete_replicated_images(
+    image_starts_with: str, include_source_region: bool, dry_run: bool
+) -> None:
     """
-    Deletes all images in _SUPPORTED_REGIONS (excluding _SOURCE_REGION) that start with
-    "meadowrun"
+    Deletes all images in _SUPPORTED_REGIONS (excluding _SOURCE_REGION unless
+    include_source_region is set) that start with "meadowrun"
     """
     for region in _SUPPORTED_REGIONS:
-        if region == _SOURCE_REGION:
+        if region == _SOURCE_REGION and not include_source_region:
             print(f"Skipping {region} because it's the source region")
         else:
             print(f"Checking {region}")
@@ -111,17 +113,14 @@ def delete_replicated_images(image_starts_with: str, dry_run: bool) -> None:
             for image in response.get("Images", ()):
                 if "Name" in image and image["Name"].startswith(image_starts_with):
                     print(f"Will delete: {region}, {image['ImageId']}, {image['Name']}")
-                    if len(image["BlockDeviceMappings"]) != 1:
-                        print("Warning skipping, because len(BlockDeviceMappings) != 1")
-                    else:
-                        snapshot_id = image["BlockDeviceMappings"][0]["Ebs"][
-                            "SnapshotId"
-                        ]
-                        if not dry_run:
-                            client.deregister_image(ImageId=image["ImageId"])
-                        print(f"Deleting related snapshot: {snapshot_id}")
-                        if not dry_run:
-                            client.delete_snapshot(SnapshotId=snapshot_id)
+                    if not dry_run:
+                        client.deregister_image(ImageId=image["ImageId"])
+                    for block_device_mapping in image["BlockDeviceMappings"]:
+                        if "Ebs" in block_device_mapping:
+                            snapshot_id = block_device_mapping["Ebs"]["SnapshotId"]
+                            print(f"Deleting related snapshot: {snapshot_id}")
+                            if not dry_run:
+                                client.delete_snapshot(SnapshotId=snapshot_id)
 
 
 def main() -> None:
@@ -141,6 +140,7 @@ def main() -> None:
         help="Delete AMIs across all regions that start with the specified string",
     )
     parser_delete.add_argument("starts_with")
+    parser_delete.add_argument("--include-source-region", action="store_true")
     parser_delete.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
@@ -150,7 +150,9 @@ def main() -> None:
     elif args.command == "list":
         list_all_images()
     elif args.command == "delete":
-        delete_replicated_images(args.starts_with, args.dry_run)
+        delete_replicated_images(
+            args.starts_with, args.include_source_region, args.dry_run
+        )
     else:
         ValueError(f"Unrecognized command: {args.command}")
 

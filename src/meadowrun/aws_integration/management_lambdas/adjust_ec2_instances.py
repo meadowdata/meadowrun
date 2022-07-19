@@ -20,7 +20,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 
 
 # Terminate instances if they haven't run any jobs in the last 30 seconds
-_TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=30)
+_TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=60)
 # If we see instances running that aren't registered, we assume there is something wrong
 # and they need to be terminated. However, it's possible that we happen to query between
 # when an instance is launched and when it's registered. So for the first 30 seconds

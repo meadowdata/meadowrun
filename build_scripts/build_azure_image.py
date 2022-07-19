@@ -46,7 +46,9 @@ async def build_meadowrun_azure_image():
         username="meadowrunuser",
         private_key=private_key,
     ) as connection:
-        await upload_and_configure_meadowrun(connection, version, package_root_dir)
+        await upload_and_configure_meadowrun(
+            connection, version, package_root_dir, "AzureVM"
+        )
 
     # TODO make this automatic, also replicate the image and delete the VM when we're
     # done. Current gallery is meadowrunprodeastus

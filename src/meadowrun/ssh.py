@@ -1,6 +1,3 @@
-import os
-import tempfile
-
 import asyncssh
 
 
@@ -47,17 +44,9 @@ async def run_and_capture(
 async def write_to_file(
     connection: asyncssh.SSHClientConnection, bys: bytes, remote_path: str
 ) -> None:
-    # this code can be made simpler if/when https://github.com/ronf/asyncssh/issues/497
-    # is addressed
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp_path = tmp.name
-            tmp.write(bys)
-        await asyncssh.scp(tmp_path, (connection, remote_path))
-    finally:
-        if tmp_path is not None and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    async with connection.start_sftp_client() as sftp:
+        async with sftp.open(remote_path, "wb") as remote_file:
+            await remote_file.write(bys)
 
 
 async def write_text_to_file(
@@ -78,18 +67,9 @@ async def upload_file(
 async def read_from_file(
     connection: asyncssh.SSHClientConnection, remote_path: str
 ) -> bytes:
-    # this code can be made simpler if/when https://github.com/ronf/asyncssh/issues/497
-    # is addressed
-    local_copy_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False) as local_copy:
-            local_copy_path = local_copy.name
-        await asyncssh.scp((connection, remote_path), local_copy.name)
-        with open(local_copy_path, "rb") as local_copy_reopened:
-            return local_copy_reopened.read()
-    finally:
-        if local_copy_path is not None and os.path.exists(local_copy_path):
-            os.remove(local_copy_path)
+    async with connection.start_sftp_client() as sftp:
+        async with sftp.open(remote_path, "rb") as remote_file:
+            return await remote_file.read()
 
 
 async def read_text_from_file(

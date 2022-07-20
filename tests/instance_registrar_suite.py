@@ -44,8 +44,10 @@ class InstanceRegistrarProvider(abc.ABC, Generic[_TInstanceRegistrar]):
         if registered_instances:
             await asyncio.wait(
                 [
-                    self.deregister_instance(
-                        instance_registrar, instance.public_address, False
+                    asyncio.create_task(
+                        self.deregister_instance(
+                            instance_registrar, instance.public_address, False
+                        )
                     )
                     for instance in registered_instances
                 ]
@@ -303,7 +305,9 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert not await self.deregister_instance(
                 instance_registrar, "testhost-2", True
             )
-            assert self.deregister_instance(instance_registrar, "testhost-2", False)
+            assert await self.deregister_instance(
+                instance_registrar, "testhost-2", False
+            )
 
     @pytest.mark.asyncio
     async def test_adjust_instances(self):

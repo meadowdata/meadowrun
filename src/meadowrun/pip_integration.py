@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import pkgutil
 import sys
 
@@ -15,11 +16,14 @@ async def _pip_freeze(python_interpreter: str) -> str:
     # and in a "regular" virtualenv. We should keep an eye on that issue, though, as it
     # looks like this difference in behavior was not totally intentional and may change
     # in the future.
+    env = os.environ.copy()
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     p = await asyncio.create_subprocess_exec(
         python_interpreter,
         *("-m", "pip", "list", "--format=freeze"),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stdout, stderr = await p.communicate()
 

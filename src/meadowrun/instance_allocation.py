@@ -43,6 +43,8 @@ class _InstanceState:
 
     running_jobs: Optional[Dict[str, Dict[str, Any]]]
 
+    prevent_further_allocation: bool
+
     def get_available_resources(self) -> Resources:
         """
         The current available resources on the instance. This will change as jobs get
@@ -180,6 +182,12 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         pass
 
     @abc.abstractmethod
+    async def set_prevent_further_allocation(
+        self, public_address: str, value: bool
+    ) -> bool:
+        pass
+
+    @abc.abstractmethod
     async def authorize_current_ip(self) -> None:
         pass
 
@@ -233,6 +241,7 @@ async def _choose_existing_instances(
         instances = [
             _InstanceWithProposedJobs(instance, [], instance.get_available_resources())
             for instance in await instance_registrar.get_registered_instances()
+            if not instance.prevent_further_allocation
         ]
 
         sort_keys = [

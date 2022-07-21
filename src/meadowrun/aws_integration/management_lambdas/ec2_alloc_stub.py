@@ -28,6 +28,7 @@ _NON_CONSUMABLE_RESOURCES = "non_consumable_resources"
 _RESOURCES_ALLOCATED = "resources_allocated"
 _ALLOCATED_TIME = "allocated_time"
 _LAST_UPDATE_TIME = "last_update_time"
+_PREVENT_FURTHER_ALLOCATION = "prevent_further_allocation"
 _RUNNING_JOBS = "running_jobs"
 _JOB_ID = "job_id"
 

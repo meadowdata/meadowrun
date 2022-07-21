@@ -204,6 +204,56 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert len(results["testhost-3"]) == 2
             assert len(results["testhost-4"]) == 1
 
+    @pytest.mark.asyncio
+    async def test_prevent_further_allocation(self):
+        """
+        Tests logic for allocating existing EC2 instances, does not involve actual
+        instances
+        """
+        async with await self.get_instance_registrar() as instance_registrar:
+            await self.clear_instance_registrar(instance_registrar)
+
+            await instance_registrar.register_instance(
+                "testhost-5",
+                "testhost-5-name",
+                Resources.from_cpu_and_memory(2, 16),
+                [],
+            )
+            await instance_registrar.register_instance(
+                "testhost-6",
+                "testhost-6-name",
+                Resources.from_cpu_and_memory(4, 32),
+                [],
+            )
+
+            await instance_registrar.set_prevent_further_allocation("testhost-5", True)
+
+            resources_required = Resources.from_cpu_and_memory(1, 2)
+            results, _ = await _choose_existing_instances(
+                instance_registrar, resources_required, 3
+            )
+
+            # we should want to 2 tasks on testhost-5 because that's more "compact", but
+            # we can't because we set prevent_future allocation
+            assert "testhost-5" not in results
+            assert len(results["testhost-6"]) == 3
+
+            # now we should only be able to allocate one worker on testhost-6
+            results, _ = await _choose_existing_instances(
+                instance_registrar, resources_required, 3
+            )
+            assert "testhost-5" not in results
+            assert len(results["testhost-6"]) == 1
+
+            await instance_registrar.set_prevent_further_allocation("testhost-5", False)
+
+            # now we can use testhost-5 again
+            results, _ = await _choose_existing_instances(
+                instance_registrar, resources_required, 3
+            )
+            assert len(results["testhost-5"]) == 2
+            assert "testhost-6" not in results
+
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_launch_one_instance(self):

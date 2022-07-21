@@ -4,7 +4,12 @@ from typing import Optional
 import asyncssh
 
 from meadowrun.run_job_core import CloudProviderType
-from meadowrun.ssh import run_and_print, upload_file, write_text_to_file
+from meadowrun.ssh import (
+    run_and_capture,
+    run_and_print,
+    upload_file,
+    write_text_to_file,
+)
 
 
 async def upload_and_configure_meadowrun(
@@ -42,18 +47,83 @@ async def upload_and_configure_meadowrun(
         check=False,
     )
 
-    # set deallocate_jobs to run from crontab
-    crontab_line = (
-        "* * * * * /var/meadowrun/env/bin/python -m meadowrun.deallocate_jobs "
-        f"--cloud {cloud_provider} --cloud-region-name default "
-        ">> /var/meadowrun/deallocate_jobs.log 2>&1\n"
-    )
+    output = (await run_and_capture(connection, "echo $HOME")).stdout
+    if output is None:
+        raise ValueError("Result of echo $HOME was None")
+    if isinstance(output, bytes):
+        home_dir = output.decode("utf-8").strip()
+    else:
+        home_dir = output.strip()
+    systemd_config_dir = "/etc/systemd/system/"
+
+    # set deallocate_jobs to run via systemd timer
     await write_text_to_file(
-        connection, crontab_line, "/var/meadowrun/meadowrun_crontab"
+        connection,
+        "[Unit]\n"
+        "Description=Deallocate Meadowrun jobs that have quit unexpectedly\n"
+        "[Service]\n"
+        "ExecStart=/var/meadowrun/env/bin/python -m meadowrun.deallocate_jobs --cloud "
+        f"{cloud_provider} --cloud-region-name default\n"
+        "StandardOutput=append:/var/meadowrun/deallocate_jobs.log\n"
+        "StandardError=append:/var/meadowrun/deallocate_jobs.log\n",
+        f"{home_dir}/meadowrun-deallocate-jobs.service",
+    )
+
+    await write_text_to_file(
+        connection,
+        "[Unit]\n"
+        "Description=Deallocate Meadowrun jobs that have quit unexpectedly (timer)\n"
+        "[Timer]\n"
+        "OnBootSec=10\n"
+        "OnUnitActiveSec=10\n"
+        "AccuracySec=1\n"
+        "[Install]\n"
+        "WantedBy=timers.target\n",
+        f"{home_dir}/meadowrun-deallocate-jobs.timer",
     )
 
     await run_and_print(
         connection,
-        "crontab < /var/meadowrun/meadowrun_crontab",
+        f"sudo mv {home_dir}/meadowrun-deallocate-jobs.service "
+        f"{home_dir}/meadowrun-deallocate-jobs.timer {systemd_config_dir}",
     )
-    await run_and_print(connection, "rm /var/meadowrun/meadowrun_crontab")
+    await run_and_print(
+        connection,
+        "sudo systemctl enable --now meadowrun-deallocate-jobs.timer",
+    )
+
+    # set check_spot_interruption to run from systemd timer
+    await write_text_to_file(
+        connection,
+        "[Unit]\n"
+        "Description=Check for spot instance interruption for Meadowrun\n"
+        "[Service]\n"
+        "ExecStart=/var/meadowrun/env/bin/python -m meadowrun.check_spot_interruption"
+        f" --cloud {cloud_provider} --cloud-region-name default\n"
+        "StandardOutput=append:/var/meadowrun/check_spot_interruption.log\n"
+        "StandardError=append:/var/meadowrun/check_spot_interruption.log\n",
+        f"{home_dir}/meadowrun-check-spot-interruption.service",
+    )
+
+    await write_text_to_file(
+        connection,
+        "[Unit]\n"
+        "Description=Check for spot instance interruption for Meadowrun (timer)\n"
+        "[Timer]\n"
+        "OnBootSec=10\n"
+        "OnUnitActiveSec=10\n"
+        "AccuracySec=1\n"
+        "[Install]\n"
+        "WantedBy=timers.target\n",
+        f"{home_dir}/meadowrun-check-spot-interruption.timer",
+    )
+
+    await run_and_print(
+        connection,
+        f"sudo mv {home_dir}/meadowrun-check-spot-interruption.service "
+        f"{home_dir}/meadowrun-check-spot-interruption.timer {systemd_config_dir}",
+    )
+    await run_and_print(
+        connection,
+        "sudo systemctl enable --now meadowrun-check-spot-interruption.timer",
+    )

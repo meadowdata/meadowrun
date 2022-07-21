@@ -19,6 +19,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
     LAST_UPDATE_TIME,
     NON_CONSUMABLE_RESOURCES,
+    PREVENT_FURTHER_ALLOCATION,
     RESOURCES_ALLOCATED,
     RESOURCES_AVAILABLE,
     RUNNING_JOBS,
@@ -122,6 +123,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                             for job_id, allocated_resources in running_jobs
                         }
                     ),
+                    PREVENT_FURTHER_ALLOCATION: False,
                     LAST_UPDATE_TIME: now,
                 },
             )
@@ -155,6 +157,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                     json.loads(item[NON_CONSUMABLE_RESOURCES]),
                 ),
                 json.loads(item[RUNNING_JOBS]),
+                item[PREVENT_FURTHER_ALLOCATION],
                 item["odata.etag"],
             )
             async for page in azure_table_api_paged(
@@ -169,6 +172,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                             NON_CONSUMABLE_RESOURCES,
                             RUNNING_JOBS,
                             VM_NAME,
+                            PREVENT_FURTHER_ALLOCATION,
                         ]
                     ),
                 },
@@ -204,6 +208,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                             NON_CONSUMABLE_RESOURCES,
                             RUNNING_JOBS,
                             VM_NAME,
+                            PREVENT_FURTHER_ALLOCATION,
                         ]
                     )
                 },
@@ -219,6 +224,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 json.loads(item[NON_CONSUMABLE_RESOURCES]),
             ),
             json.loads(item[RUNNING_JOBS]),
+            item[PREVENT_FURTHER_ALLOCATION],
             item["odata.etag"],
         )
 
@@ -314,6 +320,46 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                         new_resources_available.non_consumable
                     ),
                     RUNNING_JOBS: json.dumps(new_running_jobs),
+                    LAST_UPDATE_TIME: now,
+                },
+                additional_headers={"If-Match": instance.etag},
+            )
+            return True
+        except ResourceModifiedError:
+            # this is how the API indicates that the etag does not match, i.e. the
+            # optimistic concurrency check failed
+            return False
+
+    async def set_prevent_further_allocation(
+        self, public_address: str, value: bool
+    ) -> bool:
+        if self._storage_account is None:
+            raise ValueError(
+                "Tried to use AzureInstanceRegistrar without calling __aenter__"
+            )
+
+        instance = await self.get_registered_instance(public_address)
+
+        now = datetime.datetime.utcnow().isoformat()
+
+        try:
+            # https://docs.microsoft.com/en-us/rest/api/storageservices/update-entity2
+            await azure_table_api(
+                "PUT",  # replace rather than merge
+                self._storage_account,
+                table_key_url(
+                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.public_address
+                ),
+                json_content={
+                    VM_NAME: instance.name,
+                    RESOURCES_AVAILABLE: json.dumps(
+                        instance.get_available_resources().consumable
+                    ),
+                    NON_CONSUMABLE_RESOURCES: json.dumps(
+                        instance.get_available_resources().non_consumable
+                    ),
+                    RUNNING_JOBS: json.dumps(instance.running_jobs),
+                    PREVENT_FURTHER_ALLOCATION: value,
                     LAST_UPDATE_TIME: now,
                 },
                 additional_headers={"If-Match": instance.etag},

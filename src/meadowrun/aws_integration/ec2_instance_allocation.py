@@ -42,6 +42,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _INSTANCE_ID,
     _LAST_UPDATE_TIME,
     _NON_CONSUMABLE_RESOURCES,
+    _PREVENT_FURTHER_ALLOCATION,
     _PUBLIC_ADDRESS,
     _RESOURCES_ALLOCATED,
     _RESOURCES_AVAILABLE,
@@ -66,7 +67,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-00aec5d6efa1cbbac",
+        "us-east-2": "ami-07355b957fe7ec15b",
         "us-east-1": "ami-07eb3f5f0d7528aa2",
         "us-west-1": "ami-018a31e052d1e1a0e",
         "us-west-2": "ami-07d4a3ab5f97408a1",
@@ -77,15 +78,7 @@ _AMIS = {
         "eu-north-1": "ami-09e2ff4f607d2eb4e",
     },
     "cuda": {
-        "us-east-2": "ami-0b1d180203e492022",
-        "us-east-1": "ami-0fe5a80cf7a77b6e1",
-        "us-west-1": "ami-05055f87e1e7a30a5",
-        "us-west-2": "ami-075ca8a49c80e0c11",
-        "eu-central-1": "ami-065d86c800129a4b9",
-        "eu-west-1": "ami-0eee8e607c43685e4",
-        "eu-west-2": "ami-0d692da15548727f8",
-        "eu-west-3": "ami-03978f2d5d83346ed",
-        "eu-north-1": "ami-0bbc402640525e34c",
+        "us-east-2": "ami-0735515845cc28795",
     },
 }
 SSH_USER = "ubuntu"
@@ -211,6 +204,10 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
                     },
                     # The last time a job was allocated or deallocated to this machine
                     _LAST_UPDATE_TIME: now,
+                    # Normally False. Set to True for cases like when a spot instance is
+                    # being interrupted so we shouldn't assign any new jobs to this
+                    # instance
+                    _PREVENT_FURTHER_ALLOCATION: False,
                 },
                 ConditionExpression=f"attribute_not_exists({_PUBLIC_ADDRESS})",
             ),
@@ -235,6 +232,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
                     _INSTANCE_ID,
                     _RESOURCES_AVAILABLE,
                     _NON_CONSUMABLE_RESOURCES,
+                    _PREVENT_FURTHER_ALLOCATION,
                 ]
             ),
         )
@@ -261,6 +259,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
                 # we won't need the running_jobs in the context that this function is
                 # called, so we just set it to None to save bandwidth/memory/etc.
                 None,
+                item[_PREVENT_FURTHER_ALLOCATION],
             )
             for item in response["Items"]
         ]
@@ -268,7 +267,9 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def get_registered_instance(self, public_address: str) -> _InstanceState:
         result = self._table.get_item(
             Key={_PUBLIC_ADDRESS: public_address},
-            ProjectionExpression=",".join([_RUNNING_JOBS, _INSTANCE_ID]),
+            ProjectionExpression=",".join(
+                [_RUNNING_JOBS, _INSTANCE_ID, _PREVENT_FURTHER_ALLOCATION]
+            ),
         )
         if "Item" not in result:
             raise ValueError(f"ec2 instance {public_address} was not found")
@@ -280,6 +281,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             # available_resources in the context that this function is called
             None,
             result["Item"][_RUNNING_JOBS],
+            result["Item"][_PREVENT_FURTHER_ALLOCATION],
         )
 
     async def allocate_jobs_to_instance(
@@ -376,6 +378,21 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             "ConditionalCheckFailedException",
         )
         return success
+
+    async def set_prevent_further_allocation(
+        self, public_address: str, value: bool
+    ) -> bool:
+        self._table.update_item(
+            Key={_PUBLIC_ADDRESS: public_address},
+            UpdateExpression=(
+                f"SET {_PREVENT_FURTHER_ALLOCATION}=:value, {_LAST_UPDATE_TIME}=:now"
+            ),
+            ExpressionAttributeValues={
+                ":value": value,
+                ":now": datetime.datetime.utcnow().isoformat(),
+            },
+        )
+        return True
 
     async def launch_instances(
         self, instances_spec: AllocCloudInstancesInternal

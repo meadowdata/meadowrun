@@ -29,6 +29,7 @@ RESOURCES_AVAILABLE = "resources_available"
 NON_CONSUMABLE_RESOURCES = "non_consumable_resources"
 RESOURCES_ALLOCATED = "resources_allocated"
 RUNNING_JOBS = "running_jobs"
+PREVENT_FURTHER_ALLOCATION = "prevent_further_allocation"
 SINGLE_PARTITION_KEY = "_"
 VM_NAME = "vm_name"
 

@@ -82,6 +82,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
                 }
                 for job_id, resources in running_jobs
             },
+            False,
         )
 
     async def get_registered_instances(self) -> List[_InstanceState]:
@@ -122,6 +123,11 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         instance.available_resources = instance.get_available_resources().add(
             Resources(job["RESOURCES_ALLOCATED"], {})
         )
+        return True
+
+    async def set_prevent_further_allocation(
+        self, public_address: str, value: bool
+    ) -> bool:
         return True
 
     async def launch_instances(

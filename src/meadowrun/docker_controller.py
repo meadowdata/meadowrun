@@ -36,6 +36,7 @@ from meadowrun._vendor import aiodocker
 
 if TYPE_CHECKING:
     from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
 
 import aiohttp
 
@@ -480,6 +481,17 @@ async def run_container(
     container = await client.containers.run(config)
 
     return container, client
+
+
+async def remove_container(container: aiodocker_containers.DockerContainer) -> None:
+    # https://docs.docker.com/engine/api/v1.41/#tag/Container/operation/ContainerDelete
+    try:
+        await container.delete(v=True, force=True)
+    except aiodocker_exceptions.DockerError as e:
+        # 404 means the container doesn't exist, which is fine, as we're trying to
+        # delete it anyways
+        if e.status != 404:
+            raise
 
 
 async def get_image_environment_variables_and_working_dir(

@@ -34,8 +34,8 @@ from ..azure_constants import (
 )
 from ..mgmt_functions_shared import get_resource_group_path, get_storage_account
 
-# Terminate instances if they haven't run any jobs in the last 30 seconds
-_TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(seconds=30)
+# Terminate instances if they haven't run any jobs in the last 5 minutes
+_TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(minutes=5)
 # If we see instances running that aren't registered, we assume there is something wrong
 # and they need to be terminated. However, it's possible that we happen to query between
 # when an instance is launched and when it's registered. So for the first 5 minutes
@@ -217,6 +217,11 @@ async def _deregister_and_terminate_vms(
                 termination_tasks.append(
                     asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
                 )
+        else:
+            logs.append(
+                f"Letting {vm.name} ({vm.public_address}) continue to run--this VM is "
+                "active"
+            )
 
     registered_vms_names = {vm.name for vm in registered_vms}
     for vm in running_vms:

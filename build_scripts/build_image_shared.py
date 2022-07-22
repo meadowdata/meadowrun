@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import os
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import asyncssh
 
-from meadowrun.run_job_core import CloudProviderType
+if TYPE_CHECKING:
+    from meadowrun.run_job_core import CloudProviderType
 from meadowrun.ssh import (
     run_and_capture,
     run_and_print,

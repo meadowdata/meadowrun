@@ -430,6 +430,8 @@ async def _non_container_job_continuation(
             process.pid,
             None,
         )
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         # there was an exception while trying to get the final ProcessState
         return ProcessState(
@@ -591,7 +593,8 @@ async def _container_job_continuation(
 
         # TODO delete the container now that we're done with it, but doesn't need to be
         #  on the critical path
-
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         # there was an exception while trying to get the final ProcessState
         return ProcessState(
@@ -759,6 +762,8 @@ async def _get_credentials_for_job(
             code_deployment_credentials = await get_matching_credentials(
                 Credentials.Service.GIT, repo_url, credentials_sources
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             # TODO ideally this would make it back to an error message for job if it
             #  eventually fails (and maybe even if it doesn't)
@@ -776,6 +781,8 @@ async def _get_credentials_for_job(
             interpreter_deployment_credentials = await get_docker_credentials(
                 repository, credentials_sources
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             print("Error trying to turn credentials source into actual credentials")
             traceback.print_exc()
@@ -959,6 +966,8 @@ async def run_local(
             ),
             asyncio.create_task(continuation),
         )
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         # we failed to launch the process
         return (

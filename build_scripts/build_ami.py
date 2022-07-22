@@ -208,6 +208,14 @@ async def build_meadowrun_ami(
             f"There's already an image with the name {new_ami_name}, press enter to "
             "delete it"
         )
+        existing_image = existing_images[0]
+
+        for block_device_mapping in existing_image["BlockDeviceMappings"]:
+            if "Ebs" in block_device_mapping:
+                snapshot_id = block_device_mapping["Ebs"]["SnapshotId"]
+                print(f"Deleting related snapshot: {snapshot_id}")
+                client.delete_snapshot(SnapshotId=snapshot_id)
+
         client.deregister_image(ImageId=existing_images[0]["ImageId"])
 
     # build a package locally

@@ -65,7 +65,8 @@ async def upload_and_configure_meadowrun(
         "ExecStart=/var/meadowrun/env/bin/python -m meadowrun.deallocate_jobs --cloud "
         f"{cloud_provider} --cloud-region-name default\n"
         "StandardOutput=append:/var/meadowrun/deallocate_jobs.log\n"
-        "StandardError=append:/var/meadowrun/deallocate_jobs.log\n",
+        "StandardError=append:/var/meadowrun/deallocate_jobs.log\n"
+        f"Environment=HOME={home_dir}\n",
         f"{home_dir}/meadowrun-deallocate-jobs.service",
     )
 
@@ -101,7 +102,8 @@ async def upload_and_configure_meadowrun(
         "ExecStart=/var/meadowrun/env/bin/python -m meadowrun.check_spot_interruption"
         f" --cloud {cloud_provider} --cloud-region-name default\n"
         "StandardOutput=append:/var/meadowrun/check_spot_interruption.log\n"
-        "StandardError=append:/var/meadowrun/check_spot_interruption.log\n",
+        "StandardError=append:/var/meadowrun/check_spot_interruption.log\n"
+        f"Environment=HOME={home_dir}\n",
         f"{home_dir}/meadowrun-check-spot-interruption.service",
     )
 

@@ -9,10 +9,11 @@ import dataclasses
 import datetime
 import json
 import logging
-from typing import Optional, Sequence, List
+from typing import Optional, Sequence, List, Tuple
 
 from ..azure_core.azure_exceptions import ResourceModifiedError
 from ..azure_core.azure_rest_api import (
+    azure_rest_api,
     azure_rest_api_paged,
     azure_rest_api_poll,
     parse_azure_timestamp,
@@ -107,6 +108,38 @@ async def _deregister_vm(
         return False
 
 
+async def _get_running_vms(
+    vms_to_check: Sequence[ExistingVM], resource_group_path: str
+) -> Tuple[Sequence[ExistingVM], Sequence[ExistingVM]]:
+    """Returns (running vms, not running vms)"""
+
+    virtual_machines_path = (
+        f"{resource_group_path}/providers/Microsoft.Compute/virtualMachines"
+    )
+
+    result: Tuple[List[ExistingVM], List[ExistingVM]] = ([], [])
+
+    for vm in vms_to_check:
+        vm_view = await azure_rest_api(
+            "GET",
+            f"{virtual_machines_path}/{vm.name}",
+            "2021-11-01",
+            query_parameters={"$expand": "instanceView"},
+        )
+
+        power_states = [
+            status["code"][len("PowerState/") :]
+            for status in vm_view["properties"]["instanceView"]["statuses"]
+            if status["code"].startswith("PowerState/")
+        ]
+        if len(power_states) > 0 and power_states[-1] == "running":
+            result[0].append(vm)
+        else:
+            result[1].append(vm)
+
+    return result
+
+
 async def _get_all_vms(resource_group_path: str) -> Sequence[ExistingVM]:
     """Gets all VMs via the Azure compute API"""
     return [
@@ -151,14 +184,15 @@ async def _deregister_and_terminate_vms(
     """
     logs = []
 
-    existing_vms = await _get_all_vms(resource_group_path)
+    all_vms = await _get_all_vms(resource_group_path)
+    running_vms, non_running_vms = await _get_running_vms(all_vms, resource_group_path)
     registered_vms = await _get_registered_vms(storage_account)
 
     now = datetime.datetime.utcnow()
 
     termination_tasks = []
 
-    existing_vms_names = {vm.name for vm in existing_vms}
+    existing_vms_names = {vm.name for vm in running_vms}
     for vm in registered_vms:
         if vm.name not in existing_vms_names:
             # deregister VMs that have been registered but don't exist
@@ -185,7 +219,7 @@ async def _deregister_and_terminate_vms(
                 )
 
     registered_vms_names = {vm.name for vm in registered_vms}
-    for vm in existing_vms:
+    for vm in running_vms:
         if (
             vm.name not in registered_vms_names
             and (now - vm.time_created) > launch_register_delay
@@ -198,6 +232,8 @@ async def _deregister_and_terminate_vms(
             termination_tasks.append(
                 asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
             )
+
+    # TODO terminate stopped VMs
 
     if termination_tasks:
         await asyncio.wait(termination_tasks)

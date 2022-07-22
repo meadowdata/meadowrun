@@ -180,6 +180,8 @@ def _deregister_and_terminate_instances(
             )
             instance.terminate()
 
+    # TOOD terminate stopped instances
+
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:
     """The handler for AWS lambda"""

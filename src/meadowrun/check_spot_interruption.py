@@ -11,6 +11,12 @@ from meadowrun.aws_integration.aws_core import (
     _get_ec2_metadata,
 )
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
+from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
+from meadowrun.azure_integration.azure_meadowrun_core import (
+    get_current_ip_address_on_vm,
+    get_default_location,
+    get_scheduled_events_on_vm,
+)
 
 if TYPE_CHECKING:
     from meadowrun.instance_allocation import InstanceRegistrar
@@ -36,8 +42,19 @@ async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
             cloud_region_name, "raise"
         )
     elif cloud == "AzureVM":
-        # TODO implement for Azure
-        return
+        scheduled_events = await get_scheduled_events_on_vm()
+        if scheduled_events is None or (
+            not any(
+                event.get("EventType") == "Preempt"
+                for event in scheduled_events["Events"]
+            )
+        ):
+            return
+
+        public_address = await get_current_ip_address_on_vm()
+        if cloud_region_name == "default":
+            cloud_region_name = get_default_location()
+        instance_registrar = AzureInstanceRegistrar(cloud_region_name, "raise")
     else:
         raise ValueError(f"Unexpected value for cloud_provider: {cloud}")
 

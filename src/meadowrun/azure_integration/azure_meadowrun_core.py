@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, Optional, Tuple, Set
+from typing import TYPE_CHECKING, Optional, Tuple, Set, Any
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
@@ -99,6 +99,19 @@ async def get_current_ip_address_on_vm() -> Optional[str]:
             return None
 
         return await response.text()
+
+
+async def get_scheduled_events_on_vm() -> Optional[Any]:
+    # See https://docs.microsoft.com/en-us/azure/virtual-machines/linux/scheduled-events
+    async with aiohttp.request(
+        "GET",
+        f"{IMDS_AUTHORITY}/metadata/scheduledevents?api-version=2020-07-01",
+        headers={"Metadata": "true"},
+    ) as response:
+        if not response.ok:
+            return None
+
+        return await response.json()
 
 
 _MEADOWRUN_MANAGED_IDENTITY = "meadowrun-managed-identity"

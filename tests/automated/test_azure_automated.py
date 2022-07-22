@@ -17,13 +17,11 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_resource_group,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
-    azure_rest_api_paged,
-    azure_rest_api,
-)
 from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     _deregister_and_terminate_vms,
     _deregister_vm,
+    _get_running_vms,
+    _get_all_vms,
     terminate_all_vms,
 )
 from meadowrun.run_job import AllocCloudInstance
@@ -92,41 +90,13 @@ class AzureVMInstanceRegistrarProvider(
     async def num_currently_running_instances(
         self, instance_registrar: AzureInstanceRegistrar
     ) -> int:
-        count = 0
-
         resource_group_path = await ensure_meadowrun_resource_group(
             instance_registrar.get_region_name()
         )
-        virtual_machines_path = (
-            f"{resource_group_path}/providers/Microsoft.Compute/virtualMachines"
+        running_vms, non_running_vms = await _get_running_vms(
+            await _get_all_vms(resource_group_path), resource_group_path
         )
-
-        vm_names = [
-            vm["name"]
-            async for page in azure_rest_api_paged(
-                "GET",
-                virtual_machines_path,
-                "2021-11-01",
-            )
-            for vm in page["value"]
-        ]
-        for vm_name in vm_names:
-            vm = await azure_rest_api(
-                "GET",
-                f"{virtual_machines_path}/{vm_name}",
-                "2021-11-01",
-                query_parameters={"$expand": "instanceView"},
-            )
-
-            power_states = [
-                status["code"][len("PowerState/") :]
-                for status in vm["properties"]["instanceView"]["statuses"]
-                if status["code"].startswith("PowerState/")
-            ]
-            if len(power_states) > 0 and power_states[-1] == "running":
-                count += 1
-
-        return count
+        return len(running_vms)
 
     async def run_adjust(self, instance_registrar: AzureInstanceRegistrar) -> None:
         assert instance_registrar._storage_account is not None

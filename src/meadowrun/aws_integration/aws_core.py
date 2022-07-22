@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional, Callable, TypeVar, Union, Set
+import asyncio
+from typing import Any, Callable, Iterable, Optional, Set, TypeVar, Union
 
 import aiohttp
 import aiohttp.client_exceptions
 import boto3
 import botocore.exceptions
-
 
 _T = TypeVar("_T")
 
@@ -99,6 +99,8 @@ async def _get_ec2_metadata(url_suffix: str) -> Optional[str]:
         ) as response:
             response.raise_for_status()
             return await response.text()
+    except asyncio.CancelledError:
+        raise
     except Exception:
         # the AWS metadata endpoint is not available, probably because we're not on
         # an EC2 instance.

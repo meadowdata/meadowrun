@@ -436,6 +436,8 @@ async def _launch_instance_continuation(instance: Any) -> str:
             event_loop.call_soon_threadsafe(
                 lambda: instance_running_future.set_result(None)
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             exception = e
             event_loop.call_soon_threadsafe(

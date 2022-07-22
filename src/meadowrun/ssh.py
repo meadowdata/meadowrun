@@ -1,3 +1,4 @@
+import asyncio
 import asyncssh
 
 
@@ -20,8 +21,14 @@ async def run_and_print(
     """
     Runs the command, printing stdout and stderr from the remote process locally.
     result.stdout and result.stderr will be empty.
+    Interrupts the remote process when the task is cancelled, by sending SIGINT signal.
     """
-    async with connection.create_process(command, stderr=asyncssh.STDOUT) as process:
+    # async with connection.create_process(command, stderr=asyncssh.STDOUT) as process:
+    # doesn't work as well because that doesn't actively terminate the remote process.
+    # In testing, calling terminate explicitly makes the remote process exit more
+    # quickly.
+    try:
+        process = await connection.create_process(command, stderr=asyncssh.STDOUT)
         # TODO should be able to interleave stdout and stderr but this seems somewhat
         # non-trivial:
         # https://stackoverflow.com/questions/55299564/join-multiple-async-generators-in-python
@@ -29,6 +36,20 @@ async def run_and_print(
             print(line, end="")
 
         return await process.wait(check)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        process.send_signal("INT")
+        async for line in process.stdout:
+            print(line, end="")
+        # escalation: sends TERM and KILL respectively
+        # process.terminate()
+        # process.kill()
+        # however those won't allow the remote process to react - asyncio.run in
+        # particular makes sure on SIGINT to cancel and finish all tasks.
+        raise
+    finally:
+        # what process.__aexit__ does:
+        process.close()
+        await process._chan.wait_closed()
 
 
 async def run_and_capture(

@@ -49,6 +49,7 @@ from meadowrun.docker_controller import (
     run_container,
     get_image_environment_variables_and_working_dir,
     pull_image,
+    remove_container,
 )
 from meadowrun.meadowrun_pb2 import (
     Credentials,
@@ -590,9 +591,6 @@ async def _container_job_continuation(
             None,
             container.id,
         )
-
-        # TODO delete the container now that we're done with it, but doesn't need to be
-        #  on the critical path
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -602,6 +600,10 @@ async def _container_job_continuation(
             pickled_result=pickle_exception(e, result_highest_pickle_protocol),
         )
     finally:
+        try:
+            await remove_container(container)
+        except Exception as e:
+            print(f"Warning, unable to remove container: {e}")
         await docker_client.__aexit__(None, None, None)
 
 

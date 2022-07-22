@@ -78,8 +78,8 @@ async def upload_and_configure_meadowrun(
         "[Unit]\n"
         "Description=Deallocate Meadowrun jobs that have quit unexpectedly (timer)\n"
         "[Timer]\n"
-        "OnBootSec=10\n"
-        "OnUnitActiveSec=10\n"
+        "OnBootSec=30\n"
+        "OnUnitActiveSec=30\n"
         "AccuracySec=1\n"
         "[Install]\n"
         "WantedBy=timers.target\n",

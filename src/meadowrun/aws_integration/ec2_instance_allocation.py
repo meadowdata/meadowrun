@@ -67,18 +67,26 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-07355b957fe7ec15b",
-        "us-east-1": "ami-07eb3f5f0d7528aa2",
-        "us-west-1": "ami-018a31e052d1e1a0e",
-        "us-west-2": "ami-07d4a3ab5f97408a1",
-        "eu-central-1": "ami-09d497a6c352622e4",
-        "eu-west-1": "ami-00eb14c6e74b73d0c",
-        "eu-west-2": "ami-00bcfdae29cd067d4",
-        "eu-west-3": "ami-0acc373d53927f8e3",
-        "eu-north-1": "ami-09e2ff4f607d2eb4e",
+        "us-east-2": "ami-0e842f37f2769ee33",
+        "us-east-1": "ami-01962adb562193031",
+        "us-west-1": "ami-0b4181c5d98c58a25",
+        "us-west-2": "ami-0e6486b71c4a54048",
+        "eu-central-1": "ami-0f4eaecf685167922",
+        "eu-west-1": "ami-02f8d1e7c2db6d9bf",
+        "eu-west-2": "ami-045662b1304e77342",
+        "eu-west-3": "ami-026be7722484138c1",
+        "eu-north-1": "ami-0c0a2686efe7a7a81",
     },
     "cuda": {
-        "us-east-2": "ami-0735515845cc28795",
+        "us-east-2": "ami-0bbe0129d34b9e852",
+        "us-east-1": "ami-08064543b56faebf8",
+        "us-west-1": "ami-0821383b8d71b08c0",
+        "us-west-2": "ami-0974ee249205ca251",
+        "eu-central-1": "ami-0973e1e645697c8f5",
+        "eu-west-1": "ami-09ff36908b735d62a",
+        "eu-west-2": "ami-063562cc36c753b78",
+        "eu-west-3": "ami-00e6164aaf0c0e284",
+        "eu-north-1": "ami-0f7ee24731e5b9627",
     },
 }
 SSH_USER = "ubuntu"

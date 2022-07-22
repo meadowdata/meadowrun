@@ -5,9 +5,9 @@
 
 package:
   name: meadowrun
-  version: 0.1.13  # from pyproject.toml
+  version: 0.1.14  # from pyproject.toml
 source:
-  path: ../../dist/meadowrun-0.1.13  # from pyproject.toml
+  path: ../../dist/meadowrun-0.1.14  # from pyproject.toml
 build:
   entry_points:  # from pyproject.toml
     - meadowrun-local = meadowrun.run_job_local_main:command_line_main

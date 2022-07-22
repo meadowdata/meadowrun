@@ -319,14 +319,14 @@ async def launch_vms(
     vm_detail_tasks = []
     chosen_instance_types_repeated = []
 
-    # for development, you can replace this with something like
-    # (
+    image_id = f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/{_MEADOWRUN_IMAGE_VERSION}"
+    # for development, you can uncomment the following, and replace "Community" with
+    # "Regular" below
+    # image_id = (
     #     "/subscriptions/d740513f-4172-4792-bd29-5194e79d5881/resourceGroups/"
     #     "meadowrun-dev/providers/Microsoft.Compute/galleries/meadowrun.dev.gallery/"
     #     f"images/meadowrun/versions/{_MEADOWRUN_IMAGE_VERSION}"
     # )
-    # and replace "Community" with "Regular" below
-    image_id = f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/{_MEADOWRUN_IMAGE_VERSION}"
 
     at_least_one_chosen_instance_type = False
     for instance_type in chosen_instance_types:

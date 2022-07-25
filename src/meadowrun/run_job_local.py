@@ -100,10 +100,6 @@ class _JobSpecTransformed:
     # expose files on the host machine for input/output with the container.
     container_binds: List[Tuple[str, str]]
 
-    ports: List[str]
-
-    uses_gpu: bool
-
     environment_variables: Dict[str, str] = dataclasses.field(
         default_factory=lambda: {}
     )
@@ -175,8 +171,6 @@ def _prepare_py_command(
         # we need a list, not a protobuf fake list
         list(job.py_command.command_line),
         _io_file_container_binds(io_folder, io_files),
-        list(job.ports),
-        job.uses_gpu,
         environment,
     )
 
@@ -290,8 +284,6 @@ def _prepare_py_function(
             itertools.chain(io_files, io_files_for_function, io_files_for_arguments),
         )
         + [(_FUNC_WORKER_PATH, func_worker_path)],
-        list(job.ports),
-        job.uses_gpu,
     )
 
 
@@ -532,7 +524,7 @@ async def _launch_container_job(
             [],
             [],
             [],
-            job_spec_transformed.uses_gpu,
+            job.uses_gpu,
         )
         container_service_containers.append(container_service)
         container_service_ips.append(
@@ -546,7 +538,7 @@ async def _launch_container_job(
         f"container image={container_image_name}; "
         f"PYTHONPATH={job_spec_transformed.environment_variables.get('PYTHONPATH')} "
         f"log_file_name={log_file_name}; code paths={','.join(code_paths)} "
-        f"ports={','.join(port for port in job_spec_transformed.ports)}"
+        f"ports={','.join(port for port in job.ports)}"
     )
 
     container, docker_client = await run_container(
@@ -557,9 +549,9 @@ async def _launch_container_job(
         job_spec_transformed.environment_variables,
         working_dir,
         binds,
-        job_spec_transformed.ports,
+        list(job.ports),
         [(f"container-service-{i}", ip) for i, ip in enumerate(container_service_ips)],
-        job_spec_transformed.uses_gpu,
+        job.uses_gpu,
     )
     return container.id, _container_job_continuation(
         container,

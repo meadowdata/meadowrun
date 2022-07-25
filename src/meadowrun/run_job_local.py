@@ -449,6 +449,7 @@ async def _launch_container_job(
     log_file_name: str,
     job: Job,
     io_folder: str,
+    machine_cache_folder: str,
 ) -> Tuple[str, Coroutine[Any, Any, ProcessState]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
@@ -463,11 +464,7 @@ async def _launch_container_job(
     continuation.
     """
 
-    os.makedirs("/var/meadowrun/machine_cache", exist_ok=True)
-
-    binds: List[Tuple[str, str]] = [
-        ("/var/meadowrun/machine_cache", "/meadowrun/machine_cache")
-    ]
+    binds: List[Tuple[str, str]] = [(machine_cache_folder, "/meadowrun/machine_cache")]
     mounted_code_paths: List[str] = []
 
     # populate binds with code paths we need
@@ -685,7 +682,7 @@ def _get_default_working_folder() -> str:
 
 def _set_up_working_folder(
     working_folder: Optional[str],
-) -> Tuple[str, str, str, str, str]:
+) -> Tuple[str, str, str, str, str, str]:
     """
     Sets the working_folder to a default if it's not set, creates the necessary
     subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
@@ -709,12 +706,15 @@ def _set_up_working_folder(
     local_copies_folder = os.path.join(working_folder, "local_copies")
     # misc folder for e.g. storing environment export files sent from local machine
     misc_folder = os.path.join(working_folder, "misc")
+    # machine_cache folder for providing a machine-wide folder on the machine
+    machine_cache_folder = os.path.join(working_folder, "machine_cache")
 
     os.makedirs(io_folder, exist_ok=True)
     os.makedirs(job_logs_folder, exist_ok=True)
     os.makedirs(git_repos_folder, exist_ok=True)
     os.makedirs(local_copies_folder, exist_ok=True)
     os.makedirs(misc_folder, exist_ok=True)
+    os.makedirs(machine_cache_folder, exist_ok=True)
 
     return (
         io_folder,
@@ -722,6 +722,7 @@ def _set_up_working_folder(
         git_repos_folder,
         local_copies_folder,
         misc_folder,
+        machine_cache_folder,
     )
 
 
@@ -821,6 +822,7 @@ async def run_local(
         git_repos_folder,
         local_copies_folder,
         misc_folder,
+        machine_cache_folder,
     ) = _set_up_working_folder(working_folder)
 
     # unpickle credentials if necessary
@@ -949,6 +951,7 @@ async def run_local(
                 log_file_name,
                 job,
                 io_folder,
+                machine_cache_folder,
             )
             # due to the way protobuf works, this is equivalent to None
             pid = 0

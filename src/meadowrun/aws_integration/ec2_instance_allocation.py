@@ -67,7 +67,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-02f63c105395e09d6",
+        "us-east-2": "ami-0a49a0828be445e73",
         "us-east-1": "ami-01962adb562193031",
         "us-west-1": "ami-0b4181c5d98c58a25",
         "us-west-2": "ami-0e6486b71c4a54048",

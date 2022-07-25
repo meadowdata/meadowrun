@@ -263,7 +263,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PipRequirementsFile("requirements.txt", "3.9"),
             ),
             # this is just a random example of a container with a service in it
-            container_services=ContainerInterpreter("okteto/sample-app")
+            container_services=ContainerInterpreter("okteto/sample-app"),
         )
         assert results.startswith("<h3>Hello okteto!</h3>")
 

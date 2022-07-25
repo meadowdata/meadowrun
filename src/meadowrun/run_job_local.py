@@ -291,6 +291,7 @@ async def _launch_non_container_job(
     job_spec_type: Literal["py_command", "py_function"],
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
+    cwd_path: Optional[str],
     log_file_name: str,
     job: Job,
     io_folder: str,
@@ -342,8 +343,8 @@ async def _launch_non_container_job(
     # (3) get the working directory and fix the command line
 
     paths_to_search = env_vars["PATH"]
-    if code_paths:
-        working_directory = code_paths[0]
+    if cwd_path:
+        working_directory = cwd_path
         paths_to_search = f"{working_directory};{paths_to_search}"
     else:
         # TODO probably cleanest to allocate a new working directory for each job
@@ -438,6 +439,7 @@ async def _launch_container_job(
     container_image_name: str,
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
+    cwd_path: Optional[str],
     log_file_name: str,
     job: Job,
     io_folder: str,
@@ -458,12 +460,15 @@ async def _launch_container_job(
     """
 
     binds: List[Tuple[str, str]] = [(machine_cache_folder, "/meadowrun/machine_cache")]
-    mounted_code_paths: List[str] = []
+
+    if cwd_path is not None:
+        unique_code_paths = list(dict.fromkeys(itertools.chain([cwd_path], code_paths)))
+    else:
+        unique_code_paths = list(code_paths)
 
     # populate binds with code paths we need
-    for i, path_on_host in enumerate(code_paths):
+    for i, path_on_host in enumerate(unique_code_paths):
         mounted_code_path = f"{MEADOWRUN_CODE_MOUNT_LINUX}{i}"
-        mounted_code_paths.append(mounted_code_path)
         binds.append((path_on_host, mounted_code_path))
 
     # get the image's environment variables and working directory
@@ -475,9 +480,11 @@ async def _launch_container_job(
     # If the container image has a meaningful working directory set, then we want to
     # leave that as it is. But if the working directory is "/tmp/", we use that as a
     # placeholder to mean that we don't care about the container image's working
-    # directory. In that case, we set it to the first mounted code path.
-    if working_dir in ("/tmp/", "/tmp") and len(mounted_code_paths) > 0:
-        working_dir = mounted_code_paths[0]
+    # directory. In that case, we set it to cwd_path, if given.
+    if working_dir in ("/tmp/", "/tmp") and cwd_path is not None:
+        (working_dir,) = tuple(
+            mounted_path for (host_path, mounted_path) in binds if host_path == cwd_path
+        )
 
     # If we've exposed any code paths, add them to PYTHONPATH. The normal behavior for
     # environment variables is that if they're specified in job_spec_transformed, those
@@ -485,7 +492,7 @@ async def _launch_container_job(
     # specified in job_spec_transformed, we use whatever is specified in the container
     # image. We need to replicate that logic here so that we just add mounted_code_paths
     # to whatever PYTHONPATH would have "normally" become.
-    if mounted_code_paths:
+    if len(binds) > 1:
         existing_python_path = []
         if "PYTHONPATH" in job_spec_transformed.environment_variables:
             existing_python_path = [
@@ -501,9 +508,14 @@ async def _launch_container_job(
                         # environment variables
                         break
 
+        code_paths = tuple(
+            mounted_path
+            for (host_path, mounted_path) in binds
+            if host_path in code_paths
+        )
         # TODO we need to use ":" for Linux and ";" for Windows containers
         job_spec_transformed.environment_variables["PYTHONPATH"] = ":".join(
-            itertools.chain(mounted_code_paths, existing_python_path)
+            itertools.chain(code_paths, existing_python_path)
         )
 
     # now, expose any files we need for communication with the container
@@ -855,7 +867,7 @@ async def run_local(
 
     try:
         # first, get the code paths
-        code_paths, interpreter_spec_path = await get_code_paths(
+        code_paths, interpreter_spec_path, cwd_path = await get_code_paths(
             git_repos_folder, local_copies_folder, job, code_deployment_credentials
         )
 
@@ -942,6 +954,7 @@ async def run_local(
                 job_spec_type,
                 job_spec_transformed,
                 code_paths,
+                cwd_path,
                 log_file_name,
                 job,
                 io_folder,
@@ -1011,6 +1024,7 @@ async def run_local(
                 container_image_name,
                 job_spec_transformed,
                 code_paths,
+                cwd_path,
                 log_file_name,
                 job,
                 io_folder,

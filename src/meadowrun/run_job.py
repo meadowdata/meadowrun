@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import dataclasses
+import os
 import os.path
 import pickle
 import platform
@@ -494,7 +495,8 @@ class Deployment:
             include_sys_path: if True, find python code in the paths in sys.path
                 (effectively "your local code"), copies them to the remote machines, and
                 add them to sys.path there. Ignores any installed packages.
-            additional_paths: local code paths to copy to the remote machine.
+            additional_paths: local code paths to copy and add to python path on the
+                remote machine.
             interpreter: Specifies the environment/interpreter to use. Defaults to None
                 which will detect the currently activated env. Alternatively, you can
                 explicitly specify a locally installed python environment with
@@ -577,12 +579,12 @@ class Deployment:
         # annoyingly, this tmp dir now gets deleted in run_local when the file
         # has been uploaded/unpacked depending on the Host implementation
         tmp_dir = tempfile.mkdtemp()
-        zip_file_path, zip_paths = local_code.zip(
-            tmp_dir, include_sys_path, additional_paths
+        zip_file_path, zip_python_paths, [zip_cwd] = local_code.zip(
+            tmp_dir, include_sys_path, additional_paths, [os.getcwd()]
         )
 
         url = urllib.parse.urlunparse(("file", "", zip_file_path, "", "", ""))
-        code = CodeZipFile(url=url, code_paths=zip_paths)
+        code = CodeZipFile(url=url, code_paths=zip_python_paths, cwd_path=zip_cwd)
 
         return cls(interpreter_spec, code, environment_variables, credentials_sources)
 

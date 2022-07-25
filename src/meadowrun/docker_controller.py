@@ -393,12 +393,14 @@ async def push_image(
 
 
 async def run_container(
+    client: Optional[aiodocker.Docker],
     image: str,
-    cmd: List[str],
+    cmd: Optional[List[str]],
     environment_variables: Dict[str, str],
-    working_directory: str,
+    working_directory: Optional[str],
     binds: List[Tuple[str, str]],
     ports: List[str],
+    extra_hosts: List[Tuple[str, str]],
     all_gpus: bool,
 ) -> Tuple[aiodocker_containers.DockerContainer, aiodocker.Docker]:
     """
@@ -423,15 +425,15 @@ async def run_container(
         await client.__aexit__(None, None, None)
     """
 
+    if client is None:
+        client = await aiodocker.Docker().__aenter__()
+
     # Now actually run the container. For documentation on the config object:
     # https://docs.docker.com/engine/api/v1.41/#operation/ContainerCreate
-    client = await aiodocker.Docker().__aenter__()
 
     config: Dict[str, Any] = {
         "Image": image,
-        "Cmd": cmd,
         "Env": [f"{key}={value}" for key, value in environment_variables.items()],
-        "WorkingDir": working_directory,
         "HostConfig": {
             "Binds": [
                 f"{path_on_host}:{path_in_container}"
@@ -444,13 +446,20 @@ async def run_container(
             # even if it doesn't work. See more at agent._prepare_py_grid's discussion
             # of replacing localhost for the coordinator address. Also:
             # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
-            "ExtraHosts": ["host.docker.internal:host-gateway"],
+            "ExtraHosts": ["host.docker.internal:host-gateway"]
+            + [f"{host_name}:{ip}" for host_name, ip in extra_hosts],
             # Ideally we would have some sort of "AutoRemove after 5 minutes". With
             # AutoRemove turned on, containers can get deleted before we are able to
             # read off their exit codes.
             # "AutoRemove": True,
         },
     }
+
+    if cmd is not None:
+        config["Cmd"] = cmd
+
+    if working_directory is not None:
+        config["WorkingDir"] = working_directory
 
     # unfortunately PortBindings doesn't support port ranges so we expand them manually
     # here

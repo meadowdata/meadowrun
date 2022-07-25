@@ -277,11 +277,14 @@ async def _get_zip_file_code_paths(
         object_name = decoded_url.path.lstrip("/")
         extracted_folder = os.path.join(local_copies_folder, object_name)
 
-        if not os.path.exists(extracted_folder):
-            zip_file_path = extracted_folder + ".zip"
-            await download(bucket_name, object_name, zip_file_path)
-            with zipfile.ZipFile(zip_file_path) as zip_file:
-                zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
+        with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
+            if not os.path.exists(extracted_folder):
+                zip_file_path = extracted_folder + ".zip"
+                await download(bucket_name, object_name, zip_file_path)
+                with zipfile.ZipFile(zip_file_path) as zip_file:
+                    zip_file.extractall(
+                        os.path.join(local_copies_folder, extracted_folder)
+                    )
 
         return (
             [os.path.join(extracted_folder, zip_path) for zip_path in code_paths],

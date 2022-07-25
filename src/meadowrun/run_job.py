@@ -66,6 +66,7 @@ from meadowrun.meadowrun_pb2 import (
     CodeZipFile,
     ContainerAtDigest,
     ContainerAtTag,
+    ContainerService,
     Credentials,
     CredentialsSourceMessage,
     EnvironmentSpec,
@@ -980,12 +981,54 @@ def _prepare_ports(
         return [str(p) for p in ports]
 
 
+def _prepare_container_services(
+    container_services: Union[
+        Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
+    ] = None,
+) -> Sequence[ContainerService]:
+    if container_services is None:
+        return []
+
+    if isinstance(container_services, ContainerInterpreterBase):
+        container_services = [container_services]
+
+    result = []
+    for container_service in container_services:
+        if isinstance(container_service, ContainerAtDigestInterpreter):
+            result.append(
+                ContainerService(
+                    container_image_at_digest=ContainerAtDigest(
+                        repository=container_service.repository_name,
+                        digest=container_service.digest,
+                    )
+                )
+            )
+        elif isinstance(container_service, ContainerInterpreter):
+            result.append(
+                ContainerService(
+                    container_image_at_tag=ContainerAtTag(
+                        repository=container_service.repository_name,
+                        tag=container_service.tag,
+                    )
+                )
+            )
+        else:
+            raise ValueError(
+                f"Unexpected type of container_service {type(container_service)}"
+            )
+
+    return result
+
+
 async def run_function(
     function: Union[Callable[..., _T], str],
     host: Host,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
+    container_services: Union[
+        Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
+    ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
 ) -> _T:
     """
@@ -1002,6 +1045,8 @@ async def run_function(
             environment (code and libraries) that are needed to run this function
         args: Passed to the function like `function(*args)`
         kwargs: Passed to the function like `function(**kwargs)`
+        container_services: Additional containers that will be available from the main
+            job as container-service-0 container-service-1, etc.
         ports: A specification of ports to make available on the machine that runs this
             job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
             duration of this job. Be careful as other jobs could be running on the same
@@ -1077,6 +1122,7 @@ async def run_function(
         environment_variables=environment_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
+        container_services=_prepare_container_services(container_services),
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
         uses_gpu=host.uses_gpu(),
@@ -1092,6 +1138,9 @@ async def run_command(
     host: Host,
     deployment: Optional[Deployment] = None,
     context_variables: Optional[Dict[str, Any]] = None,
+    container_services: Union[
+        Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
+    ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
 ) -> JobCompletion[None]:
     """
@@ -1106,6 +1155,8 @@ async def run_command(
         deployment: See [Deployment][meadowrun.Deployment]. Specifies
             the environment (code and libraries) that are needed to run this command
         context_variables: Experimental feature
+        container_services: Additional containers that will be available from the main
+            job as container-service-0 container-service-1, etc.
         ports: A specification of ports to make available on the machine that runs this
             job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
             duration of this job. Be careful as other jobs could be running on the same
@@ -1153,6 +1204,7 @@ async def run_command(
         py_command=PyCommandJob(
             command_line=args, pickled_context_variables=pickled_context_variables
         ),
+        container_services=_prepare_container_services(container_services),
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
         uses_gpu=host.uses_gpu(),
@@ -1167,6 +1219,9 @@ async def run_map(
     args: Sequence[_T],
     hosts: AllocCloudInstances,
     deployment: Optional[Deployment] = None,
+    container_services: Union[
+        Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
+    ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
 ) -> Sequence[_U]:
     """
@@ -1181,6 +1236,8 @@ async def run_map(
             many workers to provision and what resources are needed for each worker.
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run the function
+        container_services: Additional containers that will be available from the main
+            job as container-service-0 container-service-1, etc.
         ports: A specification of ports to make available on the machines that runs
             tasks for this job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened
             just for the duration of this job. Be careful as other jobs could be running
@@ -1251,6 +1308,8 @@ async def run_map(
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
+    container_services_prepared = _prepare_container_services(container_services)
+
     # Now we will run worker_loop jobs on the hosts we got:
 
     pickled_worker_function = cloudpickle.dumps(
@@ -1272,6 +1331,7 @@ async def run_map(
                         ([public_address, worker_id], {}), protocol=pickle_protocol
                     ),
                 ),
+                container_services=container_services_prepared,
                 credentials_sources=credentials_sources,
                 ports=prepared_ports,
                 uses_gpu=uses_gpu,

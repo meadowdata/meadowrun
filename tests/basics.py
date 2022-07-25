@@ -249,6 +249,27 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_container_service(self):
+        def remote_function():
+            import requests
+
+            return requests.get("http://container-service-0").text
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                path_to_source="example_package",
+                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
+            ),
+            # this is just a random example of a container with a service in it
+            container_services=ContainerInterpreter("okteto/sample-app")
+        )
+        assert results.startswith("<h3>Hello okteto!</h3>")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_poetry_project_in_git_repo(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),

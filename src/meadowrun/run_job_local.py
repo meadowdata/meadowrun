@@ -450,6 +450,7 @@ async def _launch_container_job(
     job: Job,
     io_folder: str,
     machine_cache_folder: str,
+    container_services: List[str],
 ) -> Tuple[str, Coroutine[Any, Any, ProcessState]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
@@ -516,6 +517,28 @@ async def _launch_container_job(
     # now, expose any files we need for communication with the container
     binds.extend(job_spec_transformed.container_binds)
 
+    # now run any container_services that were specified
+    docker_client = None
+
+    container_service_ips = []
+    container_service_containers = []
+    for container_service_image in container_services:
+        container_service, docker_client = await run_container(
+            docker_client,
+            container_service_image,
+            None,
+            {},
+            None,
+            [],
+            [],
+            [],
+            job_spec_transformed.uses_gpu,
+        )
+        container_service_containers.append(container_service)
+        container_service_ips.append(
+            (await container_service.show())["NetworkSettings"]["IPAddress"]
+        )
+
     # finally, run the container
     print(
         f"Running container ({job_spec_type}): "
@@ -527,6 +550,7 @@ async def _launch_container_job(
     )
 
     container, docker_client = await run_container(
+        docker_client,
         container_image_name,
         # json serializer needs a real list, not a protobuf fake list
         job_spec_transformed.command_line,
@@ -534,6 +558,7 @@ async def _launch_container_job(
         working_dir,
         binds,
         job_spec_transformed.ports,
+        [(f"container-service-{i}", ip) for i, ip in enumerate(container_service_ips)],
         job_spec_transformed.uses_gpu,
     )
     return container.id, _container_job_continuation(
@@ -544,6 +569,7 @@ async def _launch_container_job(
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
+        container_service_containers,
     )
 
 
@@ -555,6 +581,7 @@ async def _container_job_continuation(
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
+    container_service_containers: List[aiodocker_containers.DockerContainer],
 ) -> ProcessState:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
@@ -598,7 +625,10 @@ async def _container_job_continuation(
         )
     finally:
         try:
-            await remove_container(container)
+            await asyncio.gather(
+                remove_container(container),
+                *(remove_container(c) for c in container_service_containers),
+            )
         except Exception as e:
             print(f"Warning, unable to remove container: {e}")
         await docker_client.__aexit__(None, None, None)
@@ -911,6 +941,11 @@ async def run_local(
         # interpreter
 
         if interpreter_deployment == "server_available_interpreter":
+            if job.container_services:
+                raise ValueError(
+                    "Cannot specify container_services with "
+                    "server_available_interpreter"
+                )
             pid, continuation = await _launch_non_container_job(
                 job_spec_type,
                 job_spec_transformed,
@@ -923,14 +958,19 @@ async def run_local(
             container_id = ""
         elif is_container:
             if interpreter_deployment == "container_at_digest":
-                container_image_name = f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"  # noqa: E501
+                container_image_name = (
+                    f"{job.container_at_digest.repository}"
+                    f"@{job.container_at_digest.digest}"
+                )
                 await pull_image(
                     container_image_name, interpreter_deployment_credentials
                 )
             elif interpreter_deployment == "container_at_tag":
                 # warning this is not reproducible!!! should ideally be resolved on the
                 # client
-                container_image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"  # noqa: E501
+                container_image_name = (
+                    f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"
+                )
                 await pull_image(
                     container_image_name, interpreter_deployment_credentials
                 )
@@ -943,6 +983,37 @@ async def run_local(
                     f"Unexpected interpreter_deployment: {interpreter_deployment}"
                 )
 
+            container_services = []
+            for container_service in job.container_services:
+                container_service_image_type = container_service.WhichOneof(
+                    "container_image"
+                )
+                if container_service_image_type == "container_image_at_digest":
+                    container_services.append(
+                        f"{container_service.container_image_at_digest.repository}"
+                        f"@{container_service.container_image_at_digest.digest}"
+                    )
+                    await pull_image(
+                        container_services[-1], interpreter_deployment_credentials
+                    )
+                elif container_service_image_type == "container_image_at_tag":
+                    container_services.append(
+                        f"{container_service.container_image_at_tag.repository}"
+                        f":{container_service.container_image_at_tag.tag}"
+                    )
+                    await pull_image(
+                        container_services[-1], interpreter_deployment_credentials
+                    )
+                elif container_service_image_type == "server_available_container_image":
+                    container_services.append(
+                        container_service.server_available_container_image.image_name
+                    )
+                else:
+                    raise ValueError(
+                        "Unexpected container service image: "
+                        f"{container_service_image_type}"
+                    )
+
             container_id, continuation = await _launch_container_job(
                 job_spec_type,
                 container_image_name,
@@ -952,6 +1023,7 @@ async def run_local(
                 job,
                 io_folder,
                 machine_cache_folder,
+                container_services,
             )
             # due to the way protobuf works, this is equivalent to None
             pid = 0

@@ -580,6 +580,65 @@ class GridTask(google.protobuf.message.Message):
 
 global___GridTask = GridTask
 
+class ContainerService(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+    CONTAINER_IMAGE_AT_DIGEST_FIELD_NUMBER: builtins.int
+    CONTAINER_IMAGE_AT_TAG_FIELD_NUMBER: builtins.int
+    SERVER_AVAILABLE_CONTAINER_IMAGE_FIELD_NUMBER: builtins.int
+    @property
+    def container_image_at_digest(self) -> global___ContainerAtDigest: ...
+    @property
+    def container_image_at_tag(self) -> global___ContainerAtTag: ...
+    @property
+    def server_available_container_image(self) -> global___ServerAvailableContainer: ...
+    def __init__(
+        self,
+        *,
+        container_image_at_digest: typing.Optional[global___ContainerAtDigest] = ...,
+        container_image_at_tag: typing.Optional[global___ContainerAtTag] = ...,
+        server_available_container_image: typing.Optional[
+            global___ServerAvailableContainer
+        ] = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "container_image",
+            b"container_image",
+            "container_image_at_digest",
+            b"container_image_at_digest",
+            "container_image_at_tag",
+            b"container_image_at_tag",
+            "server_available_container_image",
+            b"server_available_container_image",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "container_image",
+            b"container_image",
+            "container_image_at_digest",
+            b"container_image_at_digest",
+            "container_image_at_tag",
+            b"container_image_at_tag",
+            "server_available_container_image",
+            b"server_available_container_image",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self,
+        oneof_group: typing_extensions.Literal["container_image", b"container_image"],
+    ) -> typing.Optional[
+        typing_extensions.Literal[
+            "container_image_at_digest",
+            "container_image_at_tag",
+            "server_available_container_image",
+        ]
+    ]: ...
+
+global___ContainerService = ContainerService
+
 class Job(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     JOB_ID_FIELD_NUMBER: builtins.int
@@ -594,6 +653,7 @@ class Job(google.protobuf.message.Message):
     SERVER_AVAILABLE_CONTAINER_FIELD_NUMBER: builtins.int
     ENVIRONMENT_SPEC_IN_CODE_FIELD_NUMBER: builtins.int
     ENVIRONMENT_SPEC_FIELD_NUMBER: builtins.int
+    CONTAINER_SERVICES_FIELD_NUMBER: builtins.int
     ENVIRONMENT_VARIABLES_FIELD_NUMBER: builtins.int
     RESULT_HIGHEST_PICKLE_PROTOCOL_FIELD_NUMBER: builtins.int
     PY_COMMAND_FIELD_NUMBER: builtins.int
@@ -635,6 +695,12 @@ class Job(google.protobuf.message.Message):
     def environment_spec_in_code(self) -> global___EnvironmentSpecInCode: ...
     @property
     def environment_spec(self) -> global___EnvironmentSpec: ...
+    @property
+    def container_services(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___ContainerService
+    ]: ...
     @property
     def environment_variables(
         self,
@@ -684,6 +750,9 @@ class Job(google.protobuf.message.Message):
         ] = ...,
         environment_spec_in_code: typing.Optional[global___EnvironmentSpecInCode] = ...,
         environment_spec: typing.Optional[global___EnvironmentSpec] = ...,
+        container_services: typing.Optional[
+            typing.Iterable[global___ContainerService]
+        ] = ...,
         environment_variables: typing.Optional[
             typing.Iterable[global___StringPair]
         ] = ...,
@@ -742,6 +811,8 @@ class Job(google.protobuf.message.Message):
             b"container_at_digest",
             "container_at_tag",
             b"container_at_tag",
+            "container_services",
+            b"container_services",
             "credentials_sources",
             b"credentials_sources",
             "environment_spec",

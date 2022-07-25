@@ -94,10 +94,13 @@ class CodeZipFile(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     URL_FIELD_NUMBER: builtins.int
     CODE_PATHS_FIELD_NUMBER: builtins.int
+    CWD_PATH_FIELD_NUMBER: builtins.int
     url: typing.Text
     """A single zip file that contains code which will be unzipped and made available.
     All code_paths are relative to the zip file's root, and will be added to the
     PYTHONPATH. Order matters as usual for PYTHONPATH.
+    Current working directory path is also relative to zip root, and should be the folder
+    where the command/function is exectued on the remote side.
     The zip file is located by URL.
     For s3 this is s3://bucket-name/key-name
     For files this is file://path/to/file
@@ -109,16 +112,18 @@ class CodeZipFile(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
         typing.Text
     ]: ...
+    cwd_path: typing.Text
     def __init__(
         self,
         *,
         url: typing.Text = ...,
         code_paths: typing.Optional[typing.Iterable[typing.Text]] = ...,
+        cwd_path: typing.Text = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "code_paths", b"code_paths", "url", b"url"
+            "code_paths", b"code_paths", "cwd_path", b"cwd_path", "url", b"url"
         ],
     ) -> None: ...
 

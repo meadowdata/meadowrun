@@ -116,18 +116,19 @@ async def get_code_paths(
     local_copies_folder: str,
     job: Job,
     credentials: Optional[RawCredentials],
-) -> Tuple[Sequence[str], Optional[str]]:
+) -> Tuple[Sequence[str], Optional[str], Optional[str]]:
     """
-    Returns [code_paths, interpreter_spec_path] based on Job.code_deployment. code_paths
-    will have paths to folders that are available on this machine that contain "the
-    user's code". interpreter_spec_path will be a path where we can find e.g. an
-    environment.yml file that can be used to build a conda environment.
+    Returns [code_paths, interpreter_spec_path, current_working_directory] based on
+    Job.code_deployment. code_paths will have paths to folders that are available on
+    this machine that contain "the user's code". interpreter_spec_path will be a path
+    where we can find e.g. an environment.yml file that can be used to build a conda
+    environment.
 
     For ServerAvailableFolder, this function will effectively use code_paths as
     specified.
 
-    For GitRepoCommit, this function will create an immutable local copy of the
-    specific commit.
+    For GitRepoCommit, this function will create an immutable local copy of the specific
+    commit.
     """
     case = job.WhichOneof("code_deployment")
     if case == "server_available_folder":
@@ -140,6 +141,7 @@ async def get_code_paths(
             # TODO theoretically the environment file could be not in the first code
             # path, but should be a very unlikely scenario for now.
             interpreter_spec_path,
+            None,
         )
     elif case == "git_repo_commit":
         return await _get_git_code_paths(
@@ -164,11 +166,11 @@ async def get_code_paths(
             credentials,
         )
     elif case == "code_zip_file":
-        return (
-            await _get_zip_file_code_paths(
-                local_copies_folder, job.code_zip_file.url, job.code_zip_file.code_paths
-            ),
-            None,
+        return await _get_zip_file_code_paths(
+            local_copies_folder,
+            job.code_zip_file.url,
+            job.code_zip_file.code_paths,
+            job.code_zip_file.cwd_path,
         )
     else:
         raise ValueError(f"Unrecognized code_deployment {case}")
@@ -200,7 +202,7 @@ async def _get_git_code_paths(
     revision_spec: str,
     path_to_source: str,
     credentials: Optional[RawCredentials],
-) -> Tuple[Sequence[str], str]:
+) -> Tuple[Sequence[str], str, str]:
     """Returns code_paths for GitRepoCommit"""
 
     local_clone_name = _get_git_repo_local_clone_name(repo_url)
@@ -244,25 +246,33 @@ async def _get_git_code_paths(
             shutil.copytree(local_path, local_copy_path)
 
         # TODO raise a friendlier exception if this path doesn't exist
-        return [os.path.join(local_copy_path, path_to_source)], local_copy_path
+        source_path = os.path.join(local_copy_path, path_to_source)
+        return ([source_path], local_copy_path, local_copy_path)
 
 
 async def _get_zip_file_code_paths(
-    local_copies_folder: str, zip_file_url: str, code_paths: Sequence[str]
-) -> List[str]:
+    local_copies_folder: str,
+    zip_file_url: str,
+    code_paths: Sequence[str],
+    cwd_path: str,
+) -> Tuple[List[str], None, str]:
     decoded_url = urllib.parse.urlparse(zip_file_url)
     if decoded_url.scheme == "file":
         with zipfile.ZipFile(decoded_url.path) as zip_file:
             extracted_folder = os.path.splitext(os.path.basename(decoded_url.path))[0]
             zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
-        return [
-            os.path.join(local_copies_folder, extracted_folder, zip_path)
-            for zip_path in code_paths
-        ]
+        return (
+            [
+                os.path.join(local_copies_folder, extracted_folder, zip_path)
+                for zip_path in code_paths
+            ],
+            None,
+            os.path.join(local_copies_folder, extracted_folder, cwd_path),
+        )
 
     async def download_and_unzip(
         download: Callable[[str, str, str], Coroutine[Any, Any, None]],
-    ) -> List[str]:
+    ) -> Tuple[List[str], None, str]:
         bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
         extracted_folder = os.path.join(local_copies_folder, object_name)
@@ -273,7 +283,11 @@ async def _get_zip_file_code_paths(
             with zipfile.ZipFile(zip_file_path) as zip_file:
                 zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
 
-        return [os.path.join(extracted_folder, zip_path) for zip_path in code_paths]
+        return (
+            [os.path.join(extracted_folder, zip_path) for zip_path in code_paths],
+            None,
+            os.path.join(extracted_folder, cwd_path),
+        )
 
     if decoded_url.scheme == "s3":
         return await download_and_unzip(s3.download_file)

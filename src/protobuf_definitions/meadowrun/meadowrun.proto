@@ -26,11 +26,14 @@ message CodeZipFile {
     // A single zip file that contains code which will be unzipped and made available.
     // All code_paths are relative to the zip file's root, and will be added to the
     // PYTHONPATH. Order matters as usual for PYTHONPATH.
+    // Current working directory path is also relative to zip root, and should be the folder
+    // where the command/function is exectued on the remote side.
     // The zip file is located by URL.
     // For s3 this is s3://bucket-name/key-name
     // For files this is file://path/to/file
     string url = 1;
     repeated string code_paths = 2;
+    string cwd_path = 3;
 }
 
 

@@ -237,8 +237,7 @@ class BasicsSuite(HostProvider, abc.ABC):
             remote_function,
             self.get_host(),
             Deployment.git_repo(
-                repo_url="https://github.com/hrichardlee/test_repo",
-                branch="cv2",
+                repo_url=self.get_test_repo_url(),
                 path_to_source="example_package",
                 interpreter=PipRequirementsFile(
                     "requirements_with_cv2.txt", "3.9", ["libgl1", "libglib2.0-0"]

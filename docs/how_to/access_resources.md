@@ -24,6 +24,7 @@ used resources:
 
 - `meadowrun-manage-ec2 grant-permission-to-secret <secret_name>`
 - `meadowrun-manage-ec2 grant-permission-to-s3-bucket <bucket_name>`
+- `meadowrun-manage-ec2 grant-permission-to-ecr-repo <repository_name>`
 
 
 ## Azure

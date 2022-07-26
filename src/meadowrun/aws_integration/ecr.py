@@ -1,4 +1,6 @@
 import base64
+import re
+from typing import Optional
 
 import boto3
 
@@ -74,3 +76,17 @@ async def get_ecr_helper(
         f"{repository_prefix}/{repository}:{tag}",
         _does_image_exist(repository, tag, region_name),
     )
+
+
+def get_ecr_username_password(registry_domain: str) -> Optional[UsernamePassword]:
+    """Gets the username/password if registry_domain is an ECR repo"""
+
+    match = re.match(
+        r"\d+\.dkr\.ecr\.(?P<region_name>[^.]+)\.amazonaws\.com",
+        registry_domain.lower(),
+    )
+    if match is None:
+        return None
+
+    region_name = match.groups("region_name")[0]
+    return _get_username_password(region_name)

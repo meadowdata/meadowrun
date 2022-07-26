@@ -1,4 +1,5 @@
 """See ecr.py"""
+from typing import Optional
 
 from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_resource_group,
@@ -99,3 +100,11 @@ async def get_acr_helper(
         f"{repository_prefix}/{repository}:{tag}",
         await _does_image_exist(registry_name, repository, tag),
     )
+
+
+async def get_acr_username_password(registry_name: str) -> Optional[UsernamePassword]:
+    """Gets the username/password if registry_domain is an ACR repo"""
+    if registry_name.lower().endswith(".azurecr.io"):
+        return await _get_username_password(registry_name)
+
+    return None

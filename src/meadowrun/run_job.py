@@ -984,42 +984,55 @@ def _prepare_ports(
 
 
 def _prepare_container_services(
-    container_services: Union[
+    container_interpreters: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
-) -> Sequence[ContainerService]:
-    if container_services is None:
-        return []
+) -> Tuple[Sequence[ContainerService], Sequence[CredentialsSourceMessage]]:
+    if container_interpreters is None:
+        return [], []
 
-    if isinstance(container_services, ContainerInterpreterBase):
-        container_services = [container_services]
+    if isinstance(container_interpreters, ContainerInterpreterBase):
+        container_interpreters = [container_interpreters]
 
-    result = []
-    for container_service in container_services:
-        if isinstance(container_service, ContainerAtDigestInterpreter):
-            result.append(
+    container_services = []
+    credentials_sources = []
+    for interpreter in container_interpreters:
+        if isinstance(interpreter, ContainerAtDigestInterpreter):
+            container_services.append(
                 ContainerService(
                     container_image_at_digest=ContainerAtDigest(
-                        repository=container_service.repository_name,
-                        digest=container_service.digest,
+                        repository=interpreter.repository_name,
+                        digest=interpreter.digest,
                     )
                 )
             )
-        elif isinstance(container_service, ContainerInterpreter):
-            result.append(
+        elif isinstance(interpreter, ContainerInterpreter):
+            container_services.append(
                 ContainerService(
                     container_image_at_tag=ContainerAtTag(
-                        repository=container_service.repository_name,
-                        tag=container_service.tag,
+                        repository=interpreter.repository_name,
+                        tag=interpreter.tag,
                     )
                 )
             )
         else:
             raise ValueError(
-                f"Unexpected type of container_service {type(container_service)}"
+                f"Unexpected type of container_service {type(interpreter)}"
             )
 
-    return result
+        username_password_secret = interpreter._get_username_password_secret()
+        if username_password_secret is not None:
+            credentials_sources.append(
+                _credentials_source_message(
+                    username_password_secret._to_credentials_source(
+                        "DOCKER",
+                        get_registry_domain(interpreter._get_repository_name())[0],
+                        Credentials.Type.USERNAME_PASSWORD,
+                    )
+                )
+            )
+
+    return container_services, credentials_sources
 
 
 async def run_function(
@@ -1118,13 +1131,19 @@ async def run_function(
         code, _DeploymentTarget.from_single_host(host)
     )
 
+    (
+        container_services_prepared,
+        additional_credentials_sources,
+    ) = _prepare_container_services(container_services)
+    credentials_sources.extend(additional_credentials_sources)
+
     job = Job(
         job_id=job_id,
         job_friendly_name=friendly_name,
         environment_variables=environment_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
-        container_services=_prepare_container_services(container_services),
+        container_services=container_services_prepared,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
         uses_gpu=host.uses_gpu(),
@@ -1198,6 +1217,12 @@ async def run_command(
     else:
         pickled_context_variables = b""
 
+    (
+        container_services_prepared,
+        additional_credentials_sources,
+    ) = _prepare_container_services(container_services)
+    credentials_sources.extend(additional_credentials_sources)
+
     job = Job(
         job_id=job_id,
         job_friendly_name=_make_valid_friendly_name(friendly_name),
@@ -1206,7 +1231,7 @@ async def run_command(
         py_command=PyCommandJob(
             command_line=args, pickled_context_variables=pickled_context_variables
         ),
-        container_services=_prepare_container_services(container_services),
+        container_services=container_services_prepared,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
         uses_gpu=host.uses_gpu(),
@@ -1310,7 +1335,11 @@ async def run_map(
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
-    container_services_prepared = _prepare_container_services(container_services)
+    (
+        container_services_prepared,
+        additional_credentials_sources,
+    ) = _prepare_container_services(container_services)
+    credentials_sources.extend(additional_credentials_sources)
 
     # Now we will run worker_loop jobs on the hosts we got:
 

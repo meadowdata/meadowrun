@@ -81,6 +81,32 @@ _ACCESS_S3_BUCKET_POLICY = """{
     ]
 }"""
 
+# A policy for granting access to an ECR repo
+_ACCESS_ECR_REPO_POLICY = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:BatchDeleteImage",
+                "ecr:BatchGetImage",
+                "ecr:CompleteLayerUpload",
+                "ecr:DescribeImageReplicationStatus",
+                "ecr:DescribeImages",
+                "ecr:DescribeRepositories",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:InitiateLayerUpload",
+                "ecr:ListImages",
+                "ecr:PutImage",
+                "ecr:ReplicateImage",
+                "ecr:UploadLayerPart"
+            ],
+            "Resource": "arn:aws:ecr:*:*:repository/$REPO_NAME"
+        }
+    ]
+}"""
+
 # A policy template that generally grants permissions needed to use Meadowrun
 _MEADOWRUN_POLICY_TEMPLATE = """{
     "Version": "2012-10-17",
@@ -507,4 +533,13 @@ def grant_permission_to_s3_bucket(bucket_name: str, region_name: str) -> None:
         RoleName=_EC2_ROLE_NAME,
         PolicyName=f"AccessS3Bucket_{bucket_name}",
         PolicyDocument=_ACCESS_S3_BUCKET_POLICY.replace("$BUCKET_NAME", bucket_name),
+    )
+
+
+def grant_permission_to_ecr_repo(repo_name: str, region_name: str) -> None:
+    iam_client = boto3.client("iam", region_name=region_name)
+    iam_client.put_role_policy(
+        RoleName=_EC2_ROLE_NAME,
+        PolicyName=f"AccessECRRepo_{repo_name}",
+        PolicyDocument=_ACCESS_ECR_REPO_POLICY.replace("$REPO_NAME", repo_name),
     )

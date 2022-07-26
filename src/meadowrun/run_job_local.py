@@ -23,6 +23,9 @@ from typing import (
     Tuple,
 )
 
+from meadowrun.aws_integration.ecr import get_ecr_username_password
+from meadowrun.azure_integration.acr import get_acr_username_password
+
 if TYPE_CHECKING:
     from typing_extensions import Literal
 
@@ -46,10 +49,11 @@ from meadowrun.deployment_manager import (
     get_code_paths,
 )
 from meadowrun.docker_controller import (
-    run_container,
     get_image_environment_variables_and_working_dir,
+    get_registry_domain,
     pull_image,
     remove_container,
+    run_container,
 )
 from meadowrun.meadowrun_pb2 import (
     Credentials,
@@ -760,16 +764,60 @@ def _set_up_working_folder(
     )
 
 
+async def _get_credentials_for_docker(
+    repository: str,
+    credentials_sources: CredentialsDict,
+    cloud: Optional[Tuple[CloudProviderType, str]],
+) -> Optional[RawCredentials]:
+    """
+    Tries to get the credentials for a docker repository from credentials_sources. If
+    that doesn't succeed, try to get a username/password for ECR/ACR based on the
+    current role.
+    """
+    result = None
+    try:
+        result = await get_docker_credentials(repository, credentials_sources)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        print("Error trying to turn credentials source into actual credentials")
+        traceback.print_exc()
+
+    if result is None and cloud is not None:
+        try:
+            registry_domain, _ = get_registry_domain(repository)
+            if cloud[0] == "EC2":
+                result = get_ecr_username_password(registry_domain)
+            elif cloud[0] == "AzureVM":
+                result = await get_acr_username_password(registry_domain)
+            else:
+                raise ValueError("Unexpected value for CloudProviderType: {cloud[0]}")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            print(f"Error trying to get cloud credentials for {repository}")
+            traceback.print_exc()
+
+    return result
+
+
 async def _get_credentials_for_job(
     job: Job,
-) -> Tuple[Optional[RawCredentials], Optional[RawCredentials]]:
+    cloud: Optional[Tuple[CloudProviderType, str]],
+) -> Tuple[
+    Optional[RawCredentials], Optional[RawCredentials], List[Optional[RawCredentials]]
+]:
     """
-    Gets the credentials for the code_deployment, interpreter_deployment for job_to_run.
-    This is a little silly because we could just have the user specify the
-    code_deployment credentials and the interpreter_deployment credentials explicitly.
-    We should make that change at the same time as we make it possible to register
-    credentials outside of the context of a single job, as we'll need this logic for
-    that use case.
+    Returns (credentials for job.code_deployment, credentials for
+    job.interpreter_deployment, credentials for job.container_services). Credentials for
+    container_services will be a list of the same length as container_services, and
+    should be used like zip(job.container_services, returned_value).
+
+    TODO: This code seems a little convoluted because on the client side, the user
+    specifies which credentials are for which deployment/container service. We should
+    change this code to reflect the user's specifications, but the code we have here is
+    also useful if we want to support registering "global" credentials that are stored
+    outside of the context of a single job.
     """
 
     # first, get all available credentials sources from the JobToRun
@@ -814,17 +862,36 @@ async def _get_credentials_for_job(
         else:
             repository = job.container_at_tag.repository
 
-        try:
-            interpreter_deployment_credentials = await get_docker_credentials(
-                repository, credentials_sources
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            print("Error trying to turn credentials source into actual credentials")
-            traceback.print_exc()
+        interpreter_deployment_credentials = await _get_credentials_for_docker(
+            repository, credentials_sources, cloud
+        )
 
-    return code_deployment_credentials, interpreter_deployment_credentials
+    container_services_credentials: List[Optional[RawCredentials]] = []
+    for container_service in job.container_services:
+        container_service_image_type = container_service.WhichOneof("container_image")
+
+        if container_service_image_type in (
+            "container_image_at_digest",
+            "container_image_at_tag",
+        ):
+            if container_service_image_type == "container_image_at_digest":
+                repository = container_service.container_image_at_digest.repository
+            else:
+                repository = container_service.container_image_at_tag.repository
+
+            container_services_credentials.append(
+                await _get_credentials_for_docker(
+                    repository, credentials_sources, cloud
+                )
+            )
+        else:
+            container_services_credentials.append(None)
+
+    return (
+        code_deployment_credentials,
+        interpreter_deployment_credentials,
+        container_services_credentials,
+    )
 
 
 async def run_local(
@@ -863,7 +930,8 @@ async def run_local(
     (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-    ) = await _get_credentials_for_job(job)
+        container_services_credentials,
+    ) = await _get_credentials_for_job(job, cloud)
 
     try:
         # first, get the code paths
@@ -989,7 +1057,9 @@ async def run_local(
                 )
 
             container_services = []
-            for container_service in job.container_services:
+            for container_service, container_service_credentials in zip(
+                job.container_services, container_services_credentials
+            ):
                 container_service_image_type = container_service.WhichOneof(
                     "container_image"
                 )
@@ -999,7 +1069,7 @@ async def run_local(
                         f"@{container_service.container_image_at_digest.digest}"
                     )
                     await pull_image(
-                        container_services[-1], interpreter_deployment_credentials
+                        container_services[-1], container_service_credentials
                     )
                 elif container_service_image_type == "container_image_at_tag":
                     container_services.append(
@@ -1007,7 +1077,7 @@ async def run_local(
                         f":{container_service.container_image_at_tag.tag}"
                     )
                     await pull_image(
-                        container_services[-1], interpreter_deployment_credentials
+                        container_services[-1], container_service_credentials
                     )
                 elif container_service_image_type == "server_available_container_image":
                     container_services.append(

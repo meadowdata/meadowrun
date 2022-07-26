@@ -11,6 +11,7 @@ import meadowrun.aws_integration.aws_install_uninstall as aws
 import meadowrun.azure_integration.azure_install_uninstall as azure
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_permissions_install import (
+    grant_permission_to_ecr_repo,
     grant_permission_to_s3_bucket,
     grant_permission_to_secret,
 )
@@ -145,6 +146,14 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         )
         grant_permission_to_s3_bucket_parser.add_argument(
             "bucket_name", help="The name of the bucket to give permissions to"
+        )
+
+        grant_permission_to_ecr_repo_parser = subparsers.add_parser(
+            "grant-permission-to-ecr-repo",
+            help=f"Gives the meadowrun {role} access to the specified ECR repository",
+        )
+        grant_permission_to_ecr_repo_parser.add_argument(
+            "repo_name", help="The name of the repo to give permissions to"
         )
 
     get_ssh_key_parser = subparsers.add_parser(
@@ -284,6 +293,18 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(f"Granted access in {time.perf_counter() - t0:.2f} seconds")
+    elif args.command == "grant-permission-to-ecr-repo":
+        print(f"Granting access to the meadowrun {role} to access {args.repo_name}")
+        if cloud_provider == "EC2":
+            grant_permission_to_ecr_repo(args.repo_name, region_name)
+        elif cloud_provider == "AzureVM":
+            raise NotImplementedError(
+                "Granting permission to ACR repos is not implemented for Azure. The "
+                "meadowrun managed identity already has permissions to all storage "
+                f"accounts in the {MEADOWRUN_RESOURCE_GROUP_NAME} resource group"
+            )
+        else:
+            raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
     elif args.command == "get-ssh-key":
         if not args.output:
             output = os.path.expanduser(

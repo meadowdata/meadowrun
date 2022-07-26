@@ -3,11 +3,13 @@
 ## With ECR
 
 If you have a private container image in AWS ECR, you will need to give the
-`meadowrun_ec2_role` IAM role access to your container image. See [AWS' guide to ECR
-permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/security_iam_service-with-iam.html),
-[AWS' general documentation on adding permissions to an
-identity](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html),
-and [general background on granting permissions to the Meadowrun
+`meadowrun_ec2_role` IAM role access to your container image:
+
+```shell
+meadowrun-manage-ec2 grant-permission-to-ecr-repo myreponame
+```
+
+See also [general background on granting permissions to the Meadowrun
 jobs](/how_to/access_resources).
 
 ## With other container registries

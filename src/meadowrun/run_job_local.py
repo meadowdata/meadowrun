@@ -471,6 +471,11 @@ async def _launch_container_job(
         unique_code_paths = list(code_paths)
 
     # populate binds with code paths we need
+    # TODO this isn't exactly right--some code paths "overlap", like foo/a and foo/a/b.
+    # We should just bind foo/a once as e.g. /meadowrun/code0, and then add both
+    # /meadowrun/code0 and /meadowrun/code0/b to the PYTHONPATH. Instead, right now, we
+    # mount /foo/a as /meadowrun/code0 and /foo/a/b as /meadowrun/code1, which might
+    # lead to unexpected behavior.
     for i, path_on_host in enumerate(unique_code_paths):
         mounted_code_path = f"{MEADOWRUN_CODE_MOUNT_LINUX}{i}"
         binds.append((path_on_host, mounted_code_path))

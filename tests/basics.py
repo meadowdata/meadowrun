@@ -327,7 +327,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 self.get_host(),
                 await Deployment.mirror_local(
                     interpreter=LocalCondaInterpreter("test_repo_conda_env"),
-                    additional_paths=[
+                    additional_python_paths=[
                         _path_from_here("../../test_repo/example_package")
                     ],
                 ),
@@ -365,7 +365,9 @@ class BasicsSuite(HostProvider, abc.ABC):
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=LocalPipInterpreter(test_venv_interpreter, "3.9"),
-                additional_paths=[_path_from_here("../../test_repo/example_package")],
+                additional_python_paths=[
+                    _path_from_here("../../test_repo/example_package")
+                ],
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")
@@ -385,7 +387,9 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=CondaEnvironmentYmlFile(
                     _path_from_here("../../test_repo/myenv.yml")
                 ),
-                additional_paths=[_path_from_here("../../test_repo/example_package")],
+                additional_python_paths=[
+                    _path_from_here("../../test_repo/example_package")
+                ],
             ),
         )
         assert results == ("2.27.1", "1.4.2", "a, b")
@@ -405,7 +409,9 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PipRequirementsFile(
                     _path_from_here("../../test_repo/requirements.txt"), "3.9"
                 ),
-                additional_paths=[_path_from_here("../../test_repo/example_package")],
+                additional_python_paths=[
+                    _path_from_here("../../test_repo/example_package")
+                ],
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")
@@ -420,7 +426,9 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PoetryProjectPath(
                     _path_from_here("../../test_repo/"), "3.9"
                 ),
-                additional_paths=[_path_from_here("../../test_repo/example_package")],
+                additional_python_paths=[
+                    _path_from_here("../../test_repo/example_package")
+                ],
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")
@@ -433,7 +441,9 @@ class BasicsSuite(HostProvider, abc.ABC):
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
-                additional_paths=[_path_from_here("../../test_repo/example_package")],
+                additional_python_paths=[
+                    _path_from_here("../../test_repo/example_package")
+                ],
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")

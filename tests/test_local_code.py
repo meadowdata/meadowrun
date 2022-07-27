@@ -91,7 +91,9 @@ def test_consolidate_paths(
 
 def test_zip_file():
     with tempfile.TemporaryDirectory() as temp:
-        result = local_code.zip_local_code(temp, additional_paths=[os.getcwd()])
+        result = local_code.zip_local_code(
+            temp, additional_non_python_paths=[os.getcwd()]
+        )
         assert result is not None
         zip_file, zip_python_paths, extra_paths = result
         assert len(extra_paths) == 1

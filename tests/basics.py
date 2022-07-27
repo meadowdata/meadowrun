@@ -269,6 +269,23 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_data_file(self):
+        def remote_function():
+            with open("example_package/test.txt", encoding="utf-8") as f:
+                return f.read()
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
+            ),
+        )
+        assert results == "Hello world!"
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_poetry_project_in_git_repo(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
@@ -415,6 +432,31 @@ class BasicsSuite(HostProvider, abc.ABC):
             ),
         )
         assert results == ("2.28.0", "1.4.2", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_local_pip_file_with_data_file(self):
+        def remote_function():
+            with open("example_package/test.txt", encoding="utf-8") as f:
+                return f.read()
+
+        working_dir = os.getcwd()
+        try:
+            os.chdir(_path_from_here("../../test_repo"))
+
+            results = await run_function(
+                remote_function,
+                self.get_host(),
+                await Deployment.mirror_local(
+                    interpreter=PipRequirementsFile(
+                        _path_from_here("../../test_repo/requirements.txt"), "3.9"
+                    ),
+                    working_directory_globs="**/*.txt",
+                ),
+            )
+            assert results == "Hello world!"
+        finally:
+            os.chdir(working_dir)
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio

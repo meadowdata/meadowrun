@@ -1,46 +1,33 @@
+import glob
 import itertools
 import os
-from os.path import realpath, join, splitext
 import sys
 import uuid
 import zipfile
-from typing import Dict, Iterable, List, Set, Tuple
+from os.path import realpath, join, splitext
+from typing import Iterable, List, Set, Tuple
 
 
 def zip_local_code(
     result_zip_dir: str,
     include_sys_path: bool = True,
     additional_python_paths: Iterable[str] = tuple(),
-    additional_non_python_paths: Iterable[str] = tuple(),
-    include_extensions: Iterable[str] = (".py",),
-) -> Tuple[str, List[str], List[str]]:
+    python_paths_extensions: Iterable[str] = (".py", ".pyd"),
+    working_directory_globs: Iterable[str] = tuple(),
+) -> Tuple[str, List[str], str]:
     """
     The goal of this function is to zip up "the current local python code excluding the
-    interpreter code" as well as any additional non-python files that might be needed to
-    run code remotely.
+    interpreter code" as well as any specified files in the current working directory.
 
     There are two types of folders/files that make it into the zip file. The first are
     "python paths". Assuming include_sys_path is True, "python paths" will be
     additional_python_paths + paths in sys.path that are NOT part of the interpreter,
-    i.e. paths that start with sys.prefix, etc. The second are "non-python paths". These
-    two types of paths are treated exactly the same in the zip file. The only difference
-    between these two types of paths is that we keep track of them separately in the
-    return value--the returned tuple will include a list of "python paths" as they
-    appear in the zip file and "non-python paths" as they appear in the zip file.
+    i.e. paths that do NOT start with sys.prefix, etc. The second type are files
+    specified by working_directory_globs which are always relative to the current
+    working directory.
 
-    Non-python paths are useful for two reasons:
-    - One is to add structure to the zip file. This function will consolidate paths that
-      share a prefix. So for example, if `src/foo` and `src/bar/baz` are python paths,
-      but `src` itself is not a python path, you can set `src` as a non-python path and
-      your zip file will have the right structure. If you don't do this, `foo` and `baz`
-      will just be top-level directories in the zip file.
-    - You'll usually want to include the current working directory as a "non-python
-      path" if it's not already a python path. Then when you unzip, you can set the
-      working directory to the corresponding unzipped directory and relative paths will
-      work as expected.
-
-    Both python paths and non-python paths will only include *.py files (or whatever is
-    specified in include_extensions).
+    python paths will only include *.py and *.pyd files (or whatever is specified in
+    python_paths_extensions).
 
     Args:
         result_zip_dir: directory where to put the resulting zip file.
@@ -48,30 +35,47 @@ def zip_local_code(
             sys.prefix or sys.base_prefix are automatically excluded. Defaults to True.
         additional_python_paths: Additional python paths to zip. Defaults to empty
             tuple, i.e. no additional python paths.
-        additional_non_python_paths: Additional paths to zip. Defaults to empty tuple,
-            i.e. no additional non-python paths.
-        include_extensions: Only files with these extensions are zipped. Defaults to
-            (".py",), i.e. only python files.
+        python_paths_extensions: Only files with these extensions are zipped. Defaults
+            to (".py", ".pyd"), i.e. only python files.
+        working_directory_globs: Globs that will be passed directly to glob.glob to
+            specify any file relative to the current working directory. Globs will only
+            match files.
 
     Raises:
         ValueError: If there are no paths to zip.
 
     Returns:
-        Tuple[str, List[str], List[str]]: path to zip file in result_zip_dir, python
-        paths in the zip file, non-python paths in the zip file
+        Tuple[str, List[str], str]: path to zip file in result_zip_dir, python paths in
+        the zip file, current working directory in the zip file
     """
+    current_working_directory = realpath(os.getcwd())
+    non_python_paths_to_zip = [current_working_directory]
+    current_working_directory_parent = os.path.dirname(current_working_directory)
+    # this will hold (path_to_file, path_to_containing_dir) for every file that matches
+    # a glob
+    real_file_paths_to_zip = []
+    for file_glob in working_directory_globs:
+        for file in glob.glob(file_glob, recursive=True):
+            if os.path.isfile(file):
+                file_real_path = realpath(file)
+                if not file_real_path.startswith(current_working_directory_parent):
+                    raise ValueError(
+                        "Specifying files outside of the current working directory's "
+                        "parent is not supported. I.e. ../foo is fine, but ../../foo "
+                        "will not work"
+                    )
+                dir_real_path = os.path.dirname(file_real_path)
+                real_file_paths_to_zip.append((file_real_path, dir_real_path))
+                non_python_paths_to_zip.append(dir_real_path)
 
-    python_paths_to_zip, non_python_paths_to_zip = _get_paths_to_zip(
-        additional_python_paths, include_sys_path, additional_non_python_paths
+    real_python_paths_to_zip = _get_python_paths_to_zip(
+        additional_python_paths, include_sys_path
     )
-    if not python_paths_to_zip and not non_python_paths_to_zip:
-        raise ValueError("No paths to zip")
 
     (
-        real_paths_to_zip_paths,
         python_zip_paths,
         non_python_zip_paths,
-    ) = _consolidate_paths_to_zip(python_paths_to_zip, non_python_paths_to_zip)
+    ) = _consolidate_paths_to_zip(real_python_paths_to_zip, non_python_paths_to_zip)
 
     # Currently we always zip all the files and then compute the hash. The hash is just
     # used to avoid upload to S3. In future we could try to split the files into chunks
@@ -80,23 +84,28 @@ def zip_local_code(
     # building, so this is not currently a bottleneck.
     zip_file_path = join(result_zip_dir, str(uuid.uuid4()) + ".zip")
     with zipfile.ZipFile(zip_file_path, "w") as zip_file:
-        for real_path, zip_path in real_paths_to_zip_paths.items():
+        for real_path, zip_path in zip(real_python_paths_to_zip, python_zip_paths):
             for dirpath, _, filenames in os.walk(real_path):
                 for filename in filenames:
-                    ext = splitext(filename)[1]
-                    if ext in include_extensions:
+                    if splitext(filename)[1].lower() in python_paths_extensions:
                         full = join(dirpath, filename)
                         full_zip = full.replace(real_path, zip_path, 1)
                         zip_file.write(full, full_zip)
 
-    return zip_file_path, python_zip_paths, non_python_zip_paths
+        for (file_real_path, dir_real_path), dir_zip_path in zip(
+            real_file_paths_to_zip, itertools.islice(non_python_zip_paths, 1, None)
+        ):
+            zip_file.write(
+                file_real_path, file_real_path.replace(dir_real_path, dir_zip_path, 1)
+            )
+
+    return zip_file_path, python_zip_paths, non_python_zip_paths[0]
 
 
-def _get_paths_to_zip(
+def _get_python_paths_to_zip(
     python_paths_to_zip: Iterable[str],
     include_sys_path: bool,
-    non_python_paths_to_zip: Iterable[str],
-) -> Tuple[List[str], List[str]]:
+) -> List[str]:
     python_paths_to_zip = [realpath(path) for path in python_paths_to_zip]
     if include_sys_path:
         for candidate in sys.path:
@@ -109,13 +118,12 @@ def _get_paths_to_zip(
                     python_paths_to_zip.append(realpath(os.getcwd()))
                 else:
                     python_paths_to_zip.append(realpath(candidate))
-    non_python_paths_to_zip = [realpath(path) for path in non_python_paths_to_zip]
-    return python_paths_to_zip, non_python_paths_to_zip
+    return python_paths_to_zip
 
 
 def _consolidate_paths_to_zip(
     real_python_paths_to_zip: Iterable[str], real_non_python_paths_to_zip: Iterable[str]
-) -> Tuple[Dict[str, str], List[str], List[str]]:
+) -> Tuple[List[str], List[str]]:
     """Generates a minimal dictionary of real paths that need to be zipped, to the paths
     in the zip file.
     """
@@ -150,9 +158,14 @@ def _consolidate_paths_to_zip(
     for candidate in root_candidates:
         if candidate.startswith(current_root):
             # we have a subpath. Record it.
-            real_paths_to_zip_paths[candidate] = candidate.replace(
+            zip_path = candidate.replace(
                 current_root, real_paths_to_zip_paths[current_root], 1
             )
+            if os.path.sep != "/":
+                # we have to make the sub-paths compatible with Linux which is our
+                # target OS
+                zip_path = zip_path.replace(os.path.sep, "/")
+            real_paths_to_zip_paths[candidate] = zip_path
         else:
             # we have a new root.
             current_root = candidate
@@ -169,10 +182,4 @@ def _consolidate_paths_to_zip(
         real_paths_to_zip_paths[real_path] for real_path in real_non_python_paths_to_zip
     ]
 
-    # keeping just the root paths - these are the only ones that need to be zipped
-    root_paths_to_zip_paths = {
-        root: zip_path
-        for root, zip_path in real_paths_to_zip_paths.items()
-        if root in real_root_paths
-    }
-    return root_paths_to_zip_paths, zip_python_paths, zip_non_python_paths
+    return zip_python_paths, zip_non_python_paths

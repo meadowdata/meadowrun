@@ -487,6 +487,7 @@ class Deployment:
         interpreter: Union[
             LocalInterpreter, InterpreterSpecFile, ContainerInterpreterBase, None
         ] = None,
+        working_directory_globs: Union[str, Iterable[str], None] = None,
         environment_variables: Optional[Dict[str, str]] = None,
     ) -> Deployment:
         """A deployment that mirrors the local environment and code.
@@ -505,6 +506,18 @@ class Deployment:
                 [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
                 [PipRequirementsFile][meadowrun.PipRequirementsFile],
                 [PoetryProjectPath][meadowrun.PoetryProjectPath]
+            working_directory_globs: Most of the time, your current working directory
+                will be on `sys.path`, and so any *.py files from your current working
+                directory will be uploaded by `mirror_local`. However, any other types
+                of files will be ignored by default. You can specify files to include
+                from your current working directory with this argument. Examples:
+                `"foo/bar.txt"` will include the specified file. `"*.txt"` will specify
+                txt files in your current directory (but not recursively). `"**/*.txt"`
+                will specify all txt files in your current directory recursively (e.g.
+                will capture both `1.txt` and `foo/2.txt`). `"foo/**/*.txt"` will
+                capture all txt files in the foo directory. If you specify files like
+                this, you will be able to access them with relative paths in the remote
+                code the same way you reference them locally.
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment.
 
@@ -576,11 +589,19 @@ class Deployment:
         else:
             raise ValueError(f"Unexpected type of interpreter {type(interpreter)}")
 
+        if working_directory_globs is None:
+            working_directory_globs = ()
+        elif isinstance(working_directory_globs, str):
+            working_directory_globs = [working_directory_globs]
+
         # annoyingly, this tmp dir now gets deleted in run_local when the file
         # has been uploaded/unpacked depending on the Host implementation
         tmp_dir = tempfile.mkdtemp()
-        zip_file_path, zip_python_paths, [zip_cwd] = local_code.zip_local_code(
-            tmp_dir, include_sys_path, additional_python_paths, [os.getcwd()]
+        zip_file_path, zip_python_paths, zip_cwd = local_code.zip_local_code(
+            tmp_dir,
+            include_sys_path,
+            additional_python_paths,
+            working_directory_globs=working_directory_globs,
         )
 
         url = urllib.parse.urlunparse(("file", "", zip_file_path, "", "", ""))

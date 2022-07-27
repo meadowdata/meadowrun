@@ -1,6 +1,10 @@
 # ![Meadowrun](meadowrun-logo-full.svg)
 
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/meadowrun) ![PyPI](https://img.shields.io/pypi/v/meadowrun)  ![PyPI - Downloads](https://img.shields.io/pypi/dm/meadowrun) ![Conda](https://img.shields.io/conda/v/meadowdata/meadowrun) ![Conda](https://img.shields.io/conda/dn/meadowdata/meadowrun?label=conda%20downloads)
+
 [![Join the chat at https://gitter.im/meadowdata/meadowrun](https://badges.gitter.im/meadowdata/meadowrun.svg)](https://gitter.im/meadowdata/meadowrun?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+
 
 Meadowrun automates the tedious details of running your python code on AWS. Meadowrun
 will

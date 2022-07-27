@@ -483,7 +483,7 @@ class Deployment:
     async def mirror_local(
         cls,
         include_sys_path: bool = True,
-        additional_paths: Iterable[str] = tuple(),
+        additional_python_paths: Iterable[str] = tuple(),
         interpreter: Union[
             LocalInterpreter, InterpreterSpecFile, ContainerInterpreterBase, None
         ] = None,
@@ -495,8 +495,8 @@ class Deployment:
             include_sys_path: if True, find python code in the paths in sys.path
                 (effectively "your local code"), copies them to the remote machines, and
                 add them to sys.path there. Ignores any installed packages.
-            additional_paths: local code paths to copy and add to python path on the
-                remote machine.
+            additional_python_paths: local code paths to copy and add to python path on
+                the remote machine.
             interpreter: Specifies the environment/interpreter to use. Defaults to None
                 which will detect the currently activated env. Alternatively, you can
                 explicitly specify a locally installed python environment with
@@ -580,7 +580,7 @@ class Deployment:
         # has been uploaded/unpacked depending on the Host implementation
         tmp_dir = tempfile.mkdtemp()
         zip_file_path, zip_python_paths, [zip_cwd] = local_code.zip_local_code(
-            tmp_dir, include_sys_path, additional_paths, [os.getcwd()]
+            tmp_dir, include_sys_path, additional_python_paths, [os.getcwd()]
         )
 
         url = urllib.parse.urlunparse(("file", "", zip_file_path, "", "", ""))

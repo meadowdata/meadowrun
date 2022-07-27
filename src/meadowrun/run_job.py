@@ -579,7 +579,7 @@ class Deployment:
         # annoyingly, this tmp dir now gets deleted in run_local when the file
         # has been uploaded/unpacked depending on the Host implementation
         tmp_dir = tempfile.mkdtemp()
-        zip_file_path, zip_python_paths, [zip_cwd] = local_code.zip(
+        zip_file_path, zip_python_paths, [zip_cwd] = local_code.zip_local_code(
             tmp_dir, include_sys_path, additional_paths, [os.getcwd()]
         )
 

@@ -7,8 +7,8 @@ import zipfile
 from typing import Dict, Iterable, List, Set, Tuple
 
 
-def zip(
-    working_dir: str,
+def zip_local_code(
+    result_zip_dir: str,
     include_sys_path: bool = True,
     additional_python_paths: Iterable[str] = tuple(),
     additional_paths: Iterable[str] = tuple(),
@@ -22,16 +22,16 @@ def zip(
     that were given in additional_paths.
 
     Args:
-        working_dir (str): directory where to put the resulting zip file.
+        result_zip_dir (str): directory where to put the resulting zip file.
         include_sys_path (bool, optional): Whether to zip paths on sys.path. Paths that
-        are also in sys.prefix or sys.base_prefix are automatically excluded. Defaults
-        to True.
+            are also in sys.prefix or sys.base_prefix are automatically excluded.
+            Defaults to True.
         additional_python_paths (Iterable[str], optional): Additional python paths to
-        zip. Defaults to empty tuple, i.e. no additional python paths.
-        additional_paths (Iterable[str], optional): Additional paths to zip.
-        Defaults to empty tuple, i.e. no additional paths.
+            zip. Defaults to empty tuple, i.e. no additional python paths.
+        additional_paths (Iterable[str], optional): Additional paths to zip. Defaults to
+            empty tuple, i.e. no additional paths.
         include_extensions (Iterable[str], optional): Only files with these extensions
-        are zipped. Defaults to (".py",), i.e. only python files.
+            are zipped. Defaults to (".py",), i.e. only python files.
 
     Raises:
         ValueError: If there are no paths to zip.
@@ -58,19 +58,16 @@ def zip(
     # or even individually, to only upload what we need. For small-ish codebases zipping
     # and hashing is fast though, certainly relative to EC2 startup times and container
     # building, so this is not currently a bottleneck.
-    zip_file_path = join(working_dir, str(uuid.uuid4()) + ".zip")
+    zip_file_path = join(result_zip_dir, str(uuid.uuid4()) + ".zip")
     with zipfile.ZipFile(zip_file_path, "w") as zip_file:
         for real_path, zip_path in real_paths_to_zip_paths.items():
-            for (dirpath, _, filenames) in os.walk(real_path):
+            for dirpath, _, filenames in os.walk(real_path):
                 for filename in filenames:
                     ext = splitext(filename)[1]
                     if ext in include_extensions:
                         full = join(dirpath, filename)
                         full_zip = full.replace(real_path, zip_path, 1)
-                        zip_file.write(
-                            full,
-                            full_zip,
-                        )
+                        zip_file.write(full, full_zip)
 
     return zip_file_path, python_zip_paths, other_zip_paths
 
@@ -154,8 +151,8 @@ def _consolidate_paths_to_zip(
 
     # keeping just the root paths - these are the only ones that need to be zipped
     root_paths_to_zip_paths = {
-        root: zip
-        for (root, zip) in real_paths_to_zip_paths.items()
+        root: zip_path
+        for root, zip_path in real_paths_to_zip_paths.items()
         if root in real_root_paths
     }
     return root_paths_to_zip_paths, zip_python_paths, zip_other_paths

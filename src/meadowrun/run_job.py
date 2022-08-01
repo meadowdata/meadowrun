@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 import os
 import os.path
+import pathlib
 import pickle
 import platform
 import shlex
@@ -377,13 +378,25 @@ class LocalCurrentInterpreter(LocalInterpreter):
 
         # next, check if we're in a poetry environment. Unfortunately it doesn't seem
         # like there's a way to detect that we're in a poetry environment unless the
-        # current working directory contains the pyproject.toml and poetry.lock files.
-        # If for some reason this isn't the case, we'll fall through to the pip-based
-        # case, which will mostly work for poetry environments.
-        if os.path.isfile("pyproject.toml") and os.path.isfile("poetry.lock"):
-            with open("pyproject.toml", encoding="utf-8") as project_file:
+        # current working directory or a parent contains the pyproject.toml and
+        # poetry.lock files. If for some reason this isn't the case, we'll fall through
+        # to the pip-based case.
+        cwd = pathlib.Path.cwd()
+        candidates = [cwd]
+        candidates.extend(cwd.parents)
+        is_poetry_env = False
+        for path in candidates:
+            pyproject_file = path / "pyproject.toml"
+            poetry_lock_file = path / "poetry.lock"
+
+            if pyproject_file.exists() and poetry_lock_file.exists():
+                is_poetry_env = True
+                break
+
+        if is_poetry_env:
+            with open(pyproject_file, encoding="utf-8") as project_file:
                 project_file_contents = project_file.read()
-            with open("poetry.lock", encoding="utf-8") as lock_file:
+            with open(poetry_lock_file, encoding="utf-8") as lock_file:
                 lock_file_contents = lock_file.read()
             print("Mirroring current poetry environment")
             return EnvironmentSpec(

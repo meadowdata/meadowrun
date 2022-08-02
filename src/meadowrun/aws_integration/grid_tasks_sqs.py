@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import functools
+from io import BytesIO
+import itertools
 import os
 import pickle
 import traceback
@@ -19,15 +21,14 @@ from typing import (
     TypeVar,
     cast,
 )
-import itertools
 
 import aiobotocore.session
 import boto3
-
+from meadowrun.aws_integration import s3
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
-    EC2InstanceRegistrar,
     SSH_USER,
+    EC2InstanceRegistrar,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
@@ -38,10 +39,10 @@ from meadowrun.instance_allocation import allocate_jobs_to_instances
 
 if TYPE_CHECKING:
     from meadowrun.instance_selection import Resources
-from meadowrun.meadowrun_pb2 import GridTask, ProcessState, GridTaskStateResponse
-from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
-from meadowrun.shared import pickle_exception
 
+from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
+from meadowrun.run_job_core import AllocCloudInstancesInternal, RunMapHelper
+from meadowrun.shared import pickle_exception
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-request-"
 _RESULT_QUEUE_NAME_PREFIX = "meadowrun-task-result-"
@@ -143,27 +144,103 @@ async def _add_tasks(
             # this function can only take 10 messages at a time, so we chunk into
             # batches of 10
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
-            result = await client.send_message_batch(
-                QueueUrl=request_queue_url,
-                Entries=[
-                    {
-                        "Id": str(i),
-                        "MessageBody": base64.b64encode(
-                            GridTask(
-                                task_id=i, pickled_function_arguments=pickle.dumps(task)
-                            ).SerializeToString()
-                        ).decode("utf-8"),
-                        # TODO replace 0 with a retry count
-                        "MessageDeduplicationId": f"{i}:0",
-                        "MessageGroupId": "_",
-                    }
-                    for i, task in tasks_chunk
-                ],
+            result = await _send_or_upload_message_batch(
+                client, region_name, request_queue_url, tasks_chunk
             )
             if "Failed" in result:
                 raise ValueError(
                     f"Some grid tasks could not be queued: {result['Failed']}"
                 )
+
+
+_BODY_INLINE = "inline:"
+_BODY_STORED = "stored:"
+MAX_MESSAGE_SIZE = 262_144 - 1024  # max size 256 KiB - 1KiB buffer
+
+
+async def _send_or_upload_message_batch(
+    client: Any,
+    region_name: str,
+    queue: str,
+    tasks_chunk: List[Tuple[int, Any]],
+) -> Any:
+    entries = []
+    for i, task in tasks_chunk:
+        message_body_bytes = base64.b64encode(
+            GridTask(
+                task_id=i, pickled_function_arguments=pickle.dumps(task)
+            ).SerializeToString()
+        )
+        if len(message_body_bytes) < MAX_MESSAGE_SIZE:
+            entries.append(
+                {
+                    "Id": str(i),
+                    "MessageBody": _BODY_INLINE + message_body_bytes.decode("utf-8"),
+                    # TODO replace 0 with a retry count
+                    "MessageDeduplicationId": f"{i}:0",
+                    "MessageGroupId": "_",
+                }
+            )
+        else:
+            msg_id = "sqs/" + str(uuid.uuid4())
+            with BytesIO(message_body_bytes) as bs:
+                s3.upload_fileobj(msg_id, bs, region_name)
+            entries.append(
+                {
+                    "Id": str(i),
+                    "MessageBody": _BODY_STORED + msg_id,
+                    # TODO replace 0 with a retry count
+                    "MessageDeduplicationId": f"{i}:0",
+                    "MessageGroupId": "_",
+                }
+            )
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
+    return await client.send_message_batch(QueueUrl=queue, Entries=entries)
+
+
+def _send_or_upload_message(
+    client: Any,
+    region_name: str,
+    queue: str,
+    response: GridTaskStateResponse,
+    deduplication_id: str,
+) -> None:
+
+    message_body_bytes = base64.b64encode(response.SerializeToString())
+    if len(message_body_bytes) < MAX_MESSAGE_SIZE:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
+        client.send_message(
+            QueueUrl=queue,
+            MessageBody=_BODY_INLINE + message_body_bytes.decode("utf-8"),
+            # TODO replace 0 here with a retry count
+            MessageDeduplicationId=deduplication_id,
+            MessageGroupId="_",
+        )
+    else:
+        msg_id = "sqs/" + str(uuid.uuid4())
+        with BytesIO(message_body_bytes) as bs:
+            s3.upload_fileobj(msg_id, bs, region_name)
+        client.send_message(
+            QueueUrl=queue,
+            MessageBody=_BODY_STORED + msg_id,
+            # TODO replace 0 here with a retry count
+            MessageDeduplicationId=deduplication_id,
+            MessageGroupId="_",
+        )
+
+
+def _get_result_from_body(body: Any, region_name: str, task_result: Any) -> None:
+    # task_result = GridTaskStateResponse()
+    if body.startswith(_BODY_INLINE):
+        task_result.ParseFromString(
+            base64.b64decode(body[len(_BODY_INLINE) :].encode("utf-8"))
+        )
+    elif body.startswith(_BODY_STORED):
+        with BytesIO() as bs:
+            s3.download_fileobj(body[len(_BODY_STORED) :], bs, region_name)
+            task_result.ParseFromString(base64.b64decode(bs.getvalue()))
+    else:
+        raise ValueError(f"Malformed SQS message body: {body}")
 
 
 def _get_task(
@@ -195,39 +272,34 @@ def _get_task(
     messages = result["Messages"]
     if len(messages) != 1:
         raise ValueError(f"Requested one message but got {len(messages)}")
-    else:
-        # parse the task request
-        task = GridTask()
-        task.ParseFromString(base64.b64decode(messages[0]["Body"].encode("utf-8")))
 
-        # send the RUN_REQUESTED message on the result queue
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
-        client.send_message(
-            QueueUrl=result_queue_url,
-            MessageBody=base64.b64encode(
-                GridTaskStateResponse(
-                    task_id=task.task_id,
-                    process_state=ProcessState(
-                        state=ProcessState.ProcessStateEnum.RUN_REQUESTED,
-                        # TODO needs to include public address and worker id
-                    ),
-                ).SerializeToString()
-            ).decode("utf-8"),
-            # TODO replace 0 here with a retry count
-            MessageDeduplicationId=(
-                f"{task.task_id}:0:{public_address}:{worker_id}:requested"
+    # parse the task request
+    task = GridTask()
+    _get_result_from_body(messages[0]["Body"], region_name, task)
+
+    # send the RUN_REQUESTED message on the result queue
+    _send_or_upload_message(
+        client,
+        region_name,
+        result_queue_url,
+        GridTaskStateResponse(
+            task_id=task.task_id,
+            process_state=ProcessState(
+                state=ProcessState.ProcessStateEnum.RUN_REQUESTED,
+                # TODO needs to include public address and worker id
             ),
-            MessageGroupId="_",
-        )
+        ),
+        # TODO replace 0 here with a retry count
+        f"{task.task_id}:0:{public_address}:{worker_id}:requested",
+    )
+    # acknowledge receipt/delete the task request message so we don't have duplicate
+    # tasks running
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_message
+    client.delete_message(
+        QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
+    )
 
-        # acknowledge receipt/delete the task request message so we don't have duplicate
-        # tasks running
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_message
-        client.delete_message(
-            QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
-        )
-
-        return task
+    return task
 
 
 def _complete_task(
@@ -242,18 +314,14 @@ def _complete_task(
     Sends a message to the result queue that the specified task has completed with the
     specified process_state
     """
-    boto3.client("sqs", region_name=region_name).send_message(
-        QueueUrl=result_queue_url,
-        MessageBody=base64.b64encode(
-            GridTaskStateResponse(
-                task_id=task.task_id, process_state=process_state
-            ).SerializeToString()
-        ).decode("utf-8"),
+    client = boto3.client("sqs", region_name=region_name)
+    _send_or_upload_message(
+        client,
+        region_name,
+        result_queue_url,
+        GridTaskStateResponse(task_id=task.task_id, process_state=process_state),
         # TODO replace 0 here with a retry count
-        MessageDeduplicationId=(
-            f"{task.task_id}:0:{public_address}:{worker_id}:completed"
-        ),
-        MessageGroupId="_",
+        f"{task.task_id}:0:{public_address}:{worker_id}:completed",
     )
 
 
@@ -365,9 +433,7 @@ async def get_results(
                 for message in receive_result["Messages"]:
                     receipt_handles.append(message["ReceiptHandle"])
                     task_result = GridTaskStateResponse()
-                    task_result.ParseFromString(
-                        base64.b64decode(message["Body"].encode("utf-8"))
-                    )
+                    _get_result_from_body(message["Body"], region_name, task_result)
 
                     if (
                         task_result.process_state.state

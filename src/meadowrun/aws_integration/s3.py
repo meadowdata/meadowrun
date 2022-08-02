@@ -1,5 +1,5 @@
 import hashlib
-from typing import Dict, List, Optional, Tuple
+from typing import BinaryIO, Dict, List, Optional, Tuple
 
 import boto3
 import boto3.exceptions
@@ -127,6 +127,18 @@ async def download_file(
     s3 = boto3.client("s3", region_name=region_name)
 
     s3.download_file(bucket_name, object_name, file_name)
+
+
+def upload_fileobj(object_name: str, file_obj: BinaryIO, region_name: str) -> None:
+    s3 = boto3.client("s3", region_name=region_name)
+    bucket_name = _get_bucket_name(region_name)
+    s3.upload_fileobj(file_obj, bucket_name, object_name)
+
+
+def download_fileobj(object_name: str, file_obj: BinaryIO, region_name: str) -> None:
+    s3 = boto3.client("s3", region_name=region_name)
+    bucket_name = _get_bucket_name(region_name)
+    s3.download_fileobj(bucket_name, object_name, file_obj)
 
 
 def delete_bucket(region_name: str) -> None:

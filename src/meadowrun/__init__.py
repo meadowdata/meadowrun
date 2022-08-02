@@ -64,6 +64,7 @@ from meadowrun.run_job import (
 )
 from meadowrun.run_job_local import LocalHost
 from meadowrun.run_job_core import SshHost
+from meadowrun.kubernetes_integration import Kubernetes
 
 
 __all__ = [
@@ -87,4 +88,5 @@ __all__ = [
     "run_map",
     "LocalHost",
     "SshHost",
+    "Kubernetes",
 ]

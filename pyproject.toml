@@ -27,6 +27,7 @@ filelock = "^3.6.0"
 typing-extensions = "^4.1.1"
 requests = "^2.27.1"
 asyncssh = "^2.11.0"
+kubernetes = "^24.2.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0.1"
@@ -92,6 +93,8 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = [
     "boto3",
-    "cloudpickle"
+    "cloudpickle",
+    "kubernetes",
+    "kubernetes.client",
 ]
 ignore_missing_imports = true

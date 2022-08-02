@@ -739,6 +739,54 @@ class Deployment:
 
         return cls(interpreter_spec, code, environment_variables, credentials_sources)
 
+    @classmethod
+    def container_image(
+        cls,
+        repository: str,
+        tag: str = "latest",
+        environment_variables: Optional[Dict[str, str]] = None,
+    ) -> Deployment:
+        """
+        A deployment based on a docker container image
+
+        Arguments:
+            repository: The name of the docker container image repository, e.g. `python`
+                or `quay.io/minio/minio`.
+            tag: Combined with repository, will be used like `{repository}:{tag}`.
+                Defaults to `latest`
+            environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
+                variables will be set in the remote environment.
+        """
+        return cls(
+            ContainerAtTag(repository=repository, tag=tag),
+            ServerAvailableFolder(),
+            environment_variables,
+        )
+
+    @classmethod
+    def container_image_at_digest(
+        cls,
+        repository: str,
+        digest: str,
+        environment_variables: Optional[Dict[str, str]] = None,
+    ) -> Deployment:
+        """
+        A deployment based on a docker container image
+
+        Arguments:
+            repository: The name of the docker container image repository, e.g. `python`
+                or `quay.io/minio/minio`.
+            digest: Combined with repository, will be used like `{repository}@{tag}`.
+                Defaults to `latest` if digest is not specified.
+            environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
+                variables will be set in the remote environment.
+        """
+        return cls(
+            ContainerAtDigest(repository=repository, digest=digest),
+            ServerAvailableFolder(),
+            environment_variables,
+        )
+
 
 def _credentials_source_message(
     credentials_source: CredentialsSourceForService,

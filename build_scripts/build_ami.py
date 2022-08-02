@@ -232,6 +232,7 @@ async def build_meadowrun_ami(
         base_ami_id,
         [get_ssh_security_group_id(region_name)],
         key_name=MEADOWRUN_KEY_PAIR_NAME,
+        volume_size_gb=16 if ami_type == "plain" else 100,
     )
     if not isinstance(launch_result, LaunchEC2InstanceSuccess):
         raise ValueError(f"Failed to launch EC2 instance: {launch_result}")

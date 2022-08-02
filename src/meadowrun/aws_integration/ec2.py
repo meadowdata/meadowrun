@@ -330,6 +330,7 @@ async def launch_ec2_instance(
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
+    volume_size_gb: int = 100,
 ) -> LaunchEC2InstanceResult:
     """
     Launches the specified EC2 instance. See derived classes of LaunchEC2InstanceResult
@@ -343,7 +344,7 @@ async def launch_ec2_instance(
                 "DeviceName": "/dev/sda1",
                 "Ebs": {
                     "DeleteOnTermination": True,
-                    "VolumeSize": 100,
+                    "VolumeSize": volume_size_gb,
                     "VolumeType": "gp2",
                 },
             }

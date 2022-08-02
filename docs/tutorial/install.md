@@ -36,7 +36,8 @@ Meadowrun makes it easy to run on both AWS and Azure--no need to stick to just o
 
 ## Install Meadowrun in your AWS/Azure account
 
-Finally, set up the permanent resources that Meadowrun needs to function:
+Finally, set up the permanent resources that Meadowrun needs to function (this step is
+not needed if you're running on Kubernetes):
 
 === "AWS"
     ```

@@ -16,6 +16,11 @@
 ::: meadowrun.AllocCloudInstances
 
 
+## Specifying Kubernetes hosts
+
+::: meadowrun.Kubernetes
+
+
 ## Specifying deployments
 
 ::: meadowrun.Deployment

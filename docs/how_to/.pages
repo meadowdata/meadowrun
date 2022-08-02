@@ -6,3 +6,4 @@ nav:
 - private_git_repo_aws.md
 - private_git_repo_azure.md
 - ssh_to_instance.md
+- kubernetes.md

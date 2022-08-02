@@ -555,7 +555,9 @@ def _has_git_dependency(
 ) -> bool:
     # We just operate on bytes rather than decoding the string
     if environment_type == EnvironmentType.PIP:
-        return any(line.startswith("git+") for line in spec_contents.splitlines())
+        # example line resulting from pip freeze:
+        # package @ git+https://github.com/name/repo.git@sha
+        return any("git+" in line for line in spec_contents.splitlines())
     elif environment_type == EnvironmentType.POETRY:
         return any(
             line.startswith('type = "git"') for line in spec_contents.splitlines()

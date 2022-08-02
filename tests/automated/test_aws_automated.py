@@ -178,10 +178,11 @@ class TestGridTaskQueue:
     def test_grid_task_queue(self):
         """
         Tests the grid_task_queue functions without actually running any tasks. Uses SQS
-        resources.
+        and S3 resources.
         """
         region_name = asyncio.run(_get_default_region_name())
-        task_arguments = ["hello", ("hey", "there"), {"a": 1}]
+        # big argument should be uploaded to S3
+        task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
         # dummy variables
         job_id = str(uuid.uuid4())
@@ -246,6 +247,15 @@ class TestGridTaskQueue:
             worker_id,
         )
         assert task3 is not None
+        task4 = _get_task(
+            request_queue_url,
+            result_queue_url,
+            region_name,
+            0,
+            public_address,
+            worker_id,
+        )
+        assert task4 is not None
         # there should be no more tasks to get
         assert (
             _get_task(
@@ -276,6 +286,17 @@ class TestGridTaskQueue:
             ProcessState(
                 state=ProcessState.ProcessStateEnum.SUCCEEDED,
                 pickled_result=task3.pickled_function_arguments,
+            ),
+            public_address,
+            worker_id,
+        )
+        _complete_task(
+            result_queue_url,
+            region_name,
+            task4,
+            ProcessState(
+                state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                pickled_result=task4.pickled_function_arguments,
             ),
             public_address,
             worker_id,

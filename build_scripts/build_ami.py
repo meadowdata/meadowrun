@@ -297,7 +297,7 @@ if __name__ == "__main__":
 
     if args.type == "plain":
         base_ami = "ami-01344892e448f48c2"
-        new_ami_name = "meadowrun-kurt-{}-ubuntu20.04.3-docker20.10.12-python3.9.5"
+        new_ami_name = "meadowrun{}-ubuntu20.04.3-docker20.10.12-python3.9.5"
     elif args.type == "cuda":
         base_ami = "ami-097043daaeabb3268"
         new_ami_name = "meadowrun{}-cuda11.7-ubuntu20.04.4-python3.8.10"

@@ -11,33 +11,16 @@ import argparse
 import importlib
 import io
 import logging
+import os
 import pickle
 import traceback
-from typing import Optional, Any
+from typing import Optional
 
-import boto3
-
-
-def _get_storage_client_from_args(
-    storage_endpoint_url: Optional[str],
-    storage_access_key_id: Optional[str],
-    storage_secret_access_key: Optional[str],
-) -> Any:
-    session_kwargs = {}
-    if storage_access_key_id is not None:
-        session_kwargs["aws_access_key_id"] = storage_access_key_id
-    if storage_secret_access_key is not None:
-        session_kwargs["aws_secret_access_key"] = storage_secret_access_key
-    client_kwargs = {}
-    if storage_endpoint_url is not None:
-        client_kwargs["endpoint_url"] = storage_endpoint_url
-    if session_kwargs:
-        session = boto3.Session(**session_kwargs)  # type: ignore
-        return session.client("s3", **client_kwargs)  # type: ignore
-    else:
-        # TODO if all the parameters are None then we're implicitly falling back on AWS
-        # S3, which we should make explicit
-        return boto3.client("s3", **client_kwargs)  # type: ignore
+from meadowrun.func_worker_storage_helper import (
+    MEADOWRUN_STORAGE_PASSWORD,
+    MEADOWRUN_STORAGE_USERNAME,
+    get_storage_client_from_args,
+)
 
 
 def main() -> None:
@@ -60,8 +43,6 @@ def main() -> None:
     parser.add_argument("--storage-bucket")
     parser.add_argument("--storage-file-prefix", required=True)
     parser.add_argument("--storage-endpoint-url")
-    parser.add_argument("--storage-access-key-id")
-    parser.add_argument("--storage-secret-access-key")
 
     args = parser.parse_args()
 
@@ -91,10 +72,10 @@ def main() -> None:
     if storage_bucket is None:
         storage_client = None
     else:
-        storage_client = _get_storage_client_from_args(
-            args.storage_endpoint_url,
-            args.storage_access_key_id,
-            args.storage_secret_access_key,
+        storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
+        storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
+        storage_client = get_storage_client_from_args(
+            args.storage_endpoint_url, storage_username, storage_password
         )
 
     state_filename = storage_file_prefix + ".state"

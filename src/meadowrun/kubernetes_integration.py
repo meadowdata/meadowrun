@@ -1,45 +1,21 @@
 import asyncio
+import base64
 import dataclasses
 import io
 import pickle
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
-import boto3
 import botocore.exceptions
 import kubernetes.client
 
+from meadowrun.func_worker_storage_helper import (
+    MEADOWRUN_STORAGE_PASSWORD,
+    MEADOWRUN_STORAGE_USERNAME,
+    get_storage_client_from_args,
+)
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
 from meadowrun.run_job_local import _string_pairs_to_dict
-
-
-def _get_storage_client_from_args(
-    storage_endpoint_url: Optional[str],
-    storage_access_key_id: Optional[str],
-    storage_secret_access_key: Optional[str],
-) -> Any:
-    """
-    Copy/pasted from func_worker_storage. If we import func_worker_storage from
-    meadowrun.__init__, then running on Kubernetes will produce annoying messages like
-    RuntimeWarning: 'meadowrun.func_worker_storage' found in sys.modules after import of
-    package 'meadowrun', but prior to execution of 'meadowrun.func_worker_storage'; this
-    may result in unpredictable behaviour warn(RuntimeWarning(msg))
-    """
-    session_kwargs = {}
-    if storage_access_key_id is not None:
-        session_kwargs["aws_access_key_id"] = storage_access_key_id
-    if storage_secret_access_key is not None:
-        session_kwargs["aws_secret_access_key"] = storage_secret_access_key
-    client_kwargs = {}
-    if storage_endpoint_url is not None:
-        client_kwargs["endpoint_url"] = storage_endpoint_url
-    if session_kwargs:
-        session = boto3.Session(**session_kwargs)  # type: ignore
-        return session.client("s3", **client_kwargs)  # type: ignore
-    else:
-        # TODO if all the parameters are None then we're implicitly falling back on AWS
-        # S3, which we should make explicit
-        return boto3.client("s3", **client_kwargs)  # type: ignore
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,19 +43,19 @@ class Kubernetes(Host):
             ```python
             import boto3
             boto3.Session(
-                aws_access_key_id=storage_access_key_id,
-                aws_secret_access_key=storage_secret_access_key
+                aws_access_key_id=storage_username,
+                aws_secret_access_key=storage_password
             ).client(
                 "s3", endpoint_url=storage_endpoint_url
             ).download_file(
-                Bucket=storage_bucket,
-                Key=f"{storage_file_prefix}.suffix",
-                Filename="temp.suffix"
+                Bucket=storage_bucket, Key="test.file", Filename="test.file"
             )
-
-            works. (boto3 is built to be used with AWS S3, but it should work with any
-            S3-compatible object store like Minio, Ceph, etc.)
             ```
+
+            works. `storage_username` and `storage_password` should be the values
+            provided by `storage_username_password_secret`. (boto3 is built to be used
+            with AWS S3, but it should work with any S3-compatible object store like
+            Minio, Ceph, etc.)
         storage_file_prefix: Part of the specification of the S3-compatible object store
             to use (see storage_bucket). The prefix will be used when naming the
             Meadowrun-generated files in the object store. Defaults to "". For non empty
@@ -93,10 +69,10 @@ class Kubernetes(Host):
             storage_endpoint_url. You can set this to a different URL if you need to use
             a different URL from inside the Kubernetes cluster to access the storage
             endpoint
-        storage_access_key_id: Part of the specification of the S3-compatible object
-            store to use (see storage_bucket). E.g. for Minio, this is the username
-        storage_secret_access_key: Part of the specification of the S3-compatible object
-            store to use (see storage_bucket). E.g. for Minio, this is the password
+        storage_username_password_secret: Part of the specification of the S3-compatible
+            object store to use (see storage_bucket). This should be the name of a
+            Kubernetes secret that has a "username" and "password" key, where the
+            username and password can be used to authenticate with the storage API.
         kube_config_context: Specifies the kube config context to use. Default is None
             which means use the current context (i.e. `kubectl config current-context`)
         kubernetes_namespace: The Kubernetes namespace that Meadowrun will create Jobs
@@ -108,8 +84,7 @@ class Kubernetes(Host):
     storage_file_prefix: str = ""
     storage_endpoint_url: Optional[str] = None
     storage_endpoint_url_in_cluster: Optional[str] = None
-    storage_access_key_id: Optional[str] = None
-    storage_secret_access_key: Optional[str] = None
+    storage_username_password_secret: Optional[str] = None
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
 
@@ -160,13 +135,6 @@ class Kubernetes(Host):
                 )
             elif self.storage_endpoint_url:
                 command.extend(["--storage-endpoint-url", self.storage_endpoint_url])
-
-            if self.storage_access_key_id:
-                command.extend(["--storage-access-key-id", self.storage_access_key_id])
-            if self.storage_secret_access_key:
-                command.extend(
-                    ["--storage-secret-access-key", self.storage_secret_access_key]
-                )
 
             # prepare function
             if function_spec == "qualified_function_name":
@@ -251,13 +219,23 @@ class Kubernetes(Host):
         file_prefix = f"{self.storage_file_prefix}{job.job_id}"
         try:
             try:
+                kubernetes.config.load_kube_config(context=self.kube_config_context)
+
                 # get the storage client
 
                 if self.storage_bucket is not None:
-                    storage_client = _get_storage_client_from_args(
+                    if self.storage_username_password_secret is not None:
+                        secret_data = _get_kubernetes_secret(
+                            self.kubernetes_namespace,
+                            self.storage_username_password_secret,
+                        )
+                    else:
+                        secret_data = {}
+
+                    storage_client = get_storage_client_from_args(
                         self.storage_endpoint_url,
-                        self.storage_access_key_id,
-                        self.storage_secret_access_key,
+                        secret_data.get("username", None),
+                        secret_data.get("password", None),
                     )
 
                 # run the job
@@ -276,12 +254,12 @@ class Kubernetes(Host):
                 )
 
                 return_code = await _run_kubernetes_job(
-                    self.kube_config_context,
                     job.job_id,
                     self.kubernetes_namespace,
                     image_name,
                     command,
-                    {},
+                    environment_variables,
+                    self.storage_username_password_secret,
                 )
             except asyncio.CancelledError:
                 raise
@@ -520,47 +498,86 @@ async def _wait_until_pod_is_running(
         )
 
 
+def _get_kubernetes_secret(
+    kubernetes_namespace: str, secret_name: str
+) -> Dict[str, str]:
+    with kubernetes.client.ApiClient() as api_client:
+        core_api = kubernetes.client.CoreV1Api(api_client)
+        result = core_api.read_namespaced_secret(secret_name, kubernetes_namespace)
+
+    return {
+        key: base64.b64decode(value).decode("utf-8")
+        for key, value in result.data.items()
+    }
+
+
 async def _run_kubernetes_job(
-    kube_config_context: Optional[str],
     job_id: str,
     kubernetes_namespace: str,
     image: str,
     args: List[str],
     environment_variables: Dict[str, str],
+    storage_username_password_secret: Optional[str],
 ) -> int:
     """
     Runs the specified job on Kubernetes, waits for it to complete, and returns the exit
     code
     """
 
-    kubernetes.config.load_kube_config(context=kube_config_context)
+    # create the job
+
+    environment = [
+        kubernetes.client.V1EnvVar(name=key, value=value)
+        for key, value in environment_variables.items()
+    ]
+
+    if storage_username_password_secret is not None:
+        if MEADOWRUN_STORAGE_USERNAME not in environment_variables:
+            environment.append(
+                kubernetes.client.V1EnvVar(
+                    name=MEADOWRUN_STORAGE_USERNAME,
+                    value_from=kubernetes.client.V1EnvVarSource(
+                        secret_key_ref=kubernetes.client.V1SecretKeySelector(
+                            key="username",
+                            name=storage_username_password_secret,
+                            optional=False,
+                        )
+                    ),
+                )
+            )
+        if MEADOWRUN_STORAGE_PASSWORD not in environment_variables:
+            environment.append(
+                kubernetes.client.V1EnvVar(
+                    name=MEADOWRUN_STORAGE_PASSWORD,
+                    value_from=kubernetes.client.V1EnvVarSource(
+                        secret_key_ref=kubernetes.client.V1SecretKeySelector(
+                            key="password",
+                            name=storage_username_password_secret,
+                            optional=False,
+                        )
+                    ),
+                )
+            )
+
+    # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
+    body = kubernetes.client.V1Job(
+        metadata=kubernetes.client.V1ObjectMeta(name=job_id),
+        spec=kubernetes.client.V1JobSpec(
+            backoff_limit=0,
+            template=kubernetes.client.V1PodTemplateSpec(
+                spec=kubernetes.client.V1PodSpec(
+                    containers=[
+                        kubernetes.client.V1Container(
+                            name="main", image=image, args=args, env=environment
+                        )
+                    ],
+                    restart_policy="Never",
+                )
+            ),
+        ),
+    )
 
     with kubernetes.client.ApiClient() as api_client:
-        # create the job
-
-        # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
-        body = kubernetes.client.V1Job(
-            metadata=kubernetes.client.V1ObjectMeta(name=job_id),
-            spec=kubernetes.client.V1JobSpec(
-                backoff_limit=0,
-                template=kubernetes.client.V1PodTemplateSpec(
-                    spec=kubernetes.client.V1PodSpec(
-                        containers=[
-                            kubernetes.client.V1Container(
-                                name="main",
-                                image=image,
-                                args=args,
-                                env=[
-                                    kubernetes.client.V1EnvVar(name=key, value=value)
-                                    for key, value in environment_variables.items()
-                                ],
-                            )
-                        ],
-                        restart_policy="Never",
-                    )
-                ),
-            ),
-        )
         batch_api = kubernetes.client.BatchV1Api(api_client)
         try:
             # this returns a result, but we don't really need anything from it

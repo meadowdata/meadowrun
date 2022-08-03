@@ -44,7 +44,6 @@ if sys.platform == "win32":
 
 from meadowrun.run_job import (
     AllocCloudInstance,
-    AllocCloudInstances,
     AwsSecret,
     AzureSecret,
     CondaEnvironmentYmlFile,
@@ -63,13 +62,12 @@ from meadowrun.run_job import (
     run_map,
 )
 from meadowrun.run_job_local import LocalHost
-from meadowrun.run_job_core import SshHost
+from meadowrun.run_job_core import ResourcesRequired, SshHost
 from meadowrun.kubernetes_integration import Kubernetes
 
 
 __all__ = [
     "AllocCloudInstance",
-    "AllocCloudInstances",
     "AwsSecret",
     "AzureSecret",
     "CondaEnvironmentYmlFile",
@@ -87,6 +85,7 @@ __all__ = [
     "run_function",
     "run_map",
     "LocalHost",
+    "ResourcesRequired",
     "SshHost",
     "Kubernetes",
 ]

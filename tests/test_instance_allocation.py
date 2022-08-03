@@ -31,7 +31,6 @@ from meadowrun.instance_selection import (
     Resources,
     choose_instance_types_for_job,
 )
-from meadowrun.run_job_core import AllocCloudInstancesInternal
 
 
 class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
@@ -131,12 +130,15 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         return True
 
     async def launch_instances(
-        self, instances_spec: AllocCloudInstancesInternal
+        self,
+        resources_required_per_task: Resources,
+        num_concurrent_tasks: int,
+        region_name: str,
     ) -> Sequence[CloudInstance]:
         result = []
         for chosen_instance_type in choose_instance_types_for_job(
-            instances_spec.resources_required_per_task,
-            instances_spec.num_concurrent_tasks,
+            resources_required_per_task,
+            num_concurrent_tasks,
             self._instance_types,
         ):
             for _ in range(chosen_instance_type.num_instances):
@@ -211,7 +213,9 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
     ) -> Tuple[List[Tuple[str, str]], List[str]]:
         instances_job_ids = await allocate_jobs_to_instances(
             self,
-            AllocCloudInstancesInternal(resources, num_concurrent_jobs, "test_region"),
+            resources,
+            num_concurrent_jobs,
+            "test_region",
             None,
         )
         all_job_ids = []

@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from meadowrun.instance_selection import Resources
 
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
-from meadowrun.run_job_core import AllocCloudInstancesInternal, RunMapHelper
+from meadowrun.run_job_core import RunMapHelper
 from meadowrun.shared import pickle_exception
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-request-"
@@ -499,11 +499,9 @@ async def prepare_ec2_run_map(
     async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
         allocated_hosts = await allocate_jobs_to_instances(
             instance_registrar,
-            AllocCloudInstancesInternal(
-                resources_required_per_task,
-                num_concurrent_tasks,
-                region_name,
-            ),
+            resources_required_per_task,
+            num_concurrent_tasks,
+            region_name,
             ports,
         )
 

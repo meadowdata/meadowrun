@@ -17,8 +17,7 @@ from meadowrun.instance_allocation import (
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import Resources
-from meadowrun.run_job_core import CloudProviderType, AllocCloudInstancesInternal
-
+from meadowrun.run_job_core import CloudProviderType, ResourcesRequired
 
 _TInstanceRegistrar = TypeVar("_TInstanceRegistrar", bound=InstanceRegistrar)
 
@@ -265,15 +264,21 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 return os.getpid(), platform.node()
 
             pid1, host1 = await run_function(
-                remote_function, AllocCloudInstance(1, 0.5, 15, self.cloud_provider())
+                remote_function,
+                ResourcesRequired(1, 0.5, 15),
+                AllocCloudInstance(self.cloud_provider()),
             )
             time.sleep(1)
             pid2, host2 = await run_function(
-                remote_function, AllocCloudInstance(1, 0.5, 15, self.cloud_provider())
+                remote_function,
+                ResourcesRequired(1, 0.5, 15),
+                AllocCloudInstance(self.cloud_provider()),
             )
             time.sleep(1)
             pid3, host3 = await run_function(
-                remote_function, AllocCloudInstance(1, 0.5, 15, self.cloud_provider())
+                remote_function,
+                ResourcesRequired(1, 0.5, 15),
+                AllocCloudInstance(self.cloud_provider()),
             )
 
             # these should have all run on the same host, but in different processes
@@ -300,19 +305,22 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             task1 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    AllocCloudInstance(1, 0.5, 15, self.cloud_provider()),
+                    ResourcesRequired(1, 0.5, 15),
+                    AllocCloudInstance(self.cloud_provider()),
                 )
             )
             task2 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    AllocCloudInstance(1, 0.5, 15, self.cloud_provider()),
+                    ResourcesRequired(1, 0.5, 15),
+                    AllocCloudInstance(self.cloud_provider()),
                 )
             )
             task3 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    AllocCloudInstance(1, 0.5, 15, self.cloud_provider()),
+                    ResourcesRequired(1, 0.5, 15),
+                    AllocCloudInstance(self.cloud_provider()),
                 )
             )
 
@@ -393,11 +401,9 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             # now, launch two instances (which should get registered automatically)
             instances1 = await allocate_jobs_to_instances(
                 instance_registrar,
-                AllocCloudInstancesInternal(
-                    Resources.from_cpu_and_memory(1, 0.5, 15),
-                    1,
-                    instance_registrar.get_region_name(),
-                ),
+                Resources.from_cpu_and_memory(1, 0.5, 15),
+                1,
+                instance_registrar.get_region_name(),
                 None,
             )
             assert len(instances1) == 1
@@ -405,11 +411,9 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             instances2 = await allocate_jobs_to_instances(
                 instance_registrar,
-                AllocCloudInstancesInternal(
-                    Resources.from_cpu_and_memory(1, 0.5, 15),
-                    1,
-                    instance_registrar.get_region_name(),
-                ),
+                Resources.from_cpu_and_memory(1, 0.5, 15),
+                1,
+                instance_registrar.get_region_name(),
                 None,
             )
             assert len(instances2) == 1

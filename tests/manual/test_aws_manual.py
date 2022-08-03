@@ -6,6 +6,7 @@ the test has passed
 import time
 
 from automated.test_aws_automated import EC2InstanceRegistrarProvider
+from meadowrun import ResourcesRequired
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     ensure_clean_up_lambda,
@@ -15,7 +16,6 @@ from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistr
 from meadowrun.instance_allocation import allocate_jobs_to_instances
 from meadowrun.instance_selection import Resources
 from meadowrun.run_job import run_function, AllocCloudInstance
-from meadowrun.run_job_core import AllocCloudInstancesInternal
 
 
 async def manual_test_deallocate_after_running():
@@ -28,7 +28,9 @@ async def manual_test_deallocate_after_running():
         def remote_function():
             time.sleep(60 * 10)
 
-        await run_function(remote_function, AllocCloudInstance(1, 0.5, 15, "EC2"))
+        await run_function(
+            remote_function, ResourcesRequired(1, 0.5, 15), AllocCloudInstance("EC2")
+        )
 
     # 1. now get the address of the EC2 instance and the job id and SSH into the remote
     # server and run:
@@ -49,11 +51,9 @@ async def manual_test_deallocate_before_running():
     async with EC2InstanceRegistrar(None, "create") as instance_registrar:
         result = await allocate_jobs_to_instances(
             instance_registrar,
-            AllocCloudInstancesInternal(
-                Resources.from_cpu_and_memory(1, 0.5, 100),
-                1,
-                await _get_default_region_name(),
-            ),
+            Resources.from_cpu_and_memory(1, 0.5, 100),
+            1,
+            await _get_default_region_name(),
             None,
         )
         print(result)

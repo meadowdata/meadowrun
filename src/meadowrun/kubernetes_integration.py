@@ -1,9 +1,23 @@
+from __future__ import annotations
+
 import asyncio
 import base64
 import dataclasses
 import io
 import pickle
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    TYPE_CHECKING,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import botocore.exceptions
 import kubernetes.client
@@ -13,9 +27,16 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_USERNAME,
     get_storage_client_from_args,
 )
+
+if TYPE_CHECKING:
+    from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
 from meadowrun.run_job_local import _string_pairs_to_dict
+
+
+_T = TypeVar("_T")
+_U = TypeVar("_U")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,12 +108,6 @@ class Kubernetes(Host):
     storage_username_password_secret: Optional[str] = None
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
-
-    def uses_gpu(self) -> bool:
-        return False
-
-    def needs_cuda(self) -> bool:
-        return False
 
     def _prepare_command(
         self, job: Job, job_spec_type: str, storage_client: Any, file_prefix: str
@@ -186,9 +201,13 @@ class Kubernetes(Host):
         else:
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
+    async def run_job(
+        self, resources_required: Resources, job: Job
+    ) -> JobCompletion[Any]:
         # This code encompasses everything that happens in SshHost.run_job and
         # run_job_local
+
+        # TODO take resources_required into account
 
         # detect any unsupported Jobs
 
@@ -354,8 +373,16 @@ class Kubernetes(Host):
                     except Exception:
                         pass
 
-
-_T = TypeVar("_T")
+    async def run_map(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Resources,
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> Sequence[Any]:
+        raise NotImplementedError("run_map is not implemented for Kubernetes yet")
 
 
 async def _retry(

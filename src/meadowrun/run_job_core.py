@@ -8,15 +8,17 @@ import asyncio
 import dataclasses
 import pickle
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
     Coroutine,
     Dict,
     Generic,
+    Iterable,
     List,
     Optional,
+    Sequence,
+    TYPE_CHECKING,
     Tuple,
     Type,
     TypeVar,
@@ -30,10 +32,12 @@ import meadowrun.ssh as ssh
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
-    from meadowrun.instance_selection import Resources
+from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 
+
 _T = TypeVar("_T")
+_U = TypeVar("_U")
 
 
 CloudProvider = "EC2", "AzureVM"
@@ -59,17 +63,79 @@ async def _retry(
                 await asyncio.sleep(delay_seconds)
 
 
+def _needs_cuda(flags_required: Union[Iterable[str], str, None]) -> bool:
+    if flags_required is None:
+        return False
+    if isinstance(flags_required, str):
+        return "nvidia" == flags_required
+    return "nvidia" in flags_required
+
+
+@dataclasses.dataclass(frozen=True)
+class ResourcesRequired:
+    """
+    Specifies the requirements for a job or for each task within a job
+
+    Attributes:
+        logical_cpu_required:
+        memory_gb_required:
+        interruption_probability_threshold: Specifies what interruption probability
+            percent is acceptable. E.g. `80` means that any instance type with an
+            interruption probability less than 80% can be used. Use `0` to indicate that
+            only on-demand instance are acceptable (i.e. do not use spot instances)
+        cloud_provider: `EC2` or `AzureVM`
+        gpus_required:
+        gpu_memory_required: Total GPU memory required across all GPUs
+        flags_required: E.g. "intel", "avx512", etc.
+        region_name:
+    """
+
+    logical_cpu_required: float
+    memory_gb_required: float
+    interruption_probability_threshold: float
+    gpus_required: Optional[float] = None
+    gpu_memory_required: Optional[float] = None
+    flags_required: Union[Iterable[str], str, None] = None
+
+    def uses_gpu(self) -> bool:
+        return self.gpus_required is not None or self.gpu_memory_required is not None
+
+    def needs_cuda(self) -> bool:
+        return self.uses_gpu() and _needs_cuda(self.flags_required)
+
+    def to_resources(self) -> Resources:
+        return Resources.from_cpu_and_memory(
+            self.logical_cpu_required,
+            self.memory_gb_required,
+            self.interruption_probability_threshold,
+            self.gpus_required,
+            self.gpu_memory_required,
+            self.flags_required,
+        )
+
+
 class Host(abc.ABC):
     @abc.abstractmethod
-    def uses_gpu(self) -> bool:
+    async def run_job(
+        self, resources_required: Resources, job: Job
+    ) -> JobCompletion[Any]:
         pass
 
     @abc.abstractmethod
-    def needs_cuda(self) -> bool:
-        pass
-
-    @abc.abstractmethod
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
+    async def run_map(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Resources,
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> Sequence[Any]:
+        """
+        job_fields will be populated with everything other than job_id and py_function,
+        so the implementation should construct Job(job_id=job_id,
+        py_function=py_function, **job_fields)
+        """
         pass
 
 
@@ -89,13 +155,9 @@ class SshHost(Host):
     # the InstanceRegistrar that we used to allocate this job is.
     cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
 
-    def uses_gpu(self) -> bool:
-        return False
-
-    def needs_cuda(self) -> bool:
-        return False
-
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
+    async def run_job(
+        self, resources_required: Resources, job: Job
+    ) -> JobCompletion[Any]:
         # try the connection 20 times.
         connection = await _retry(
             lambda: ssh.connect(
@@ -212,14 +274,16 @@ class SshHost(Host):
             connection.close()
             await connection.wait_closed()
 
-
-@dataclasses.dataclass(frozen=True)
-class AllocCloudInstancesInternal:
-    """Identical to AllocCloudInstances but all values must be set"""
-
-    resources_required_per_task: Resources
-    num_concurrent_tasks: int
-    region_name: str
+    async def run_map(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Resources,
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> Sequence[Any]:
+        raise NotImplementedError("run_map is not implemented for SshHost")
 
 
 @dataclasses.dataclass

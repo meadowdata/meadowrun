@@ -6,6 +6,7 @@ from statistics import median
 import sys
 from time import monotonic
 
+from meadowrun import ResourcesRequired
 from meadowrun.run_job import AllocCloudInstance, run_function
 
 
@@ -29,7 +30,8 @@ async def main():
             start_time = monotonic()
             pid1, host1 = await run_function(
                 remote_function,
-                AllocCloudInstance(1, 0.5, 80, irp.cloud_provider()),
+                ResourcesRequired(1, 0.5, 80),
+                AllocCloudInstance(irp.cloud_provider()),
             )
             times.append(monotonic() - start_time)
     print("Times in secs:")

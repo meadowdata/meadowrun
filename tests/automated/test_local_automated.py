@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from meadowrun import ResourcesRequired
+
 """
 These tests should (mostly) not require an internet connection and not require any
 manual intervention beyond some initial setup.
@@ -32,6 +34,9 @@ MEADOWRUN_CODE = str((pathlib.Path(__file__).parent.parent.parent / "src").resol
 
 
 class LocalHostProvider(HostProvider):
+    def get_resources_required(self) -> ResourcesRequired:
+        return ResourcesRequired(1, 1, 100)
+
     def get_host(self) -> Host:
         return LocalHost()
 
@@ -85,6 +90,7 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
         """
         job_completion1 = await run_command(
             "python example_script.py",
+            self.get_resources_required(),
             self.get_host(),
             Deployment(
                 code=ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])
@@ -92,6 +98,7 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
         )
         job_completion2 = await run_command(
             "python example_script.py",
+            self.get_resources_required(),
             self.get_host(),
             Deployment(
                 code=ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])

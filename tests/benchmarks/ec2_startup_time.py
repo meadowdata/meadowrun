@@ -30,8 +30,8 @@ async def main():
             start_time = monotonic()
             pid1, host1 = await run_function(
                 remote_function,
-                Resources(1, 0.5, 80),
                 AllocCloudInstance(irp.cloud_provider()),
+                Resources(1, 0.5, 80),
             )
             times.append(monotonic() - start_time)
     print("Times in secs:")

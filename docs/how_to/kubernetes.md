@@ -38,15 +38,15 @@ def remote_function():
 print(
     asyncio.run(
         meadowrun.run_function(
-            remote_function,
-            meadowrun.Kubernetes(
+            function=remote_function,
+            host=meadowrun.Kubernetes(
                 storage_bucket="meadowrunbucket",
                 storage_endpoint_url="http://127.0.0.1:9000",
                 storage_endpoint_url_in_cluster="http://minio-service:9000",
                 storage_username_password_secret="minio-credentials",
                 kube_config_context="minikube"
             ),
-            meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
+            deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
         )
     )
 )
@@ -105,9 +105,9 @@ import meadowrun
 
 asyncio.run(
     meadowrun.run_function(
-        "time.time",
-        meadowrun.Kubernetes(),
-        meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
+        function="time.time",
+        host=meadowrun.Kubernetes(),
+        deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
     )
 )
 ```

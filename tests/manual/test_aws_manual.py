@@ -29,7 +29,7 @@ async def manual_test_deallocate_after_running():
             time.sleep(60 * 10)
 
         await run_function(
-            remote_function, Resources(1, 0.5, 15), AllocCloudInstance("EC2")
+            remote_function, AllocCloudInstance("EC2"), Resources(1, 0.5, 15)
         )
 
     # 1. now get the address of the EC2 instance and the job id and SSH into the remote

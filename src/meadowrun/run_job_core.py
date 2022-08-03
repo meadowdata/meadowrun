@@ -90,9 +90,9 @@ class Resources:
         flags_required: E.g. "intel", "avx512", etc.
     """
 
-    logical_cpu: float
-    memory_gb: float
-    max_eviction_rate: float
+    logical_cpu: Optional[float] = None
+    memory_gb: Optional[float] = None
+    max_eviction_rate: float = 80
     gpus: Optional[float] = None
     gpu_memory: Optional[float] = None
     flags: Union[Iterable[str], str, None] = None
@@ -103,15 +103,18 @@ class Resources:
     def needs_cuda(self) -> bool:
         return self.uses_gpu() and _needs_cuda(self.flags)
 
-    def to_resources(self) -> ResourcesInternal:
-        return ResourcesInternal.from_cpu_and_memory(
-            self.logical_cpu,
-            self.memory_gb,
-            self.max_eviction_rate,
-            self.gpus,
-            self.gpu_memory,
-            self.flags,
-        )
+    def to_internal(self) -> Optional[ResourcesInternal]:
+        if self.logical_cpu is None or self.memory_gb is None:
+            return None
+        else:
+            return ResourcesInternal.from_cpu_and_memory(
+                self.logical_cpu,
+                self.memory_gb,
+                self.max_eviction_rate,
+                self.gpus,
+                self.gpu_memory,
+                self.flags,
+            )
 
 
 class Host(abc.ABC):
@@ -122,7 +125,7 @@ class Host(abc.ABC):
 
     @abc.abstractmethod
     async def run_job(
-        self, resources_required: ResourcesInternal, job: Job
+        self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
         pass
 
@@ -131,11 +134,11 @@ class Host(abc.ABC):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
+        resources_required_per_task: Optional[ResourcesInternal],
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[Any]:
+    ) -> Sequence[_U]:
         # Note for implementors: job_fields will be populated with everything other than
         # job_id and py_function, so the implementation should construct
         # Job(job_id=job_id, py_function=py_function, **job_fields)
@@ -159,8 +162,11 @@ class SshHost(Host):
     cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
 
     async def run_job(
-        self, resources_required: ResourcesInternal, job: Job
+        self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
+        if resources_required is not None:
+            raise ValueError("Specifying Resources for SshHost is not supported")
+
         # try the connection 20 times.
         connection = await _retry(
             lambda: ssh.connect(
@@ -281,11 +287,11 @@ class SshHost(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
+        resources_required_per_task: Optional[ResourcesInternal],
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[Any]:
+    ) -> Sequence[_U]:
         raise NotImplementedError("run_map is not implemented for SshHost")
 
 

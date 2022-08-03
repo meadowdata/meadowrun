@@ -9,14 +9,16 @@
 ::: meadowrun.run_map
 
 
-## Specifying EC2/Azure VM hosts
+## Specifying resource requirements
+
+::: meadowrun.Resources
+
+
+## Specifying hosts
+
+::: meadowrun.Host
 
 ::: meadowrun.AllocCloudInstance
-
-::: meadowrun.AllocCloudInstances
-
-
-## Specifying Kubernetes hosts
 
 ::: meadowrun.Kubernetes
 
@@ -26,7 +28,7 @@
 ::: meadowrun.Deployment
 
 
-### Specifying interpreters
+## Specifying interpreters
 
 ::: meadowrun.LocalInterpreter
 
@@ -51,3 +53,12 @@
 ::: meadowrun.ContainerInterpreter
 
 ::: meadowrun.ContainerAtDigestInterpreter
+
+
+## Specifying secrets
+
+::: meadowrun.Secret
+
+::: meadowrun.AwsSecret
+
+::: meadowrun.AzureSecret

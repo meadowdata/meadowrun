@@ -55,7 +55,7 @@ from meadowrun.instance_allocation import (
     _TInstanceState,
     allocate_jobs_to_instances,
 )
-from meadowrun.instance_selection import Resources, CloudInstance
+from meadowrun.instance_selection import ResourcesInternal, CloudInstance
 
 if TYPE_CHECKING:
     from meadowrun.meadowrun_pb2 import Job
@@ -172,8 +172,8 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         self,
         public_address: str,
         name: str,
-        resources_available: Resources,
-        running_jobs: List[Tuple[str, Resources]],
+        resources_available: ResourcesInternal,
+        running_jobs: List[Tuple[str, ResourcesInternal]],
     ) -> None:
         # TODO we should probably enforce types on logical_cpu_available and
         # memory_gb_available
@@ -260,7 +260,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             _InstanceState(
                 item[_PUBLIC_ADDRESS],
                 item[_INSTANCE_ID],
-                Resources.from_decimals(
+                ResourcesInternal.from_decimals(
                     item[_RESOURCES_AVAILABLE], item[_NON_CONSUMABLE_RESOURCES]
                 ),
                 # This is a bit of hack, but for the EC2InstanceRegistrar, we know that
@@ -295,7 +295,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def allocate_jobs_to_instance(
         self,
         instance: _InstanceState,
-        resources_allocated_per_job: Resources,
+        resources_allocated_per_job: ResourcesInternal,
         new_job_ids: List[str],
     ) -> bool:
         if len(new_job_ids) == 0:
@@ -404,7 +404,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
     async def launch_instances(
         self,
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         region_name: str,
     ) -> Sequence[CloudInstance]:
@@ -469,7 +469,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
 async def run_job_ec2_instance_registrar(
     job: Job,
-    resources_required: Resources,
+    resources_required: ResourcesInternal,
     region_name: Optional[str],
 ) -> JobCompletion[Any]:
     """Runs the specified job on EC2. Creates an EC2InstanceRegistrar"""

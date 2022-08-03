@@ -16,20 +16,18 @@ where you can easily run it from an environment with meadowrun installed.
 
 ```python
 import asyncio
-from meadowrun import run_map, AllocCloudInstances, Deployment
+import meadowrun
 
 async def main():
-    await run_map(
+    await meadowrun.run_map(
         lambda n: n ** n,
         [1, 2, 3, 4],
-        AllocCloudInstances(
-            logical_cpu_required_per_task=4,
-            memory_gb_required_per_task=32,
-            interruption_probability_threshold=15,
-            cloud_provider="EC2",  # to run on AWS EC2 instances
-            # cloud_provider="AzureVM",  # to run on Azure VMs
-            num_concurrent_tasks=3),
-        await Deployment.mirror_local()
+        resources_required_per_task=meadowrun.Resources(
+            logical_cpu=4, memory_gb=32, max_eviction_rate=15
+        ),
+        host=meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+        num_concurrent_tasks=3,
+        deployment=await meadowrun.Deployment.mirror_local()
     )
 
 if __name__ == "__main__":
@@ -52,14 +50,14 @@ Launched 1 new EC2 instances (total $0.0898/hr) for the remaining 2 workers:
 
 The output will walk you through what Meadowrun's [run_map][meadowrun.run_map] is doing:
 
-Based on the options specified in [AllocCloudInstances][meadowrun.AllocCloudInstances],
-`run_map` launches the cheapest combination of EC2 instances/Azure VMs such that we can
-run 3 workers that each are allocated at least 4 CPU and 32GB of memory. (In this case,
-we already have one instance that can run a worker, so we'll use that in addition to
-launching another instance for the remaining 2 workers.) The instances will have <15%
-chance of being interrupted. You can set this to 0 to exclude spot instances and only
-use on-demand instances. The exact instance types chosen depends on current EC2/Azure VM
-prices.
+Based on the options specified in [Resources][meadowrun.Resources] and
+[AllocCloudInstance][meadowrun.AllocCloudInstance], `run_map` launches the cheapest
+combination of EC2 instances/Azure VMs such that we can run 3 workers that each are
+allocated at least 4 CPU and 32GB of memory. (In this case, we already have one instance
+that can run a worker, so we'll use that in addition to launching another instance for
+the remaining 2 workers.) The instances will have <15% chance of being interrupted. You
+can set this to 0 to exclude spot instances and only use on-demand instances. The exact
+instance types chosen depends on current EC2/Azure VM prices.
 
 The workers will execute tasks until there are none left, eventually returning a list of
 results:

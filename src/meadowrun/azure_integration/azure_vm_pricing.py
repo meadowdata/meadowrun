@@ -16,7 +16,7 @@ from meadowrun.instance_selection import (
     CloudInstanceType,
     ON_DEMAND_OR_SPOT_VALUES,
     OnDemandOrSpotType,
-    Resources,
+    ResourcesInternal,
 )
 
 _RELEVANT_CAPABILITIES = {
@@ -308,7 +308,7 @@ async def get_vm_types(location: str) -> List[CloudInstanceType]:
                         name,
                         on_demand_or_spot,
                         price,
-                        Resources(
+                        ResourcesInternal(
                             consumable_resources,
                             {INTERRUPTION_PROBABILITY_INVERSE: 100 - eviction_rate},
                         ),

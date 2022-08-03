@@ -11,7 +11,7 @@ from instance_registrar_suite import (
     InstanceRegistrarSuite,
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
 )
-from meadowrun import ResourcesRequired
+from meadowrun import Resources
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
@@ -32,8 +32,8 @@ if TYPE_CHECKING:
 
 
 class AzureHostProvider(HostProvider):
-    def get_resources_required(self) -> ResourcesRequired:
-        return ResourcesRequired(1, 4, 80)
+    def get_resources_required(self) -> Resources:
+        return Resources(1, 4, 80)
 
     def get_host(self) -> Host:
         # TODO don't always run tests in us-east-2

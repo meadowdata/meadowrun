@@ -38,24 +38,20 @@ where you can easily run it from an environment with meadowrun installed.
 
 ```python
 import asyncio
-from meadowrun import run_function, AllocCloudInstance, CondaEnvironmentYmlFile, Deployment
+import meadowrun
 
 async def main():
-    result = await run_function(
+    result = await meadowrun.run_function(
         # this is where the function to run goes
         lambda: sum(range(1000)) / 1000,
         # requirements to choose an appropriate EC2 instance
-        AllocCloudInstance(
-            logical_cpu_required=1,
-            memory_gb_required=4,
-            interruption_probability_threshold=15,
-            cloud_provider="EC2"  # to run on AWS EC2 instance
-        ),
-        Deployment.git_repo(
+        meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
+        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+        meadowrun.Deployment.git_repo(
             # URL to the repo
             "https://github.com/meadowdata/test_repo",
             # name of the environment file we created in step 1
-            interpreter=CondaEnvironmentYmlFile("myenv.yml"),
+            interpreter=meadowrun.CondaEnvironmentYmlFile("myenv.yml"),
         )
     )
     print(f"Meadowrun worked! Got {result}")
@@ -81,12 +77,13 @@ Meadowrun worked! Got 499.5
 The output will walk you through what Meadowrun's [run_function][meadowrun.run_function]
 is doing:
 
-1. Based on the options specified in [AllocCloudInstance][meadowrun.AllocCloudInstance],
-   `run_function` will launch the cheapest EC2 instance type that has at least 1 CPU and
-   4GB of memory, and a <15% chance of being interrupted. You can set this to 0 to
-   exclude spot instances and only use on-demand instances. The exact instance type
-   chosen depends on current EC2 prices, but in this case we can see that it's a spot
-   t2.medium, and we're paying $0.0139/hr for it.
+1. Based on the options specified in [Resources][meadowrun.Resources] and
+   [AllocCloudInstance][meadowrun.AllocCloudInstance], `run_function` will launch the
+   cheapest EC2 instance type that has at least 1 CPU and 4GB of memory, and a <15%
+   chance of being interrupted. You can set this to 0 to exclude spot instances and only
+   use on-demand instances. The exact instance type chosen depends on current EC2
+   prices, but in this case we can see that it's a spot t2.medium, and we're paying
+   $0.0139/hr for it.
 
 2. Based on the options specified in
    [Deployment.git_repo][meadowrun.Deployment.git_repo], `run_function` grabs code from
@@ -95,7 +92,7 @@ is doing:
    specification. Creating the conda environment takes some time, but once it has been
    created, it gets cached and reused using AWS ECR/Azure Container Registry. Creating
    the container happens on the EC2 instance/Azure VM, so make sure to size your
-   `AllocCloudInstance` appropriately.
+   `Resources` appropriately.
 
 3. Meadowrun runs the specified function in that environment on the remote machine and
    returns the result.

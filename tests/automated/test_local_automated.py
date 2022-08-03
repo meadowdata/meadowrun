@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from meadowrun import ResourcesRequired
+from meadowrun import Resources
 
 """
 These tests should (mostly) not require an internet connection and not require any
@@ -34,8 +34,8 @@ MEADOWRUN_CODE = str((pathlib.Path(__file__).parent.parent.parent / "src").resol
 
 
 class LocalHostProvider(HostProvider):
-    def get_resources_required(self) -> ResourcesRequired:
-        return ResourcesRequired(1, 1, 100)
+    def get_resources_required(self) -> Resources:
+        return Resources(1, 1, 100)
 
     def get_host(self) -> Host:
         return LocalHost()

@@ -44,12 +44,8 @@ import asyncio
 def run_meadowrun_function():
     return await meadowrun.run_function(
         lambda: sum(range(1000)) / 1000,
-        meadowrun.AllocCloudInstance(
-            logical_cpu_required=4,
-            memory_gb_required=32,
-            interruption_probability_threshold=15,
-            cloud_provider="EC2"
-        ),
+        meadowrun.Resources(logical_cpu=4, memory_gb=32, max_eviction_rate=15),
+        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
         await meadowrun.Deployment.mirror_local()
     )
 

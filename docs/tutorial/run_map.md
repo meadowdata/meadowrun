@@ -22,10 +22,10 @@ async def main():
     await meadowrun.run_map(
         lambda n: n ** n,
         [1, 2, 3, 4],
+        host=meadowrun.AllocCloudInstance(cloud_provider="EC2"),
         resources_required_per_task=meadowrun.Resources(
             logical_cpu=4, memory_gb=32, max_eviction_rate=15
         ),
-        host=meadowrun.AllocCloudInstance(cloud_provider="EC2"),
         num_concurrent_tasks=3,
         deployment=await meadowrun.Deployment.mirror_local()
     )

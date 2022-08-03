@@ -918,7 +918,13 @@ async def _prepare_code_deployment(
 @dataclasses.dataclass(frozen=True)
 class AllocCloudInstance(Host):
     """
-    Specifies the requirements for a cloud instance (e.g. an EC2 instance or Azure VM).
+    Specifies that the job should be run on a dynamically allocated cloud instance (i.e.
+    either an EC2 instance or Azure VM) depending on the cloud_provider parameter. Any
+    existing Meadowrun-managed instances will be reused if available. If none are
+    available, Meadowrun will launch the cheapest instance that meets the resource
+    requirements for a job.
+
+    resources_required must be provided with the AllocCloudInstance Host.
 
     Attributes:
         cloud_provider: `EC2` or `AzureVM`
@@ -929,8 +935,14 @@ class AllocCloudInstance(Host):
     region_name: Optional[str] = None
 
     async def run_job(
-        self, resources_required: ResourcesInternal, job: Job
+        self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
+        if resources_required is None:
+            raise ValueError(
+                "Resources.logical_cpu and memory_gb must be specified for "
+                "AllocCloudInstance"
+            )
+
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
                 job,
@@ -950,11 +962,17 @@ class AllocCloudInstance(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
+        resources_required_per_task: Optional[ResourcesInternal],
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[Any]:
+    ) -> Sequence[_U]:
+        if resources_required_per_task is None:
+            raise ValueError(
+                "Resources.logical_cpu and memory_gb must be specified for "
+                "AllocCloudInstance"
+            )
+
         if self.cloud_provider == "EC2":
             helper = await prepare_ec2_run_map(
                 function,
@@ -1128,8 +1146,8 @@ def _prepare_container_services(
 
 async def run_function(
     function: Union[Callable[..., _T], str],
-    resources_required: Resources,
     host: Host,
+    resources_required: Optional[Resources] = None,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
@@ -1146,10 +1164,11 @@ async def run_function(
             lambda, or a string like `"package.module.function_name"` (which is useful
             if the function cannot be referenced in the current environment but can be
             referenced in the deployed environment)
-        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
-            function. See [Resources][meadowrun.Resources].
         host: Specifies where to run the function. See
             [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
+            function. For some hosts, this is optional, for other hosts it is required.
+            See [Resources][meadowrun.Resources].
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the
             environment (code and libraries) that are needed to run this function
         args: Passed to the function like `function(*args)`
@@ -1164,6 +1183,9 @@ async def run_function(
     Returns:
         The result of calling `function`
     """
+
+    if resources_required is None:
+        resources_required = Resources()
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
@@ -1247,14 +1269,14 @@ async def run_function(
         },
     )
 
-    job_completion = await host.run_job(resources_required.to_resources(), job)
+    job_completion = await host.run_job(resources_required.to_internal(), job)
     return job_completion.result
 
 
 async def run_command(
     args: Union[str, Sequence[str]],
-    resources_required: Resources,
     host: Host,
+    resources_required: Optional[Resources] = None,
     deployment: Optional[Deployment] = None,
     context_variables: Optional[Dict[str, Any]] = None,
     container_services: Union[
@@ -1269,10 +1291,11 @@ async def run_command(
         args: Specifies the command to run, can be a string (e.g. `"jupyter nbconvert
             --to html analysis.ipynb"`) or a list of strings (e.g. `["jupyter",
             --"nbconvert", "--to", "html", "analysis.ipynb"]`)
-        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
-            command. See [Resources][meadowrun.Resources].
         host: Specifies where to run the function. See
             [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
+            command. For some hosts, this is optional, for other hosts it is required.
+            See [Resources][meadowrun.Resources].
         deployment: See [Deployment][meadowrun.Deployment]. Specifies
             the environment (code and libraries) that are needed to run this command
         context_variables: Experimental feature
@@ -1286,6 +1309,9 @@ async def run_command(
     Returns:
         A JobCompletion object that contains metadata about the running of the job.
     """
+
+    if resources_required is None:
+        resources_required = Resources()
 
     job_id = str(uuid.uuid4())
     if isinstance(args, str):
@@ -1341,14 +1367,14 @@ async def run_command(
         },
     )
 
-    return await host.run_job(resources_required.to_resources(), job)
+    return await host.run_job(resources_required.to_internal(), job)
 
 
 async def run_map(
     function: Callable[[_T], _U],
     args: Sequence[_T],
-    resources_required_per_task: Resources,
     host: Host,
+    resources_required_per_task: Optional[Resources],
     deployment: Optional[Deployment] = None,
     num_concurrent_tasks: Optional[int] = None,
     container_services: Union[
@@ -1365,7 +1391,8 @@ async def run_map(
         args: A list of objects, each item in the list represents a "task",
             where each "task" is an invocation of `function` on the item in the list
         resources_required_per_task: The resources (e.g. CPU and RAM) required to run a
-            single task. See [Resources][meadowrun.Resources].
+            single task. For some hosts, this is optional, for other hosts it is
+            required. See [Resources][meadowrun.Resources].
         host: Specifies where to get compute resources from. See
             [AllocCloudInstance][meadowrun.AllocCloudInstance].
         num_concurrent_tasks: The number of workers to launch. This can be less than or
@@ -1383,6 +1410,9 @@ async def run_map(
     Returns:
         Returns the result of running `function` on each of `args`
     """
+
+    if resources_required_per_task is None:
+        resources_required_per_task = Resources()
 
     if not num_concurrent_tasks:
         num_concurrent_tasks = len(args) // 2 + 1
@@ -1432,7 +1462,7 @@ async def run_map(
     return await host.run_map(
         function,
         args,
-        resources_required_per_task.to_resources(),
+        resources_required_per_task.to_internal(),
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,

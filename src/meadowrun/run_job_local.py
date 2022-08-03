@@ -1146,8 +1146,11 @@ async def run_local(
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
     async def run_job(
-        self, resources_required: ResourcesInternal, job: Job
+        self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
+        if resources_required is not None:
+            raise ValueError("Specifying Resources for LocalHost is not supported")
+
         initial_update, continuation = await run_local(job)
         if (
             initial_update.state != ProcessState.ProcessStateEnum.RUNNING
@@ -1180,9 +1183,9 @@ class LocalHost(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
+        resources_required_per_task: Optional[ResourcesInternal],
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[Any]:
+    ) -> Sequence[_U]:
         raise NotImplementedError("run_map on LocalHost is not implemented")

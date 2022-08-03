@@ -265,20 +265,20 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             pid1, host1 = await run_function(
                 remote_function,
-                Resources(1, 0.5, 15),
                 AllocCloudInstance(self.cloud_provider()),
+                Resources(1, 0.5, 15),
             )
             time.sleep(1)
             pid2, host2 = await run_function(
                 remote_function,
-                Resources(1, 0.5, 15),
                 AllocCloudInstance(self.cloud_provider()),
+                Resources(1, 0.5, 15),
             )
             time.sleep(1)
             pid3, host3 = await run_function(
                 remote_function,
-                Resources(1, 0.5, 15),
                 AllocCloudInstance(self.cloud_provider()),
+                Resources(1, 0.5, 15),
             )
 
             # these should have all run on the same host, but in different processes
@@ -305,22 +305,22 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             task1 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    Resources(1, 0.5, 15),
                     AllocCloudInstance(self.cloud_provider()),
+                    Resources(1, 0.5, 15),
                 )
             )
             task2 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    Resources(1, 0.5, 15),
                     AllocCloudInstance(self.cloud_provider()),
+                    Resources(1, 0.5, 15),
                 )
             )
             task3 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    Resources(1, 0.5, 15),
                     AllocCloudInstance(self.cloud_provider()),
+                    Resources(1, 0.5, 15),
                 )
             )
 

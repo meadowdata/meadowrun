@@ -5,7 +5,6 @@ uploading an image to it.
 
 import subprocess
 
-from meadowrun import Resources
 from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.credentials import CredentialsSource, CredentialsSourceForService
@@ -101,9 +100,8 @@ async def _manual_test_docker_credentials(
 
     await run_function(
         lambda: 2 + 2,
-        Resources(1, 1, 100),
         LocalHost(),
-        Deployment(
+        deployment=Deployment(
             ContainerAtTag(repository=_PRIVATE_DOCKER_REPOSITORY, tag="latest"),
             credentials_sources=[
                 CredentialsSourceForService(
@@ -205,9 +203,8 @@ async def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> Non
 
     await run_function(
         test_function,
-        Resources(1, 1, 100),
         LocalHost(),
-        Deployment(
+        deployment=Deployment(
             code=GitRepoBranch(repo_url=_PRIVATE_GIT_REPOSITORY, branch="main"),
             credentials_sources=[
                 CredentialsSourceForService("GIT", "git@github.com", credentials_source)

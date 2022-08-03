@@ -42,7 +42,8 @@ _U = TypeVar("_U")
 @dataclasses.dataclass(frozen=True)
 class Kubernetes(Host):
     """
-    Specifies a Kubernetes cluster to run a Meadowrun job on.
+    Specifies a Kubernetes cluster to run a Meadowrun job on. resources_required is
+    optional with the Kubernetes Host.
 
     Attributes:
         storage_bucket: Together, the storage_* arguments specify an S3-compatible
@@ -202,12 +203,16 @@ class Kubernetes(Host):
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
     async def run_job(
-        self, resources_required: ResourcesInternal, job: Job
+        self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
         # This code encompasses everything that happens in SshHost.run_job and
         # run_job_local
 
-        # TODO take resources_required into account
+        # TODO add support for resources
+        if resources_required is not None:
+            raise NotImplementedError(
+                "Specifying Resources for a Kubernetes job is not yet supported"
+            )
 
         # detect any unsupported Jobs
 
@@ -377,11 +382,17 @@ class Kubernetes(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
+        resources_required_per_task: Optional[ResourcesInternal],
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[Any]:
+    ) -> Sequence[_U]:
+        # TODO add support for resources
+        if resources_required_per_task is not None:
+            raise NotImplementedError(
+                "Specifying Resources for a Kubernetes job is not yet supported"
+            )
+
         raise NotImplementedError("run_map is not implemented for Kubernetes yet")
 
 

@@ -44,9 +44,10 @@ async def main():
     result = await meadowrun.run_function(
         # this is where the function to run goes
         lambda: sum(range(1000)) / 1000,
+       # run on a dynamically allocated EC2 instance
+        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
         # requirements to choose an appropriate EC2 instance
         meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
-        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
         meadowrun.Deployment.git_repo(
             # URL to the repo
             "https://github.com/meadowdata/test_repo",

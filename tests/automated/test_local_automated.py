@@ -90,16 +90,16 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
         """
         job_completion1 = await run_command(
             "python example_script.py",
-            self.get_resources_required(),
             self.get_host(),
+            self.get_resources_required(),
             Deployment(
                 code=ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])
             ),
         )
         job_completion2 = await run_command(
             "python example_script.py",
-            self.get_resources_required(),
             self.get_host(),
+            self.get_resources_required(),
             Deployment(
                 code=ServerAvailableFolder(code_paths=[EXAMPLE_CODE, MEADOWRUN_CODE])
             ),

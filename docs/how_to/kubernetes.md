@@ -43,8 +43,7 @@ print(
                 storage_bucket="meadowrunbucket",
                 storage_endpoint_url="http://127.0.0.1:9000",
                 storage_endpoint_url_in_cluster="http://minio-service:9000",
-                storage_access_key_id="ROOTNAME",
-                storage_secret_access_key="CHANGEME123",
+                storage_username_password_secret="minio-credentials",
                 kube_config_context="minikube"
             ),
             meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
@@ -124,17 +123,33 @@ this case.
 ### With an S3-compatible object store
   
 If you already have an S3-compatible object store that is accessible from where you're
-using Meadowrun as well as your Kubernetes cluster, then go ahead and populate
-`storage_endpoint_url`, `storage_endpoint_url_in_cluster` (this can be omitted if the
-code running Meadowrun and the code that will run in the Kubernetes cluster can use the
-same URL), `storage_access_key_id`, `storage_secret_access_key`, and `storage_bucket`.
-These parameters should be set so that:
+using Meadowrun as well as your Kubernetes cluster, then you can just populate
+`storage_bucket`, `storage_endpoint_url`, `storage_endpoint_url_in_cluster`, and
+`storage_username_password_secret`.
+
+A couple notes:
+
+- `storage_bucket` is the name of the bucket that Meadowrun will use. We recommend
+  creating a new bucket, e.g. `meadowrun`
+- `storage_endpoint_url_in_cluster` can be used because sometimes your object store will
+  will be accessible via different URLs from outside of the Kubernetes cluster and inside
+  of it. This can be omitted if the same URL can be used inside and outside of the
+  Kubernetes cluster.
+- `storage_username_password_secret` should be the name of a Kubernetes secret that has
+  a "username" and "password" key. Here's an example of how you could create such a
+  secret:
+
+```shell
+kubectl create secret generic storage-credentials --from-literal=username=MYUSERNAME --from-literal=password=MYPASSWORD
+```
+
+All together, these parameters should be set so that:
 
 ```python
 import boto3
 boto3.Session(
-    aws_access_key_id=storage_access_key_id,
-    aws_secret_access_key=storage_secret_access_key
+    aws_access_key_id=storage_username,
+    aws_secret_access_key=storage_password
 ).client(
     "s3", endpoint_url=storage_endpoint_url
 ).download_file(
@@ -143,8 +158,9 @@ boto3.Session(
 
 ```
 
-works. (boto3 is built to be used with AWS S3, but it should work with any S3-compatible
-object store like Minio, Ceph, etc.)
+works, where `storage_username` and `storage_password` should be the values provided by
+`storage_username_password_secret`. (boto3 is built to be used with AWS S3, but it
+should work with any S3-compatible object store like Minio, Ceph, etc.)
 
 You should also probably create a new bucket for this usage, calling it something like
 `meadowrun`.
@@ -233,10 +249,16 @@ kubectl port-forward service/minio-service 9000:9000 9090:9090
 
 This will make our Minio service available as `127.0.0.1:9000` locally.
 
-Finally, we'll need to use the Minio web UI (now available as `127.0.0.1:9090`) to
-create a bucket. You should be able to log in with the username/password you set in
-`minio.yaml`, and then click on "Create Bucket" to create a new bucket called
-`meadowrunbucket`.
+We'll need to use the Minio web UI (now available as `127.0.0.1:9090`) to create a
+bucket. You should be able to log in with the username/password you set in `minio.yaml`,
+and then click on "Create Bucket" to create a new bucket called `meadowrunbucket`.
+
+Finally, we'll need to store our Minio credentials as a Kubernetes secret with username
+and password keys:
+
+```shell
+kubectl create secret generic minio-credentials --from-literal=username=ROOTNAME --from-literal=password=CHANGEME123
+```
 
 That means we're all set for these lines in the sample:
 
@@ -244,8 +266,7 @@ That means we're all set for these lines in the sample:
         storage_bucket="meadowrunbucket",
         storage_endpoint_url="http://127.0.0.1:9000",
         storage_endpoint_url_in_cluster="http://minio-service:9000",
-        storage_access_key_id="ROOTNAME",
-        storage_secret_access_key="CHANGEME123",
+        storage_username_password_secret="minio-credentials",
 ```
 
 ## Running the full example

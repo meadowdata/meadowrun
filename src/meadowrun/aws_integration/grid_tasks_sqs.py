@@ -441,6 +441,7 @@ async def get_results(
                     ):
                         running_tasks[task_result.task_id] = task_result.process_state
                     elif task_results[task_result.task_id] is None:
+                        running_tasks[task_result.task_id] = None
                         task_results[task_result.task_id] = task_result.process_state
                         task_results_received += 1
 

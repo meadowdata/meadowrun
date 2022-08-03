@@ -21,7 +21,7 @@ from typing import (
 
 from meadowrun.instance_selection import (
     CloudInstance,
-    Resources,
+    ResourcesInternal,
     remaining_resources_sort_key,
 )
 from meadowrun.shared import assert_is_not_none
@@ -38,13 +38,13 @@ class _InstanceState:
 
     name: str
 
-    available_resources: Optional[Resources]
+    available_resources: Optional[ResourcesInternal]
 
     running_jobs: Optional[Dict[str, Dict[str, Any]]]
 
     prevent_further_allocation: bool
 
-    def get_available_resources(self) -> Resources:
+    def get_available_resources(self) -> ResourcesInternal:
         """
         The current available resources on the instance. This will change as jobs get
         allocated/deallocated to the instance.
@@ -111,8 +111,8 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         self,
         public_address: str,
         name: str,
-        resources_available: Resources,
-        running_jobs: List[Tuple[str, Resources]],
+        resources_available: ResourcesInternal,
+        running_jobs: List[Tuple[str, ResourcesInternal]],
     ) -> None:
         """Registers a (presumably newly created) instance"""
         pass
@@ -140,7 +140,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
     async def allocate_jobs_to_instance(
         self,
         instance: _TInstanceState,
-        resources_allocated_per_job: Resources,
+        resources_allocated_per_job: ResourcesInternal,
         new_job_ids: List[str],
     ) -> bool:
         """
@@ -173,7 +173,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
     @abc.abstractmethod
     async def launch_instances(
         self,
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         region_name: str,
     ) -> Sequence[CloudInstance]:
@@ -209,12 +209,12 @@ class _InstanceWithProposedJobs(Generic[_TInstanceState]):
 
     orig_instance: _TInstanceState
     proposed_jobs: List[str]
-    proposed_available_resources: Resources
+    proposed_available_resources: ResourcesInternal
 
 
 async def _choose_existing_instances(
     instance_registrar: InstanceRegistrar[_TInstanceState],
-    resources_required_per_job: Resources,
+    resources_required_per_job: ResourcesInternal,
     num_jobs: int,
 ) -> Tuple[Dict[str, List[str]], Dict[str, _TInstanceState]]:
     """
@@ -337,7 +337,7 @@ async def _choose_existing_instances(
 
 async def _launch_new_instances(
     instance_registrar: InstanceRegistrar,
-    resources_required_per_task: Resources,
+    resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     region_name: str,
     original_num_concurrent_tasks: int,
@@ -412,7 +412,7 @@ async def _launch_new_instances(
 
 async def allocate_jobs_to_instances(
     instance_registrar: InstanceRegistrar,
-    resources_required_per_task: Resources,
+    resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     region_name: str,
     ports: Optional[Sequence[str]],

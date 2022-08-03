@@ -39,7 +39,7 @@ from meadowrun.instance_selection import (
     CloudInstance,
     CloudInstanceType,
     OnDemandOrSpotType,
-    Resources,
+    ResourcesInternal,
     choose_instance_types_for_job,
 )
 
@@ -459,7 +459,7 @@ async def _launch_instance_continuation(instance: Any) -> str:
 
 
 async def launch_ec2_instances(
-    resources_required_per_job: Resources,
+    resources_required_per_job: ResourcesInternal,
     num_jobs: int,
     ami_id: str,
     region_name: Optional[str] = None,

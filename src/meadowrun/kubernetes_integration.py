@@ -29,7 +29,7 @@ from meadowrun.func_worker_storage_helper import (
 )
 
 if TYPE_CHECKING:
-    from meadowrun.instance_selection import Resources
+    from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
 from meadowrun.run_job_local import _string_pairs_to_dict
@@ -202,7 +202,7 @@ class Kubernetes(Host):
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
     async def run_job(
-        self, resources_required: Resources, job: Job
+        self, resources_required: ResourcesInternal, job: Job
     ) -> JobCompletion[Any]:
         # This code encompasses everything that happens in SshHost.run_job and
         # run_job_local
@@ -377,7 +377,7 @@ class Kubernetes(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,

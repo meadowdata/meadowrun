@@ -44,7 +44,7 @@ from meadowrun.instance_allocation import (
     _TInstanceState,
     allocate_jobs_to_instances,
 )
-from meadowrun.instance_selection import CloudInstance, Resources
+from meadowrun.instance_selection import CloudInstance, ResourcesInternal
 
 if TYPE_CHECKING:
     from meadowrun.meadowrun_pb2 import Job
@@ -90,8 +90,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         self,
         public_address: str,
         name: str,
-        resources_available: Resources,
-        running_jobs: List[Tuple[str, Resources]],
+        resources_available: ResourcesInternal,
+        running_jobs: List[Tuple[str, ResourcesInternal]],
     ) -> None:
         if self._storage_account is None:
             raise ValueError(
@@ -152,7 +152,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             AzureVMInstanceState(
                 item["RowKey"],
                 item[VM_NAME],
-                Resources(
+                ResourcesInternal(
                     json.loads(item[RESOURCES_AVAILABLE]),
                     json.loads(item[NON_CONSUMABLE_RESOURCES]),
                 ),
@@ -219,7 +219,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         return AzureVMInstanceState(
             item["RowKey"],
             item[VM_NAME],
-            Resources(
+            ResourcesInternal(
                 json.loads(item[RESOURCES_AVAILABLE]),
                 json.loads(item[NON_CONSUMABLE_RESOURCES]),
             ),
@@ -231,7 +231,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
     async def allocate_jobs_to_instance(
         self,
         instance: AzureVMInstanceState,
-        resources_allocated_per_job: Resources,
+        resources_allocated_per_job: ResourcesInternal,
         new_job_ids: List[str],
     ) -> bool:
         if self._storage_account is None:
@@ -299,7 +299,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
         job = instance.get_running_jobs()[job_id]
         new_resources_available = instance.get_available_resources().add(
-            Resources(job[RESOURCES_ALLOCATED], {})
+            ResourcesInternal(job[RESOURCES_ALLOCATED], {})
         )
         new_running_jobs = instance.get_running_jobs().copy()
         del new_running_jobs[job_id]
@@ -372,7 +372,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
     async def launch_instances(
         self,
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         region_name: str,
     ) -> Sequence[CloudInstance]:
@@ -402,7 +402,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
 
 async def run_job_azure_vm_instance_registrar(
     job: Job,
-    resources_required: Resources,
+    resources_required: ResourcesInternal,
     location: Optional[str],
 ) -> JobCompletion[Any]:
     if not location:

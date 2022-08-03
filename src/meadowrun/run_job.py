@@ -60,7 +60,7 @@ if TYPE_CHECKING:
         VersionedCodeDeployment,
         VersionedInterpreterDeployment,
     )
-    from meadowrun.instance_selection import Resources
+    from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.docker_controller import get_registry_domain
 from meadowrun.meadowrun_pb2 import (
     AwsSecretProto,
@@ -94,7 +94,7 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
     JobCompletion,
-    ResourcesRequired,
+    Resources,
     SshHost,
 )
 
@@ -929,7 +929,7 @@ class AllocCloudInstance(Host):
     region_name: Optional[str] = None
 
     async def run_job(
-        self, resources_required: Resources, job: Job
+        self, resources_required: ResourcesInternal, job: Job
     ) -> JobCompletion[Any]:
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
@@ -950,7 +950,7 @@ class AllocCloudInstance(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
@@ -1128,7 +1128,7 @@ def _prepare_container_services(
 
 async def run_function(
     function: Union[Callable[..., _T], str],
-    resources_required: ResourcesRequired,
+    resources_required: Resources,
     host: Host,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
@@ -1146,8 +1146,10 @@ async def run_function(
             lambda, or a string like `"package.module.function_name"` (which is useful
             if the function cannot be referenced in the current environment but can be
             referenced in the deployed environment)
-        host: See [AllocCloudInstance][meadowrun.AllocCloudInstance]. Specifies what
-            resources are needed to run this function
+        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
+            function. See [Resources][meadowrun.Resources].
+        host: Specifies where to run the function. See
+            [AllocCloudInstance][meadowrun.AllocCloudInstance].
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the
             environment (code and libraries) that are needed to run this function
         args: Passed to the function like `function(*args)`
@@ -1251,7 +1253,7 @@ async def run_function(
 
 async def run_command(
     args: Union[str, Sequence[str]],
-    resources_required: ResourcesRequired,
+    resources_required: Resources,
     host: Host,
     deployment: Optional[Deployment] = None,
     context_variables: Optional[Dict[str, Any]] = None,
@@ -1267,8 +1269,10 @@ async def run_command(
         args: Specifies the command to run, can be a string (e.g. `"jupyter nbconvert
             --to html analysis.ipynb"`) or a list of strings (e.g. `["jupyter",
             --"nbconvert", "--to", "html", "analysis.ipynb"]`)
-        host: See [AllocCloudInstance][meadowrun.AllocCloudInstance]. Specifies what
-            resources are needed to run this command
+        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
+            command. See [Resources][meadowrun.Resources].
+        host: Specifies where to run the function. See
+            [AllocCloudInstance][meadowrun.AllocCloudInstance].
         deployment: See [Deployment][meadowrun.Deployment]. Specifies
             the environment (code and libraries) that are needed to run this command
         context_variables: Experimental feature
@@ -1343,7 +1347,7 @@ async def run_command(
 async def run_map(
     function: Callable[[_T], _U],
     args: Sequence[_T],
-    resources_required_per_task: ResourcesRequired,
+    resources_required_per_task: Resources,
     host: Host,
     deployment: Optional[Deployment] = None,
     num_concurrent_tasks: Optional[int] = None,
@@ -1360,9 +1364,10 @@ async def run_map(
             lambda
         args: A list of objects, each item in the list represents a "task",
             where each "task" is an invocation of `function` on the item in the list
-        resources_required_per_task: The resources required to run a single task
-        host: See [AllocCloudInstances][meadowrun.AllocCloudInstances]. Specifies how
-            many workers to provision and what resources are needed for each worker.
+        resources_required_per_task: The resources (e.g. CPU and RAM) required to run a
+            single task. See [Resources][meadowrun.Resources].
+        host: Specifies where to get compute resources from. See
+            [AllocCloudInstance][meadowrun.AllocCloudInstance].
         num_concurrent_tasks: The number of workers to launch. This can be less than or
             equal to the number of args/tasks. Will default to half the total number of
             tasks plus one, rounded down if set to None.

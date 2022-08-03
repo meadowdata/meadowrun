@@ -43,7 +43,7 @@ from meadowrun.run_job_core import (
     Host,
     JobCompletion,
     MeadowrunException,
-    ResourcesRequired,
+    Resources,
 )
 
 
@@ -57,7 +57,7 @@ class HostProvider(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_resources_required(self) -> ResourcesRequired:
+    def get_resources_required(self) -> Resources:
         pass
 
     @abc.abstractmethod
@@ -581,7 +581,7 @@ class MapSuite(abc.ABC):
         results = await run_map(
             lambda x: x**x,
             [1, 2, 3, 4],
-            ResourcesRequired(1, 1, 15),
+            Resources(1, 1, 15),
             AllocCloudInstance(self.cloud_provider()),
             num_concurrent_tasks=3,
         )

@@ -32,7 +32,7 @@ import meadowrun.ssh as ssh
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
-from meadowrun.instance_selection import Resources
+from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import Job, ProcessState
 
 
@@ -72,52 +72,57 @@ def _needs_cuda(flags_required: Union[Iterable[str], str, None]) -> bool:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResourcesRequired:
+class Resources:
     """
     Specifies the requirements for a job or for each task within a job
 
     Attributes:
-        logical_cpu_required:
-        memory_gb_required:
-        interruption_probability_threshold: Specifies what interruption probability
-            percent is acceptable. E.g. `80` means that any instance type with an
+        logical_cpu: Specifies logical CPU (aka vCPU) required. E.g. 2 means we require
+            2 logical CPUs
+        memory_gb: Specifies RAM required. E.g. 1.5 means we requires 1.5 GB of RAM
+        max_eviction_rate: Specifies what eviction rate (aka interruption probability)
+            we're okay with as a percent. E.g. `80` means that any instance type with an
             interruption probability less than 80% can be used. Use `0` to indicate that
             only on-demand instance are acceptable (i.e. do not use spot instances)
-        cloud_provider: `EC2` or `AzureVM`
-        gpus_required:
-        gpu_memory_required: Total GPU memory required across all GPUs
+        gpus: Number of GPUs required. If gpu_memory is set, but this value is not set,
+            this is implied to be 1
+        gpu_memory: Total GPU memory (aka VRAM) required across all GPUs
         flags_required: E.g. "intel", "avx512", etc.
-        region_name:
     """
 
-    logical_cpu_required: float
-    memory_gb_required: float
-    interruption_probability_threshold: float
-    gpus_required: Optional[float] = None
-    gpu_memory_required: Optional[float] = None
-    flags_required: Union[Iterable[str], str, None] = None
+    logical_cpu: float
+    memory_gb: float
+    max_eviction_rate: float
+    gpus: Optional[float] = None
+    gpu_memory: Optional[float] = None
+    flags: Union[Iterable[str], str, None] = None
 
     def uses_gpu(self) -> bool:
-        return self.gpus_required is not None or self.gpu_memory_required is not None
+        return self.gpus is not None or self.gpu_memory is not None
 
     def needs_cuda(self) -> bool:
-        return self.uses_gpu() and _needs_cuda(self.flags_required)
+        return self.uses_gpu() and _needs_cuda(self.flags)
 
-    def to_resources(self) -> Resources:
-        return Resources.from_cpu_and_memory(
-            self.logical_cpu_required,
-            self.memory_gb_required,
-            self.interruption_probability_threshold,
-            self.gpus_required,
-            self.gpu_memory_required,
-            self.flags_required,
+    def to_resources(self) -> ResourcesInternal:
+        return ResourcesInternal.from_cpu_and_memory(
+            self.logical_cpu,
+            self.memory_gb,
+            self.max_eviction_rate,
+            self.gpus,
+            self.gpu_memory,
+            self.flags,
         )
 
 
 class Host(abc.ABC):
+    """
+    Host is an abstract class for specifying where to run a job. See implementations
+    below.
+    """
+
     @abc.abstractmethod
     async def run_job(
-        self, resources_required: Resources, job: Job
+        self, resources_required: ResourcesInternal, job: Job
     ) -> JobCompletion[Any]:
         pass
 
@@ -126,16 +131,14 @@ class Host(abc.ABC):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
     ) -> Sequence[Any]:
-        """
-        job_fields will be populated with everything other than job_id and py_function,
-        so the implementation should construct Job(job_id=job_id,
-        py_function=py_function, **job_fields)
-        """
+        # Note for implementors: job_fields will be populated with everything other than
+        # job_id and py_function, so the implementation should construct
+        # Job(job_id=job_id, py_function=py_function, **job_fields)
         pass
 
 
@@ -156,7 +159,7 @@ class SshHost(Host):
     cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
 
     async def run_job(
-        self, resources_required: Resources, job: Job
+        self, resources_required: ResourcesInternal, job: Job
     ) -> JobCompletion[Any]:
         # try the connection 20 times.
         connection = await _retry(
@@ -278,7 +281,7 @@ class SshHost(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,

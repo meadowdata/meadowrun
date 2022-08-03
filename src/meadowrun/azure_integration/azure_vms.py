@@ -24,7 +24,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
 from meadowrun.instance_selection import (
     CloudInstance,
     OnDemandOrSpotType,
-    Resources,
+    ResourcesInternal,
     choose_instance_types_for_job,
 )
 
@@ -300,7 +300,7 @@ async def _provision_vm(
 
 
 async def launch_vms(
-    resources_required_per_job: Resources,
+    resources_required_per_job: ResourcesInternal,
     num_jobs: int,
     ssh_public_key_data: str,
     location: Optional[str] = None,

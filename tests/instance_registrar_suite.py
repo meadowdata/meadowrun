@@ -16,8 +16,8 @@ from meadowrun.instance_allocation import (
     _choose_existing_instances,
     allocate_jobs_to_instances,
 )
-from meadowrun.instance_selection import Resources
-from meadowrun.run_job_core import CloudProviderType, ResourcesRequired
+from meadowrun.instance_selection import ResourcesInternal
+from meadowrun.run_job_core import CloudProviderType, Resources
 
 _TInstanceRegistrar = TypeVar("_TInstanceRegistrar", bound=InstanceRegistrar)
 
@@ -105,14 +105,14 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await instance_registrar.register_instance(
                 "testhost-1",
                 "testhost-1-name",
-                Resources.from_cpu_and_memory(8, 64),
+                ResourcesInternal.from_cpu_and_memory(8, 64),
                 [],
             )
             await instance_registrar.register_instance(
                 "testhost-2",
                 "testhost-2-name",
-                Resources.from_cpu_and_memory(4, 32),
-                [("worker-1", Resources.from_cpu_and_memory(2, 1))],
+                ResourcesInternal.from_cpu_and_memory(4, 32),
+                [("worker-1", ResourcesInternal.from_cpu_and_memory(2, 1))],
             )
 
             # Can't register the same instance twice
@@ -120,7 +120,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 await instance_registrar.register_instance(
                     "testhost-2",
                     "testhost-2-name",
-                    Resources.from_cpu_and_memory(4, 32),
+                    ResourcesInternal.from_cpu_and_memory(4, 32),
                     [],
                 )
 
@@ -145,17 +145,17 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             assert await instance_registrar.allocate_jobs_to_instance(
                 testhost1,
-                Resources.from_cpu_and_memory(2, 4),
+                ResourcesInternal.from_cpu_and_memory(2, 4),
                 ["worker-2", "worker-3"],
             )
             testhost1, _ = await get_instances()
             assert await instance_registrar.allocate_jobs_to_instance(
-                testhost1, Resources.from_cpu_and_memory(1, 3), ["worker-4"]
+                testhost1, ResourcesInternal.from_cpu_and_memory(1, 3), ["worker-4"]
             )
             # cannot allocate if the worker id already is in use
             testhost1, _ = await get_instances()
             assert not await instance_registrar.allocate_jobs_to_instance(
-                testhost1, Resources.from_cpu_and_memory(2, 4), ["worker-2"]
+                testhost1, ResourcesInternal.from_cpu_and_memory(2, 4), ["worker-2"]
             )
 
             # make sure our resources available is correct
@@ -184,17 +184,17 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await instance_registrar.register_instance(
                 "testhost-3",
                 "testhost-3-name",
-                Resources.from_cpu_and_memory(2, 16),
+                ResourcesInternal.from_cpu_and_memory(2, 16),
                 [],
             )
             await instance_registrar.register_instance(
                 "testhost-4",
                 "testhost-4-name",
-                Resources.from_cpu_and_memory(4, 32),
+                ResourcesInternal.from_cpu_and_memory(4, 32),
                 [],
             )
 
-            resources_required = Resources.from_cpu_and_memory(1, 2)
+            resources_required = ResourcesInternal.from_cpu_and_memory(1, 2)
             results, _ = await _choose_existing_instances(
                 instance_registrar, resources_required, 3
             )
@@ -215,19 +215,19 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await instance_registrar.register_instance(
                 "testhost-5",
                 "testhost-5-name",
-                Resources.from_cpu_and_memory(2, 16),
+                ResourcesInternal.from_cpu_and_memory(2, 16),
                 [],
             )
             await instance_registrar.register_instance(
                 "testhost-6",
                 "testhost-6-name",
-                Resources.from_cpu_and_memory(4, 32),
+                ResourcesInternal.from_cpu_and_memory(4, 32),
                 [],
             )
 
             await instance_registrar.set_prevent_further_allocation("testhost-5", True)
 
-            resources_required = Resources.from_cpu_and_memory(1, 2)
+            resources_required = ResourcesInternal.from_cpu_and_memory(1, 2)
             results, _ = await _choose_existing_instances(
                 instance_registrar, resources_required, 3
             )
@@ -265,19 +265,19 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             pid1, host1 = await run_function(
                 remote_function,
-                ResourcesRequired(1, 0.5, 15),
+                Resources(1, 0.5, 15),
                 AllocCloudInstance(self.cloud_provider()),
             )
             time.sleep(1)
             pid2, host2 = await run_function(
                 remote_function,
-                ResourcesRequired(1, 0.5, 15),
+                Resources(1, 0.5, 15),
                 AllocCloudInstance(self.cloud_provider()),
             )
             time.sleep(1)
             pid3, host3 = await run_function(
                 remote_function,
-                ResourcesRequired(1, 0.5, 15),
+                Resources(1, 0.5, 15),
                 AllocCloudInstance(self.cloud_provider()),
             )
 
@@ -305,21 +305,21 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             task1 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    ResourcesRequired(1, 0.5, 15),
+                    Resources(1, 0.5, 15),
                     AllocCloudInstance(self.cloud_provider()),
                 )
             )
             task2 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    ResourcesRequired(1, 0.5, 15),
+                    Resources(1, 0.5, 15),
                     AllocCloudInstance(self.cloud_provider()),
                 )
             )
             task3 = asyncio.create_task(
                 run_function(
                     remote_function,
-                    ResourcesRequired(1, 0.5, 15),
+                    Resources(1, 0.5, 15),
                     AllocCloudInstance(self.cloud_provider()),
                 )
             )
@@ -346,14 +346,14 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await instance_registrar.register_instance(
                 "testhost-1",
                 "testhost-1-name",
-                Resources.from_cpu_and_memory(8, 64),
+                ResourcesInternal.from_cpu_and_memory(8, 64),
                 [],
             )
             await instance_registrar.register_instance(
                 "testhost-2",
                 "testhost-2-name",
-                Resources.from_cpu_and_memory(4, 32),
-                [("worker-1", Resources.from_cpu_and_memory(2, 1))],
+                ResourcesInternal.from_cpu_and_memory(4, 32),
+                [("worker-1", ResourcesInternal.from_cpu_and_memory(2, 1))],
             )
 
             assert await self.deregister_instance(
@@ -388,8 +388,8 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             await instance_registrar.register_instance(
                 "testhost-1",
                 "testhost-1-name",
-                Resources.from_cpu_and_memory(8, 64),
-                [("worker-1", Resources.from_cpu_and_memory(2, 1))],
+                ResourcesInternal.from_cpu_and_memory(8, 64),
+                [("worker-1", ResourcesInternal.from_cpu_and_memory(2, 1))],
             )
             assert len(await instance_registrar.get_registered_instances()) == 1
 
@@ -401,7 +401,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             # now, launch two instances (which should get registered automatically)
             instances1 = await allocate_jobs_to_instances(
                 instance_registrar,
-                Resources.from_cpu_and_memory(1, 0.5, 15),
+                ResourcesInternal.from_cpu_and_memory(1, 0.5, 15),
                 1,
                 instance_registrar.get_region_name(),
                 None,
@@ -411,7 +411,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             instances2 = await allocate_jobs_to_instances(
                 instance_registrar,
-                Resources.from_cpu_and_memory(1, 0.5, 15),
+                ResourcesInternal.from_cpu_and_memory(1, 0.5, 15),
                 1,
                 instance_registrar.get_region_name(),
                 None,

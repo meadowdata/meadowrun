@@ -25,20 +25,18 @@ Here is an example template, create a file like this locally:
 
 ```python
 import asyncio
-from meadowrun import run_function, AllocCloudInstance, Deployment
+import meadowrun
 
 async def main():
-    result = await run_function(
+    result = await meadowrun.run_function(
         # this is where the function to run goes
         lambda: sum(range(1000)) / 1000,
         # requirements to choose an appropriate EC2 instance
-        AllocCloudInstance(
-            logical_cpu_required=1,
-            memory_gb_required=4,
-            interruption_probability_threshold=15,
-            cloud_provider="EC2"  # to run on AWS EC2 instance
-        ),
-        await Deployment.mirror_local()
+        meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
+         # to run on AWS EC2 instance
+        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+        # mirror the local code and python environment
+        await meadowrun.Deployment.mirror_local()
     )
     print(f"Meadowrun worked! Got {result}")
 
@@ -63,14 +61,15 @@ Meadowrun worked! Got 499.5
 The output will walk you through what Meadowrun's [run_function][meadowrun.run_function]
 is doing:
 
-1. Based on the options specified in [AllocCloudInstance][meadowrun.AllocCloudInstance],
-   `run_function` will launch the cheapest EC2 instance type that has at least 1 CPU and
-   4GB of memory, and a <15% chance of being interrupted. You can set this to 0 to
-   exclude spot instances and only use on-demand instances. The exact instance type
-   chosen depends on current EC2 prices, but in this case we can see that it's a spot
-   t2.medium, and we're paying $0.0139/hr for it.
-
-2. [Deployment.mirror_local][meadowrun.Deployment.mirror_local] tells Meadowrun to copy
+1. Based on the options specified in [Resources][meadowrun.Resources] and
+   [AllocCloudInstance][meadowrun.AllocCloudInstance], `run_function` will launch the
+   cheapest EC2 instance type that has at least 1 CPU and 4GB of memory, and a <15%
+   chance of being interrupted. You can set this to 0 to exclude spot instances and only
+   use on-demand instances. The exact instance type chosen depends on current EC2
+   prices, but in this case we can see that it's a spot t2.medium, and we're paying
+   $0.0139/hr for it.
+   
+3. [Deployment.mirror_local][meadowrun.Deployment.mirror_local] tells Meadowrun to copy
    your local environment and code to the provisioned EC2 instance. Meadowrun detects what
    kind of environment (conda, pip, or poetry) you're currently in, and for a poetry
    environment, sends the pyproject.toml and poetry.lock files to the EC2 instance. The EC2
@@ -78,7 +77,7 @@ is doing:
    it for reuse in a Meadowrun-managed AWS ECR container registry. Meadowrun will also zip
    up your local code and send it to the EC2 instance.
 
-3. Meadowrun runs the specified function in that environment on the remote machine and
+4. Meadowrun runs the specified function in that environment on the remote machine and
    returns the result.
 
 

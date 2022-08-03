@@ -48,7 +48,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_constants import (
 from meadowrun.instance_allocation import allocate_jobs_to_instances
 
 if TYPE_CHECKING:
-    from meadowrun.instance_selection import Resources
+    from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
 from meadowrun.run_job_core import RunMapHelper
 from meadowrun.shared import pickle_exception
@@ -294,7 +294,7 @@ async def prepare_azure_vm_run_map(
     function: Callable[[_T], _U],
     tasks: Sequence[_T],
     location: Optional[str],
-    resources_required_per_task: Resources,
+    resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     ports: Optional[Sequence[str]],
 ) -> RunMapHelper:

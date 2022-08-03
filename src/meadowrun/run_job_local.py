@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from meadowrun._vendor import aiodocker
     from meadowrun._vendor.aiodocker import containers as aiodocker_containers
-    from meadowrun.instance_selection import Resources
+    from meadowrun.instance_selection import ResourcesInternal
 
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
@@ -1146,7 +1146,7 @@ async def run_local(
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
     async def run_job(
-        self, resources_required: Resources, job: Job
+        self, resources_required: ResourcesInternal, job: Job
     ) -> JobCompletion[Any]:
         initial_update, continuation = await run_local(job)
         if (
@@ -1180,7 +1180,7 @@ class LocalHost(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,

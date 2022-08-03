@@ -28,7 +28,7 @@ from meadowrun.instance_allocation import (
 from meadowrun.instance_selection import (
     CloudInstance,
     CloudInstanceType,
-    Resources,
+    ResourcesInternal,
     choose_instance_types_for_job,
 )
 
@@ -66,8 +66,8 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         self,
         public_address: str,
         name: str,
-        resources_available: Resources,
-        running_jobs: List[Tuple[str, Resources]],
+        resources_available: ResourcesInternal,
+        running_jobs: List[Tuple[str, ResourcesInternal]],
     ) -> None:
         now = datetime.datetime.utcnow().isoformat()
         self._registered_instances[public_address] = _InstanceState(
@@ -93,7 +93,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def allocate_jobs_to_instance(
         self,
         instance: _InstanceState,
-        resources_allocated_per_job: Resources,
+        resources_allocated_per_job: ResourcesInternal,
         new_job_ids: List[str],
     ) -> bool:
         now = datetime.datetime.utcnow().isoformat()
@@ -120,7 +120,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
         job = instance.get_running_jobs().pop(job_id)
         instance.available_resources = instance.get_available_resources().add(
-            Resources(job["RESOURCES_ALLOCATED"], {})
+            ResourcesInternal(job["RESOURCES_ALLOCATED"], {})
         )
         return True
 
@@ -131,7 +131,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
     async def launch_instances(
         self,
-        resources_required_per_task: Resources,
+        resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         region_name: str,
     ) -> Sequence[CloudInstance]:
@@ -188,7 +188,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
                     f"t{i}",
                     "spot",
                     price,
-                    Resources.from_cpu_and_memory(*positional_args, **kwargs),
+                    ResourcesInternal.from_cpu_and_memory(*positional_args, **kwargs),
                 )
             )
 
@@ -209,7 +209,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         return None
 
     async def allocate_jobs(
-        self, resources: Resources, num_concurrent_jobs: int
+        self, resources: ResourcesInternal, num_concurrent_jobs: int
     ) -> Tuple[List[Tuple[str, str]], List[str]]:
         instances_job_ids = await allocate_jobs_to_instances(
             self,
@@ -264,7 +264,7 @@ async def test_gpu():
     # choose the cheaper instance type
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 80), 1
+            ResourcesInternal.from_cpu_and_memory(2, 4, 80), 1
         )
     )[0] == [("i0", "t1")]
     await instance_registrar.deallocate_all_jobs()
@@ -276,7 +276,7 @@ async def test_gpu():
     # if we request a GPU, we need a GPU instance
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 80, 1), 1
+            ResourcesInternal.from_cpu_and_memory(2, 4, 80, 1), 1
         )
     )[0] == [("i1", "t0")]
     await instance_registrar.deallocate_all_jobs()
@@ -285,14 +285,14 @@ async def test_gpu():
     # it
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(1, 1, 80), 1
+            ResourcesInternal.from_cpu_and_memory(1, 1, 80), 1
         )
     )[0] == [("i0", "t1")]
 
     # but a new job that does require a GPU will go to the right instance
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(1, 1, 80, 1), 1
+            ResourcesInternal.from_cpu_and_memory(1, 1, 80, 1), 1
         )
     )[0] == [("i1", "t0")]
 
@@ -308,17 +308,17 @@ async def test_impossible_resources():
     # requesting impossible resources fails
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(3, 4, 80), 1
+            ResourcesInternal.from_cpu_and_memory(3, 4, 80), 1
         )
     )[0] == []
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 5, 80), 1
+            ResourcesInternal.from_cpu_and_memory(2, 5, 80), 1
         )
     )[0] == []
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 10), 1
+            ResourcesInternal.from_cpu_and_memory(2, 4, 10), 1
         )
     )[0] == []
 
@@ -333,7 +333,7 @@ async def test_packing():
     # cpu-bound
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(1, 1, 80), 3
+            ResourcesInternal.from_cpu_and_memory(1, 1, 80), 3
         )
     )[0] == [("i0", "t0"), ("i0", "t0"), ("i1", "t0")]
 
@@ -345,7 +345,7 @@ async def test_packing():
     # memory-bound
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(0.5, 2, 80), 3
+            ResourcesInternal.from_cpu_and_memory(0.5, 2, 80), 3
         )
     )[0] == [("i0", "t0"), ("i0", "t0"), ("i1", "t0")]
 
@@ -361,21 +361,21 @@ async def test_interruption_probability():
     # choose the cheaper instance type, even if it has a higher interruption probability
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 80), 1
+            ResourcesInternal.from_cpu_and_memory(2, 4, 80), 1
         )
     )[0] == [("i0", "t0")]
     # deallocate and reallocate with the same specs puts us back on the same instance
     await instance_registrar.deallocate_all_jobs()
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 80), 1
+            ResourcesInternal.from_cpu_and_memory(2, 4, 80), 1
         )
     )[0] == [("i0", "t0")]
     # but if we specify a lower interruption probability we have to make a new instance
     await instance_registrar.deallocate_all_jobs()
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 30), 1
+            ResourcesInternal.from_cpu_and_memory(2, 4, 30), 1
         )
     )[0] == [("i1", "t1")]
 
@@ -389,6 +389,6 @@ async def test_interruption_probability():
     # lowest interruption probability
     assert (
         await instance_registrar.allocate_jobs(
-            Resources.from_cpu_and_memory(2, 4, 80), 3
+            ResourcesInternal.from_cpu_and_memory(2, 4, 80), 3
         )
     )[0] == [("i0", "t1"), ("i1", "t1"), ("i2", "t1")]

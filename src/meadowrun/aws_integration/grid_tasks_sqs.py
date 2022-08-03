@@ -38,7 +38,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 from meadowrun.instance_allocation import allocate_jobs_to_instances
 
 if TYPE_CHECKING:
-    from meadowrun.instance_selection import Resources
+    from meadowrun.instance_selection import ResourcesInternal
 
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
 from meadowrun.run_job_core import RunMapHelper
@@ -481,7 +481,7 @@ async def prepare_ec2_run_map(
     function: Callable[[_T], _U],
     tasks: Sequence[_T],
     region_name: Optional[str],
-    resources_required_per_task: Resources,
+    resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     ports: Optional[Sequence[str]],
 ) -> RunMapHelper:

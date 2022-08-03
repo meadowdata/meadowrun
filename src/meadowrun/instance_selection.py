@@ -25,17 +25,21 @@ ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
 OnDemandOrSpotType = Literal["on_demand", "spot"]
 
 
-class Resources:
+class ResourcesInternal:
     """
     Can represent both resources available (i.e. on a agent) as well as resources
-    required (i.e. by a job)
+    required (i.e. by a job).
+
+    This is called ResourcesInternal to distinguish it from Resources. Resources is
+    mostly used as a friendly way to ultimately construct a ResourcesInternal object,
+    which is used internally. Only Resources should be part of public APIs.
     """
 
     def __init__(self, consumable: Dict[str, float], non_consumable: Dict[str, float]):
         self.consumable = consumable
         self.non_consumable = non_consumable
 
-    def subtract(self, required: Resources) -> Optional[Resources]:
+    def subtract(self, required: ResourcesInternal) -> Optional[ResourcesInternal]:
         """
         Interpreting self as "resources available" on an instance, subtracts "resources
         required" for a job on this instance
@@ -55,7 +59,7 @@ class Resources:
             if self.consumable[key] < required.consumable[key]:
                 return None
 
-        return Resources(
+        return ResourcesInternal(
             {
                 key: value - required.consumable.get(key, 0)
                 for key, value in self.consumable.items()
@@ -63,12 +67,12 @@ class Resources:
             self.non_consumable,
         )
 
-    def add(self, returned: Resources) -> Resources:
+    def add(self, returned: ResourcesInternal) -> ResourcesInternal:
         """
         Interpreting `self` as the available resources on an instance, adds back
         "resources required" for a job that has completed
         """
-        return Resources(
+        return ResourcesInternal(
             {
                 key: self.consumable.get(key, 0) + returned.consumable.get(key, 0)
                 for key in set().union(self.consumable, returned.consumable)
@@ -76,7 +80,7 @@ class Resources:
             self.non_consumable,
         )
 
-    def divide_by(self, required: Resources) -> int:
+    def divide_by(self, required: ResourcesInternal) -> int:
         """
         Interpreting `self` as available resources on an instance, returns how many
         tasks that require `required` resources could fit into this instance
@@ -99,12 +103,12 @@ class Resources:
 
         return math.floor(result)
 
-    def multiply(self, n: int) -> Resources:
+    def multiply(self, n: int) -> ResourcesInternal:
         """
         available.subtract(required.multiply(2)) should be equivalent to
         available.subtract(required).subtract(required)
         """
-        return Resources(
+        return ResourcesInternal(
             {key: value * n for key, value in self.consumable.items()},
             self.non_consumable,
         )
@@ -165,15 +169,15 @@ class Resources:
             f")"
         )
 
-    def copy(self) -> Resources:
-        return Resources(self.consumable.copy(), self.non_consumable.copy())
+    def copy(self) -> ResourcesInternal:
+        return ResourcesInternal(self.consumable.copy(), self.non_consumable.copy())
 
     @classmethod
     def from_decimals(
         cls,
         consumable: Dict[str, decimal.Decimal],
         non_consumable: Dict[str, decimal.Decimal],
-    ) -> Resources:
+    ) -> ResourcesInternal:
         return cls(
             {key: float(value) for key, value in consumable.items()},
             {key: float(value) for key, value in non_consumable.items()},
@@ -191,7 +195,7 @@ class Resources:
         *,
         other_consumables: Optional[Dict[str, float]] = None,
         other_non_consumables: Optional[Dict[str, float]] = None,
-    ) -> Resources:
+    ) -> ResourcesInternal:
         """A friendly constructor"""
         if other_consumables is None:
             consumables = {}
@@ -228,7 +232,7 @@ class Resources:
 
 
 def remaining_resources_sort_key(
-    available_resources: Resources, resources_required: Resources
+    available_resources: ResourcesInternal, resources_required: ResourcesInternal
 ) -> Tuple[int, Optional[Tuple[float, float]]]:
     """
     This takes the available resources for an agent and returns (indicator,
@@ -286,7 +290,7 @@ class CloudInstanceType:
     #   instances as (100 - percentage), so e.g. 75 means 25% chance of interruption)
     # TODO instance_type.interruption_probability should always use the latest data
     # rather than always using the number from when the instance was launched
-    resources: Resources
+    resources: ResourcesInternal
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -305,7 +309,7 @@ class CloudInstanceType:
             cit["name"],
             cit["on_demand_or_spot"],
             float(cit["price"]),
-            Resources(
+            ResourcesInternal(
                 cit["resources"]["consumable"],
                 cit["resources"]["non_consumable"],
             ),
@@ -339,7 +343,7 @@ class CloudInstance:
 
 
 def choose_instance_types_for_job(
-    resources_required: Resources,
+    resources_required: ResourcesInternal,
     num_workers_to_allocate: int,
     original_instance_types: Iterable[CloudInstanceType],
 ) -> Iterable[ChosenCloudInstanceType]:

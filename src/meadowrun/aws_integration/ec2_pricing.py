@@ -22,7 +22,7 @@ from meadowrun.config import (
     LOGICAL_CPU,
     MEMORY_GB,
 )
-from meadowrun.instance_selection import CloudInstanceType, Resources
+from meadowrun.instance_selection import CloudInstanceType, ResourcesInternal
 from meadowrun.local_cache import get_cached_json, save_json_to_cache, clear_cache
 
 
@@ -293,7 +293,7 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
             instance_type,
             "on_demand",
             usd_price_float,
-            Resources(consumable_resources, non_consumable_resources),
+            ResourcesInternal(consumable_resources, non_consumable_resources),
         )
 
 

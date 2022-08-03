@@ -17,7 +17,7 @@ import uuid
 import boto3
 
 import pytest
-from meadowrun import ssh, ResourcesRequired
+from meadowrun import ssh, Resources
 
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
@@ -44,7 +44,10 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
 )
 from meadowrun.config import LOGICAL_CPU, MEMORY_GB, INTERRUPTION_PROBABILITY_INVERSE
 from meadowrun.instance_allocation import InstanceRegistrar
-from meadowrun.instance_selection import choose_instance_types_for_job, Resources
+from meadowrun.instance_selection import (
+    choose_instance_types_for_job,
+    ResourcesInternal,
+)
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job import AllocCloudInstance
 
@@ -56,8 +59,8 @@ REGION = "us-east-2"
 
 
 class AwsHostProvider(HostProvider):
-    def get_resources_required(self) -> ResourcesRequired:
-        return ResourcesRequired(1, 4, 80)
+    def get_resources_required(self) -> Resources:
+        return Resources(1, 4, 80)
 
     def get_host(self) -> Host:
         return AllocCloudInstance("EC2", region_name=REGION)
@@ -142,7 +145,7 @@ async def test_get_ec2_instance_types():
 
     chosen_instance_types = list(
         choose_instance_types_for_job(
-            Resources.from_cpu_and_memory(3, 5, 10), 52, instance_types
+            ResourcesInternal.from_cpu_and_memory(3, 5, 10), 52, instance_types
         )
     )
     total_cpu = sum(
@@ -171,7 +174,7 @@ async def test_get_ec2_instance_types():
 
     chosen_instance_types = list(
         choose_instance_types_for_job(
-            Resources.from_cpu_and_memory(1000, 24000, 10), 1, instance_types
+            ResourcesInternal.from_cpu_and_memory(1000, 24000, 10), 1, instance_types
         )
     )
     assert len(chosen_instance_types) == 0

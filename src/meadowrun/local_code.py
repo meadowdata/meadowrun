@@ -75,6 +75,7 @@ def zip_local_code(
     (
         python_zip_paths,
         non_python_zip_paths,
+        real_python_root_paths_to_zip_paths,
     ) = _consolidate_paths_to_zip(real_python_paths_to_zip, non_python_paths_to_zip)
 
     # Currently we always zip all the files and then compute the hash. The hash is just
@@ -84,7 +85,7 @@ def zip_local_code(
     # building, so this is not currently a bottleneck.
     zip_file_path = join(result_zip_dir, str(uuid.uuid4()) + ".zip")
     with zipfile.ZipFile(zip_file_path, "w") as zip_file:
-        for real_path, zip_path in zip(real_python_paths_to_zip, python_zip_paths):
+        for real_path, zip_path in real_python_root_paths_to_zip_paths:
             for dirpath, _, filenames in os.walk(real_path):
                 for filename in filenames:
                     if splitext(filename)[1].lower() in python_paths_extensions:
@@ -95,9 +96,12 @@ def zip_local_code(
         for (file_real_path, dir_real_path), dir_zip_path in zip(
             real_file_paths_to_zip, itertools.islice(non_python_zip_paths, 1, None)
         ):
-            zip_file.write(
-                file_real_path, file_real_path.replace(dir_real_path, dir_zip_path, 1)
-            )
+            file_zip_path = file_real_path.replace(dir_real_path, dir_zip_path, 1)
+            if os.path.sep != "/":
+                # we have to make the sub-paths compatible with Linux which is our
+                # target OS
+                file_zip_path = file_zip_path.replace(os.path.sep, "/")
+            zip_file.write(file_real_path, file_zip_path)
 
     return zip_file_path, python_zip_paths, non_python_zip_paths[0]
 
@@ -123,9 +127,21 @@ def _get_python_paths_to_zip(
 
 def _consolidate_paths_to_zip(
     real_python_paths_to_zip: Iterable[str], real_non_python_paths_to_zip: Iterable[str]
-) -> Tuple[List[str], List[str]]:
-    """Generates a minimal dictionary of real paths that need to be zipped, to the paths
-    in the zip file.
+) -> Tuple[List[str], List[str], List[Tuple[str, str]]]:
+    """
+    Takes some real paths, and returns the path they should be in the zip. Some example
+    inputs/outputs of real paths to zip paths:
+    - [a/b/c, a/b] -> [b/c, b] (don't make c a separate directory because it's already
+      included in b
+    - [a/b, d/b] ->  [b, b_0] (we have two b folders that we need to keep separate)
+
+    Return values are python_zip_paths, non_python_zip_paths, python_roots
+
+    python_zip_paths and non_python_zip paths correspond 1-to-1 with the elements in
+    real_python_paths_to_zip and real_non_python_paths_to_zip.
+
+    python_roots is a subset of zip(real_python_paths_to_zip, python_zip_paths) that are
+    "roots". E.g. in the first example above, this will just return [(a/b, b)].
     """
 
     # This whole rigmarole because:
@@ -182,4 +198,21 @@ def _consolidate_paths_to_zip(
         real_paths_to_zip_paths[real_path] for real_path in real_non_python_paths_to_zip
     ]
 
-    return zip_python_paths, zip_non_python_paths
+    # consolidate python paths
+    python_root_candidates = tuple(sorted(real_python_paths_to_zip))
+    current_root = python_root_candidates[0]
+    real_python_root_paths = [current_root]
+    for candidate in python_root_candidates:
+        if not candidate.startswith(current_root):
+            # we have a new root.
+            current_root = candidate
+            real_python_root_paths.append(current_root)
+
+    return (
+        zip_python_paths,
+        zip_non_python_paths,
+        [
+            (real_path, real_paths_to_zip_paths[real_path])
+            for real_path in real_python_root_paths
+        ],
+    )

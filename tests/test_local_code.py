@@ -7,23 +7,27 @@ from meadowrun import local_code
 
 
 @pytest.mark.parametrize(
-    "python_paths,other_paths,expected_python_paths,expected_other_paths",
+    "python_paths,other_paths,python_root_paths,expected_python_paths,"
+    "expected_other_paths",
     [
         (  # simplest case: one root with a few subfolders
             ["/usr/lib", "/usr/lib/python", "/usr/lib/python/more"],
             [],
+            {"/usr/lib": "lib"},
             ["lib", "lib/python", "lib/python/more"],
             [],
         ),
         (  # two roots each with a subfolder
             ["/usr/lib", "/usr/lib/python", "/home/foo/mdr", "/home/foo/mdr/src"],
             [],
+            {"/usr/lib": "lib", "/home/foo/mdr": "mdr"},
             ["lib", "lib/python", "mdr", "mdr/src"],
             [],
         ),
         (  # two roots without subfolders, but same name
             ["/home/user/lib2/src", "/home/user/lib1/src"],
             [],
+            {"/home/user/lib1/src": "src", "/home/user/lib2/src": "src_0"},
             ["src_0", "src"],
             [],
         ),
@@ -35,6 +39,7 @@ from meadowrun import local_code
                 "/home/user/lib2/src/bar",
             ],
             [],
+            {"/home/user/lib1/src": "src", "/home/user/lib2/src": "src_0"},
             ["src_0", "src", "src/foo", "src_0/bar"],
             [],
         ),
@@ -42,39 +47,49 @@ from meadowrun import local_code
         (  # simplest case: one root with a few subfolders
             ["/usr/lib/python", "/usr/lib/python/more"],
             ["/usr/lib"],
+            {"/usr/lib/python": "lib/python"},
             ["lib/python", "lib/python/more"],
             ["lib"],
         ),
         (  # two roots each with a subfolder
             ["/usr/lib", "/usr/lib/python"],
             ["/home/foo/mdr", "/home/foo/mdr/src"],
+            {"/usr/lib": "lib"},
             ["lib", "lib/python"],
             ["mdr", "mdr/src"],
         ),
         (  # two roots without subfolders, but same name
             ["/home/user/lib2/src"],
             ["/home/user/lib1/src"],
+            {"/home/user/lib2/src": "src_0"},
             ["src_0"],
             ["src"],
         ),
         (  # two roots with subfolders, same name
             ["/home/user/lib2/src", "/home/user/lib2/src/bar"],
             ["/home/user/lib1/src", "/home/user/lib1/src/foo"],
+            {"/home/user/lib2/src": "src_0"},
             ["src_0", "src_0/bar"],
             ["src", "src/foo"],
         ),
     ],
 )
 def test_consolidate_paths(
-    python_paths, other_paths, expected_python_paths, expected_other_paths
+    python_paths,
+    other_paths,
+    python_root_paths,
+    expected_python_paths,
+    expected_other_paths,
 ):
     (
         actual_python_paths,
         actual_other_paths,
+        actual_python_root_paths,
     ) = local_code._consolidate_paths_to_zip(python_paths, other_paths)
     assert len(actual_python_paths) == len(python_paths)
     assert len(actual_other_paths) == len(other_paths)
 
+    assert python_root_paths == dict(actual_python_root_paths)
     assert expected_python_paths == actual_python_paths
     assert expected_other_paths == actual_other_paths
 

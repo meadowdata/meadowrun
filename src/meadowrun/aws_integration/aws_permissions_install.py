@@ -75,6 +75,11 @@ _ACCESS_S3_BUCKET_POLICY = """{
     "Statement": [
         {
             "Effect": "Allow",
+            "Action": "s3:ListBucket",
+            "Resource": "arn:aws:s3:::$BUCKET_NAME"
+        },
+        {
+            "Effect": "Allow",
             "Action": "s3:*Object",
             "Resource": "arn:aws:s3:::$BUCKET_NAME/*"
         }

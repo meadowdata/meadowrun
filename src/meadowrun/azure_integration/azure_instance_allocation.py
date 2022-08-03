@@ -49,7 +49,7 @@ from meadowrun.instance_selection import CloudInstance, Resources
 if TYPE_CHECKING:
     from meadowrun.meadowrun_pb2 import Job
 
-from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, SshHost
+from meadowrun.run_job_core import JobCompletion, SshHost
 
 
 @dataclasses.dataclass
@@ -371,13 +371,16 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             return False
 
     async def launch_instances(
-        self, instances_spec: AllocCloudInstancesInternal
+        self,
+        resources_required_per_task: Resources,
+        num_concurrent_tasks: int,
+        region_name: str,
     ) -> Sequence[CloudInstance]:
         return await meadowrun.azure_integration.azure_vms.launch_vms(
-            instances_spec.resources_required_per_task,
-            instances_spec.num_concurrent_tasks,
-            (await ensure_meadowrun_key_pair(instances_spec.region_name))[1],
-            instances_spec.region_name,
+            resources_required_per_task,
+            num_concurrent_tasks,
+            (await ensure_meadowrun_key_pair(region_name))[1],
+            region_name,
         )
 
     async def authorize_current_ip(self) -> None:
@@ -414,7 +417,9 @@ async def run_job_azure_vm_instance_registrar(
             )
         hosts = await allocate_jobs_to_instances(
             instance_registrar,
-            AllocCloudInstancesInternal(resources_required, 1, location),
+            resources_required,
+            1,
+            location,
             job.ports,
         )
 
@@ -429,5 +434,5 @@ async def run_job_azure_vm_instance_registrar(
     job.job_id = job_ids[0]
 
     return await SshHost(host, "meadowrunuser", pkey, ("AzureVM", location)).run_job(
-        job
+        resources_required, job
     )

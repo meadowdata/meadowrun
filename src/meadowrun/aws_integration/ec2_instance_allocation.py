@@ -59,7 +59,7 @@ from meadowrun.instance_selection import Resources, CloudInstance
 
 if TYPE_CHECKING:
     from meadowrun.meadowrun_pb2 import Job
-from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, SshHost
+from meadowrun.run_job_core import JobCompletion, SshHost
 
 # SEE ALSO ec2_alloc_stub.py
 
@@ -67,7 +67,7 @@ from meadowrun.run_job_core import AllocCloudInstancesInternal, JobCompletion, S
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-0c8f4f9a043ba97d0",
+        "us-east-2": "ami-0a7c57ddf7705914d",
         "us-east-1": "ami-01962adb562193031",
         "us-west-1": "ami-0b4181c5d98c58a25",
         "us-west-2": "ami-0e6486b71c4a54048",
@@ -403,29 +403,32 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         return True
 
     async def launch_instances(
-        self, instances_spec: AllocCloudInstancesInternal
+        self,
+        resources_required_per_task: Resources,
+        num_concurrent_tasks: int,
+        region_name: str,
     ) -> Sequence[CloudInstance]:
-        if "nvidia" in instances_spec.resources_required_per_task.non_consumable:
+        if "nvidia" in resources_required_per_task.non_consumable:
             ami_type = "cuda"
         else:
             ami_type = "plain"
 
-        if instances_spec.region_name not in _AMIS[ami_type]:
+        if region_name not in _AMIS[ami_type]:
             raise ValueError(
-                f"The meadowrun AMI is not available in {instances_spec.region_name}. "
-                "Please ask the meadowrun maintainers to add support for this region: "
+                f"The meadowrun AMI is not available in {region_name}. Please ask the "
+                "meadowrun maintainers to add support for this region: "
                 "https://github.com/meadowdata/meadowrun/issues and try a supported "
                 f"region for now: {', '.join(_AMIS[ami_type].keys())}"
             )
-        ami = _AMIS[ami_type][instances_spec.region_name]
+        ami = _AMIS[ami_type][region_name]
 
         return await launch_ec2_instances(
-            instances_spec.resources_required_per_task,
-            instances_spec.num_concurrent_tasks,
+            resources_required_per_task,
+            num_concurrent_tasks,
             ami,
-            region_name=instances_spec.region_name,
+            region_name=region_name,
             # TODO we should let users add their own security groups
-            security_group_ids=[get_ssh_security_group_id(instances_spec.region_name)],
+            security_group_ids=[get_ssh_security_group_id(region_name)],
             # TODO we should let users set their own IAM role as long as it grants
             # access to the dynamodb table we need for deallocation
             iam_role_name=_EC2_ROLE_INSTANCE_PROFILE,
@@ -476,7 +479,9 @@ async def run_job_ec2_instance_registrar(
     async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
         hosts = await allocate_jobs_to_instances(
             instance_registrar,
-            AllocCloudInstancesInternal(resources_required, 1, region_name),
+            resources_required,
+            1,
+            region_name,
             job.ports,
         )
 
@@ -490,4 +495,6 @@ async def run_job_ec2_instance_registrar(
     # remains mostly an internal concept
     job.job_id = job_ids[0]
 
-    return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_job(job)
+    return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_job(
+        resources_required, job
+    )

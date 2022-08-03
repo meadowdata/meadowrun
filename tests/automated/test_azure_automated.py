@@ -11,6 +11,7 @@ from instance_registrar_suite import (
     InstanceRegistrarSuite,
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
 )
+from meadowrun import ResourcesRequired
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
@@ -31,10 +32,12 @@ if TYPE_CHECKING:
 
 
 class AzureHostProvider(HostProvider):
-    # TODO don't always run tests in us-east-2
+    def get_resources_required(self) -> ResourcesRequired:
+        return ResourcesRequired(1, 4, 80)
 
     def get_host(self) -> Host:
-        return AllocCloudInstance(1, 4, 80, "AzureVM", region_name="eastus")
+        # TODO don't always run tests in us-east-2
+        return AllocCloudInstance("AzureVM", region_name="eastus")
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"

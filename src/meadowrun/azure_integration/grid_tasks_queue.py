@@ -50,7 +50,7 @@ from meadowrun.instance_allocation import allocate_jobs_to_instances
 if TYPE_CHECKING:
     from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
-from meadowrun.run_job_core import RunMapHelper, AllocCloudInstancesInternal
+from meadowrun.run_job_core import RunMapHelper
 from meadowrun.shared import pickle_exception
 
 _T = TypeVar("_T")
@@ -313,9 +313,9 @@ async def prepare_azure_vm_run_map(
             )
         allocated_hosts = await allocate_jobs_to_instances(
             instance_registrar,
-            AllocCloudInstancesInternal(
-                resources_required_per_task, num_concurrent_tasks, location
-            ),
+            resources_required_per_task,
+            num_concurrent_tasks,
+            location,
             ports,
         )
 

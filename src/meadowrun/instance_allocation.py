@@ -28,7 +28,6 @@ from meadowrun.shared import assert_is_not_none
 
 if TYPE_CHECKING:
     from types import TracebackType
-    from meadowrun.run_job_core import AllocCloudInstancesInternal
 
 
 @dataclasses.dataclass
@@ -173,7 +172,10 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
 
     @abc.abstractmethod
     async def launch_instances(
-        self, instances_spec: AllocCloudInstancesInternal
+        self,
+        resources_required_per_task: Resources,
+        num_concurrent_tasks: int,
+        region_name: str,
     ) -> Sequence[CloudInstance]:
         """
         This isn't per se part of the "instance registration" process, but it's helpful
@@ -335,8 +337,10 @@ async def _choose_existing_instances(
 
 async def _launch_new_instances(
     instance_registrar: InstanceRegistrar,
-    alloc_cloud_instances: AllocCloudInstancesInternal,
-    original_num_jobs: int,
+    resources_required_per_task: Resources,
+    num_concurrent_tasks: int,
+    region_name: str,
+    original_num_concurrent_tasks: int,
 ) -> Tuple[Dict[str, List[str]], Dict[str, CloudInstance]]:
     """
     Chooses the cheapest instances to launch that can run the specified jobs, launches
@@ -348,7 +352,9 @@ async def _launch_new_instances(
     original_num_jobs is only needed to produce more coherent logging.
     """
 
-    instances = await instance_registrar.launch_instances(alloc_cloud_instances)
+    instances = await instance_registrar.launch_instances(
+        resources_required_per_task, num_concurrent_tasks, region_name
+    )
 
     description_strings = []
     total_num_allocated_jobs = 0
@@ -362,7 +368,7 @@ async def _launch_new_instances(
 
         # the number of jobs to allocate to this instance
         num_allocated_jobs = min(
-            alloc_cloud_instances.num_concurrent_tasks - total_num_allocated_jobs,
+            num_concurrent_tasks - total_num_allocated_jobs,
             instance.instance_type.workers_per_instance_full,
         )
         total_num_allocated_jobs += num_allocated_jobs
@@ -373,15 +379,10 @@ async def _launch_new_instances(
             instance.name,
             assert_is_not_none(
                 instance_info.resources.subtract(
-                    alloc_cloud_instances.resources_required_per_task.multiply(
-                        num_allocated_jobs
-                    )
+                    resources_required_per_task.multiply(num_allocated_jobs)
                 )
             ),
-            [
-                (job_id, alloc_cloud_instances.resources_required_per_task)
-                for job_id in job_ids
-            ],
+            [(job_id, resources_required_per_task) for job_id in job_ids],
         )
 
         allocated_jobs[instance.public_dns_name] = job_ids
@@ -395,14 +396,14 @@ async def _launch_new_instances(
         )
         total_cost_per_hour += instance_info.price
 
-    if original_num_jobs == 1:
+    if original_num_concurrent_tasks == 1:
         # there should only ever be one description_strings
         print(f"Launched a new instance for the job: {' '.join(description_strings)}")
     else:
         print(
             f"Launched {len(description_strings)} new instance(s) (total "
             f"${total_cost_per_hour}/hr) for the remaining "
-            f"{alloc_cloud_instances.num_concurrent_tasks} workers:\n"
+            f"{num_concurrent_tasks} workers:\n"
             + "\n".join(["\t" + s for s in description_strings])
         )
 
@@ -411,7 +412,9 @@ async def _launch_new_instances(
 
 async def allocate_jobs_to_instances(
     instance_registrar: InstanceRegistrar,
-    alloc_cloud_instances: AllocCloudInstancesInternal,
+    resources_required_per_task: Resources,
+    num_concurrent_tasks: int,
+    region_name: str,
     ports: Optional[Sequence[str]],
 ) -> Dict[str, List[str]]:
     """
@@ -429,23 +432,22 @@ async def allocate_jobs_to_instances(
     # instances as well
     allocated_jobs, allocated_existing_instances = await _choose_existing_instances(
         instance_registrar,
-        alloc_cloud_instances.resources_required_per_task,
-        alloc_cloud_instances.num_concurrent_tasks,
+        resources_required_per_task,
+        num_concurrent_tasks,
     )
 
-    num_jobs_remaining = alloc_cloud_instances.num_concurrent_tasks - sum(
+    num_concurrent_tasks_remaining = num_concurrent_tasks - sum(
         len(jobs) for jobs in allocated_jobs.values()
     )
 
     allocated_new_instances: Dict[str, CloudInstance] = {}
-    if num_jobs_remaining > 0:
-        remaining_alloc = dataclasses.replace(
-            alloc_cloud_instances, num_concurrent_tasks=num_jobs_remaining
-        )
+    if num_concurrent_tasks_remaining > 0:
         allocated_new_jobs, allocated_new_instances = await _launch_new_instances(
             instance_registrar,
-            remaining_alloc,
-            alloc_cloud_instances.num_concurrent_tasks,
+            resources_required_per_task,
+            num_concurrent_tasks_remaining,
+            region_name,
+            num_concurrent_tasks,
         )
         allocated_jobs.update(allocated_new_jobs)
 

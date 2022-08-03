@@ -12,15 +12,17 @@ import shutil
 import sys
 import traceback
 from typing import (
-    TYPE_CHECKING,
     Any,
+    Callable,
     Coroutine,
     Dict,
     Iterable,
     List,
     Optional,
     Sequence,
+    TYPE_CHECKING,
     Tuple,
+    TypeVar,
 )
 
 from meadowrun.aws_integration.ecr import get_ecr_username_password
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
 
     from meadowrun._vendor import aiodocker
     from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+    from meadowrun.instance_selection import Resources
 
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
@@ -71,6 +74,9 @@ from meadowrun.run_job_core import (
 from meadowrun.shared import pickle_exception
 
 ProcessStateEnum = ProcessState.ProcessStateEnum
+
+_T = TypeVar("_T")
+_U = TypeVar("_U")
 
 
 _MEADOWRUN_CONTEXT_VARIABLES = "MEADOWRUN_CONTEXT_VARIABLES"
@@ -1139,13 +1145,9 @@ async def run_local(
 
 @dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
-    def uses_gpu(self) -> bool:
-        return False
-
-    def needs_cuda(self) -> bool:
-        return False
-
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
+    async def run_job(
+        self, resources_required: Resources, job: Job
+    ) -> JobCompletion[Any]:
         initial_update, continuation = await run_local(job)
         if (
             initial_update.state != ProcessState.ProcessStateEnum.RUNNING
@@ -1173,3 +1175,14 @@ class LocalHost(Host):
             )
         else:
             raise MeadowrunException(result)
+
+    async def run_map(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Resources,
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> Sequence[Any]:
+        raise NotImplementedError("run_map on LocalHost is not implemented")

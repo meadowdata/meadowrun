@@ -60,8 +60,8 @@ if TYPE_CHECKING:
         VersionedCodeDeployment,
         VersionedInterpreterDeployment,
     )
+    from meadowrun.instance_selection import Resources
 from meadowrun.docker_controller import get_registry_domain
-from meadowrun.instance_selection import Resources
 from meadowrun.meadowrun_pb2 import (
     AwsSecretProto,
     AzureSecretProto,
@@ -90,7 +90,13 @@ from meadowrun.pip_integration import (
     pip_freeze_without_local_current_interpreter,
     pip_freeze_without_local_other_interpreter,
 )
-from meadowrun.run_job_core import CloudProviderType, Host, JobCompletion, SshHost
+from meadowrun.run_job_core import (
+    CloudProviderType,
+    Host,
+    JobCompletion,
+    ResourcesRequired,
+    SshHost,
+)
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -869,10 +875,6 @@ class _DeploymentTarget(Enum):
         else:
             return _DeploymentTarget.LOCAL
 
-    @staticmethod
-    def from_hosts(hosts: AllocCloudInstances) -> _DeploymentTarget:
-        return _DeploymentTarget.from_cloud_provider(hosts.cloud_provider)
-
 
 async def _prepare_code_deployment(
     code_deploy: Union[CodeDeployment, VersionedCodeDeployment],
@@ -913,57 +915,22 @@ async def _prepare_code_deployment(
         raise ValueError(f"Unexpected value for target {target}")
 
 
-def _needs_cuda(flags_required: Union[Iterable[str], str, None]) -> bool:
-    if flags_required is None:
-        return False
-    if isinstance(flags_required, str):
-        return "nvidia" == flags_required
-    return "nvidia" in flags_required
-
-
 @dataclasses.dataclass(frozen=True)
 class AllocCloudInstance(Host):
     """
     Specifies the requirements for a cloud instance (e.g. an EC2 instance or Azure VM).
 
     Attributes:
-        logical_cpu_required:
-        memory_gb_required:
-        interruption_probability_threshold: Specifies what interruption probability
-            percent is acceptable. E.g. `80` means that any instance type with an
-            interruption probability less than 80% can be used. Use `0` to indicate that
-            only on-demand instance are acceptable (i.e. do not use spot instances)
         cloud_provider: `EC2` or `AzureVM`
-        gpus_required:
-        gpu_memory_required: Total GPU memory required across all GPUs
-        flags_required: E.g. "intel", "avx512", etc.
         region_name:
     """
 
-    logical_cpu_required: float
-    memory_gb_required: float
-    interruption_probability_threshold: float
     cloud_provider: CloudProviderType
-    gpus_required: Optional[float] = None
-    gpu_memory_required: Optional[float] = None
-    flags_required: Union[Iterable[str], str, None] = None
     region_name: Optional[str] = None
 
-    def uses_gpu(self) -> bool:
-        return self.gpus_required is not None or self.gpu_memory_required is not None
-
-    def needs_cuda(self) -> bool:
-        return self.uses_gpu() and _needs_cuda(self.flags_required)
-
-    async def run_job(self, job: Job) -> JobCompletion[Any]:
-        resources_required = Resources.from_cpu_and_memory(
-            self.logical_cpu_required,
-            self.memory_gb_required,
-            self.interruption_probability_threshold,
-            self.gpus_required,
-            self.gpu_memory_required,
-            self.flags_required,
-        )
+    async def run_job(
+        self, resources_required: Resources, job: Job
+    ) -> JobCompletion[Any]:
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
                 job,
@@ -979,39 +946,81 @@ class AllocCloudInstance(Host):
                 f"Unexpected value for cloud_provider {self.cloud_provider}"
             )
 
+    async def run_map(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Resources,
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> Sequence[Any]:
+        if self.cloud_provider == "EC2":
+            helper = await prepare_ec2_run_map(
+                function,
+                args,
+                self.region_name,
+                resources_required_per_task,
+                num_concurrent_tasks,
+                job_fields["ports"],
+            )
+        elif self.cloud_provider == "AzureVM":
+            helper = await prepare_azure_vm_run_map(
+                function,
+                args,
+                self.region_name,
+                resources_required_per_task,
+                num_concurrent_tasks,
+                job_fields["ports"],
+            )
+        else:
+            raise ValueError(
+                f"Unexpected value for cloud_provider {self.cloud_provider}"
+            )
 
-@dataclasses.dataclass(frozen=True)
-class AllocCloudInstances:
-    """
-    Specifies the requirements for a set of cloud instances (e.g. EC2 instances or Azure
-    VMs) for running multiple workers. Also see
-    [AllocCloudInstance][meadowrun.AllocCloudInstance]
+        # Now we will run worker_loop jobs on the hosts we got:
 
-    Attributes:
-        logical_cpu_required_per_task:
-        memory_gb_required_per_task:
-        interruption_probability_threshold: See
-            [AllocCloudInstance][meadowrun.AllocCloudInstance]
-        cloud_provider: Either `EC2` or `AzureVM`
-        gpus_required_per_task:
-        gpu_memory_required_per_task: Total GPU memory required across all GPUs
-        flags_required: e.g. "intel", "avx512", etc.
-        num_concurrent_tasks: The number of workers to launch. In the context of a
-            [run_map][meadowrun.run_map] call, this can be less than or equal to the
-            number of args/tasks. Will default to half the total number of tasks if set
-            to None.
-        region_name:
-    """
+        pickled_worker_function = cloudpickle.dumps(
+            helper.worker_function, protocol=pickle_protocol
+        )
 
-    logical_cpu_required_per_task: float
-    memory_gb_required_per_task: float
-    interruption_probability_threshold: float
-    cloud_provider: CloudProviderType
-    gpus_required_per_task: Optional[float] = None
-    gpu_memory_required_per_task: Optional[float] = None
-    flags_required: Union[Iterable[str], str, None] = None
-    num_concurrent_tasks: Optional[int] = None
-    region_name: Optional[str] = None
+        worker_tasks = []
+        worker_id = 0
+        for public_address, worker_job_ids in helper.allocated_hosts.items():
+            for worker_job_id in worker_job_ids:
+                job = Job(
+                    job_id=worker_job_id,
+                    py_function=PyFunctionJob(
+                        pickled_function=pickled_worker_function,
+                        pickled_function_arguments=pickle.dumps(
+                            ([public_address, worker_id], {}), protocol=pickle_protocol
+                        ),
+                    ),
+                    **job_fields,
+                )
+
+                worker_tasks.append(
+                    asyncio.create_task(
+                        SshHost(
+                            public_address,
+                            helper.ssh_username,
+                            helper.ssh_private_key,
+                            (self.cloud_provider, helper.region_name),
+                        ).run_job(resources_required_per_task, job)
+                    )
+                )
+
+                worker_id += 1
+
+        # finally, wait for results:
+
+        results = await helper.results_future
+
+        # TODO if there's an error these workers will crash before the results_future
+        # returns
+        await asyncio.gather(*worker_tasks)
+
+        return results
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:
@@ -1119,6 +1128,7 @@ def _prepare_container_services(
 
 async def run_function(
     function: Union[Callable[..., _T], str],
+    resources_required: ResourcesRequired,
     host: Host,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
@@ -1204,7 +1214,7 @@ async def run_function(
         environment_variables,
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
-    if host.needs_cuda() and isinstance(
+    if resources_required.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
         interpreter.additional_software["cuda"] = ""
@@ -1228,16 +1238,20 @@ async def run_function(
         container_services=container_services_prepared,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
-        uses_gpu=host.uses_gpu(),
+        uses_gpu=resources_required.uses_gpu(),
+        **{  # type: ignore
+            _job_field_for_code_deployment(code): code,
+            _job_field_for_interpreter_deployment(interpreter): interpreter,
+        },
     )
-    _add_deployments_to_job(job, code, interpreter)
 
-    job_completion = await host.run_job(job)
+    job_completion = await host.run_job(resources_required.to_resources(), job)
     return job_completion.result
 
 
 async def run_command(
     args: Union[str, Sequence[str]],
+    resources_required: ResourcesRequired,
     host: Host,
     deployment: Optional[Deployment] = None,
     context_variables: Optional[Dict[str, Any]] = None,
@@ -1283,7 +1297,7 @@ async def run_command(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
-    if host.needs_cuda() and isinstance(
+    if resources_required.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
         interpreter.additional_software["cuda"] = ""
@@ -1316,18 +1330,23 @@ async def run_command(
         container_services=container_services_prepared,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
-        uses_gpu=host.uses_gpu(),
+        uses_gpu=resources_required.uses_gpu(),
+        **{  # type: ignore
+            _job_field_for_code_deployment(code): code,
+            _job_field_for_interpreter_deployment(interpreter): interpreter,
+        },
     )
-    _add_deployments_to_job(job, code, interpreter)
 
-    return await host.run_job(job)
+    return await host.run_job(resources_required.to_resources(), job)
 
 
 async def run_map(
     function: Callable[[_T], _U],
     args: Sequence[_T],
-    hosts: AllocCloudInstances,
+    resources_required_per_task: ResourcesRequired,
+    host: Host,
     deployment: Optional[Deployment] = None,
+    num_concurrent_tasks: Optional[int] = None,
     container_services: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
@@ -1341,8 +1360,12 @@ async def run_map(
             lambda
         args: A list of objects, each item in the list represents a "task",
             where each "task" is an invocation of `function` on the item in the list
-        hosts: See [AllocCloudInstances][meadowrun.AllocCloudInstances]. Specifies how
+        resources_required_per_task: The resources required to run a single task
+        host: See [AllocCloudInstances][meadowrun.AllocCloudInstances]. Specifies how
             many workers to provision and what resources are needed for each worker.
+        num_concurrent_tasks: The number of workers to launch. This can be less than or
+            equal to the number of args/tasks. Will default to half the total number of
+            tasks plus one, rounded down if set to None.
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run the function
         container_services: Additional containers that will be available from the main
@@ -1356,42 +1379,10 @@ async def run_map(
         Returns the result of running `function` on each of `args`
     """
 
-    if not hosts.num_concurrent_tasks:
+    if not num_concurrent_tasks:
         num_concurrent_tasks = len(args) // 2 + 1
     else:
-        num_concurrent_tasks = min(hosts.num_concurrent_tasks, len(args))
-
-    resources_required_per_task = Resources.from_cpu_and_memory(
-        hosts.logical_cpu_required_per_task,
-        hosts.memory_gb_required_per_task,
-        hosts.interruption_probability_threshold,
-        hosts.gpus_required_per_task,
-        hosts.gpu_memory_required_per_task,
-        hosts.flags_required,
-    )
-
-    prepared_ports = _prepare_ports(ports)
-
-    if hosts.cloud_provider == "EC2":
-        helper = await prepare_ec2_run_map(
-            function,
-            args,
-            hosts.region_name,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            prepared_ports,
-        )
-    elif hosts.cloud_provider == "AzureVM":
-        helper = await prepare_azure_vm_run_map(
-            function,
-            args,
-            hosts.region_name,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            prepared_ports,
-        )
-    else:
-        raise ValueError(f"Unexpected value for cloud_provider {hosts.cloud_provider}")
+        num_concurrent_tasks = min(num_concurrent_tasks, len(args))
 
     # prepare some variables for constructing the worker jobs
     friendly_name = _get_friendly_name(function)
@@ -1402,18 +1393,14 @@ async def run_map(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
-    uses_gpu = (
-        hosts.gpus_required_per_task is not None
-        or hosts.gpu_memory_required_per_task is not None
-    )
-    if (
-        uses_gpu
-        and _needs_cuda(hosts.flags_required)
-        and isinstance(interpreter, (EnvironmentSpec, EnvironmentSpecInCode))
+    if resources_required_per_task.needs_cuda() and isinstance(
+        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
         interpreter.additional_software["cuda"] = ""
 
-    code = await _prepare_code_deployment(code, _DeploymentTarget.from_hosts(hosts))
+    code = await _prepare_code_deployment(
+        code, _DeploymentTarget.from_single_host(host)
+    )
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
@@ -1423,92 +1410,66 @@ async def run_map(
     ) = _prepare_container_services(container_services)
     credentials_sources.extend(additional_credentials_sources)
 
-    # Now we will run worker_loop jobs on the hosts we got:
+    prepared_ports = _prepare_ports(ports)
 
-    pickled_worker_function = cloudpickle.dumps(
-        helper.worker_function, protocol=pickle_protocol
+    job_fields = {
+        "job_friendly_name": friendly_name,
+        "environment_variables": environment_variables,
+        "result_highest_pickle_protocol": pickle.HIGHEST_PROTOCOL,
+        "container_services": container_services_prepared,
+        "credentials_sources": credentials_sources,
+        "ports": prepared_ports,
+        "uses_gpu": resources_required_per_task.uses_gpu(),
+        _job_field_for_code_deployment(code): code,
+        _job_field_for_interpreter_deployment(interpreter): interpreter,
+    }
+
+    return await host.run_map(
+        function,
+        args,
+        resources_required_per_task.to_resources(),
+        job_fields,
+        num_concurrent_tasks,
+        pickle_protocol,
     )
 
-    worker_tasks = []
-    worker_id = 0
-    for public_address, worker_job_ids in helper.allocated_hosts.items():
-        for worker_job_id in worker_job_ids:
-            job = Job(
-                job_id=worker_job_id,
-                job_friendly_name=friendly_name,
-                environment_variables=environment_variables,
-                result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-                py_function=PyFunctionJob(
-                    pickled_function=pickled_worker_function,
-                    pickled_function_arguments=pickle.dumps(
-                        ([public_address, worker_id], {}), protocol=pickle_protocol
-                    ),
-                ),
-                container_services=container_services_prepared,
-                credentials_sources=credentials_sources,
-                ports=prepared_ports,
-                uses_gpu=uses_gpu,
-            )
-            _add_deployments_to_job(job, code, interpreter)
 
-            worker_tasks.append(
-                asyncio.create_task(
-                    SshHost(
-                        public_address,
-                        helper.ssh_username,
-                        helper.ssh_private_key,
-                        (hosts.cloud_provider, helper.region_name),
-                    ).run_job(job)
-                )
-            )
-
-            worker_id += 1
-
-    # finally, wait for results:
-
-    results = await helper.results_future
-
-    # TODO if there's an error these workers will crash before the results_future
-    # returns
-    await asyncio.gather(*worker_tasks)
-
-    return results
-
-
-def _add_deployments_to_job(
-    job: Job,
+def _job_field_for_code_deployment(
     code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
-) -> None:
+) -> str:
     """
-    Think of this as job.code_deployment = code_deployment; job.interpreter_deployment =
-    interpreter_deployment, but it's complicated because these are protobuf oneofs
+    You can't just do Job(code_deployment=code_deployment) because of the protobuf
+    oneofs. Instead you need to do
+    Job(**{_job_field_for_code_deployment(code_deployment): code_deployment})
     """
     if isinstance(code_deployment, ServerAvailableFolder):
-        job.server_available_folder.CopyFrom(code_deployment)
+        return "server_available_folder"
     elif isinstance(code_deployment, GitRepoCommit):
-        job.git_repo_commit.CopyFrom(code_deployment)
+        return "git_repo_commit"
     elif isinstance(code_deployment, GitRepoBranch):
-        job.git_repo_branch.CopyFrom(code_deployment)
+        return "git_repo_branch"
     elif isinstance(code_deployment, CodeZipFile):
-        job.code_zip_file.CopyFrom(code_deployment)
+        return "code_zip_file"
     else:
         raise ValueError(f"Unknown code deployment type {type(code_deployment)}")
 
+
+def _job_field_for_interpreter_deployment(
+    interpreter_deployment: Union[InterpreterDeployment, VersionedInterpreterDeployment]
+) -> str:
+    """See _job_field_for_code_deployment for usage pattern"""
     if isinstance(interpreter_deployment, ServerAvailableInterpreter):
-        job.server_available_interpreter.CopyFrom(interpreter_deployment)
+        return "server_available_interpreter"
     elif isinstance(interpreter_deployment, ContainerAtDigest):
-        job.container_at_digest.CopyFrom(interpreter_deployment)
+        return "container_at_digest"
     elif isinstance(interpreter_deployment, ServerAvailableContainer):
-        job.server_available_container.CopyFrom(interpreter_deployment)
+        return "server_available_container"
     elif isinstance(interpreter_deployment, ContainerAtTag):
-        job.container_at_tag.CopyFrom(interpreter_deployment)
+        return "container_at_tag"
     elif isinstance(interpreter_deployment, EnvironmentSpecInCode):
-        job.environment_spec_in_code.CopyFrom(interpreter_deployment)
+        return "environment_spec_in_code"
     elif isinstance(interpreter_deployment, EnvironmentSpec):
-        job.environment_spec.CopyFrom(interpreter_deployment)
+        return "environment_spec"
     else:
         raise ValueError(
             f"Unknown interpreter deployment type {type(interpreter_deployment)}"

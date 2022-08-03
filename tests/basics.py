@@ -9,7 +9,6 @@ import pytest
 
 import meadowrun.docker_controller
 from meadowrun import (
-    AllocCloudInstances,
     CondaEnvironmentYmlFile,
     Deployment,
     LocalCondaInterpreter,
@@ -38,12 +37,13 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableContainer,
     ProcessState,
 )
-from meadowrun.run_job import ContainerInterpreter
+from meadowrun.run_job import ContainerInterpreter, AllocCloudInstance
 from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
     JobCompletion,
     MeadowrunException,
+    ResourcesRequired,
 )
 
 
@@ -55,6 +55,10 @@ class HostProvider(abc.ABC):
     TestBasicsAws(AwsHostProvider, BasicsSuite), runs the "Basics" test suite on AWS
     hosts.
     """
+
+    @abc.abstractmethod
+    def get_resources_required(self) -> ResourcesRequired:
+        pass
 
     @abc.abstractmethod
     def get_host(self) -> Host:
@@ -117,6 +121,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     ):
         results: str = await run_function(
             "example_package.example.example_runner",
+            self.get_resources_required(),
             self.get_host(),
             Deployment(interpreter_deployment, code_deployment),
             args=["foo"],
@@ -125,6 +130,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
         job_completion = await run_command(
             "pip --version",
+            self.get_resources_required(),
             self.get_host(),
             Deployment(interpreter_deployment, code_deployment),
         )
@@ -137,6 +143,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
         results: str = await run_function(
             "example.example_runner",
+            self.get_resources_required(),
             self.get_host(),
             Deployment(
                 code=GitRepoCommit(
@@ -164,6 +171,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
             result = await run_command(
                 "python --version",
+                self.get_resources_required(),
                 self.get_host(),
                 Deployment(ContainerAtDigest(repository="python", digest=digest)),
             )
@@ -182,6 +190,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_conda_file_in_git_repo(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -197,6 +206,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_pip_file_in_git_repo(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -212,6 +222,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_pip_file_in_git_repo_with_git_dependency(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -235,6 +246,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
         results = await run_function(
             remote_function,
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -256,6 +268,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
         results = await run_function(
             remote_function,
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -276,6 +289,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
         results = await run_function(
             remote_function,
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -289,6 +303,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_poetry_project_in_git_repo(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -304,6 +319,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_poetry_project_in_git_repo_with_git_dependency(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -322,6 +338,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_git_repo_with_container(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -341,6 +358,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         try:
             results = await run_function(
                 self._get_remote_function_for_deployment(),
+                self.get_resources_required(),
                 self.get_host(),
                 await Deployment.mirror_local(
                     interpreter=LocalCondaInterpreter("test_repo_conda_env"),
@@ -379,6 +397,7 @@ class BasicsSuite(HostProvider, abc.ABC):
             test_venv_interpreter = _path_from_here("../../test_venv_linux/bin/python")
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=LocalPipInterpreter(test_venv_interpreter, "3.9"),
@@ -399,6 +418,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         # - pip install -r test_repo/requirements.txt
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=CondaEnvironmentYmlFile(
@@ -421,6 +441,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         # - pip install -r test_repo/requirements.txt
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=PipRequirementsFile(
@@ -437,6 +458,9 @@ class BasicsSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
     async def test_local_pip_file_with_data_file(self):
         def remote_function():
+            print(os.getcwd())
+            print(os.listdir("."))
+
             with open("example_package/test.txt", encoding="utf-8") as f:
                 return f.read()
 
@@ -446,6 +470,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
             results = await run_function(
                 remote_function,
+                self.get_resources_required(),
                 self.get_host(),
                 await Deployment.mirror_local(
                     interpreter=PipRequirementsFile(
@@ -463,6 +488,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_local_poetry_project(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=PoetryProjectPath(
@@ -480,6 +506,7 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_local_code_with_container(self):
         results = await run_function(
             self._get_remote_function_for_deployment(),
+            self.get_resources_required(),
             self.get_host(),
             await Deployment.mirror_local(
                 interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
@@ -514,6 +541,7 @@ class ErrorsSuite(HostProvider, abc.ABC):
         with pytest.raises(MeadowrunException) as exc_info:
             await run_function(
                 lambda: "hello",
+                self.get_resources_required(),
                 self.get_host(),
                 Deployment(ServerAvailableContainer(image_name="does-not-exist")),
             )
@@ -530,7 +558,9 @@ class ErrorsSuite(HostProvider, abc.ABC):
             sys.exit(101)
 
         with pytest.raises(MeadowrunException) as exc_info:
-            await run_function(exit_immediately, self.get_host())
+            await run_function(
+                exit_immediately, self.get_resources_required(), self.get_host()
+            )
 
         assert (
             exc_info.value.process_state.state
@@ -551,9 +581,9 @@ class MapSuite(abc.ABC):
         results = await run_map(
             lambda x: x**x,
             [1, 2, 3, 4],
-            AllocCloudInstances(
-                1, 1, 15, self.cloud_provider(), num_concurrent_tasks=3
-            ),
+            ResourcesRequired(1, 1, 15),
+            AllocCloudInstance(self.cloud_provider()),
+            num_concurrent_tasks=3,
         )
 
         assert results == [1, 4, 27, 256]

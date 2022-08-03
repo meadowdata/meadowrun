@@ -17,7 +17,7 @@ import uuid
 import boto3
 
 import pytest
-from meadowrun import ssh
+from meadowrun import ssh, ResourcesRequired
 
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
@@ -56,8 +56,11 @@ REGION = "us-east-2"
 
 
 class AwsHostProvider(HostProvider):
+    def get_resources_required(self) -> ResourcesRequired:
+        return ResourcesRequired(1, 4, 80)
+
     def get_host(self) -> Host:
-        return AllocCloudInstance(1, 4, 80, "EC2", region_name=REGION)
+        return AllocCloudInstance("EC2", region_name=REGION)
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"

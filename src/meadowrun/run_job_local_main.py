@@ -97,8 +97,8 @@ async def main_async(
 ) -> None:
     job_io_prefix = f"{working_folder}/io/{job_id}"
     try:
-        # write to a temp file and then rename to make deallocate_tasks doesn't see a
-        # partial write
+        # write to a temp file and then rename to make sure deallocate_tasks doesn't see
+        # a partial write
         with open(f"{job_io_prefix}.pid_temp", mode="w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
         os.rename(f"{job_io_prefix}.pid_temp", f"{job_io_prefix}.pid")

@@ -54,6 +54,11 @@ async def build_meadowrun_azure_image():
     # done. Current gallery is meadowrunprodeastus
     print(f"VM {vm_name} is ready to be captured into an image")
 
+    # This requires creating a compute gallery using the "Community Sharing" preview
+    # feature. Instructions for setting up the community compute gallery:
+    # https://docs.microsoft.com/en-us/azure/virtual-machines/azure-compute-gallery
+    # https://docs.microsoft.com/en-us/azure/virtual-machines/create-gallery?tabs=portal%2Ccli2#create-a-community-gallery-preview
+
 
 if __name__ == "__main__":
     asyncio.run(build_meadowrun_azure_image())

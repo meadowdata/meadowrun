@@ -33,18 +33,13 @@ _MEADOWRUN_SUBNET_NAME = "Meadowrun-subnet"
 _MEADOWRUN_USERNAME = "meadowrunuser"
 
 
-# To get this ID, first create an image by manually running the equivalent of
-# build_ami.py in Azure. (TODO should write a script for this.) This requires creating a
-# compute gallery using the "Community Sharing" preview feature. Instructions for
-# setting up the community compute gallery:
-# https://docs.microsoft.com/en-us/azure/virtual-machines/azure-compute-gallery
-# https://docs.microsoft.com/en-us/azure/virtual-machines/create-gallery?tabs=portal%2Ccli2#create-a-community-gallery-preview
-# Finally, you'll need to get the community image id (NOT the image's regular id!) and
+# To get this ID, build an image using build_scripts/build_azure_image.py. Once you have
+# an image, you'll need to get the community image id (NOT the image's regular id!) and
 # copy/paste that here, using the following command:
 # https://docs.microsoft.com/en-us/cli/azure/sig/image-definition?view=azure-cli-latest#az-sig-image-definition-list-community
 _MEADOWRUN_COMMUNITY_IMAGE_ID = (
     "/CommunityGalleries/meadowprodeastus-e8b60fd5-8978-467b-a1b0-5b83cbf5393d/Images/"
-    "meadowrun-dev"
+    "meadowrun"
 )
 _MEADOWRUN_IMAGE_VERSION = "0.1.14"
 

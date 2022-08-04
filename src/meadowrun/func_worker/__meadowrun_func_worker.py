@@ -51,7 +51,10 @@ def main():
             print(f"About to import {args.module_name}.{args.function_name}")
             module = importlib.import_module(args.module_name)
             function = getattr(module, args.function_name)
-            print(f"Imported {args.function_name} from {module.__file__}")
+            print(
+                f"Imported {args.function_name} from "
+                f"{getattr(module, '__file__', str(module))}"
+            )
         else:
             pickled_function_path = args.io_path + ".function"
             print(f"Unpickling function from {pickled_function_path}")

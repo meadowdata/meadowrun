@@ -12,4 +12,4 @@ WORKDIR /meadowrun
 
 COPY meadowrun-0.1.15a2-py3-none-any.whl meadowrun-0.1.15a2-py3-none-any.whl
 
-RUN pip install meadowrun-0.1.15a2-py3-none-any.whl
+RUN pip install meadowrun-0.1.15a2-py3-none-any.whl && rm meadowrun-0.1.15a2-py3-none-any.whl

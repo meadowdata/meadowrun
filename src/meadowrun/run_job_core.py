@@ -264,6 +264,8 @@ class SshHost(Host):
                 remote_paths = " ".join(
                     [
                         f"{job_io_prefix}.job_to_run",
+                        f"{job_io_prefix}.function",
+                        f"{job_io_prefix}.arguments",
                         f"{job_io_prefix}.state",
                         f"{job_io_prefix}.result",
                         f"{job_io_prefix}.process_state",
@@ -276,6 +278,8 @@ class SshHost(Host):
                     await ssh.run_and_capture(
                         connection, f"rm -f {remote_paths}", check=True
                     )
+                except asyncio.CancelledError:
+                    raise
                 except Exception as e:
                     print(
                         f"Error cleaning up files on remote machine: "

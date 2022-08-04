@@ -84,10 +84,6 @@ async def _create_queues_for_job(job_id: str, region_name: str) -> Tuple[str, st
     hyphens
     """
 
-    # TODO we should automatically delete these queues also. I think the best way is to
-    # have get_results periodically tag the queue with a timestamp and have a lambda
-    # periodically clean them up
-
     async with aiobotocore.session.get_session().create_client(
         "sqs", region_name=region_name
     ) as client:
@@ -230,7 +226,6 @@ def _send_or_upload_message(
 
 
 def _get_result_from_body(body: Any, region_name: str, task_result: Any) -> None:
-    # task_result = GridTaskStateResponse()
     if body.startswith(_BODY_INLINE):
         task_result.ParseFromString(
             base64.b64decode(body[len(_BODY_INLINE) :].encode("utf-8"))

@@ -781,7 +781,7 @@ def _get_credentials_sources(job: Job) -> CredentialsDict:
         source = credentials_source.WhichOneof("source")
         if source is None:
             raise ValueError(
-                "AddCredentialsRequest request should have a source set: "
+                "CredentialsSourceMessage should have a source set: "
                 f"{credentials_source}"
             )
         credentials_sources.setdefault(credentials_source.service, []).append(

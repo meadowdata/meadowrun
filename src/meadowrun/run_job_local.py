@@ -775,6 +775,22 @@ def _set_up_working_folder(
     )
 
 
+def _get_credentials_sources(job: Job) -> CredentialsDict:
+    credentials_sources: CredentialsDict = {}
+    for credentials_source in job.credentials_sources:
+        source = credentials_source.WhichOneof("source")
+        if source is None:
+            raise ValueError(
+                "AddCredentialsRequest request should have a source set: "
+                f"{credentials_source}"
+            )
+        credentials_sources.setdefault(credentials_source.service, []).append(
+            (credentials_source.service_url, getattr(credentials_source, source))
+        )
+
+    return credentials_sources
+
+
 async def _get_credentials_for_docker(
     repository: str,
     credentials_sources: CredentialsDict,
@@ -832,17 +848,7 @@ async def _get_credentials_for_job(
     """
 
     # first, get all available credentials sources from the JobToRun
-    credentials_sources: CredentialsDict = {}
-    for credentials_source in job.credentials_sources:
-        source = credentials_source.WhichOneof("source")
-        if source is None:
-            raise ValueError(
-                "AddCredentialsRequest request should have a source set: "
-                f"{credentials_source}"
-            )
-        credentials_sources.setdefault(credentials_source.service, []).append(
-            (credentials_source.service_url, getattr(credentials_source, source))
-        )
+    credentials_sources = _get_credentials_sources(job)
 
     # now, get any matching credentials sources and turn them into credentials
     code_deployment_credentials, interpreter_deployment_credentials = None, None

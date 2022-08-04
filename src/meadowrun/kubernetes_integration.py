@@ -23,11 +23,12 @@ from typing import (
 import botocore.exceptions
 import cloudpickle
 import kubernetes_asyncio.client as kubernetes_client
+import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
 import kubernetes_asyncio.config as kubernetes_config
 import kubernetes_asyncio.watch as kubernetes_watch
-import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
 
 import meadowrun.func_worker_storage_helper
+from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
@@ -43,8 +44,11 @@ from meadowrun.meadowrun_pb2 import (
     QualifiedFunctionName,
 )
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
-from meadowrun.run_job_local import _string_pairs_to_dict
-
+from meadowrun.run_job_local import (
+    _get_credentials_for_docker,
+    _get_credentials_sources,
+    _string_pairs_to_dict,
+)
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -436,11 +440,17 @@ class Kubernetes(Host):
     async def run_job(
         self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
-        # TODO add support for resources
+        # TODO add support for all of these features
         if resources_required is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
             )
+        if job.container_services:
+            raise NotImplementedError(
+                "Container services are not yet supported for Kubernetes"
+            )
+        if job.ports:
+            raise NotImplementedError("Ports are not yet supported for Kubernetes")
 
         job_completions = await self._run_job_helper(
             await self._get_storage_client(), job, None
@@ -480,18 +490,37 @@ class Kubernetes(Host):
 
         interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
         if interpreter_deployment_type == "container_at_digest":
+            image_repository_name = job.container_at_digest.repository
             image_name = (
                 f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"
             )
         elif interpreter_deployment_type == "container_at_tag":
+            image_repository_name = job.container_at_tag.repository
             image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"
         elif interpreter_deployment_type == "server_available_container":
+            image_repository_name = None
             image_name = f"{job.server_available_container.image_name}"
         else:
             raise NotImplementedError(
                 "Only pre-built containers are supported for interpreter_deployment in"
                 " run_job_container_local"
             )
+
+        # get any image pull secrets
+        # first, get all available credentials sources from the JobToRun
+        image_pull_secret_name = None
+        if image_repository_name is not None:
+            image_pull_secret = await _get_credentials_for_docker(
+                image_repository_name, _get_credentials_sources(job), None
+            )
+            if image_pull_secret is not None:
+                if not isinstance(image_pull_secret, KubernetesSecretRaw):
+                    raise NotImplementedError(
+                        "Using anything other than KubernetesSecret with a Kubernetes "
+                        f"host has not been implemented, {type(image_pull_secret)} was "
+                        "provided"
+                    )
+                image_pull_secret_name = image_pull_secret.secret_name
 
         file_prefix = f"{self.storage_file_prefix}{job.job_id}"
         try:
@@ -518,6 +547,7 @@ class Kubernetes(Host):
                     command,
                     environment_variables,
                     self.storage_username_password_secret,
+                    image_pull_secret_name,
                     indexed_completions,
                 )
             except asyncio.CancelledError:
@@ -574,11 +604,17 @@ class Kubernetes(Host):
         This implementation depends on Kubernetes indexed job completions
         (https://kubernetes.io/docs/tasks/job/indexed-parallel-processing-static/)
         """
-        # TODO add support for resources
+        # TODO add support for all of these features
         if resources_required_per_task is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
             )
+        if job_fields["container_services"]:
+            raise NotImplementedError(
+                "Container services are not yet supported for Kubernetes"
+            )
+        if job_fields["ports"]:
+            raise NotImplementedError("Ports are not yet supported for Kubernetes")
 
         storage_client = await self._get_storage_client()
         if storage_client is None:
@@ -899,6 +935,7 @@ async def _run_kubernetes_job(
     args: List[str],
     environment_variables: Dict[str, str],
     storage_username_password_secret: Optional[str],
+    image_pull_secret_name: Optional[str],
     indexed_completions: Optional[int],
 ) -> Sequence[int]:
     """
@@ -950,6 +987,15 @@ async def _run_kubernetes_job(
     else:
         additional_job_spec_parameters = {}
 
+    if image_pull_secret_name:
+        additional_pod_spec_parameters = {
+            "image_pull_secrets": [
+                kubernetes_client.V1LocalObjectReference(image_pull_secret_name)
+            ]
+        }
+    else:
+        additional_pod_spec_parameters = {}
+
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
     body = kubernetes_client.V1Job(
         metadata=kubernetes_client.V1ObjectMeta(name=job_id),
@@ -963,6 +1009,7 @@ async def _run_kubernetes_job(
                         )
                     ],
                     restart_policy="Never",
+                    **additional_pod_spec_parameters,
                 )
             ),
             **additional_job_spec_parameters,
@@ -973,7 +1020,7 @@ async def _run_kubernetes_job(
         batch_api = kubernetes_client.BatchV1Api(api_client)
         try:
             if indexed_completions:
-                version = kubernetes_client.VersionApi(api_client).get_code()
+                version = await kubernetes_client.VersionApi(api_client).get_code()
                 if (int(version.major), int(version.minor)) < (1, 21):
                     raise ValueError(
                         "run_map with Kubernetes is only supported on version 1.21 or "

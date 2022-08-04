@@ -323,6 +323,7 @@ message CredentialsSourceMessage {
         AwsSecretProto aws_secret = 3;
         AzureSecretProto azure_secret = 5;
         ServerAvailableFile server_available_file = 4;
+        KubernetesSecretProto kubernetes_secret = 6;
     }
 }
 
@@ -376,4 +377,14 @@ message AzureSecretProto {
 message ServerAvailableFile {
     Credentials.Type credentials_type = 1;
     string path = 2;
+}
+
+
+// Represents credentials stored in Kubernetes. This class doesn't really need to be a
+// protobuf because when we run on Kubernetes we don't actually need to serialize the
+// Job object. But we made it a protobuf anyways because all of the other types of
+// secrets are protobufs.
+message KubernetesSecretProto {
+    Credentials.Type credentials_type = 1;
+    string secret_name = 2;
 }

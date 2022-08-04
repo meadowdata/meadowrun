@@ -77,6 +77,7 @@ from meadowrun.meadowrun_pb2 import (
     GitRepoBranch,
     GitRepoCommit,
     Job,
+    KubernetesSecretProto,
     PyCommandJob,
     PyFunctionJob,
     QualifiedFunctionName,
@@ -177,6 +178,32 @@ class AzureSecret(Secret):
                 credentials_type=credentials_type,
                 secret_name=self.secret_name,
                 vault_name=vault_name,
+            ),
+        )
+
+
+@dataclasses.dataclass
+class KubernetesSecret(Secret):
+    """
+    A Kubernetes secret
+
+    Attributes:
+        secret_name: The name of the secret
+    """
+
+    secret_name: str
+
+    def _to_credentials_source(
+        self,
+        service: CredentialsService,
+        service_url: str,
+        credentials_type: Credentials.Type.ValueType,
+    ) -> CredentialsSourceForService:
+        return CredentialsSourceForService(
+            service=service,
+            service_url=service_url,
+            source=KubernetesSecretProto(
+                credentials_type=credentials_type, secret_name=self.secret_name
             ),
         )
 
@@ -750,6 +777,7 @@ class Deployment:
         cls,
         repository: str,
         tag: str = "latest",
+        username_password_secret: Optional[Secret] = None,
         environment_variables: Optional[Dict[str, str]] = None,
     ) -> Deployment:
         """
@@ -763,10 +791,20 @@ class Deployment:
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment.
         """
+        credentials_sources = []
+        if username_password_secret is not None:
+            credentials_sources.append(
+                username_password_secret._to_credentials_source(
+                    "DOCKER",
+                    get_registry_domain(repository)[0],
+                    Credentials.Type.USERNAME_PASSWORD,
+                )
+            )
         return cls(
             ContainerAtTag(repository=repository, tag=tag),
             ServerAvailableFolder(),
             environment_variables,
+            credentials_sources,
         )
 
     @classmethod
@@ -774,6 +812,7 @@ class Deployment:
         cls,
         repository: str,
         digest: str,
+        username_password_secret: Optional[Secret] = None,
         environment_variables: Optional[Dict[str, str]] = None,
     ) -> Deployment:
         """
@@ -787,10 +826,20 @@ class Deployment:
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment.
         """
+        credentials_sources = []
+        if username_password_secret is not None:
+            credentials_sources.append(
+                username_password_secret._to_credentials_source(
+                    "DOCKER",
+                    get_registry_domain(repository)[0],
+                    Credentials.Type.USERNAME_PASSWORD,
+                )
+            )
         return cls(
             ContainerAtDigest(repository=repository, digest=digest),
             ServerAvailableFolder(),
             environment_variables,
+            credentials_sources,
         )
 
 
@@ -807,6 +856,8 @@ def _credentials_source_message(
         result.azure_secret.CopyFrom(credentials_source.source)
     elif isinstance(credentials_source.source, ServerAvailableFile):
         result.server_available_file.CopyFrom(credentials_source.source)
+    elif isinstance(credentials_source.source, KubernetesSecretProto):
+        result.kubernetes_secret.CopyFrom(credentials_source.source)
     else:
         raise ValueError(
             f"Unknown type of credentials source {type(credentials_source.source)}"

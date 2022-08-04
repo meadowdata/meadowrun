@@ -1140,6 +1140,7 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     AWS_SECRET_FIELD_NUMBER: builtins.int
     AZURE_SECRET_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FILE_FIELD_NUMBER: builtins.int
+    KUBERNETES_SECRET_FIELD_NUMBER: builtins.int
     service: global___Credentials.Service.ValueType
     service_url: typing.Text
     @property
@@ -1148,6 +1149,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     def azure_secret(self) -> global___AzureSecretProto: ...
     @property
     def server_available_file(self) -> global___ServerAvailableFile: ...
+    @property
+    def kubernetes_secret(self) -> global___KubernetesSecretProto: ...
     def __init__(
         self,
         *,
@@ -1156,6 +1159,7 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
         aws_secret: typing.Optional[global___AwsSecretProto] = ...,
         azure_secret: typing.Optional[global___AzureSecretProto] = ...,
         server_available_file: typing.Optional[global___ServerAvailableFile] = ...,
+        kubernetes_secret: typing.Optional[global___KubernetesSecretProto] = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -1164,6 +1168,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
             b"aws_secret",
             "azure_secret",
             b"azure_secret",
+            "kubernetes_secret",
+            b"kubernetes_secret",
             "server_available_file",
             b"server_available_file",
             "source",
@@ -1177,6 +1183,8 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
             b"aws_secret",
             "azure_secret",
             b"azure_secret",
+            "kubernetes_secret",
+            b"kubernetes_secret",
             "server_available_file",
             b"server_available_file",
             "service",
@@ -1190,7 +1198,9 @@ class CredentialsSourceMessage(google.protobuf.message.Message):
     def WhichOneof(
         self, oneof_group: typing_extensions.Literal["source", b"source"]
     ) -> typing.Optional[
-        typing_extensions.Literal["aws_secret", "azure_secret", "server_available_file"]
+        typing_extensions.Literal[
+            "aws_secret", "azure_secret", "server_available_file", "kubernetes_secret"
+        ]
     ]: ...
 
 global___CredentialsSourceMessage = CredentialsSourceMessage
@@ -1346,3 +1356,30 @@ class ServerAvailableFile(google.protobuf.message.Message):
     ) -> None: ...
 
 global___ServerAvailableFile = ServerAvailableFile
+
+class KubernetesSecretProto(google.protobuf.message.Message):
+    """Represents credentials stored in Kubernetes. This class doesn't really need to be a
+    protobuf because when we run on Kubernetes we don't actually need to serialize the
+    Job object. But we made it a protobuf anyways because all of the other types of
+    secrets are protobufs.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+    CREDENTIALS_TYPE_FIELD_NUMBER: builtins.int
+    SECRET_NAME_FIELD_NUMBER: builtins.int
+    credentials_type: global___Credentials.Type.ValueType
+    secret_name: typing.Text
+    def __init__(
+        self,
+        *,
+        credentials_type: global___Credentials.Type.ValueType = ...,
+        secret_name: typing.Text = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "credentials_type", b"credentials_type", "secret_name", b"secret_name"
+        ],
+    ) -> None: ...
+
+global___KubernetesSecretProto = KubernetesSecretProto

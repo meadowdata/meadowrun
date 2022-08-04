@@ -1,192 +1,50 @@
-# flake8: noqa
-
-"""
-A script to create a meadowrun EC2 BASE AMI. The only reason to want to change the base
-AMI is because you want to change the version or flavour of Linux/Docker/Python we're
-using, or some other deep baked-into-the-OS thing. To update meadowrun, you just need to
-run the script below without going through these manual steps.
-
-The main prerequisite for this script is an AMI that has that has Linux, Docker, and
-Python installed, referenced as _BASE_AMI. To build this base AMI (which should also be
-automated):
-
-
-Clear Linux 
------------
-Clear Linux has the fastest boot times, see https://www.daemonology.net/blog/2021-08-12-EC2-boot-time-benchmarking.html)
-
-New option: use Clear Linux - Launch an EC2 instance using the Clear Linux AMI
-(https://clearlinux.org/download). Use a 4Gb EBS volume.
-
-- ssh into the instance: `ssh -i key_pair.pem clear@public-dns-of-instance`
-- Run `sudo swupd update`
-- Disable automatic updates (otherwise swupd will automatically update at at startup, using resources): sudo swupd autoupdate --disable
-- Enable SFTP: https://docs.01.org/clearlinux/latest/guides/network/openssh-server.html?highlight=ssh#id4
-    ```echo 'subsystem sftp /usr/libexec/sftp-server' | sudo tee -a /etc/ssh/sshd_config```
-- Install cron & allow clear user to use it
-    `sudo swupd bundle-add cronie`
-    `sudo systemctl enable cronie`
-    `echo clear | sudo tee -a /etc/cron.allow`
-- Install Docker: `sudo swupd bundle-add containers-basic`
-- [Add the current user (clear) to the docker group](https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket): `sudo usermod -aG docker ${USER}`
-- Install Python: `sudo swupd bundle-add python-basic`
-
--
-Prepare a virtualenv for meadowrun
-```shell
-sudo mkdir /var/meadowrun 
-sudo chown clear:clear /var/meadowrun
-mkdir /var/meadowrun/env
-python -m venv /var/meadowrun/env
-source /var/meadowrun/env/bin/activate
-python -m pip install --upgrade pip
-pip install wheel  # not sure why this is necessary...
-```
-
-- Get the versions of everything we've installed:
-```shell
-swupd info  # Clear Linux version
-docker --version
-python --version
-```
-Now, since the Clean Linux image is "sold" for 0 dollars on AWS Marketplace, we can't make any AMIs public.
-This is not a problem for Clear Linux, as it's free anyway, but some technical AWS limitation to protect actually
-for-pay marketplace AMIs.
-To work around this, we'll remove the AWS marketplace code: https://www.caseylabs.com/remove-the-aws-marketplace-code-from-a-centos-ami/
-- Create a 4Gb EBS volume in the same availability region as your EC2 instance.
-- Attach the volume to your EC2 instance.
-- Prepare the volume:
-    - `sudo lsblk -f` should show the volumne id. It might be different from what AWS tells you. Assuming in what follows it's /dev/xvdf.
-    - format it: `sudo mkfs -t ext4 /dev/xvdf`
-- Copy the root volume to the new volume - assuming root volume is /dev/xvda: `sudo dd bs=1M if=/dev/xvda of=/dev/xvdf` 
-- Shutdown (do not terminate yet!) the instance.
-- 
-
-
-Ubuntu
-------
-- Launch an EC2 instance using the "Ubuntu Server 20.04 LTS (HVM), SSD Volume Type"
-quickstart AMI.
-- ssh into the instance: `ssh -i path/to/key.pem ubuntu@public-dns-of-instance`. The following instructions should be run on the EC2 instance.
-- [Install Docker](https://docs.docker.com/engine/install/ubuntu/):
-```shell
-sudo apt-get update
-
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-```
-- [Add the current user (ubuntu) to the docker group](https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket): `sudo usermod -aG docker ${USER}`
-- TODO [docker docs recommend](https://docs.docker.com/config/containers/logging/configure/) setting "log-driver": "local" in docker config daemon.json
-- Install python: `sudo apt install -y python3.9 python3.9-venv`
-- Delete apt cache:
-sudo rm -rf /var/cache/apt
-- Prepare a virtualenv for meadowrun
-```shell
-sudo mkdir /var/meadowrun
-sudo chown ubuntu:ubuntu /var/meadowrun
-mkdir /var/meadowrun/env
-python3.9 -m venv /var/meadowrun/env
-
-source /var/meadowrun/env/bin/activate
-pip install wheel  # not sure why this is necessary...
-```
-- Get the versions of everything we've installed:
-```shell
-lsb_release -a  # ubuntu version
-docker --version
-python3.9 --version
-```
-
-Now, create an AMI from this image, naming it based on the versions that were actually
-installed, e.g. `ubuntu-20.04.3-docker-20.10.12-python-3.9.5` and make it public. This
-AMI won't actually be used for anything other than to build meadowrun AMIs.
-
-Ubuntu with CUDA
-----------------
-- Launch an EC2 instance using the latest ubuntu deep learning base AMI: ami-01e2c6319392b1b40
-- ssh into the instance: `ssh -i path/to/key.pem ubuntu@public-dns-of-instance`. The following instructions should be run on the EC2 instance.
-- [Upgrade Cuda](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=20.04&target_type=deb_network):
-```shell
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
-sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
-sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub
-sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
-sudo apt-get update
-sudo apt-get -y install cuda
-sudo apt-get -y install libcudnn8 libcudnn8-dev
-```
-- Uninstall older versions of cuda (just leaving cuda-11.7). These take up a ton of disk
-  space
-sudo rm -rf /usr/local/cuda-11.0
-sudo rm -rf /usr/local/cuda-11.1
-sudo rm -rf /usr/local/cuda-11.2
-sudo rm -rf /usr/local/cuda-11.3
-sudo rm -rf /usr/local/cuda-11.4
-sudo rm -rf /usr/local/cuda-11.5
-sudo rm -rf /usr/local/cuda-11.6
-- Delete apt cache:
-sudo rm -rf /var/cache/apt
-- Install venv
-```
-sudo apt-get install -y python3.8-venv
-```
-- Prepare a virtualenv for meadowrun
-```shell
-sudo mkdir /var/meadowrun
-sudo chown ubuntu:ubuntu /var/meadowrun
-mkdir /var/meadowrun/env
-python3.9 -m venv /var/meadowrun/env
-
-source /var/meadowrun/env/bin/activate
-pip install wheel  # not sure why this is necessary...
-```
-- Get the versions of everything we've installed:
-```shell
-nvcc --version  # cuda version
-lsb_release -a  # ubuntu version
-docker --version
-python3.9 --version
-```
-
-Now, create an AMI from this image, naming it based on the versions that were actually
-installed, e.g. `cuda11.7-ubuntu20.04.3-python-3.8.10` and make it public
-"""
-
 import argparse
 import asyncio
+import functools
 import os.path
 import subprocess
-import time
+from typing import List, Optional
 
-import boto3
-from meadowrun.ssh import connect
-from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.ec2 import (
-    LaunchEC2InstanceSuccess,
-    authorize_current_ip_for_meadowrun_ssh,
-    get_ssh_security_group_id,
-    launch_ec2_instance,
+from build_ami_helper import (
+    BEHAVIOR_OPTIONS,
+    BEHAVIOR_OPTIONS_TYPE,
+    _check_for_existing_amis,
+    build_amis,
+    get_name_from_ami,
 )
-from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER
-from meadowrun.aws_integration.ec2_ssh_keys import (
-    MEADOWRUN_KEY_PAIR_NAME,
-    get_meadowrun_ssh_key,
-)
-from meadowrun.run_job_core import _retry
-
 from build_image_shared import upload_and_configure_meadowrun
 
 
+BASE_AMIS = {
+    "plain": {
+        "us-east-2": "ami-0147a27e9e7c91681",
+        "us-east-1": "ami-0493f8cc622a17594",
+        "us-west-1": "ami-0599f4bb79d709da3",
+        "us-west-2": "ami-07fe9668a4030438c",
+        "eu-central-1": "ami-0501a522734e3c811",
+        "eu-west-1": "ami-05ecb8a0ef47f6b2c",
+        "eu-west-2": "ami-0a0c2a5e70f3046a7",
+        "eu-west-3": "ami-0f34abf6119363854",
+        "eu-north-1": "ami-083a6b67a11ede550",
+    },
+    "cuda": {
+        "us-east-2": "ami-00fd4b9dd94bbb68b",
+        "us-east-1": "ami-0c5c6919b7e205fb2",
+        "us-west-1": "ami-09f73abffbd956cea",
+        "us-west-2": "ami-017c9334f5411ffda",
+        "eu-central-1": "ami-016b190d1dd39abed",
+        "eu-west-1": "ami-08e58ba1b815bea78",
+        "eu-west-2": "ami-0f4a6fe2237d109a2",
+        "eu-west-3": "ami-014850847dbc03893",
+        "eu-north-1": "ami-0cf21298737c6114f",
+    },
+}
+
+
 async def build_meadowrun_ami(
-    base_ami_id: str, new_ami_name: str, ami_type: str
+    regions: Optional[List[str]], ami_type: str, behavior: BEHAVIOR_OPTIONS_TYPE
 ) -> None:
-    client = boto3.client("ec2")
+    all_region_base_amis = BASE_AMIS[ami_type]
 
     # get version
 
@@ -196,112 +54,91 @@ async def build_meadowrun_ami(
         ["poetry", "version", "--short"], capture_output=True, cwd=package_root_dir
     )
     version = result.stdout.strip().decode("utf-8")
-    new_ami_name = new_ami_name.format(version)
+    # we assume all of the base amis in the different regions have the same name, so we
+    # just take the first one
+    base_ami_name = get_name_from_ami(*list(all_region_base_amis.items())[0])
+    new_ami_name = f"meadowrun{version}-{base_ami_name}"
     print(f"New AMI ({ami_type}) name is: {new_ami_name}")
 
-    # deregister existing image with the same name:
-    existing_images = client.describe_images(
-        Filters=[{"Name": "name", "Values": [new_ami_name]}]
-    )["Images"]
+    if regions is None:
+        regions = list(all_region_base_amis.keys())
+    ignore_regions, existing_images = _check_for_existing_amis(
+        regions, new_ami_name, behavior
+    )
+    regions = [region for region in regions if region not in ignore_regions]
+
     if existing_images:
-        input(
-            f"There's already an image with the name {new_ami_name}, press enter to "
-            "delete it"
-        )
-        existing_image = existing_images[0]
+        print("Existing images:\n" + existing_images)
 
-        client.deregister_image(ImageId=existing_images[0]["ImageId"])
-
-        for block_device_mapping in existing_image["BlockDeviceMappings"]:
-            if "Ebs" in block_device_mapping:
-                snapshot_id = block_device_mapping["Ebs"]["SnapshotId"]
-                print(f"Deleting related snapshot: {snapshot_id}")
-                client.delete_snapshot(SnapshotId=snapshot_id)
+    if not regions:
+        return
 
     # build a package locally
     subprocess.run(["poetry", "build"], cwd=package_root_dir)
 
-    # launch an EC2 instance that we'll use to create the AMI
-    print("Launching EC2 instance:")
-    region_name = await _get_default_region_name()
-    pkey = get_meadowrun_ssh_key(region_name)
-    launch_result = await launch_ec2_instance(
-        region_name,
-        "t2.micro",
-        "on_demand",
-        base_ami_id,
-        [get_ssh_security_group_id(region_name)],
-        key_name=MEADOWRUN_KEY_PAIR_NAME,
-        volume_size_gb=16 if ami_type == "plain" else 100,
-    )
-    if not isinstance(launch_result, LaunchEC2InstanceSuccess):
-        raise ValueError(f"Failed to launch EC2 instance: {launch_result}")
-    public_address = await launch_result.public_address_continuation
-    print(f"Launched EC2 instance {public_address}")
-
-    await authorize_current_ip_for_meadowrun_ssh(region_name)
-
-    connection = await _retry(
-        lambda: connect(
-            public_address,
-            username=SSH_USER,
-            private_key=pkey,
+    await build_amis(
+        regions,
+        all_region_base_amis,
+        16 if ami_type == "plain" else 100,
+        functools.partial(
+            upload_and_configure_meadowrun,
+            version=version,
+            package_root_dir=package_root_dir,
+            cloud_provider="EC2",
+            image_name=new_ami_name,
         ),
-        (TimeoutError, ConnectionRefusedError, OSError),
-        max_num_attempts=20,
     )
 
-    async with connection:
-        await upload_and_configure_meadowrun(
-            connection, version, package_root_dir, "EC2"
-        )
+    if existing_images:
+        print("Existing images:\n" + existing_images)
 
-    # get the instance id of our EC2 instance
-    instances = client.describe_instances(
-        Filters=[{"Name": "dns-name", "Values": [public_address]}]
+
+def main():
+    r"""
+    Creates meadowrun AMIs. Usage:
+
+    Build the plain image in one region:
+        python build_scripts\build_ami.py plain us-east-2
+
+    Test the version that's created in one region by copying just the one AMI id into
+    _AMIS in ec2_instance_allocation.py, and then re-run in all regions
+        python build_scripts\build_ami.py plain all
+
+    This will leave existing images alone. To regenerate images (i.e. you've made
+    changes):
+        python build_scripts\build_ami.py plain all --on-existing-image delete
+
+    Alternatively, you could use manage_amis.py to explicitly delete all AMIs across all
+    regions where the name starts with a particular prefix:
+        python build_scripts\manage_amis.py delete
+        meadowrun0.1.15a1-ubuntu20.04.4-docker20.10.17-python3.9.5
+
+    Replace "plain" with "cuda" to build the cuda images. You can specify more than one
+    region at a time if you want, e.g. us-east-1,us-east-2.
+
+    Copy the output of this script to the appropriate part of _AMIS in
+    ec2_instance_allocation.py. You can always run
+        python build_scripts\build_ami.py plain all
+    and if the images have already been created, this will just print out what you need
+    to copy into _AMIS.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("type", choices=["plain", "cuda"])
+    parser.add_argument("regions", type=str)
+    parser.add_argument(
+        "--on-existing-image", type=str, choices=BEHAVIOR_OPTIONS, default="leave"
     )
-    instance_id = instances["Reservations"][0]["Instances"][0]["InstanceId"]
+    args = parser.parse_args()
 
-    # create an image, and wait for it to become available
-    result = client.create_image(InstanceId=instance_id, Name=new_ami_name)
-    image_id = result["ImageId"]
-    print(f"New image id ({ami_type}): {image_id}")
-    while True:
-        images = client.describe_images(ImageIds=[image_id])
-        if images["Images"][0]["State"] != "pending":
-            break
-        else:
-            print("Image is pending, sleeping for 5s...")
-            time.sleep(5)
-    # make it public
-    client.modify_image_attribute(
-        ImageId=image_id, LaunchPermission={"Add": [{"Group": "all"}]}
-    )
-    print("Done! Terminating instance")
+    if args.regions == "all":
+        regions = None
+    else:
+        regions = args.regions.split(",")
 
-    # now terminate the instance as we don't need it anymore
-    client.terminate_instances(InstanceIds=[instance_id])
-
-    print(f"New image id ({ami_type}): {image_id}")
-    print(
-        "After testing, you will need to replicate to other regions via "
-        f"`python build_scripts\\replicate_ami.py replicate {image_id}`"
-    )
-    print("Remember to delete old AMIs and snapshots!")
+    print(f"Creating {args.type} AMIs")
+    asyncio.run(build_meadowrun_ami(regions, args.type, args.on_existing_image))
+    print(f"Created {args.type} AMIs")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("type", choices=["plain", "cuda"])
-    args = parser.parse_args()
-
-    if args.type == "plain":
-        base_ami = "ami-01344892e448f48c2"
-        new_ami_name = "meadowrun{}-ubuntu20.04.3-docker20.10.12-python3.9.5"
-    elif args.type == "cuda":
-        base_ami = "ami-097043daaeabb3268"
-        new_ami_name = "meadowrun{}-cuda11.7-ubuntu20.04.4-python3.8.10"
-    else:
-        raise ValueError(f"Unexpected type {args.type}")
-
-    asyncio.run(build_meadowrun_ami(base_ami, new_ami_name, args.type))
+    main()

@@ -20,8 +20,9 @@ async def upload_and_configure_meadowrun(
     version: str,
     package_root_dir: str,
     cloud_provider: CloudProviderType,
+    image_name: str,
     pre_command: Optional[str] = None,
-) -> None:
+) -> str:
 
     if pre_command:
         await connection.run(pre_command, check=True)
@@ -132,3 +133,5 @@ async def upload_and_configure_meadowrun(
         connection,
         "sudo systemctl enable --now meadowrun-check-spot-interruption.timer",
     )
+
+    return image_name

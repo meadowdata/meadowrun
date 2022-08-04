@@ -49,6 +49,7 @@ async def _retry(
     exception_types: Union[Type, Tuple[Type, ...]],
     max_num_attempts: int = 5,
     delay_seconds: float = 1,
+    message: str = "Retrying on error",
 ) -> _T:
     i = 0
     while True:
@@ -59,7 +60,7 @@ async def _retry(
             if i >= max_num_attempts:
                 raise
             else:
-                print(f"Retrying on error: {e}")
+                print(f"{message}: {e}")
                 await asyncio.sleep(delay_seconds)
 
 

@@ -16,6 +16,7 @@ import pickle
 import traceback
 from typing import Optional
 
+import meadowrun.func_worker_storage_helper
 from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
@@ -24,6 +25,7 @@ from meadowrun.func_worker_storage_helper import (
 
 
 def main() -> None:
+    global STORAGE_CLIENT
 
     logging.basicConfig(level=logging.INFO)
 
@@ -77,9 +79,11 @@ def main() -> None:
         storage_client = get_storage_client_from_args(
             args.storage_endpoint_url, storage_username, storage_password
         )
+    meadowrun.func_worker_storage_helper.STORAGE_CLIENT = storage_client
 
-    state_filename = storage_file_prefix + ".state"
-    result_filename = storage_file_prefix + ".result"
+    suffix = os.environ.get("JOB_COMPLETION_INDEX", "")
+    state_filename = f"{storage_file_prefix}.state{suffix}"
+    result_filename = f"{storage_file_prefix}.result{suffix}"
 
     result_pickle_protocol = min(
         args.result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL

@@ -16,6 +16,10 @@ import boto3
 MEADOWRUN_STORAGE_USERNAME = "MEADOWRUN_STORAGE_USERNAME"
 MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 
+# This is a global variable that will be updated with the storage client if it's
+# available in func_worker_storage
+STORAGE_CLIENT = None
+
 
 def get_storage_client_from_args(
     storage_endpoint_url: Optional[str],

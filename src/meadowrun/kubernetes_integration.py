@@ -4,24 +4,30 @@ import asyncio
 import base64
 import dataclasses
 import io
+import os
 import pickle
+import traceback
+import uuid
 from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
     List,
     Optional,
     Sequence,
     TYPE_CHECKING,
-    Tuple,
-    Type,
     TypeVar,
-    Union,
 )
 
 import botocore.exceptions
-import kubernetes.client
+import cloudpickle
+import kubernetes_asyncio.client as kubernetes_client
+import kubernetes_asyncio.config as kubernetes_config
+import kubernetes_asyncio.watch as kubernetes_watch
+import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
 
+import meadowrun.func_worker_storage_helper
 from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
@@ -30,13 +36,214 @@ from meadowrun.func_worker_storage_helper import (
 
 if TYPE_CHECKING:
     from meadowrun.instance_selection import ResourcesInternal
-from meadowrun.meadowrun_pb2 import Job, ProcessState
+from meadowrun.meadowrun_pb2 import (
+    Job,
+    ProcessState,
+    PyFunctionJob,
+    QualifiedFunctionName,
+)
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
 from meadowrun.run_job_local import _string_pairs_to_dict
 
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
+
+
+# kubernetes_asyncio.watch.Watch looks at the docstring to figure out if the function
+# passed to Watch takes a follow or watch argument. This results in the wrong value for
+# read_namespaced_pod_log, so we just monkey-patch the function here
+_orig_get_watch_argument_name = kubernetes_watch.Watch.get_watch_argument_name
+
+
+def _new_get_watch_argument_name(watch: kubernetes_watch.Watch, func: Callable) -> str:
+    if getattr(func, "__name__") == "read_namespaced_pod_log":
+        return "follow"
+    return _orig_get_watch_argument_name(watch, func)
+
+
+kubernetes_watch.watch.Watch.get_watch_argument_name = _new_get_watch_argument_name
+
+
+def _indexed_map_worker(
+    total_num_tasks: int,
+    num_workers: int,
+    function: Callable[[_T], _U],
+    storage_bucket: str,
+    file_prefix: str,
+    result_highest_pickle_protocol: int,
+) -> None:
+    """
+    This is a worker function to help with running a run_map. This worker assumes that
+    JOB_COMPLETION_INDEX is set, which Kubernetes will set for indexed completion jobs.
+    This worker assumes task arguments are accessible via
+    meadowrun.func_worker_storage_helper.STORAGE_CLIENT and will just complete all of
+    the tasks where task_index % num_workers == current worker index.
+    """
+
+    current_worker_index = int(os.environ["JOB_COMPLETION_INDEX"])
+    storage_client = meadowrun.func_worker_storage_helper.STORAGE_CLIENT
+    if storage_client is None:
+        raise ValueError("Cannot call _indexed_map_worker without a storage client")
+
+    result_pickle_protocol = min(
+        result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
+    )
+
+    i = current_worker_index
+    while i < total_num_tasks:
+        state_filename = f"{file_prefix}.taskstate{i}"
+        result_filename = f"{file_prefix}.taskresult{i}"
+
+        with io.BytesIO() as buffer:
+            storage_client.download_fileobj(
+                Bucket=storage_bucket, Key=f"{file_prefix}.taskarg{i}", Fileobj=buffer
+            )
+            buffer.seek(0)
+            arg = pickle.load(buffer)
+
+        try:
+            result = function(arg)
+        except Exception as e:
+            # first print the exception for the local log file
+            traceback.print_exc()
+
+            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+
+            # now send back result
+            with io.BytesIO() as buffer:
+                buffer.write("PYTHON_EXCEPTION".encode("utf-8"))
+                buffer.seek(0)
+                storage_client.upload_fileobj(
+                    Fileobj=buffer, Bucket=storage_bucket, Key=state_filename
+                )
+            with io.BytesIO() as buffer:
+                pickle.dump(
+                    (str(type(e)), str(e), tb), buffer, protocol=result_pickle_protocol
+                )
+                buffer.seek(0)
+                storage_client.upload_fileobj(
+                    Fileobj=buffer, Bucket=storage_bucket, Key=result_filename
+                )
+        else:
+            # send back results
+            with io.BytesIO() as buffer:
+                buffer.write("SUCCEEDED".encode("utf-8"))
+                buffer.seek(0)
+                storage_client.upload_fileobj(
+                    Fileobj=buffer, Bucket=storage_bucket, Key=state_filename
+                )
+            with io.BytesIO() as buffer:
+                pickle.dump(result, buffer, protocol=result_pickle_protocol)
+                buffer.seek(0)
+                storage_client.upload_fileobj(
+                    Fileobj=buffer, Bucket=storage_bucket, Key=result_filename
+                )
+
+        i += num_workers
+
+
+def _get_job_completion(
+    storage_client: Any,
+    storage_bucket: Optional[str],
+    file_prefix: str,
+    file_suffix: str,
+    job_spec_type: str,
+    return_code: int,
+) -> JobCompletion[Any]:
+    """
+    Creates a JobCompletion object based on the return code, and .state and .result
+    files if they're available.
+
+    file_suffix is used by indexed completion jobs to distinguish between the
+    completions of different workers, this should be set to the job completion index.
+    """
+    if return_code != 0:
+        raise MeadowrunException(
+            ProcessState(
+                state=ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
+                return_code=return_code,
+            )
+        )
+
+    # TODO get the name of the pod that ran the job? It won't be super useful
+    # because we delete the pod right away
+    public_address = "kubernetes"
+
+    # if we don't have a storage client, there's no way to get results back, so
+    # we just return None
+    if storage_client is None:
+        return JobCompletion(
+            None,
+            ProcessState.ProcessStateEnum.SUCCEEDED,
+            "",
+            return_code,
+            public_address,
+        )
+
+    if storage_bucket is None:
+        raise ValueError(
+            "Cannot provide a storage_client and not provide a storage_bucket"
+        )
+
+    with io.BytesIO() as buffer:
+        try:
+            storage_client.download_fileobj(
+                Bucket=storage_bucket,
+                Key=f"{file_prefix}.state{file_suffix}",
+                Fileobj=buffer,
+            )
+        except botocore.exceptions.ClientError as e:
+            # if we were expecting a state file but didn't get it we need to
+            # throw an exception
+            if (
+                getattr(e, "response", {}).get("Error", {}).get("Code", None) == "404"
+                and job_spec_type == "py_function"
+            ):
+                raise
+
+            # if we're okay with not getting a state file, just return that we
+            # succeeded, and we don't have a result
+            return JobCompletion(
+                None,
+                ProcessState.ProcessStateEnum.SUCCEEDED,
+                "",
+                return_code,
+                public_address,
+            )
+
+        buffer.seek(0)
+        state_string = buffer.read().decode("utf-8")
+        if state_string == "SUCCEEDED":
+            state = ProcessState.ProcessStateEnum.SUCCEEDED
+        elif state_string == "PYTHON_EXCEPTION":
+            state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
+        else:
+            raise ValueError(f"Unknown state string: {state_string}")
+
+    # if we got a state string, we should have a result file
+    with io.BytesIO() as buffer:
+        storage_client.download_fileobj(
+            Bucket=storage_bucket,
+            Key=f"{file_prefix}.result{file_suffix}",
+            Fileobj=buffer,
+        )
+        buffer.seek(0)
+        result = pickle.load(buffer)
+
+    if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
+        # TODO very weird that we're re-pickling result here. Also, we should
+        # raise all of the exceptions if there are more than 1, not just the
+        # first one we see
+        raise MeadowrunException(
+            ProcessState(
+                state=state,
+                pickled_result=pickle.dumps(result),
+                return_code=return_code,
+            )
+        )
+
+    return JobCompletion(result, state, "", return_code, public_address)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,6 +316,30 @@ class Kubernetes(Host):
     storage_username_password_secret: Optional[str] = None
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
+
+    async def _get_storage_client(self) -> Any:
+        # get the storage client
+
+        # this is kind of weird, this should be called before any Kubernetes function,
+        # but for now, _get_storage_client is always the first thing that's called
+        await kubernetes_config.load_kube_config(context=self.kube_config_context)
+
+        if self.storage_bucket is not None:
+            if self.storage_username_password_secret is not None:
+                secret_data = await _get_kubernetes_secret(
+                    self.kubernetes_namespace,
+                    self.storage_username_password_secret,
+                )
+            else:
+                secret_data = {}
+
+            return get_storage_client_from_args(
+                self.storage_endpoint_url,
+                secret_data.get("username", None),
+                secret_data.get("password", None),
+            )
+
+        return None
 
     def _prepare_command(
         self, job: Job, job_spec_type: str, storage_client: Any, file_prefix: str
@@ -205,14 +436,37 @@ class Kubernetes(Host):
     async def run_job(
         self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
-        # This code encompasses everything that happens in SshHost.run_job and
-        # run_job_local
-
         # TODO add support for resources
         if resources_required is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
             )
+
+        job_completions = await self._run_job_helper(
+            await self._get_storage_client(), job, None
+        )
+        if len(job_completions) != 1:
+            raise ValueError(
+                "Unexpected, requested a single job but got back "
+                f"{len(job_completions)} job_completions"
+            )
+        return job_completions[0]
+
+    async def _run_job_helper(
+        self,
+        storage_client: Any,
+        job: Job,
+        indexed_completions: Optional[int],
+    ) -> List[JobCompletion[Any]]:
+        """
+        A wrapper around _run_kubernetes_job. Main tasks at this level are:
+        - Interpret the Job object into a container + command that Kubernetes can run
+        - Upload arguments to S3 and download results from S3, including for indexed job
+          completions.
+        """
+
+        # This code encompasses everything that happens in SshHost.run_job and
+        # run_job_local
 
         # detect any unsupported Jobs
 
@@ -239,29 +493,9 @@ class Kubernetes(Host):
                 " run_job_container_local"
             )
 
-        storage_client = None
         file_prefix = f"{self.storage_file_prefix}{job.job_id}"
         try:
             try:
-                kubernetes.config.load_kube_config(context=self.kube_config_context)
-
-                # get the storage client
-
-                if self.storage_bucket is not None:
-                    if self.storage_username_password_secret is not None:
-                        secret_data = _get_kubernetes_secret(
-                            self.kubernetes_namespace,
-                            self.storage_username_password_secret,
-                        )
-                    else:
-                        secret_data = {}
-
-                    storage_client = get_storage_client_from_args(
-                        self.storage_endpoint_url,
-                        secret_data.get("username", None),
-                        secret_data.get("password", None),
-                    )
-
                 # run the job
 
                 job_spec_type = job.WhichOneof("job_spec")
@@ -277,13 +511,14 @@ class Kubernetes(Host):
                     **_string_pairs_to_dict(job.environment_variables)
                 )
 
-                return_code = await _run_kubernetes_job(
+                return_codes = await _run_kubernetes_job(
                     job.job_id,
                     self.kubernetes_namespace,
                     image_name,
                     command,
                     environment_variables,
                     self.storage_username_password_secret,
+                    indexed_completions,
                 )
             except asyncio.CancelledError:
                 raise
@@ -294,76 +529,24 @@ class Kubernetes(Host):
                     )
                 ) from e
 
-            if return_code != 0:
-                raise MeadowrunException(
-                    ProcessState(
-                        state=ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
-                        return_code=return_code,
-                    )
+            if indexed_completions:
+                file_suffixes: Iterable[str] = (
+                    str(i) for i in range(indexed_completions)
                 )
+            else:
+                file_suffixes = [""]
 
-            # TODO get the name of the pod that ran the job? It won't be super useful
-            # because we delete the pod right away
-            public_address = "kubernetes"
-
-            # if we don't have a storage client, there's no way to get results back, so
-            # we just return None
-            if storage_client is None:
-                return JobCompletion(
-                    None,
-                    ProcessState.ProcessStateEnum.SUCCEEDED,
-                    "",
+            return [
+                _get_job_completion(
+                    storage_client,
+                    self.storage_bucket,
+                    file_prefix,
+                    file_suffix,
+                    job_spec_type,
                     return_code,
-                    public_address,
                 )
-
-            with io.BytesIO() as buffer:
-                try:
-                    storage_client.download_fileobj(
-                        Bucket=self.storage_bucket,
-                        Key=f"{file_prefix}.state",
-                        Fileobj=buffer,
-                    )
-                except botocore.exceptions.ClientError as e:
-                    # if we were expecting a state file but didn't get it we need to
-                    # throw an exception
-                    if (
-                        getattr(e, "response", {}).get("Error", {}).get("Code", None)
-                        == "404"
-                        and job_spec_type == "py_function"
-                    ):
-                        raise
-
-                    # if we're okay with not getting a state file, just return that we
-                    # succeeded, and we don't have a result
-                    return JobCompletion(
-                        None,
-                        ProcessState.ProcessStateEnum.SUCCEEDED,
-                        "",
-                        return_code,
-                        public_address,
-                    )
-
-                buffer.seek(0)
-                state_string = buffer.read().decode("utf-8")
-                if state_string == "SUCCEEDED":
-                    state = ProcessState.ProcessStateEnum.SUCCEEDED
-                elif state_string == "PYTHON_EXCEPTION":
-                    state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
-                else:
-                    raise ValueError(f"Unknown state string: {state_string}")
-
-            # if we got a state string, we should have a result file
-            with io.BytesIO() as buffer:
-                storage_client.download_fileobj(
-                    Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.result",
-                    Fileobj=buffer,
-                )
-                buffer.seek(0)
-                result = pickle.load(buffer)
-
-            return JobCompletion(result, state, "", return_code, public_address)
+                for file_suffix, return_code in zip(file_suffixes, return_codes)
+            ]
         finally:
             # TODO we should separately periodically clean up these files in case we
             # aren't able to execute this finally block
@@ -387,70 +570,186 @@ class Kubernetes(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
     ) -> Sequence[_U]:
+        """
+        This implementation depends on Kubernetes indexed job completions
+        (https://kubernetes.io/docs/tasks/job/indexed-parallel-processing-static/)
+        """
         # TODO add support for resources
         if resources_required_per_task is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
             )
 
-        raise NotImplementedError("run_map is not implemented for Kubernetes yet")
+        storage_client = await self._get_storage_client()
+        if storage_client is None:
+            raise ValueError(
+                "storage_bucket and other storage_* parameters must be specified to use"
+                " Kubernetes with run_map"
+            )
+
+        job_id = str(uuid.uuid4())
+
+        file_prefix = f"{self.storage_file_prefix}{job_id}"
+
+        for i, arg in enumerate(args):
+            with io.BytesIO() as buffer:
+                pickle.dump(arg, buffer, protocol=pickle_protocol)
+                buffer.seek(0)
+                storage_client.upload_fileobj(
+                    Bucket=self.storage_bucket,
+                    Key=f"{file_prefix}.taskarg{i}",
+                    Fileobj=buffer,
+                )
+
+        indexed_map_worker_args = (
+            len(args),
+            num_concurrent_tasks,
+            function,
+            self.storage_bucket,
+            file_prefix,
+            pickle.HIGHEST_PROTOCOL,
+        )
+
+        # we don't care about the worker completions--if they had an error, an Exception
+        # will be raised, and the workers just return None
+        await self._run_job_helper(
+            storage_client,
+            Job(
+                job_id=job_id,
+                py_function=PyFunctionJob(
+                    qualified_function_name=QualifiedFunctionName(
+                        module_name=__name__, function_name=_indexed_map_worker.__name__
+                    ),
+                    pickled_function_arguments=cloudpickle.dumps(
+                        (indexed_map_worker_args, None), protocol=pickle_protocol
+                    ),
+                ),
+                **job_fields,
+            ),
+            num_concurrent_tasks,
+        )
+
+        results = []
+        for i in range(len(args)):
+            with io.BytesIO() as buffer:
+                storage_client.download_fileobj(
+                    Bucket=self.storage_bucket,
+                    Key=f"{file_prefix}.taskstate{i}",
+                    Fileobj=buffer,
+                )
+                buffer.seek(0)
+                state_string = buffer.read().decode("utf-8")
+                if state_string == "SUCCEEDED":
+                    state = ProcessState.ProcessStateEnum.SUCCEEDED
+                elif state_string == "PYTHON_EXCEPTION":
+                    state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
+                else:
+                    raise ValueError(f"Unknown state string: {state_string}")
+
+            with io.BytesIO() as buffer:
+                storage_client.download_fileobj(
+                    Bucket=self.storage_bucket,
+                    Key=f"{file_prefix}.taskresult{i}",
+                    Fileobj=buffer,
+                )
+                buffer.seek(0)
+                result = pickle.load(buffer)
+
+            if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
+                # TODO very weird that we're re-pickling result here. Also, we should
+                # raise all of the exceptions if there are more than 1, not just the
+                # first one we see
+                raise MeadowrunException(
+                    ProcessState(
+                        state=state, pickled_result=pickle.dumps(result), return_code=0
+                    )
+                )
+
+            results.append(result)
+
+        return results
 
 
-async def _retry(
-    function: Callable[[], _T],
-    exception_types: Union[Type, Tuple[Type, ...]],
-    message: str = "Retrying",
-    max_num_attempts: int = 5,
-    delay_seconds: float = 1,
-) -> _T:
+async def _get_pods_for_job(
+    core_api: kubernetes_client.CoreV1Api,
+    kubernetes_namespace: str,
+    job_id: str,
+    pod_generate_names: List[str],
+) -> List[kubernetes_client.V1Pod]:
+    """
+    When you launch a Kubernetes job, one or more pods get created. In our case, we
+    should only ever get one pod for regular jobs, and one pod for each index in indexed
+    completion jobs, because we always set parallelism = completions, and we've
+    configured 0 retries.
+
+    For regular jobs, the pod created will be named <job_id>-<random string>. The pod's
+    metadata has a generate_name, which will be equal to <job_id>-.
+
+    For indexed completion jobs, there will be a pod for each index with a generate_name
+    of <job_id>-<index>-.
+
+    pod_generate_names should have the list of generate_names that we expect to see for
+    the specified job.
+
+    Returns a pod object corresponding to each pod_generate_names, in the same order as
+    pod_generate_names.
+    """
+
+    pod_generate_names_set = set(pod_generate_names)
+    results: Dict[str, kubernetes_client.V1Pod] = {}
     i = 0
+
     while True:
-        try:
-            return function()
-        except exception_types:
-            i += 1
-            if i >= max_num_attempts:
-                raise
-            else:
-                print(message)
-                await asyncio.sleep(delay_seconds)
-
-
-def _get_pod_for_job(
-    core_api: kubernetes.client.CoreV1Api, kubernetes_namespace: str, job_id: str
-) -> kubernetes.client.V1Pod:
-    """
-    When you launch a Kubernetes job, a pod gets created, but in general Kubernetes jobs
-    can end up creating many pods (in our case, we always just create one pod), which
-    means that the job creation logic doesn't give us the pod namespace.
-    """
-    # It seems a bit weird that this is the best way to do it:
-    # https://github.com/kubernetes/kubernetes/issues/24709
-
-    pods: kubernetes.client.V1PodList = core_api.list_namespaced_pod(
-        kubernetes_namespace, label_selector=f"job-name={job_id}"
-    )
-
-    if len(pods.items) == 0:
-        raise ValueError(
-            f"The job {job_id} was created successfully, but cannot find the "
-            "corresponding pod"
+        pods = await core_api.list_namespaced_pod(
+            kubernetes_namespace, label_selector=f"job-name={job_id}"
         )
-    elif len(pods.items) > 1:
-        # TODO we may need to change this if we add e.g. retries
-        raise ValueError(
-            f"The job {job_id} has multiple corresponding pods which is unexpected:"
-            + ", ".join(p.metadata.name for p in pods.items)
-        )
-    else:
-        return pods.items[0]
+        for pod in pods.items:
+            generate_name = pod.metadata.generate_name
+
+            if generate_name not in pod_generate_names_set:
+                raise ValueError(
+                    f"Unexpected pod {pod.metadata.name} with generate name "
+                    f"{generate_name} found"
+                )
+
+            if (
+                generate_name in results
+                and results[generate_name].metadata.name != pod.metadata.name
+            ):
+                # TODO we may need to change this if we add e.g. retries
+                raise ValueError(
+                    "Unexpected multiple pods with the same generate name "
+                    f"{generate_name} found: {results[generate_name].metadata.name}, "
+                    f"{pod.metadata.name}"
+                )
+
+            results[generate_name] = pod
+
+        if len(results) >= len(pod_generate_names):
+            break
+
+        if i > 15:
+            raise TimeoutError(
+                "Waited >15s, but pods with the following generate names were not "
+                "created: "
+                + ", ".join(p for p in pod_generate_names if p not in results)
+            )
+
+        if i == 0:
+            print(f"Waiting for pods to be created for the job {job_id}")
+
+        await asyncio.sleep(1.0)
+
+        i += 1
+
+    return [results[generate_name] for generate_name in pod_generate_names]
 
 
 def _get_main_container_state(
-    container_statuses: Optional[List[kubernetes.client.V1ContainerStatus]],
+    container_statuses: Optional[List[kubernetes_client.V1ContainerStatus]],
     job_id: str,
     pod_name: str,
-) -> Optional[kubernetes.client.V1ContainerState]:
+) -> Optional[kubernetes_client.V1ContainerState]:
     if container_statuses is None or len(container_statuses) == 0:
         return None
 
@@ -467,28 +766,34 @@ def _get_main_container_state(
     return main_container_statuses[0].state
 
 
-async def _wait_until_pod_is_running(
-    core_api: kubernetes.client.CoreV1Api,
+async def _stream_pod_logs_and_get_exit_code(
+    core_api: kubernetes_client.CoreV1Api,
     job_id: str,
-    pod_name: str,
     kubernetes_namespace: str,
-    pod: kubernetes.client.V1Pod,
-) -> None:
+    pod: kubernetes_client.V1Pod,
+) -> int:
     """
-    The idea here is to wait until a pod is running. For the happy path is that our pod
-    is in the "waiting" state because we're either waiting for the image to get pulled
-    or we're waiting for nodes to become available to run our job. In that case, we'll
-    wait up to 7 minutes.
+    This function waits for the specified pod to start running, streams the logs from
+    that pod into our local stdout, and then waits for the pod to terminate. Then we
+    return the exit code of the pod.
+    """
+    pod_name = pod.metadata.name
 
-    The unhappy path is that something has gone wrong which Kubernetes expresses as
-    waiting infinitely, rather than a failure. E.g. if our image spec is invalid. In
-    that case we'll only wait 15 seconds, as it doesn't make sense to expect that that
-    would change.
-    """
+    # The first step is to wait for the pod to start running, because we can't stream
+    # logs until the pod is in a running state. The happy path is that our pod is in the
+    # "waiting" state because we're either waiting for the image to get pulled or we're
+    # waiting for nodes to become available to run our job. In that case, we'll wait up
+    # to 7 minutes.
+    #
+    # The unhappy path is that something has gone wrong which Kubernetes expresses as
+    # waiting infinitely, rather than a failure. E.g. if our image spec is invalid. In
+    # that case we'll only wait 15 seconds, as it doesn't make sense to expect that that
+    # would change.
+
     i = 0
     wait_until = 15
     max_wait_until = 60 * 7
-    main_container_state: kubernetes.client.V1ContainerState = (
+    main_container_state: kubernetes_client.V1ContainerState = (
         _get_main_container_state(pod.status.container_statuses, job_id, pod_name)
     )
     prev_additional_info = None
@@ -518,7 +823,7 @@ async def _wait_until_pod_is_running(
         else:
             additional_info = ""
         if additional_info != prev_additional_info:
-            print(f"Waiting for container to start running{additional_info}")
+            print(f"Waiting for pod {pod_name} to start running{additional_info}")
             prev_additional_info = additional_info
         await asyncio.sleep(1.0)
         i += 1
@@ -530,18 +835,56 @@ async def _wait_until_pod_is_running(
                 f"{pod_name} to start running"
             )
 
-        pod = core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
+        pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
         main_container_state = _get_main_container_state(
             pod.status.container_statuses, job_id, pod_name
         )
 
+    # Now our pod is running, so we can stream the logs
 
-def _get_kubernetes_secret(
+    async with kubernetes_watch.Watch() as w:
+        async for line in w.stream(
+            core_api.read_namespaced_pod_log,
+            name=pod_name,
+            namespace=kubernetes_namespace,
+        ):
+            print(line, end="")
+
+    # Once this stream ends, we know the pod is completed, but sometimes it takes some
+    # time for Kubernetes to report that the pod has completed. So we poll until the pod
+    # is reported as terminated.
+
+    i = 0
+    pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
+    main_container_state = _get_main_container_state(
+        pod.status.container_statuses, job_id, pod_name
+    )
+    while main_container_state is None or main_container_state.running is not None:
+        print("Waiting for the pod to stop running")
+        await asyncio.sleep(1.0)
+        i += 1
+        if i > 15:
+            raise TimeoutError(
+                f"Unexpected. The job {job_id} has a pod {pod_name}, and there "
+                "are no more logs for this pod, but the pod still seems to be "
+                "running"
+            )
+        pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
+        main_container_state = _get_main_container_state(
+            pod.status.container_statuses, job_id, pod_name
+        )
+
+    return main_container_state.terminated.exit_code
+
+
+async def _get_kubernetes_secret(
     kubernetes_namespace: str, secret_name: str
 ) -> Dict[str, str]:
-    with kubernetes.client.ApiClient() as api_client:
-        core_api = kubernetes.client.CoreV1Api(api_client)
-        result = core_api.read_namespaced_secret(secret_name, kubernetes_namespace)
+    async with kubernetes_client.ApiClient() as api_client:
+        core_api = kubernetes_client.CoreV1Api(api_client)
+        result = await core_api.read_namespaced_secret(
+            secret_name, kubernetes_namespace
+        )
 
     return {
         key: base64.b64decode(value).decode("utf-8")
@@ -556,7 +899,8 @@ async def _run_kubernetes_job(
     args: List[str],
     environment_variables: Dict[str, str],
     storage_username_password_secret: Optional[str],
-) -> int:
+    indexed_completions: Optional[int],
+) -> Sequence[int]:
     """
     Runs the specified job on Kubernetes, waits for it to complete, and returns the exit
     code
@@ -565,17 +909,17 @@ async def _run_kubernetes_job(
     # create the job
 
     environment = [
-        kubernetes.client.V1EnvVar(name=key, value=value)
+        kubernetes_client.V1EnvVar(name=key, value=value)
         for key, value in environment_variables.items()
     ]
 
     if storage_username_password_secret is not None:
         if MEADOWRUN_STORAGE_USERNAME not in environment_variables:
             environment.append(
-                kubernetes.client.V1EnvVar(
+                kubernetes_client.V1EnvVar(
                     name=MEADOWRUN_STORAGE_USERNAME,
-                    value_from=kubernetes.client.V1EnvVarSource(
-                        secret_key_ref=kubernetes.client.V1SecretKeySelector(
+                    value_from=kubernetes_client.V1EnvVarSource(
+                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
                             key="username",
                             name=storage_username_password_secret,
                             optional=False,
@@ -585,10 +929,10 @@ async def _run_kubernetes_job(
             )
         if MEADOWRUN_STORAGE_PASSWORD not in environment_variables:
             environment.append(
-                kubernetes.client.V1EnvVar(
+                kubernetes_client.V1EnvVar(
                     name=MEADOWRUN_STORAGE_PASSWORD,
-                    value_from=kubernetes.client.V1EnvVarSource(
-                        secret_key_ref=kubernetes.client.V1SecretKeySelector(
+                    value_from=kubernetes_client.V1EnvVarSource(
+                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
                             key="password",
                             name=storage_username_password_secret,
                             optional=False,
@@ -597,97 +941,85 @@ async def _run_kubernetes_job(
                 )
             )
 
+    if indexed_completions:
+        additional_job_spec_parameters = {
+            "completions": indexed_completions,
+            "parallelism": indexed_completions,
+            "completion_mode": "Indexed",
+        }
+    else:
+        additional_job_spec_parameters = {}
+
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
-    body = kubernetes.client.V1Job(
-        metadata=kubernetes.client.V1ObjectMeta(name=job_id),
-        spec=kubernetes.client.V1JobSpec(
+    body = kubernetes_client.V1Job(
+        metadata=kubernetes_client.V1ObjectMeta(name=job_id),
+        spec=kubernetes_client.V1JobSpec(
             backoff_limit=0,
-            template=kubernetes.client.V1PodTemplateSpec(
-                spec=kubernetes.client.V1PodSpec(
+            template=kubernetes_client.V1PodTemplateSpec(
+                spec=kubernetes_client.V1PodSpec(
                     containers=[
-                        kubernetes.client.V1Container(
+                        kubernetes_client.V1Container(
                             name="main", image=image, args=args, env=environment
                         )
                     ],
                     restart_policy="Never",
                 )
             ),
+            **additional_job_spec_parameters,
         ),
     )
 
-    with kubernetes.client.ApiClient() as api_client:
-        batch_api = kubernetes.client.BatchV1Api(api_client)
+    async with kubernetes_client.ApiClient() as api_client:
+        batch_api = kubernetes_client.BatchV1Api(api_client)
         try:
-            # this returns a result, but we don't really need anything from it
-            batch_api.create_namespaced_job(kubernetes_namespace, body)
-
-            core_api = kubernetes.client.CoreV1Api(api_client)
-
-            # Once we've created the job, we have to figure out the name of the pod for
-            # this job. The pod won't be available immediately, so we need to wait for
-            # it
-
-            pod = await _retry(
-                lambda: _get_pod_for_job(core_api, kubernetes_namespace, job_id),
-                ValueError,
-                f"Waiting for Kubernetes to create the pod for job {job_id}",
-                15,
-            )
-
-            pod_name = pod.metadata.name
-            print(f"Created pod {pod_name} for job {job_id}")
-
-            # Next, wait for the pod to be running
-
-            await _wait_until_pod_is_running(
-                core_api, job_id, pod_name, kubernetes_namespace, pod
-            )
-
-            # Now our pod is running, so we can tail the logs
-
-            # https://github.com/kubernetes-client/python/issues/199
-            for line in kubernetes.watch.Watch().stream(
-                core_api.read_namespaced_pod_log,
-                name=pod_name,
-                namespace=kubernetes_namespace,
-            ):
-                print(line)
-
-            # Once this stream ends, we know the pod is completed, but sometimes it
-            # takes some time for Kubernetes to report that the pod has completed. So we
-            # poll until the pod is reported completed.
-
-            i = 0
-            pod = core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-            main_container_state = _get_main_container_state(
-                pod.status.container_statuses, job_id, pod_name
-            )
-            while (
-                main_container_state is None or main_container_state.running is not None
-            ):
-                print("Waiting for the pod to stop running")
-                await asyncio.sleep(1.0)
-                i += 1
-                if i > 15:
-                    raise TimeoutError(
-                        f"Unexpected. The job {job_id} has a pod {pod_name}, and there "
-                        "are no more logs for this pod, but the pod still seems to be "
-                        "running"
+            if indexed_completions:
+                version = kubernetes_client.VersionApi(api_client).get_code()
+                if (int(version.major), int(version.minor)) < (1, 21):
+                    raise ValueError(
+                        "run_map with Kubernetes is only supported on version 1.21 or "
+                        "higher"
                     )
-                pod = core_api.read_namespaced_pod_status(
-                    pod_name, kubernetes_namespace
-                )
-                main_container_state = _get_main_container_state(
-                    pod.status.container_statuses, job_id, pod_name
-                )
 
-            return main_container_state.terminated.exit_code
+            # this returns a result, but we don't really need anything from it
+            await batch_api.create_namespaced_job(kubernetes_namespace, body)
+
+            core_api = kubernetes_client.CoreV1Api(api_client)
+
+            # Now that we've created the job, wait for the pods to be created
+
+            if indexed_completions:
+                pod_generate_names = [
+                    f"{job_id}-{i}-" for i in range(indexed_completions)
+                ]
+            else:
+                pod_generate_names = [f"{job_id}-"]
+
+            pods = await _get_pods_for_job(
+                core_api, kubernetes_namespace, job_id, pod_generate_names
+            )
+
+            pod_names = [pod.metadata.name for pod in pods]
+            print(f"Created pod(s) {', '.join(pod_names)} for job {job_id}")
+
+            # Now that the pods ahve been created, stream their logs and get their exit
+            # codes
+
+            return await asyncio.gather(
+                *[
+                    asyncio.create_task(
+                        _stream_pod_logs_and_get_exit_code(
+                            core_api, job_id, kubernetes_namespace, pod
+                        )
+                    )
+                    for pod in pods
+                ]
+            )
         finally:
             # TODO we should separately periodically clean up these jobs/pods in case we
             # aren't able to execute this finally block
             try:
-                batch_api.delete_namespaced_job(
+                await batch_api.delete_namespaced_job(
                     job_id, kubernetes_namespace, propagation_policy="Foreground"
                 )
-            except kubernetes.client.exceptions.ApiException as e:
+            except kubernetes_client_exceptions.ApiException as e:
                 print(f"Warning, error cleaning up job: {e}")

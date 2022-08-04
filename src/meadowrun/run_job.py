@@ -1374,7 +1374,7 @@ async def run_map(
     function: Callable[[_T], _U],
     args: Sequence[_T],
     host: Host,
-    resources_required_per_task: Optional[Resources],
+    resources_required_per_task: Optional[Resources] = None,
     deployment: Optional[Deployment] = None,
     num_concurrent_tasks: Optional[int] = None,
     container_services: Union[

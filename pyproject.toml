@@ -27,7 +27,7 @@ filelock = "^3.6.0"
 typing-extensions = "^4.1.1"
 requests = "^2.27.1"
 asyncssh = "^2.11.0"
-kubernetes = "^24.2.0"
+kubernetes-asyncio = "^24.2.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0.1"
@@ -94,7 +94,10 @@ strict_equality = true
 module = [
     "boto3",
     "cloudpickle",
-    "kubernetes",
-    "kubernetes.client",
+    "kubernetes_asyncio",
+    "kubernetes_asyncio.client",
+    "kubernetes_asyncio.config",
+    "kubernetes_asyncio.watch",
+    "kubernetes_asyncio.client.exceptions",
 ]
 ignore_missing_imports = true

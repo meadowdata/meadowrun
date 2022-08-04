@@ -3,29 +3,19 @@ import time
 
 import boto3
 
+from build_ami_helper import REGION_TO_INSTANCE_TYPE
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 
-_SOURCE_REGION = "us-east-2"  # the region that you ran build_ami.py under
-_SUPPORTED_REGIONS = [
-    "us-east-1",
-    "us-east-2",
-    "us-west-1",
-    "us-west-2",
-    "eu-central-1",
-    "eu-west-1",
-    "eu-west-2",
-    "eu-west-3",
-    "eu-north-1",
-]
+_SOURCE_REGION = "us-east-2"  # your "main" region
+_SUPPORTED_REGIONS = list(REGION_TO_INSTANCE_TYPE.keys())
 
 
 def replicate_images(source_ami: str) -> None:
     """
-    After building an AMI (using build_ami.py), we need to make it available in all the
-    regions we want to support. This function copies the AMI specified by _SOURCE_AMI to
-    all of the _SUPPORTED_REGIONS.
+    This function is deprecated--replicating AMIs across regions is much more expensive
+    than recreating them in each region.
     """
     source_client = boto3.client("ec2", region_name=_SOURCE_REGION)
     image_name = source_client.describe_images(ImageIds=[source_ami])["Images"][0][
@@ -129,7 +119,11 @@ def main() -> None:
 
     parser_replicate = subparsers.add_parser(
         "replicate",
-        help="Replicates the specified AMI to the regions configured in this file",
+        help=(
+            "Replicates the specified AMI to the regions configured in this file. This "
+            "command is deprecated, as it is significantly cheaper to just re-build "
+            "AMIs in each region rather than replicating them across regions."
+        ),
     )
     parser_replicate.add_argument("source_ami_id")
 

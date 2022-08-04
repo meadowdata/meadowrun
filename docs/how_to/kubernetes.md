@@ -1,7 +1,8 @@
 # Run Meadowrun on Kubernetes
 
 > ⚠️ Meadowrun on Kubernetes is a work in progress. Please [contact
-us](mailto:contact@meadowdata.io) or [create a GitHub
+us](mailto:contact@meadowdata.io), comment on [this
+issue](https://github.com/meadowdata/meadowrun/issues/124) or [create a separate
 issue](https://github.com/meadowdata/meadowrun/issues) to let us know what you need!
 
 There's a wider variety of Kubernetes environments compared to "vanilla" cloud
@@ -305,3 +306,36 @@ which we print out:
 ```
 4
 ```
+
+## Running a run_map
+
+We can also run a `run_map` using Kubernetes. This requires Kubernetes version 1.21 or
+higher:
+
+```python
+import asyncio
+import meadowrun
+
+print(
+    asyncio.run(
+        meadowrun.run_map(
+            function=lambda x: x ** x,
+            args=[1, 2, 3, 4, 5],
+            host=meadowrun.Kubernetes(
+                storage_bucket="meadowrunbucket",
+                storage_endpoint_url="http://127.0.0.1:9000",
+                storage_endpoint_url_in_cluster="http://minio-service:9000",
+                storage_username_password_secret="minio-credentials",
+                kube_config_context="minikube"
+            ),
+            deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun-dev"),
+            num_concurrent_tasks=3,
+        )
+    )
+)
+```
+
+Unlike `run_map` with EC2 or Azure VMs, this will not use a queue. Instead, the tasks
+will be evenly distributed to each worker ahead of time. This means that if you have
+tasks where some take a long time and some finish quickly, the distribution of tasks
+will be suboptimal.

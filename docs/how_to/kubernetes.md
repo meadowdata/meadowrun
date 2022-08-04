@@ -74,6 +74,9 @@ use `meadowrun/meadowrun-dev`:
 First, install and start Minikube, following steps 1 and 2 from
 [here](https://minikube.sigs.k8s.io/docs/start/).
 
+Optionally, you can start `minikube dashboard --url` to get a link to a dashboard to
+observe your Minikube cluster.
+
 If you're using multiple Kubernetes clusters, you'll want to make sure the "minikube"
 [config
 context](https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/)

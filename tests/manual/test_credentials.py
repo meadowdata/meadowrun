@@ -5,7 +5,7 @@ uploading an image to it.
 
 import subprocess
 
-import meadowrun
+from meadowrun import run_function, Deployment, KubernetesSecret
 from automated.test_kubernetes_automated import _kubernetes_host
 from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
@@ -19,7 +19,6 @@ from meadowrun.meadowrun_pb2 import (
     GitRepoBranch,
     ServerAvailableFile,
 )
-from meadowrun.run_job import Deployment, run_function
 from meadowrun.run_job_local import LocalHost
 
 _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
@@ -221,12 +220,12 @@ async def manual_test_kubernetes_container():
     instructions at docs/how_to/private_container_kubernetes.md, and replacing the names
     of your container image and secret below.
     """
-    result = await meadowrun.run_function(
+    result = await run_function(
         lambda: 2 * 2,
         _kubernetes_host(),
-        deployment=meadowrun.Deployment.container_image(
+        deployment=Deployment.container_image(
             "hrichardlee/test1",
-            username_password_secret=meadowrun.KubernetesSecret("mydockersecret"),
+            username_password_secret=KubernetesSecret("mydockersecret"),
         ),
     )
 

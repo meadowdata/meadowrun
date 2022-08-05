@@ -98,8 +98,8 @@ async def _build_ami(
 
     plain_base_image_actions_on_vm must return the ami name
 
-    You must call _wait_for_image_and_make_public(region_name, image_id) after this function, and then
-    terminate the instance_id
+    You must call _wait_for_image_and_make_public(region_name, image_id) after this
+    function, and then terminate the instance_id
 
     Returns success, region_name (same as function argument), image id if success,
     otherwise exception traceback, instance_id
@@ -187,9 +187,7 @@ async def build_amis(
     actions_on_vm: Callable[[asyncssh.SSHClientConnection], Awaitable[str]],
 ):
     """Builds the same AMI in every region specified by regions"""
-    region_to_base_amis = [
-        (region, all_region_base_amis[region]) for region in regions
-    ]
+    region_to_base_amis = [(region, all_region_base_amis[region]) for region in regions]
 
     print(
         "Will build image in " + ", ".join(region for region, _ in region_to_base_amis)

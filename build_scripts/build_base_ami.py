@@ -175,10 +175,10 @@ async def parse_cuda_version(connection: asyncssh.SSHClientConnection) -> str:
 
 def main():
     r"""
-    A script for creating a meadowrun EC2 base AMIs. The only reason to want to change the
-    base AMI is because you want to change the version or flavour of Linux/Docker/Python
-    we're using, or some other deep baked-into-the-OS thing. To update meadowrun, you can
-    just run build_ami.py
+    A script for creating a meadowrun EC2 base AMIs. The only reason to want to change
+    the base AMI is because you want to change the version or flavour of
+    Linux/Docker/Python we're using, or some other deep baked-into-the-OS thing. To
+    update meadowrun, you can just run build_ami.py
 
     plain images are the "regular" base images. cuda images have cuda installed.
 

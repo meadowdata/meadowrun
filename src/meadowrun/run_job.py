@@ -68,7 +68,7 @@ from meadowrun.meadowrun_pb2 import (
     CodeZipFile,
     ContainerAtDigest,
     ContainerAtTag,
-    ContainerService,
+    ContainerImage,
     Credentials,
     CredentialsSourceMessage,
     EnvironmentSpec,
@@ -1143,23 +1143,23 @@ def _prepare_ports(
         return [str(p) for p in ports]
 
 
-def _prepare_container_services(
+def _prepare_sidecar_containers(
     container_interpreters: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
-) -> Tuple[Sequence[ContainerService], Sequence[CredentialsSourceMessage]]:
+) -> Tuple[Sequence[ContainerImage], Sequence[CredentialsSourceMessage]]:
     if container_interpreters is None:
         return [], []
 
     if isinstance(container_interpreters, ContainerInterpreterBase):
         container_interpreters = [container_interpreters]
 
-    container_services = []
+    sidecar_containers = []
     credentials_sources = []
     for interpreter in container_interpreters:
         if isinstance(interpreter, ContainerAtDigestInterpreter):
-            container_services.append(
-                ContainerService(
+            sidecar_containers.append(
+                ContainerImage(
                     container_image_at_digest=ContainerAtDigest(
                         repository=interpreter.repository_name,
                         digest=interpreter.digest,
@@ -1167,8 +1167,8 @@ def _prepare_container_services(
                 )
             )
         elif isinstance(interpreter, ContainerInterpreter):
-            container_services.append(
-                ContainerService(
+            sidecar_containers.append(
+                ContainerImage(
                     container_image_at_tag=ContainerAtTag(
                         repository=interpreter.repository_name,
                         tag=interpreter.tag,
@@ -1177,7 +1177,7 @@ def _prepare_container_services(
             )
         else:
             raise ValueError(
-                f"Unexpected type of container_service {type(interpreter)}"
+                f"Unexpected type of sidecar_container {type(interpreter)}"
             )
 
         username_password_secret = interpreter._get_username_password_secret()
@@ -1192,17 +1192,17 @@ def _prepare_container_services(
                 )
             )
 
-    return container_services, credentials_sources
+    return sidecar_containers, credentials_sources
 
 
 async def run_function(
     function: Union[Callable[..., _T], str],
     host: Host,
-    resources_required: Optional[Resources] = None,
+    resources: Optional[Resources] = None,
     deployment: Optional[Deployment] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
-    container_services: Union[
+    sidecar_containers: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
@@ -1217,15 +1217,15 @@ async def run_function(
             referenced in the deployed environment)
         host: Specifies where to run the function. See
             [AllocCloudInstance][meadowrun.AllocCloudInstance].
-        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
+        resources: Specifies the resources (e.g. CPU, RAM) needed by the
             function. For some hosts, this is optional, for other hosts it is required.
             See [Resources][meadowrun.Resources].
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the
             environment (code and libraries) that are needed to run this function
         args: Passed to the function like `function(*args)`
         kwargs: Passed to the function like `function(**kwargs)`
-        container_services: Additional containers that will be available from the main
-            job as container-service-0 container-service-1, etc.
+        sidecar_containers: Additional containers that will be available from the main
+            job as sidecar-container-0 sidecar-container-1, etc.
         ports: A specification of ports to make available on the machine that runs this
             job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
             duration of this job. Be careful as other jobs could be running on the same
@@ -1235,8 +1235,8 @@ async def run_function(
         The result of calling `function`
     """
 
-    if resources_required is None:
-        resources_required = Resources()
+    if resources is None:
+        resources = Resources()
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
@@ -1289,7 +1289,7 @@ async def run_function(
         environment_variables,
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
-    if resources_required.needs_cuda() and isinstance(
+    if resources.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
         interpreter.additional_software["cuda"] = ""
@@ -1299,9 +1299,9 @@ async def run_function(
     )
 
     (
-        container_services_prepared,
+        sidecar_containers_prepared,
         additional_credentials_sources,
-    ) = _prepare_container_services(container_services)
+    ) = _prepare_sidecar_containers(sidecar_containers)
     credentials_sources.extend(additional_credentials_sources)
 
     job = Job(
@@ -1310,27 +1310,27 @@ async def run_function(
         environment_variables=environment_variables,
         result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
-        container_services=container_services_prepared,
+        sidecar_containers=sidecar_containers_prepared,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
-        uses_gpu=resources_required.uses_gpu(),
+        uses_gpu=resources.uses_gpu(),
         **{  # type: ignore
             _job_field_for_code_deployment(code): code,
             _job_field_for_interpreter_deployment(interpreter): interpreter,
         },
     )
 
-    job_completion = await host.run_job(resources_required.to_internal(), job)
+    job_completion = await host.run_job(resources.to_internal(), job)
     return job_completion.result
 
 
 async def run_command(
     args: Union[str, Sequence[str]],
     host: Host,
-    resources_required: Optional[Resources] = None,
+    resources: Optional[Resources] = None,
     deployment: Optional[Deployment] = None,
     context_variables: Optional[Dict[str, Any]] = None,
-    container_services: Union[
+    sidecar_containers: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
@@ -1344,14 +1344,14 @@ async def run_command(
             --"nbconvert", "--to", "html", "analysis.ipynb"]`)
         host: Specifies where to run the function. See
             [AllocCloudInstance][meadowrun.AllocCloudInstance].
-        resources_required: Specifies the resources (e.g. CPU, RAM) needed by the
+        resources: Specifies the resources (e.g. CPU, RAM) needed by the
             command. For some hosts, this is optional, for other hosts it is required.
             See [Resources][meadowrun.Resources].
         deployment: See [Deployment][meadowrun.Deployment]. Specifies
             the environment (code and libraries) that are needed to run this command
         context_variables: Experimental feature
-        container_services: Additional containers that will be available from the main
-            job as container-service-0 container-service-1, etc.
+        sidecar_containers: Additional containers that will be available from the main
+            job as sidecar-container-0 sidecar-container-1, etc.
         ports: A specification of ports to make available on the machine that runs this
             job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
             duration of this job. Be careful as other jobs could be running on the same
@@ -1361,8 +1361,8 @@ async def run_command(
         A JobCompletion object that contains metadata about the running of the job.
     """
 
-    if resources_required is None:
-        resources_required = Resources()
+    if resources is None:
+        resources = Resources()
 
     job_id = str(uuid.uuid4())
     if isinstance(args, str):
@@ -1378,7 +1378,7 @@ async def run_command(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
-    if resources_required.needs_cuda() and isinstance(
+    if resources.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
         interpreter.additional_software["cuda"] = ""
@@ -1395,9 +1395,9 @@ async def run_command(
         pickled_context_variables = b""
 
     (
-        container_services_prepared,
+        sidecar_containers_prepared,
         additional_credentials_sources,
-    ) = _prepare_container_services(container_services)
+    ) = _prepare_sidecar_containers(sidecar_containers)
     credentials_sources.extend(additional_credentials_sources)
 
     job = Job(
@@ -1408,27 +1408,27 @@ async def run_command(
         py_command=PyCommandJob(
             command_line=args, pickled_context_variables=pickled_context_variables
         ),
-        container_services=container_services_prepared,
+        sidecar_containers=sidecar_containers_prepared,
         credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
-        uses_gpu=resources_required.uses_gpu(),
+        uses_gpu=resources.uses_gpu(),
         **{  # type: ignore
             _job_field_for_code_deployment(code): code,
             _job_field_for_interpreter_deployment(interpreter): interpreter,
         },
     )
 
-    return await host.run_job(resources_required.to_internal(), job)
+    return await host.run_job(resources.to_internal(), job)
 
 
 async def run_map(
     function: Callable[[_T], _U],
     args: Sequence[_T],
     host: Host,
-    resources_required_per_task: Optional[Resources] = None,
+    resources_per_task: Optional[Resources] = None,
     deployment: Optional[Deployment] = None,
     num_concurrent_tasks: Optional[int] = None,
-    container_services: Union[
+    sidecar_containers: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
@@ -1441,7 +1441,7 @@ async def run_map(
             lambda
         args: A list of objects, each item in the list represents a "task",
             where each "task" is an invocation of `function` on the item in the list
-        resources_required_per_task: The resources (e.g. CPU and RAM) required to run a
+        resources_per_task: The resources (e.g. CPU and RAM) required to run a
             single task. For some hosts, this is optional, for other hosts it is
             required. See [Resources][meadowrun.Resources].
         host: Specifies where to get compute resources from. See
@@ -1451,8 +1451,8 @@ async def run_map(
             tasks plus one, rounded down if set to None.
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run the function
-        container_services: Additional containers that will be available from the main
-            job as container-service-0 container-service-1, etc.
+        sidecar_containers: Additional containers that will be available from the main
+            job as sidecar-container-0 sidecar-container-1, etc.
         ports: A specification of ports to make available on the machines that runs
             tasks for this job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened
             just for the duration of this job. Be careful as other jobs could be running
@@ -1462,8 +1462,8 @@ async def run_map(
         Returns the result of running `function` on each of `args`
     """
 
-    if resources_required_per_task is None:
-        resources_required_per_task = Resources()
+    if resources_per_task is None:
+        resources_per_task = Resources()
 
     if not num_concurrent_tasks:
         num_concurrent_tasks = len(args) // 2 + 1
@@ -1479,7 +1479,7 @@ async def run_map(
         credentials_sources,
     ) = _add_defaults_to_deployment(deployment)
 
-    if resources_required_per_task.needs_cuda() and isinstance(
+    if resources_per_task.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
         interpreter.additional_software["cuda"] = ""
@@ -1491,9 +1491,9 @@ async def run_map(
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
     (
-        container_services_prepared,
+        sidecar_containers_prepared,
         additional_credentials_sources,
-    ) = _prepare_container_services(container_services)
+    ) = _prepare_sidecar_containers(sidecar_containers)
     credentials_sources.extend(additional_credentials_sources)
 
     prepared_ports = _prepare_ports(ports)
@@ -1502,10 +1502,10 @@ async def run_map(
         "job_friendly_name": friendly_name,
         "environment_variables": environment_variables,
         "result_highest_pickle_protocol": pickle.HIGHEST_PROTOCOL,
-        "container_services": container_services_prepared,
+        "sidecar_containers": sidecar_containers_prepared,
         "credentials_sources": credentials_sources,
         "ports": prepared_ports,
-        "uses_gpu": resources_required_per_task.uses_gpu(),
+        "uses_gpu": resources_per_task.uses_gpu(),
         _job_field_for_code_deployment(code): code,
         _job_field_for_interpreter_deployment(interpreter): interpreter,
     }
@@ -1513,7 +1513,7 @@ async def run_map(
     return await host.run_map(
         function,
         args,
-        resources_required_per_task.to_internal(),
+        resources_per_task.to_internal(),
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,

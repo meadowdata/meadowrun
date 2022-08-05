@@ -18,7 +18,7 @@ MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 
 # This is a global variable that will be updated with the storage client if it's
 # available in func_worker_storage
-STORAGE_CLIENT = None
+STORAGE_CLIENT: Optional[Any] = None
 
 
 def get_storage_client_from_args(

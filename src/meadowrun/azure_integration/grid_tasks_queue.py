@@ -275,7 +275,7 @@ async def get_results(result_queue: Queue, num_tasks: int, location: str) -> Lis
 
     # we're guaranteed by the logic in the while loop that we don't have any Nones left
     # in task_results
-    task_results = cast(List[ProcessState], task_results)
+    task_results = cast("List[ProcessState]", task_results)
 
     failed_tasks = [
         result
@@ -330,5 +330,6 @@ async def prepare_azure_vm_run_map(
         ),
         ssh_username="meadowrunuser",
         ssh_private_key=private_key,
-        results_future=get_results(result_queue, len(tasks), location),
+        num_tasks=len(tasks),
+        result_futures=get_results(result_queue, len(tasks), location),
     )

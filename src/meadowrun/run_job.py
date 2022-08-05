@@ -332,7 +332,7 @@ class AllocCloudInstance(Host):
 
         # finally, wait for results:
 
-        results = await helper.results_future
+        results = await helper.get_results()
 
         # TODO if there's an error these workers will crash before the results_future
         # returns

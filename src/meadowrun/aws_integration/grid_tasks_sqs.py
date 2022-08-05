@@ -12,6 +12,7 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncGenerator,
     Callable,
     Iterable,
     List,
@@ -19,7 +20,6 @@ from typing import (
     Sequence,
     Tuple,
     TypeVar,
-    cast,
 )
 
 import aiobotocore.session
@@ -225,15 +225,20 @@ def _send_or_upload_message(
         )
 
 
-def _get_result_from_body(body: Any, region_name: str, task_result: Any) -> None:
+def _get_result_from_body(
+    body: Any, region_name: str, task_result_fac: Callable[[], _T]
+) -> _T:
+    task_result = task_result_fac()
     if body.startswith(_BODY_INLINE):
-        task_result.ParseFromString(
+        task_result.ParseFromString(  # type: ignore
             base64.b64decode(body[len(_BODY_INLINE) :].encode("utf-8"))
         )
+        return task_result
     elif body.startswith(_BODY_STORED):
         with BytesIO() as bs:
             s3.download_fileobj(body[len(_BODY_STORED) :], bs, region_name)
-            task_result.ParseFromString(base64.b64decode(bs.getvalue()))
+            task_result.ParseFromString(base64.b64decode(bs.getvalue()))  # type:ignore
+            return task_result
     else:
         raise ValueError(f"Malformed SQS message body: {body}")
 
@@ -269,8 +274,7 @@ def _get_task(
         raise ValueError(f"Requested one message but got {len(messages)}")
 
     # parse the task request
-    task = GridTask()
-    _get_result_from_body(messages[0]["Body"], region_name, task)
+    task = _get_result_from_body(messages[0]["Body"], region_name, GridTask)
 
     # send the RUN_REQUESTED message on the result queue
     _send_or_upload_message(
@@ -388,32 +392,48 @@ def worker_loop(
         )
 
 
-async def get_results(
+async def _delete_messages_batch(
+    client: Any, result_queue_url: str, receipt_handles: Iterable[Any]
+) -> None:
+    delete_result = await client.delete_message_batch(
+        QueueUrl=result_queue_url,
+        Entries=[
+            {
+                "Id": str(i),
+                "ReceiptHandle": receipt_handle,
+            }
+            for i, receipt_handle in enumerate(receipt_handles)
+        ],
+    )
+    if "Failed" in delete_result:
+        raise ValueError(f"Failed to delete messages: {delete_result['Failed']}")
+
+
+async def get_results_unordered(
     result_queue_url: str,
     region_name: str,
     num_tasks: int,
     receive_message_wait_seconds: int = 20,
-) -> List[Any]:
+) -> AsyncGenerator[Tuple[int, ProcessState], None]:
     """
     Listens to a result queue until we have results for num_tasks. Returns the unpickled
     results of those tasks.
     """
 
-    task_results_received = 0
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
     # use them to react appropriately if a worker crashes unexpectedly.
-    running_tasks: List[Optional[ProcessState]] = [None for _ in range(num_tasks)]
-    task_results: List[Optional[ProcessState]] = [None for _ in range(num_tasks)]
 
+    num_tasks_running, num_tasks_completed = 0, 0
     async with aiobotocore.session.get_session().create_client(
         "sqs", region_name=region_name
     ) as client:
-        while task_results_received < num_tasks:
+        delete_message_tasks = []
+        while num_tasks_completed < num_tasks:
             print(
                 f"Waiting for grid tasks. Requested: {num_tasks}, "
-                f"running: {sum(1 for task in running_tasks if task is not None)}, "
-                f"completed: {sum(1 for task in task_results if task is not None)}"
+                f"running: {num_tasks_running}, "
+                f"completed: {num_tasks_completed}"
             )
 
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.receive_message
@@ -427,49 +447,32 @@ async def get_results(
                 receipt_handles = []
                 for message in receive_result["Messages"]:
                     receipt_handles.append(message["ReceiptHandle"])
-                    task_result = GridTaskStateResponse()
-                    _get_result_from_body(message["Body"], region_name, task_result)
+                    task_result = _get_result_from_body(
+                        message["Body"], region_name, GridTaskStateResponse
+                    )
 
                     if (
                         task_result.process_state.state
                         == ProcessState.ProcessStateEnum.RUN_REQUESTED
                     ):
-                        running_tasks[task_result.task_id] = task_result.process_state
-                    elif task_results[task_result.task_id] is None:
-                        running_tasks[task_result.task_id] = None
-                        task_results[task_result.task_id] = task_result.process_state
-                        task_results_received += 1
+                        num_tasks_running += 1
+                    else:
+                        num_tasks_running -= 1
+                        num_tasks_completed += 1
+                        yield task_result.task_id, task_result.process_state
 
-                delete_result = await client.delete_message_batch(
-                    QueueUrl=result_queue_url,
-                    Entries=[
-                        {
-                            "Id": str(i),
-                            "ReceiptHandle": receipt_handle,
-                        }
-                        for i, receipt_handle in enumerate(receipt_handles)
-                    ],
-                )
-                if "Failed" in delete_result:
-                    raise ValueError(
-                        f"Failed to delete messages: {delete_result['Failed']}"
+                # run delete messages in the background
+                delete_message_tasks.append(
+                    asyncio.create_task(
+                        _delete_messages_batch(
+                            client, result_queue_url, receipt_handles
+                        )
                     )
-
-    # we're guaranteed by the logic in the while loop that we don't have any Nones left
-    # in task_results
-    task_results = cast(List[ProcessState], task_results)
-
-    failed_tasks = [
-        result
-        for result in task_results
-        if result.state != ProcessState.ProcessStateEnum.SUCCEEDED
-    ]
-    if failed_tasks:
-        # TODO better error message
-        raise ValueError(f"Some tasks failed: {failed_tasks}")
-
-    # TODO try/catch on pickle.loads?
-    return [pickle.loads(result.pickled_result) for result in task_results]
+                )
+        results = await asyncio.gather(*delete_message_tasks, return_exceptions=True)
+        exceptions = [result for result in results if isinstance(result, Exception)]
+        if exceptions:
+            raise Exception(exceptions)
 
 
 async def prepare_ec2_run_map(
@@ -510,5 +513,6 @@ async def prepare_ec2_run_map(
         ),
         ssh_username=SSH_USER,
         ssh_private_key=pkey,
-        results_future=get_results(result_queue, region_name, len(tasks)),
+        num_tasks=len(tasks),
+        result_futures=get_results_unordered(result_queue, region_name, len(tasks)),
     )

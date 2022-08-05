@@ -53,6 +53,10 @@ pytest-mock = "^3.7.0"
 types-requests = "^2.27.30"
 flake8-encodings = "^0.5.0"
 flake8-type-checking = { version = "^2.0.4", python=">=3.8,<4.0" }
+toml = "^0.10.2"
+PyYAML = "^6.0"
+types-toml = "^0.10.8"
+types-PyYAML = "^6.0.11"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -2,7 +2,6 @@ To publish meadowrun:
 
 - Increment the version in:
   - `pyproject.toml`
-  - `build_scripts/conda-recipe/meta.yaml` and `build_scripts/build_conda.bat`
   - `docker_images/meadowrun/Dockerfile` and `build_scripts/publish_docker_image.bat`
   - `azure_vms.py`
 - Build the EC2 AMIs and copy the new AMI ids into the code by following the
@@ -19,7 +18,7 @@ These steps can be done in parallel:
   poetry build
   poetry publish
   ```
-- Build and publish the conda package by running `build_scripts/build_conda.bat`
+- Build and publish the conda package by running `build_scripts/build_conda.py`
 - Build and publish the docker images by running
   `build_scripts/publish_docker_image.bat`
 

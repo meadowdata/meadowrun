@@ -38,7 +38,7 @@ instance allocation table with the process ids on the machine.)
 If there aren't enough instances to run your job, Meadowrun will launch one or more
 instances for you, choosing the cheapest instance types that meet the CPU/memory
 requirements you specify. Meadowrun will optionally choose spot instances, taking into
-account the maximum interruption probability that you specify.
+account the maximum eviction rate (aka interruption probability) that you specify.
 
 `meadowrun-manage-<cloud-provider> install`, will create AWS Lambdas/Azure Functions
 that run periodically and adjust the number of running instances. Currently, this will

@@ -8,12 +8,11 @@ from typing import (
     Dict,
     Iterable,
     List,
-    Literal,
     Optional,
     Set,
     Tuple,
-    get_args,
 )
+from typing_extensions import Literal, get_args
 
 import asyncssh
 import boto3

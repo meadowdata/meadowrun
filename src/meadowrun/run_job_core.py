@@ -165,9 +165,6 @@ class SshHost(Host):
     async def run_job(
         self, resources_required: Optional[ResourcesInternal], job: Job
     ) -> JobCompletion[Any]:
-        if resources_required is not None:
-            raise ValueError("Specifying Resources for SshHost is not supported")
-
         # try the connection 20 times.
         connection = await _retry(
             lambda: ssh.connect(

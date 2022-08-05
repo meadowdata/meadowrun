@@ -9,9 +9,9 @@ import dataclasses
 import pickle
 from typing import (
     Any,
+    AsyncGenerator,
     Awaitable,
     Callable,
-    Coroutine,
     Dict,
     Generic,
     Iterable,
@@ -23,6 +23,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
 )
 
 import asyncssh
@@ -326,7 +327,40 @@ class RunMapHelper:
     worker_function: Callable[[str, int], None]
     ssh_username: str
     ssh_private_key: asyncssh.SSHKey
-    results_future: Coroutine[Any, Any, List[Any]]
+    num_tasks: int
+    result_futures: AsyncGenerator[Tuple[int, ProcessState], None]
+
+    async def get_results(
+        self,
+    ) -> List[Any]:
+
+        task_results: List[Optional[ProcessState]] = [
+            None for _ in range(self.num_tasks)
+        ]
+        async for task_id, process_state in self.result_futures:
+            if task_results[task_id] is None:
+                task_results[task_id] = process_state
+            else:
+                raise Exception(
+                    f"Unexpected run_map results - the task id {task_id} had its "
+                    "results returned more than once."
+                )
+
+        # we're guaranteed by the logic in the loop that we don't have any Nones left
+        # in task_results
+        task_results = cast(List[ProcessState], task_results)
+
+        failed_tasks = [
+            result
+            for result in task_results
+            if result.state != ProcessState.ProcessStateEnum.SUCCEEDED
+        ]
+        if failed_tasks:
+            # TODO better error message
+            raise ValueError(f"Some tasks failed: {failed_tasks}")
+
+        # TODO try/catch on pickle.loads?
+        return [pickle.loads(result.pickled_result) for result in task_results]
 
 
 @dataclasses.dataclass(frozen=True)

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pickle
+
+from meadowrun.run_job_core import RunMapHelper
+
 """
 These tests require an AWS account to be set up, but don't require any manual
 intervention beyond some initial setup. Also, these tests create instances (which cost
@@ -7,12 +11,11 @@ money!). Either `meadowrun-manage install` needs to be set up, or `meadowrun-man
 clean` needs to be run periodically
 """
 
-import asyncio
+import asyncssh
 import datetime
 import pprint
 import threading
-from typing import TYPE_CHECKING, Tuple
-import uuid
+from typing import TYPE_CHECKING, List, Tuple
 
 import boto3
 
@@ -43,11 +46,10 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.grid_tasks_sqs import (
-    _add_tasks,
     _complete_task,
-    _create_queues_for_job,
     _get_task,
-    get_results,
+    create_queues_and_add_tasks,
+    get_results_unordered,
     worker_loop,
 )
 from meadowrun.config import LOGICAL_CPU, MEMORY_GB, INTERRUPTION_PROBABILITY_INVERSE
@@ -236,90 +238,27 @@ async def test_get_ec2_instance_types():
 
 
 class TestGridTaskQueue:
-    def test_grid_task_queue(self):
+    @pytest.mark.asyncio
+    async def test_grid_task_queue(self):
         """
         Tests the grid_task_queue functions without actually running any tasks. Uses SQS
         and S3 resources.
         """
-        region_name = asyncio.run(_get_default_region_name())
+        region_name = await _get_default_region_name()
         # big argument should be uploaded to S3
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
         # dummy variables
-        job_id = str(uuid.uuid4())
         public_address = "foo"
         worker_id = 1
 
-        request_queue_url, result_queue_url = asyncio.run(
-            _create_queues_for_job(job_id, region_name)
+        (request_queue_url, result_queue_url) = await create_queues_and_add_tasks(
+            region_name, task_arguments
         )
 
-        # get results in a different thread as we're adding/completing tasks
-        results = None
-
-        def get_results_thread():
-            nonlocal results
-            results = asyncio.run(
-                get_results(result_queue_url, region_name, len(task_arguments), 1)
-            )
-
-        results_thread = threading.Thread(target=get_results_thread)
-        results_thread.start()
-
-        # add some tasks
-        asyncio.run(_add_tasks(request_queue_url, region_name, task_arguments))
-
-        # get some tasks and complete them
-        task1 = _get_task(
-            request_queue_url,
-            result_queue_url,
-            region_name,
-            0,
-            public_address,
-            worker_id,
-        )
-        assert task1 is not None
-        task2 = _get_task(
-            request_queue_url,
-            result_queue_url,
-            region_name,
-            0,
-            public_address,
-            worker_id,
-        )
-        assert task2 is not None
-        _complete_task(
-            result_queue_url,
-            region_name,
-            task1,
-            ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pickled_result=task1.pickled_function_arguments,
-            ),
-            public_address,
-            worker_id,
-        )
-        task3 = _get_task(
-            request_queue_url,
-            result_queue_url,
-            region_name,
-            0,
-            public_address,
-            worker_id,
-        )
-        assert task3 is not None
-        task4 = _get_task(
-            request_queue_url,
-            result_queue_url,
-            region_name,
-            0,
-            public_address,
-            worker_id,
-        )
-        assert task4 is not None
-        # there should be no more tasks to get
-        assert (
-            _get_task(
+        def complete_tasks():
+            # get some tasks and complete them
+            task1 = _get_task(
                 request_queue_url,
                 result_queue_url,
                 region_name,
@@ -327,72 +266,126 @@ class TestGridTaskQueue:
                 public_address,
                 worker_id,
             )
-            is None
-        )
-        _complete_task(
-            result_queue_url,
-            region_name,
-            task2,
-            ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pickled_result=task2.pickled_function_arguments,
-            ),
-            public_address,
-            worker_id,
-        )
-        _complete_task(
-            result_queue_url,
-            region_name,
-            task3,
-            ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pickled_result=task3.pickled_function_arguments,
-            ),
-            public_address,
-            worker_id,
-        )
-        _complete_task(
-            result_queue_url,
-            region_name,
-            task4,
-            ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pickled_result=task4.pickled_function_arguments,
-            ),
-            public_address,
-            worker_id,
-        )
+            assert task1 is not None
+            task2 = _get_task(
+                request_queue_url,
+                result_queue_url,
+                region_name,
+                0,
+                public_address,
+                worker_id,
+            )
+            assert task2 is not None
+            _complete_task(
+                result_queue_url,
+                region_name,
+                task1,
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                    pickled_result=task1.pickled_function_arguments,
+                ),
+                public_address,
+                worker_id,
+            )
+            task3 = _get_task(
+                request_queue_url,
+                result_queue_url,
+                region_name,
+                0,
+                public_address,
+                worker_id,
+            )
+            assert task3 is not None
+            task4 = _get_task(
+                request_queue_url,
+                result_queue_url,
+                region_name,
+                0,
+                public_address,
+                worker_id,
+            )
+            assert task4 is not None
+            # there should be no more tasks to get
+            assert (
+                _get_task(
+                    request_queue_url,
+                    result_queue_url,
+                    region_name,
+                    0,
+                    public_address,
+                    worker_id,
+                )
+                is None
+            )
+            _complete_task(
+                result_queue_url,
+                region_name,
+                task2,
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                    pickled_result=task2.pickled_function_arguments,
+                ),
+                public_address,
+                worker_id,
+            )
+            _complete_task(
+                result_queue_url,
+                region_name,
+                task3,
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                    pickled_result=task3.pickled_function_arguments,
+                ),
+                public_address,
+                worker_id,
+            )
+            _complete_task(
+                result_queue_url,
+                region_name,
+                task4,
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                    pickled_result=task4.pickled_function_arguments,
+                ),
+                public_address,
+                worker_id,
+            )
+
+        results_thread = threading.Thread(target=complete_tasks)
+        results_thread.start()
+
+        print(f"{task_arguments=}")
+        results: List = [None] * len(task_arguments)
+        async for task_id, process_state in get_results_unordered(
+            result_queue_url, region_name, len(task_arguments)
+        ):
+            results[task_id] = pickle.loads(process_state.pickled_result)
 
         results_thread.join()
         assert results == task_arguments
 
-    def test_worker_loop(self):
-        region_name = asyncio.run(_get_default_region_name())
+    @pytest.mark.asyncio
+    async def test_worker_loop(self):
+        region_name = await _get_default_region_name()
         task_arguments = [1, 2, 3, 4]
 
         # dummy variables
-        job_id = str(uuid.uuid4())
         public_address = "foo"
         worker_id = 1
 
-        request_queue_url, result_queue_url = asyncio.run(
-            _create_queues_for_job(job_id, region_name)
+        request_queue_url, result_queue_url = await create_queues_and_add_tasks(
+            region_name, task_arguments
         )
 
-        # get results on another thread
-        results = None
-
-        def get_results_thread():
-            nonlocal results
-            results = asyncio.run(
-                get_results(result_queue_url, region_name, len(task_arguments), 1)
-            )
-
-        results_thread = threading.Thread(target=get_results_thread)
-        results_thread.start()
-
-        # add tasks
-        asyncio.run(_add_tasks(request_queue_url, region_name, task_arguments))
+        helper = RunMapHelper(
+            region_name,
+            {},
+            lambda *args: None,
+            "",
+            asyncssh.SSHKey(),
+            len(task_arguments),
+            get_results_unordered(result_queue_url, region_name, len(task_arguments)),
+        )
 
         # start a worker_loop which will get tasks and complete them
         worker_thread = threading.Thread(
@@ -407,6 +400,6 @@ class TestGridTaskQueue:
         )
         worker_thread.start()
 
-        results_thread.join()
+        results = await helper.get_results()
         worker_thread.join()
         assert results == [1, 4, 27, 256]

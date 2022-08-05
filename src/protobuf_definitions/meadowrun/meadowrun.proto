@@ -177,7 +177,7 @@ message GridTask {
 }
 
 
-message ContainerService {
+message ContainerImage {
     oneof container_image {
         ContainerAtDigest container_image_at_digest = 1;
         ContainerAtTag container_image_at_tag = 2;
@@ -217,7 +217,7 @@ message Job {
         EnvironmentSpec environment_spec = 18;
     }
 
-    repeated ContainerService container_services = 22;
+    repeated ContainerImage sidecar_containers = 22;
 
     repeated StringPair environment_variables = 13;
 

@@ -454,7 +454,7 @@ async def _launch_container_job(
     job: Job,
     io_folder: str,
     machine_cache_folder: str,
-    container_services: List[str],
+    sidecar_container_images: List[str],
 ) -> Tuple[str, Coroutine[Any, Any, ProcessState]]:
     """
     Contains logic specific to launching jobs that run in a container. Only separated
@@ -536,15 +536,15 @@ async def _launch_container_job(
     # now, expose any files we need for communication with the container
     binds.extend(job_spec_transformed.container_binds)
 
-    # now run any container_services that were specified
+    # now run any sidecar_containers that were specified
     docker_client = None
 
-    container_service_ips = []
-    container_service_containers = []
-    for container_service_image in container_services:
-        container_service, docker_client = await run_container(
+    sidecar_container_ips = []
+    sidecar_containers = []
+    for sidecar_container_image in sidecar_container_images:
+        sidecar_container, docker_client = await run_container(
             docker_client,
-            container_service_image,
+            sidecar_container_image,
             None,
             {},
             None,
@@ -553,9 +553,9 @@ async def _launch_container_job(
             [],
             job.uses_gpu,
         )
-        container_service_containers.append(container_service)
-        container_service_ips.append(
-            (await container_service.show())["NetworkSettings"]["IPAddress"]
+        sidecar_containers.append(sidecar_container)
+        sidecar_container_ips.append(
+            (await sidecar_container.show())["NetworkSettings"]["IPAddress"]
         )
 
     # finally, run the container
@@ -577,7 +577,7 @@ async def _launch_container_job(
         working_dir,
         binds,
         list(job.ports),
-        [(f"container-service-{i}", ip) for i, ip in enumerate(container_service_ips)],
+        [(f"sidecar-container-{i}", ip) for i, ip in enumerate(sidecar_container_ips)],
         job.uses_gpu,
     )
     return container.id, _container_job_continuation(
@@ -588,7 +588,7 @@ async def _launch_container_job(
         io_folder,
         job.result_highest_pickle_protocol,
         log_file_name,
-        container_service_containers,
+        sidecar_containers,
     )
 
 
@@ -600,7 +600,7 @@ async def _container_job_continuation(
     io_folder: str,
     result_highest_pickle_protocol: int,
     log_file_name: str,
-    container_service_containers: List[aiodocker_containers.DockerContainer],
+    sidecar_containers: List[aiodocker_containers.DockerContainer],
 ) -> ProcessState:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
@@ -646,7 +646,7 @@ async def _container_job_continuation(
         try:
             await asyncio.gather(
                 remove_container(container),
-                *(remove_container(c) for c in container_service_containers),
+                *(remove_container(c) for c in sidecar_containers),
             )
         except Exception as e:
             print(f"Warning, unable to remove container: {e}")
@@ -836,12 +836,12 @@ async def _get_credentials_for_job(
 ]:
     """
     Returns (credentials for job.code_deployment, credentials for
-    job.interpreter_deployment, credentials for job.container_services). Credentials for
-    container_services will be a list of the same length as container_services, and
-    should be used like zip(job.container_services, returned_value).
+    job.interpreter_deployment, credentials for job.sidecar_containers). Credentials for
+    sidecar_containers will be a list of the same length as sidecar_containers, and
+    should be used like zip(job.sidecar_containers, returned_value).
 
     TODO: This code seems a little convoluted because on the client side, the user
-    specifies which credentials are for which deployment/container service. We should
+    specifies which credentials are for which deployment/sidecar container. We should
     change this code to reflect the user's specifications, but the code we have here is
     also useful if we want to support registering "global" credentials that are stored
     outside of the context of a single job.
@@ -883,31 +883,31 @@ async def _get_credentials_for_job(
             repository, credentials_sources, cloud
         )
 
-    container_services_credentials: List[Optional[RawCredentials]] = []
-    for container_service in job.container_services:
-        container_service_image_type = container_service.WhichOneof("container_image")
+    sidecar_container_credentials: List[Optional[RawCredentials]] = []
+    for sidecar_container in job.sidecar_containers:
+        sidecar_container_image = sidecar_container.WhichOneof("container_image")
 
-        if container_service_image_type in (
+        if sidecar_container_image in (
             "container_image_at_digest",
             "container_image_at_tag",
         ):
-            if container_service_image_type == "container_image_at_digest":
-                repository = container_service.container_image_at_digest.repository
+            if sidecar_container_image == "container_image_at_digest":
+                repository = sidecar_container.container_image_at_digest.repository
             else:
-                repository = container_service.container_image_at_tag.repository
+                repository = sidecar_container.container_image_at_tag.repository
 
-            container_services_credentials.append(
+            sidecar_container_credentials.append(
                 await _get_credentials_for_docker(
                     repository, credentials_sources, cloud
                 )
             )
         else:
-            container_services_credentials.append(None)
+            sidecar_container_credentials.append(None)
 
     return (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-        container_services_credentials,
+        sidecar_container_credentials,
     )
 
 
@@ -947,7 +947,7 @@ async def run_local(
     (
         code_deployment_credentials,
         interpreter_deployment_credentials,
-        container_services_credentials,
+        all_sidecar_container_credentials,
     ) = await _get_credentials_for_job(job, cloud)
 
     try:
@@ -1030,9 +1030,9 @@ async def run_local(
         # interpreter
 
         if interpreter_deployment == "server_available_interpreter":
-            if job.container_services:
+            if job.sidecar_containers:
                 raise ValueError(
-                    "Cannot specify container_services with "
+                    "Cannot specify sidecar_containers with "
                     "server_available_interpreter"
                 )
             pid, continuation = await _launch_non_container_job(
@@ -1073,37 +1073,37 @@ async def run_local(
                     f"Unexpected interpreter_deployment: {interpreter_deployment}"
                 )
 
-            container_services = []
-            for container_service, container_service_credentials in zip(
-                job.container_services, container_services_credentials
+            sidecar_containers = []
+            for sidecar_container, sidecar_container_credentials in zip(
+                job.sidecar_containers, all_sidecar_container_credentials
             ):
-                container_service_image_type = container_service.WhichOneof(
+                sidecar_container_image_type = sidecar_container.WhichOneof(
                     "container_image"
                 )
-                if container_service_image_type == "container_image_at_digest":
-                    container_services.append(
-                        f"{container_service.container_image_at_digest.repository}"
-                        f"@{container_service.container_image_at_digest.digest}"
+                if sidecar_container_image_type == "container_image_at_digest":
+                    sidecar_containers.append(
+                        f"{sidecar_container.container_image_at_digest.repository}"
+                        f"@{sidecar_container.container_image_at_digest.digest}"
                     )
                     await pull_image(
-                        container_services[-1], container_service_credentials
+                        sidecar_containers[-1], sidecar_container_credentials
                     )
-                elif container_service_image_type == "container_image_at_tag":
-                    container_services.append(
-                        f"{container_service.container_image_at_tag.repository}"
-                        f":{container_service.container_image_at_tag.tag}"
+                elif sidecar_container_image_type == "container_image_at_tag":
+                    sidecar_containers.append(
+                        f"{sidecar_container.container_image_at_tag.repository}"
+                        f":{sidecar_container.container_image_at_tag.tag}"
                     )
                     await pull_image(
-                        container_services[-1], container_service_credentials
+                        sidecar_containers[-1], sidecar_container_credentials
                     )
-                elif container_service_image_type == "server_available_container_image":
-                    container_services.append(
-                        container_service.server_available_container_image.image_name
+                elif sidecar_container_image_type == "server_available_container_image":
+                    sidecar_containers.append(
+                        sidecar_container.server_available_container_image.image_name
                     )
                 else:
                     raise ValueError(
-                        "Unexpected container service image: "
-                        f"{container_service_image_type}"
+                        "Unexpected sidecar container image: "
+                        f"{sidecar_container_image_type}"
                     )
 
             container_id, continuation = await _launch_container_job(
@@ -1116,7 +1116,7 @@ async def run_local(
                 job,
                 io_folder,
                 machine_cache_folder,
-                container_services,
+                sidecar_containers,
             )
             # due to the way protobuf works, this is equivalent to None
             pid = 0

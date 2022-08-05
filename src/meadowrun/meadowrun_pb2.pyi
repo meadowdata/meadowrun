@@ -585,7 +585,7 @@ class GridTask(google.protobuf.message.Message):
 
 global___GridTask = GridTask
 
-class ContainerService(google.protobuf.message.Message):
+class ContainerImage(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     CONTAINER_IMAGE_AT_DIGEST_FIELD_NUMBER: builtins.int
     CONTAINER_IMAGE_AT_TAG_FIELD_NUMBER: builtins.int
@@ -642,7 +642,7 @@ class ContainerService(google.protobuf.message.Message):
         ]
     ]: ...
 
-global___ContainerService = ContainerService
+global___ContainerImage = ContainerImage
 
 class Job(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -658,7 +658,7 @@ class Job(google.protobuf.message.Message):
     SERVER_AVAILABLE_CONTAINER_FIELD_NUMBER: builtins.int
     ENVIRONMENT_SPEC_IN_CODE_FIELD_NUMBER: builtins.int
     ENVIRONMENT_SPEC_FIELD_NUMBER: builtins.int
-    CONTAINER_SERVICES_FIELD_NUMBER: builtins.int
+    SIDECAR_CONTAINERS_FIELD_NUMBER: builtins.int
     ENVIRONMENT_VARIABLES_FIELD_NUMBER: builtins.int
     RESULT_HIGHEST_PICKLE_PROTOCOL_FIELD_NUMBER: builtins.int
     PY_COMMAND_FIELD_NUMBER: builtins.int
@@ -701,10 +701,10 @@ class Job(google.protobuf.message.Message):
     @property
     def environment_spec(self) -> global___EnvironmentSpec: ...
     @property
-    def container_services(
+    def sidecar_containers(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___ContainerService
+        global___ContainerImage
     ]: ...
     @property
     def environment_variables(
@@ -755,8 +755,8 @@ class Job(google.protobuf.message.Message):
         ] = ...,
         environment_spec_in_code: typing.Optional[global___EnvironmentSpecInCode] = ...,
         environment_spec: typing.Optional[global___EnvironmentSpec] = ...,
-        container_services: typing.Optional[
-            typing.Iterable[global___ContainerService]
+        sidecar_containers: typing.Optional[
+            typing.Iterable[global___ContainerImage]
         ] = ...,
         environment_variables: typing.Optional[
             typing.Iterable[global___StringPair]
@@ -816,8 +816,6 @@ class Job(google.protobuf.message.Message):
             b"container_at_digest",
             "container_at_tag",
             b"container_at_tag",
-            "container_services",
-            b"container_services",
             "credentials_sources",
             b"credentials_sources",
             "environment_spec",
@@ -852,6 +850,8 @@ class Job(google.protobuf.message.Message):
             b"server_available_folder",
             "server_available_interpreter",
             b"server_available_interpreter",
+            "sidecar_containers",
+            b"sidecar_containers",
             "uses_gpu",
             b"uses_gpu",
         ],

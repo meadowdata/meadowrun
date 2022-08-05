@@ -260,11 +260,11 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_container_service(self):
+    async def test_pip_file_in_git_repo_with_sidecar_container(self):
         def remote_function():
             import requests
 
-            return requests.get("http://container-service-0").text
+            return requests.get("http://sidecar-container-0").text
 
         results = await run_function(
             remote_function,
@@ -276,7 +276,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PipRequirementsFile("requirements.txt", "3.9"),
             ),
             # this is just a random example of a container with a service in it
-            container_services=ContainerInterpreter("okteto/sample-app"),
+            sidecar_containers=ContainerInterpreter("okteto/sample-app"),
         )
         assert results.startswith("<h3>Hello okteto!</h3>")
 

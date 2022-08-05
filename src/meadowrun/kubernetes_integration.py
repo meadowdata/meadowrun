@@ -445,9 +445,9 @@ class Kubernetes(Host):
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
             )
-        if job.container_services:
+        if job.sidecar_containers:
             raise NotImplementedError(
-                "Container services are not yet supported for Kubernetes"
+                "Sidecar containers are not yet supported for Kubernetes"
             )
         if job.ports:
             raise NotImplementedError("Ports are not yet supported for Kubernetes")
@@ -609,9 +609,9 @@ class Kubernetes(Host):
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
             )
-        if job_fields["container_services"]:
+        if job_fields["sidecar_containers"]:
             raise NotImplementedError(
-                "Container services are not yet supported for Kubernetes"
+                "Sidecar containers are not yet supported for Kubernetes"
             )
         if job_fields["ports"]:
             raise NotImplementedError("Ports are not yet supported for Kubernetes")

@@ -49,12 +49,18 @@ def ensure_bucket(
 
     bucket_name = _get_bucket_name(region_name)
 
-    location = {"LocationConstraint": region_name}
+    # us-east-1 cannot be specified as a LocationConstraint because it is the default
+    # region
+    # https://stackoverflow.com/questions/51912072/invalidlocationconstraint-error-while-creating-s3-bucket-when-the-used-command-i
+    if region_name == "us-east-1":
+        additional_parameters = {}
+    else:
+        additional_parameters = {
+            "CreateBucketConfiguration": {"LocationConstraint": region_name}
+        }
 
     success, _ = ignore_boto3_error_code(
-        lambda: s3.create_bucket(
-            Bucket=bucket_name, CreateBucketConfiguration=location
-        ),
+        lambda: s3.create_bucket(Bucket=bucket_name, **additional_parameters),
         "BucketAlreadyOwnedByYou",
     )
     s3.put_bucket_lifecycle_configuration(

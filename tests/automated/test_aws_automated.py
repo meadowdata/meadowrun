@@ -11,7 +11,7 @@ import asyncio
 import datetime
 import pprint
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 import uuid
 
 import boto3
@@ -49,7 +49,13 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job import AllocCloudInstance
+from meadowrun.run_job import (
+    AllocCloudInstance,
+    Deployment,
+    PipRequirementsFile,
+    run_command,
+    run_function,
+)
 
 if TYPE_CHECKING:
     from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
@@ -88,6 +94,54 @@ class TestErrorsAws(AwsHostProvider, ErrorsSuite):
 class TestMapAws(MapSuite):
     def cloud_provider(self) -> CloudProviderType:
         return "EC2"
+
+
+class TestAWSOnlyFeatures(AwsHostProvider):
+    """
+    These tests should get moved into BasicsSuite as we add support for them on all
+    platforms
+    """
+
+    @pytest.mark.asyncio
+    async def test_nvidia_gpu(self):
+        deployment = Deployment.git_repo(
+            "https://github.com/meadowdata/test_repo",
+            interpreter=PipRequirementsFile("requirements_with_torch.txt", "3.9"),
+        )
+
+        for resources in (
+            Resources(1, 1, gpus=1, flags="nvidia"),
+            Resources(1, 1, gpu_memory=1, flags="nvidia"),
+        ):
+            results: Tuple[bool, Tuple[int, int]] = await run_function(
+                "gpu_tests.check_for_cuda", self.get_host(), resources, deployment
+            )
+            assert results[0]
+            if resources.gpu_memory is not None:
+                assert results[1][1] / (1000**3) > resources.gpu_memory
+
+            job_completion = await run_command(
+                "nvidia-smi", self.get_host(), resources, deployment
+            )
+            assert job_completion.return_code == 0
+
+    @pytest.mark.asyncio
+    async def manual_test_ports(self):
+        """
+        This test requires manually checking that <host>:80 returns something.
+
+        TODO In order to make this an automated test, we'd need to allow getting the
+        name of the host we're running on while we're running, and then have a
+        programmatic way of killing the job (or we could just build a test container
+        that exits on its own after some number of seconds)
+        """
+        await run_command(
+            "python app.py",
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.container_image("okteto/sample-app"),
+            ports=80,
+        )
 
 
 class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar]):

@@ -1,20 +1,32 @@
 To publish meadowrun:
 
-- Increment the version in `pyproject.toml`, `build_scripts/conda-recipe/meta.yaml`, and
-  `docker_images/meadowrun/Dockerfile`
-- Build the EC2 AMIs by following the instructions in build_scripts\build_ami.py
+- Increment the version in:
+  - `pyproject.toml`
+  - `build_scripts/conda-recipe/meta.yaml` and `build_scripts/build_conda.bat`
+  - `docker_images/meadowrun/Dockerfile` and `build_scripts/publish_docker_image.bat`
+  - `azure_vms.py`
+- Build the EC2 AMIs and copy the new AMI ids into the code by following the
+  instructions in build_scripts\build_ami.py.
 - Build the Azure Image by following the instructions in
-  build_scripts\build_azure_image.py
-- Now build and publish the pip package:
+  build_scripts\build_azure_image.py.
+- Now test the code changes
+- Now commit the code changes
+- Write release notes on GitHub
+
+These steps can be done in parallel:
+- Build and publish the pip package:
   ```shell
   poetry build
   poetry publish
   ```
-- Now build and publish the conda package by following the manual instructions in
-  conda-recipe/meta.yaml
+- Build and publish the conda package by running `build_scripts/build_conda.bat`
+- Build and publish the docker images by running
+  `build_scripts/publish_docker_image.bat`
+
+Finally:
 - Optionally, delete old AMIs to save money:
   ```shell
-  poetry run python build_scripts/manage_amis.py delete meadowrun-ec2alloc-0.1.4 --dry-run
+  poetry run python build_scripts/manage_amis.py delete meadowrun0.1.4 --dry-run
   ```
   (Replace the version with the one you want to delete and remove the `--dry-run`
   parameter when you're ready)

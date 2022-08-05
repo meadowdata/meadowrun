@@ -1,4 +1,4 @@
-call build_docker_image.bat
+call build_scripts\build_docker_image.bat
 docker tag meadowrun:latest meadowrun/meadowrun:latest
 docker push meadowrun/meadowrun:latest
 

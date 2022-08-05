@@ -47,7 +47,7 @@ print(
                 storage_username_password_secret="minio-credentials",
                 kube_config_context="minikube"
             ),
-            deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
+            deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun")
         )
     )
 )
@@ -63,10 +63,10 @@ If you're using `run_command`, you can use any container image you like.
 
 If you're using `run_function`, the container must have python in it, and whatever
 python environment is on the path must have Meadowrun installed. In this example, we'll
-use `meadowrun/meadowrun-dev`:
+use `meadowrun/meadowrun`:
 
 ```python
-    meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
+    meadowrun.Deployment.container_image("meadowrun/meadowrun")
 ```
 
 ## Install and start Minikube
@@ -111,7 +111,7 @@ asyncio.run(
     meadowrun.run_function(
         function="time.time",
         host=meadowrun.Kubernetes(),
-        deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
+        deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun")
     )
 )
 ```
@@ -331,7 +331,7 @@ print(
                 storage_username_password_secret="minio-credentials",
                 kube_config_context="minikube"
             ),
-            deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun-dev"),
+            deployment=meadowrun.Deployment.container_image("meadowrun/meadowrun"),
             num_concurrent_tasks=3,
         )
     )

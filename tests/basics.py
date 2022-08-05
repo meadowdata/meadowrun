@@ -9,7 +9,9 @@ import pytest
 
 import meadowrun.docker_controller
 from meadowrun import (
+    AllocCloudInstance,
     CondaEnvironmentYmlFile,
+    ContainerInterpreter,
     Deployment,
     LocalCondaInterpreter,
     LocalPipInterpreter,
@@ -22,7 +24,7 @@ from meadowrun import (
 from meadowrun.config import MEADOWRUN_INTERPRETER
 
 if TYPE_CHECKING:
-    from meadowrun.deployment import (
+    from meadowrun.deployment_internal_types import (
         CodeDeployment,
         InterpreterDeployment,
         VersionedCodeDeployment,
@@ -37,7 +39,6 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableContainer,
     ProcessState,
 )
-from meadowrun.run_job import ContainerInterpreter, AllocCloudInstance
 from meadowrun.run_job_core import (
     CloudProviderType,
     Host,

@@ -17,7 +17,15 @@ import uuid
 import boto3
 
 import pytest
-from meadowrun import ssh, Resources
+from meadowrun import (
+    ssh,
+    Resources,
+    PipRequirementsFile,
+    Deployment,
+    AllocCloudInstance,
+    run_command,
+    run_function,
+)
 
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
@@ -49,13 +57,6 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job import (
-    AllocCloudInstance,
-    Deployment,
-    PipRequirementsFile,
-    run_command,
-    run_function,
-)
 
 if TYPE_CHECKING:
     from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType

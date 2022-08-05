@@ -1,12 +1,8 @@
-from __future__ import annotations
-
-from meadowrun import Resources
-
 """
 These tests should (mostly) not require an internet connection and not require any
 manual intervention beyond some initial setup.
 """
-
+from __future__ import annotations
 
 import pathlib
 from typing import TYPE_CHECKING
@@ -14,14 +10,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from basics import BasicsSuite, HostProvider, ErrorsSuite
+from meadowrun import Resources, Deployment, run_command
 from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.deployment import get_latest_interpreter_version
+from meadowrun.deployment_internal_types import get_latest_interpreter_version
 from meadowrun.meadowrun_pb2 import (
     ContainerAtTag,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
 )
-from meadowrun.run_job import run_command, Deployment
 
 if TYPE_CHECKING:
     from meadowrun.run_job_core import Host, JobCompletion

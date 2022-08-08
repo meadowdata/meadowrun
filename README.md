@@ -27,6 +27,9 @@ Gitter](https://gitter.im/meadowdata/meadowrun)
 - You can't/don't want to run tests or analysis on your laptop and you want a better
   experience than SSHing into an EC2 machine.
 
+See [case studes](https://docs.meadowrun.io/en/stable/case_studies/) for fully worked
+examples.
+
 ## Quickstart
 
 First, install Meadowrun using pip: 

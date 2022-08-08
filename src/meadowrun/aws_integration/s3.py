@@ -1,5 +1,6 @@
 import hashlib
-from typing import BinaryIO, Dict, List, Optional, Tuple
+from io import BytesIO
+from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
 import boto3.exceptions
@@ -135,16 +136,33 @@ async def download_file(
     s3.download_file(bucket_name, object_name, file_name)
 
 
-def upload_fileobj(object_name: str, file_obj: BinaryIO, region_name: str) -> None:
+def upload(object_name: str, data: bytes, region_name: str) -> None:
     s3 = boto3.client("s3", region_name=region_name)
     bucket_name = _get_bucket_name(region_name)
-    s3.upload_fileobj(file_obj, bucket_name, object_name)
+    with BytesIO(data) as file_obj:
+        s3.upload_fileobj(file_obj, bucket_name, object_name)
 
 
-def download_fileobj(object_name: str, file_obj: BinaryIO, region_name: str) -> None:
+async def upload_async(
+    object_name: str, data: bytes, region_name: str, s3_client: Any
+) -> None:
+    bucket_name = _get_bucket_name(region_name)
+    await s3_client.put_object(Bucket=bucket_name, Key=object_name, Body=data)
+
+
+def download(object_name: str, region_name: str) -> bytes:
     s3 = boto3.client("s3", region_name=region_name)
     bucket_name = _get_bucket_name(region_name)
-    s3.download_fileobj(bucket_name, object_name, file_obj)
+    with BytesIO() as file_obj:
+        s3.download_fileobj(bucket_name, object_name, file_obj)
+        return file_obj.getvalue()
+
+
+async def download_async(object_name: str, region_name: str, s3_client: Any) -> bytes:
+    bucket_name = _get_bucket_name(region_name)
+    response = await s3_client.get_object(Bucket=bucket_name, Key=object_name)
+    async with response["Body"] as stream:
+        return await stream.read()
 
 
 def delete_bucket(region_name: str) -> None:

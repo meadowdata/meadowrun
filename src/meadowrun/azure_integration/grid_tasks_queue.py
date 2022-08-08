@@ -13,14 +13,13 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncGenerator,
     Callable,
     Iterable,
-    List,
     Optional,
     Sequence,
     Tuple,
     TypeVar,
-    cast,
 )
 
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
@@ -224,14 +223,15 @@ def worker_loop(
     )
 
 
-async def get_results(result_queue: Queue, num_tasks: int, location: str) -> List[Any]:
+async def get_results_unordered(
+    result_queue: Queue, num_tasks: int, location: str
+) -> AsyncGenerator[Tuple[int, ProcessState], None]:
     task_results_received = 0
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
     # use them to react appropriately if a worker crashes unexpectedly.
-    running_tasks: List[Optional[ProcessState]] = [None for _ in range(num_tasks)]
-    task_results: List[Optional[ProcessState]] = [None for _ in range(num_tasks)]
 
+    num_tasks_running, num_tasks_completed = 0, 0
     t0 = None
     updated = True
     while task_results_received < num_tasks:
@@ -241,8 +241,8 @@ async def get_results(result_queue: Queue, num_tasks: int, location: str) -> Lis
             updated = False
             print(
                 f"Waiting for grid tasks. Requested: {num_tasks}, "
-                f"running: {sum(1 for task in running_tasks if task is not None)}, "
-                f"completed: {sum(1 for task in task_results if task is not None)}"
+                f"running: {num_tasks_running}, "
+                f"completed: {num_tasks_completed}"
             )
             await record_last_used(GRID_TASK_QUEUE, result_queue.queue_job_id, location)
 
@@ -261,10 +261,11 @@ async def get_results(result_queue: Queue, num_tasks: int, location: str) -> Lis
                 task_result.process_state.state
                 == ProcessState.ProcessStateEnum.RUN_REQUESTED
             ):
-                running_tasks[task_result.task_id] = task_result.process_state
-            elif task_results[task_result.task_id] is None:
-                task_results[task_result.task_id] = task_result.process_state
-                task_results_received += 1
+                num_tasks_running += 1
+            else:
+                num_tasks_running -= 1
+                num_tasks_completed += 1
+                yield task_result.task_id, task_result.process_state
 
             await queue_delete_message(
                 result_queue.storage_account,
@@ -272,22 +273,6 @@ async def get_results(result_queue: Queue, num_tasks: int, location: str) -> Lis
                 message.message_id,
                 message.pop_receipt,
             )
-
-    # we're guaranteed by the logic in the while loop that we don't have any Nones left
-    # in task_results
-    task_results = cast("List[ProcessState]", task_results)
-
-    failed_tasks = [
-        result
-        for result in task_results
-        if result.state != ProcessState.ProcessStateEnum.SUCCEEDED
-    ]
-    if failed_tasks:
-        # TODO better error message
-        raise ValueError(f"Some tasks failed: {failed_tasks}")
-
-    # TODO try/catch on pickle.loads?
-    return [pickle.loads(result.pickled_result) for result in task_results]
 
 
 async def prepare_azure_vm_run_map(
@@ -331,5 +316,5 @@ async def prepare_azure_vm_run_map(
         ssh_username="meadowrunuser",
         ssh_private_key=private_key,
         num_tasks=len(tasks),
-        result_futures=get_results(result_queue, len(tasks), location),
+        result_futures=get_results_unordered(result_queue, len(tasks), location),
     )

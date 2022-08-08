@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import pickle
-
-from meadowrun.run_job_core import RunMapHelper
-
 """
 These tests require an AWS account to be set up, but don't require any manual
 intervention beyond some initial setup. Also, these tests create instances (which cost
@@ -11,37 +7,36 @@ money!). Either `meadowrun-manage install` needs to be set up, or `meadowrun-man
 clean` needs to be run periodically
 """
 
-import asyncssh
 import datetime
+import pickle
 import pprint
 import threading
 from typing import TYPE_CHECKING, List, Tuple
 
+import asyncssh
 import boto3
-
-import pytest
-from meadowrun import (
-    ssh,
-    Resources,
-    PipRequirementsFile,
-    Deployment,
-    AllocCloudInstance,
-    run_command,
-    run_function,
-)
-
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
-from basics import BasicsSuite, HostProvider, ErrorsSuite, MapSuite
+import pytest
+from basics import BasicsSuite, ErrorsSuite, HostProvider, MapSuite
 from instance_registrar_suite import (
+    TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
     InstanceRegistrarProvider,
     InstanceRegistrarSuite,
-    TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
+)
+from meadowrun import (
+    AllocCloudInstance,
+    Deployment,
+    PipRequirementsFile,
+    Resources,
+    run_command,
+    run_function,
+    ssh,
 )
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
-    EC2InstanceRegistrar,
     SSH_USER,
+    EC2InstanceRegistrar,
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
@@ -52,16 +47,17 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results_unordered,
     worker_loop,
 )
-from meadowrun.config import LOGICAL_CPU, MEMORY_GB, INTERRUPTION_PROBABILITY_INVERSE
+from meadowrun.config import INTERRUPTION_PROBABILITY_INVERSE, LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import (
-    choose_instance_types_for_job,
     ResourcesInternal,
+    choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.run_job_core import RunMapHelper
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
+    from meadowrun.run_job_core import CloudProviderType, Host, JobCompletion
 
 # TODO don't always run tests in us-east-2
 REGION = "us-east-2"
@@ -354,7 +350,6 @@ class TestGridTaskQueue:
         results_thread = threading.Thread(target=complete_tasks)
         results_thread.start()
 
-        print(f"{task_arguments=}")
         results: List = [None] * len(task_arguments)
         async for task_id, process_state in get_results_unordered(
             result_queue_url, region_name, len(task_arguments)

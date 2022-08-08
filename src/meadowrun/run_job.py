@@ -331,12 +331,11 @@ class AllocCloudInstance(Host):
                 worker_id += 1
 
         # finally, wait for results:
-
         results = await helper.get_results()
 
         # TODO if there's an error these workers will crash before the results_future
         # returns
-        await asyncio.gather(*worker_tasks)
+        await asyncio.gather(*worker_tasks, return_exceptions=True)
 
         return results
 

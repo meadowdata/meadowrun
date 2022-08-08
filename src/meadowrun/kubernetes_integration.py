@@ -468,12 +468,10 @@ class Kubernetes(Host):
         job: Job,
         indexed_completions: Optional[int],
     ) -> List[JobCompletion[Any]]:
-        """
-        A wrapper around _run_kubernetes_job. Main tasks at this level are:
-        - Interpret the Job object into a container + command that Kubernetes can run
-        - Upload arguments to S3 and download results from S3, including for indexed job
-          completions.
-        """
+        # A wrapper around _run_kubernetes_job. Main tasks at this level are:
+        # - Interpret the Job object into a container + command that Kubernetes can run
+        # - Upload arguments to S3 and download results from S3, including for indexed
+        #   job completions.
 
         # This code encompasses everything that happens in SshHost.run_job and
         # run_job_local
@@ -600,10 +598,6 @@ class Kubernetes(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
     ) -> Sequence[_U]:
-        """
-        This implementation depends on Kubernetes indexed job completions
-        (https://kubernetes.io/docs/tasks/job/indexed-parallel-processing-static/)
-        """
         # TODO add support for all of these features
         if resources_required_per_task is not None:
             raise NotImplementedError(

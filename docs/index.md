@@ -54,12 +54,12 @@ print(asyncio.run(run_meadowrun_function()))
 
 One caveat is that if you're using conda on a Windows or Mac, this won't work
 because conda environments aren't cross-platform. If you're in this situation, when you
-get to [Run a function](/tutorial/run_function), you'll want to follow the link to [Run
-a function from a git repo using Conda](/tutorial/run_function_git_conda).
+get to [Run a function](../tutorial/run_function), you'll want to follow the link to [Run
+a function from a git repo using Conda](../tutorial/run_function_git_conda).
 
 ## Next steps
 
 For a more in-depth tutorial on running your first job, start with [Installing
-Meadowrun](/tutorial/install).
+Meadowrun](../tutorial/install).
 
-Or for more background, read about [How Meadowrun works](/explanation/how_it_works).
+Or for more background, read about [How Meadowrun works](../explanation/how_it_works).

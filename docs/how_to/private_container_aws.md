@@ -10,7 +10,7 @@ meadowrun-manage-ec2 grant-permission-to-ecr-repo myreponame
 ```
 
 See also [general background on granting permissions to the Meadowrun
-jobs](/how_to/access_resources).
+jobs](../access_resources).
 
 ## With other container registries
 

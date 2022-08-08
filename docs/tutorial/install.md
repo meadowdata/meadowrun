@@ -81,9 +81,9 @@ easily:
 ## Setting up non-administrator users
 
 If you want non-administrator users to use Meadowrun, you'll need to give them enough
-permissions. See [Grant permissions to use Meadowrun](/how_to/1_user_permissions). 
+permissions. See [Grant permissions to use Meadowrun](../../how_to/1_user_permissions). 
 
 
 ## Next steps
 
-Once you've installed Meadowrun, try [running a function](/tutorial/run_function).
+Once you've installed Meadowrun, try [running a function](../../tutorial/run_function).

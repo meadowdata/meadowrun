@@ -5,7 +5,7 @@ libraries from a git repo.
 
 ## Prerequisites
 
-You'll need to have [installed meadowrun](/tutorial/install).
+You'll need to have [installed meadowrun](../install).
 
 Choose a GitHub repo you'd like to run a function from. Third party dependencies, like
 pandas and numpy, are supported and should be installed using Conda. If you don't have

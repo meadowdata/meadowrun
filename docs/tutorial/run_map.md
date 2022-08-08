@@ -6,8 +6,8 @@ different cores/instances.
 ## Prerequisites
 
 This assumes that you've successfully run a function by following [Run a
-function](/tutorial/run_function) or [Run a function from a git repo using
-Conda](/tutorial/run_function_git_conda)
+function](../run_function) or [Run a function from a git repo using
+Conda](../run_function_git_conda)
 
 ## Write a Python script to run the distributed map
 

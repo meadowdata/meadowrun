@@ -5,7 +5,7 @@ from code that is running on Meadowrun-managed machines, like an S3 bucket, a Dy
 table, etc. In order to do that, you'll usually need to explicitly grant access.
 
 (If you're looking for how to grant users permissions to use Meadowrun, see [Grant
-permissions to use Meadowrun](/how_to/user_permissions).)
+permissions to use Meadowrun](../user_permissions).)
 
 
 ## AWS

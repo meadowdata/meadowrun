@@ -42,8 +42,8 @@ Finally, you can use `interpreter=ContainerInterpreter(repository_name)` to tell
 Meadowrun to use a pre-built container rather than any local environment on your
 machine. In this case,the Meadowrun worker will pull the specified image from the
 specified container registry. For images that require authentication, see [Use a private
-container on AWS](/how_to/private_container_aws) or [Use a private container on
-Azure](/how_to/private_container_azure). With this option, your local code will still be
+container on AWS](../../how_to/private_container_aws) or [Use a private container on
+Azure](../../how_to/private_container_azure). With this option, your local code will still be
 available on the remote machine as well.
 
 If you're not running on a Linux machine, Meadowrun will only be able to replicate local
@@ -56,8 +56,8 @@ environment specification file or a container for your interpreter.
 
 Use `git_repo` when you want to run with code that's been deployed to a git repo. The
 Meadowrun worker will pull the specified branch/commit. For git repos that require
-authentication, see [Use a private git repo on AWS](/how_to/private_git_repo_aws) or
-[Use a private git repo on Azure](/how_to/private_git_repo_azure).
+authentication, see [Use a private git repo on AWS](../../how_to/private_git_repo_aws) or
+[Use a private git repo on Azure](../../how_to/private_git_repo_azure).
 
 This function requires you to specify the type of interpreter you want to use with your
 git repo.
@@ -76,8 +76,8 @@ images that haven't been used recently.)
 You can also use `interpreter=ContainerInterpreter(repository_name)` to use a pre-built
 container. In this case,the Meadowrun worker will pull the specified image from the
 specified container registry. For images that require authentication, see [Use a private
-container on AWS](/how_to/private_container_aws) or [Use a private container on
-Azure](/how_to/private_container_azure). The code in your git repo will still be
+container on AWS](../../how_to/private_container_aws) or [Use a private container on
+Azure](../../how_to/private_container_azure). The code in your git repo will still be
 available on the remote machine.
 
 

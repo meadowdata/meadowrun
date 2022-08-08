@@ -55,7 +55,7 @@ print(
 
 If you're not already familiar with [run_function][meadowrun.run_function], it's
 probably a good idea to at least skim the [introductory
-tutorial](/tutorial/run_function.md).
+tutorial](../../tutorial/run_function).
 
 ## Prepare a container image
 

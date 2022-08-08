@@ -13,7 +13,7 @@ roles](https://docs.microsoft.com/en-us/azure/role-based-access-control/role-ass
 and [Azure's overview of Container Registry
 permissions](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-roles?tabs=azure-cli),
 and [general background on granting permissions to the Meadowrun
-jobs](/how_to/access_resources).
+jobs](../access_resources).
 
 ## With other container registries
 
@@ -24,7 +24,7 @@ username/password for the container registry you want to use.
 ### Get the name of your Meadowrun Key Vault
 
 The Meadowrun Key Vault will be created the first time you use Meadowrun, so if you
-haven't done so, [run a function with Meadowrun](/tutorial/run_function). Next, go to
+haven't done so, [run a function with Meadowrun](../../tutorial/run_function). Next, go to
 the Azure portal, and go to "Key Vaults". You should see a Key Vault named something
 like "mr724792bd295194e79d5881" in the Meadowrun-rg Resource Group. The actual name will
 be "mr" followed by the last 22 letters/numbers of your subscription id (Azure Key Vault

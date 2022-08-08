@@ -7,14 +7,14 @@ This tutorial won't work for you if you're using Conda on Windows or Mac, as you
 be able to recreate your local Conda environment on a remote Linux machine, because
 Conda doesn't work across platforms. You can either give
 [Poetry](https://python-poetry.org/) a try, or follow a [Git repo-based
-tutorial](/tutorial/run_function_git_conda) instead. See [Cross-platform
-compatibility](/explanation/deployment/#cross-platform-compatibility) for more
+tutorial](../run_function_git_conda) instead. See [Cross-platform
+compatibility](../../explanation/deployment/#cross-platform-compatibility) for more
 information as well.
 
 
 ## Prerequisites
 
-You'll need to have [installed meadowrun](/tutorial/install). For this tutorial, we'll
+You'll need to have [installed meadowrun](../install). For this tutorial, we'll
 use a poetry environment, but it should be straightforward to translate the steps to a
 pip or Conda environment.
 
@@ -87,4 +87,4 @@ remote output to the local output.
 
 ## Next steps
 
-Try running a [distributed map](/tutorial/run_map)!
+Try running a [distributed map](../run_map)!

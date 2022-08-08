@@ -65,7 +65,7 @@ Every job specifies a deployment, which is made up of an **interpreter** and opt
 **code**. The interpreter determines the python version and what libraries are
 installed, and the code is "your code".
 
-See [Deploy your code and libraries using Meadowrun](/explanation/deployment) for
+See [Deploy your code and libraries using Meadowrun](../../explanation/deployment) for
 details on how to specify your code and libraries deployments.
   
 
@@ -78,10 +78,10 @@ Meadowrun worker will get the credentials from the secret.
 
 See:
 
-- [Use a private git repo on AWS](/how_to/private_git_repo_aws)
-- [Use a private git repo on Azure](/how_to/private_git_repo_azure)
-- [Use a private container on AWS](/how_to/private_container_aws)
-- [Use a private container on Azure](/how_to/private_container_azure)
+- [Use a private git repo on AWS](../../how_to/private_git_repo_aws)
+- [Use a private git repo on Azure](../../how_to/private_git_repo_azure)
+- [Use a private container on AWS](../../how_to/private_container_aws)
+- [Use a private container on Azure](../../how_to/private_container_azure)
 
 
 ## Map jobs and tasks

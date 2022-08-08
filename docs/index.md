@@ -9,7 +9,8 @@ Meadowrun will
   creating packages and building Docker images
 - scale from a single function to thousands of parallel tasks
 
-For more context, see the [project homepage](https://meadowrun.io).
+For more context, see the [project homepage](https://meadowrun.io), or our [case
+studies](../case_studies)
   
 ## Quickstart with AWS
 

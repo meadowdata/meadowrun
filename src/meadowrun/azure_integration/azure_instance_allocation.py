@@ -404,6 +404,7 @@ async def run_job_azure_vm_instance_registrar(
     job: Job,
     resources_required: ResourcesInternal,
     location: Optional[str],
+    wait_for_result: bool,
 ) -> JobCompletion[Any]:
     if not location:
         location = get_default_location()
@@ -434,5 +435,5 @@ async def run_job_azure_vm_instance_registrar(
     job.job_id = job_ids[0]
 
     return await SshHost(host, "meadowrunuser", pkey, ("AzureVM", location)).run_job(
-        resources_required, job
+        resources_required, job, wait_for_result
     )

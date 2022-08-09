@@ -127,7 +127,10 @@ class Host(abc.ABC):
 
     @abc.abstractmethod
     async def run_job(
-        self, resources_required: Optional[ResourcesInternal], job: Job
+        self,
+        resources_required: Optional[ResourcesInternal],
+        job: Job,
+        wait_for_result: bool,
     ) -> JobCompletion[Any]:
         pass
 
@@ -140,7 +143,8 @@ class Host(abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[_U]:
+        wait_for_result: bool,
+    ) -> Optional[Sequence[_U]]:
         # Note for implementors: job_fields will be populated with everything other than
         # job_id and py_function, so the implementation should construct
         # Job(job_id=job_id, py_function=py_function, **job_fields)
@@ -164,7 +168,10 @@ class SshHost(Host):
     cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
 
     async def run_job(
-        self, resources_required: Optional[ResourcesInternal], job: Job
+        self,
+        resources_required: Optional[ResourcesInternal],
+        job: Job,
+        wait_for_result: bool,
     ) -> JobCompletion[Any]:
         # try the connection 20 times.
         connection = await _retry(
@@ -210,18 +217,34 @@ class SshHost(Host):
                 connection, job.SerializeToString(), f"{job_io_prefix}.job_to_run"
             )
 
+            command_prefixes = []
+            command_suffixes = []
+
+            if not wait_for_result:
+                # reference on nohup: https://github.com/ronf/asyncssh/issues/137
+                command_prefixes.append("/usr/bin/nohup")
+            if self.cloud_provider is not None:
+                command_suffixes.append(
+                    f"--cloud {self.cloud_provider[0]} "
+                    f"--cloud-region-name {self.cloud_provider[1]}"
+                )
+            if not wait_for_result:
+                command_suffixes.append("< /dev/null > /dev/null 2>&1 &")
+
+            if command_prefixes:
+                command_prefixes.append(" ")
+            if command_suffixes:
+                command_suffixes.insert(0, " ")
+
             command = (
-                "/usr/bin/env PYTHONUNBUFFERED=1 "
+                " ".join(command_prefixes) + "/usr/bin/env PYTHONUNBUFFERED=1 "
                 "/var/meadowrun/env/bin/python "
                 # "-X importtime "
                 # "-m cProfile -o remote.prof "
                 "-m meadowrun.run_job_local_main "
                 f"--job-id {job.job_id} "
-                f"--working-folder {remote_working_folder} "
+                f"--working-folder {remote_working_folder}" + " ".join(command_suffixes)
             )
-            if self.cloud_provider is not None:
-                command += f" --cloud {self.cloud_provider[0]}"
-                command += f" --cloud-region-name {self.cloud_provider[1]}"
 
             print(f"Running {command}")
 
@@ -232,6 +255,11 @@ class SshHost(Host):
             # see if we got a normal return code
             if cmd_result.exit_status != 0:
                 raise ValueError(f"Process exited {cmd_result.returncode}")
+
+            if not wait_for_result:
+                return JobCompletion(
+                    None, ProcessState.ProcessStateEnum.RUNNING, "", 0, self.address
+                )
 
             process_state = ProcessState()
             process_state.ParseFromString(
@@ -258,7 +286,8 @@ class SshHost(Host):
 
         finally:
             # TODO also clean up log files?
-            if job_io_prefix:
+            # TODO clean up files for jobs where wait_for_result=False
+            if job_io_prefix and wait_for_result:
                 remote_paths = " ".join(
                     [
                         f"{job_io_prefix}.job_to_run",
@@ -280,8 +309,7 @@ class SshHost(Host):
                     raise
                 except Exception as e:
                     print(
-                        f"Error cleaning up files on remote machine: "
-                        f"{remote_paths} {e}"
+                        f"Error cleaning up files on remote machine: {remote_paths} {e}"
                     )
             connection.close()
             await connection.wait_closed()
@@ -294,7 +322,8 @@ class SshHost(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[_U]:
+        wait_for_result: bool,
+    ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map is not implemented for SshHost")
 
 

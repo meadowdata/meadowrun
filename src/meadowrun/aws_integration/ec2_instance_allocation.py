@@ -471,6 +471,7 @@ async def run_job_ec2_instance_registrar(
     job: Job,
     resources_required: ResourcesInternal,
     region_name: Optional[str],
+    wait_for_result: bool,
 ) -> JobCompletion[Any]:
     """Runs the specified job on EC2. Creates an EC2InstanceRegistrar"""
     region_name = region_name or await _get_default_region_name()
@@ -496,5 +497,5 @@ async def run_job_ec2_instance_registrar(
     job.job_id = job_ids[0]
 
     return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_job(
-        resources_required, job
+        resources_required, job, wait_for_result
     )

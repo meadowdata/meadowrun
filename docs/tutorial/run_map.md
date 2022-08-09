@@ -18,20 +18,21 @@ where you can easily run it from an environment with meadowrun installed.
 import asyncio
 import meadowrun
 
-async def main():
-    await meadowrun.run_map(
-        lambda n: n ** n,
-        [1, 2, 3, 4],
-        host=meadowrun.AllocCloudInstance(cloud_provider="EC2"),
-        resources_per_task=meadowrun.Resources(
-            logical_cpu=4, memory_gb=32, max_eviction_rate=15
-        ),
-        num_concurrent_tasks=3,
-        deployment=await meadowrun.Deployment.mirror_local()
-    )
-
 if __name__ == "__main__":
-    print(asyncio.run(main()))
+    print(
+        asyncio.run(
+            meadowrun.run_map(
+                lambda n: n ** n,
+                [1, 2, 3, 4],
+                host=meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+                resources_per_task=meadowrun.Resources(
+                    logical_cpu=4, memory_gb=32, max_eviction_rate=15
+                ),
+                deployment=meadowrun.Deployment.mirror_local(),
+                num_concurrent_tasks=3,
+            )
+        )
+    )
 ```
 
 This has roughly the same semantics as the python built-in function `map(lambda n: n **

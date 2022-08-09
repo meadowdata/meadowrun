@@ -240,7 +240,10 @@ class AllocCloudInstance(Host):
     region_name: Optional[str] = None
 
     async def run_job(
-        self, resources_required: Optional[ResourcesInternal], job: Job
+        self,
+        resources_required: Optional[ResourcesInternal],
+        job: Job,
+        wait_for_result: bool,
     ) -> JobCompletion[Any]:
         if resources_required is None:
             raise ValueError(
@@ -250,13 +253,11 @@ class AllocCloudInstance(Host):
 
         if self.cloud_provider == "EC2":
             return await run_job_ec2_instance_registrar(
-                job,
-                resources_required,
-                self.region_name,
+                job, resources_required, self.region_name, wait_for_result
             )
         elif self.cloud_provider == "AzureVM":
             return await run_job_azure_vm_instance_registrar(
-                job, resources_required, self.region_name
+                job, resources_required, self.region_name, wait_for_result
             )
         else:
             raise ValueError(
@@ -271,7 +272,8 @@ class AllocCloudInstance(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[_U]:
+        wait_for_result: bool,
+    ) -> Optional[Sequence[_U]]:
         if resources_required_per_task is None:
             raise ValueError(
                 "Resources.logical_cpu and memory_gb must be specified for "
@@ -329,14 +331,17 @@ class AllocCloudInstance(Host):
                             helper.ssh_username,
                             helper.ssh_private_key,
                             (self.cloud_provider, helper.region_name),
-                        ).run_job(resources_required_per_task, job)
+                        ).run_job(resources_required_per_task, job, True)
                     )
                 )
 
                 worker_id += 1
 
         # finally, wait for results:
-        results = await helper.get_results()
+        if wait_for_result:
+            results = await helper.get_results()
+        else:
+            results = None
 
         # TODO if there's an error these workers will crash before the results_future
         # returns
@@ -459,6 +464,7 @@ async def run_function(
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
+    wait_for_result: bool = True,
 ) -> _T:
     """
     Runs function on a remote machine, specified by "host".
@@ -485,9 +491,13 @@ async def run_function(
             job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
             duration of this job. Be careful as other jobs could be running on the same
             machine at the same time!
+        wait_for_result: If this is set to False, we will run in "fire and forget" mode,
+            which kicks off the function and doesn't wait for it to return.
 
     Returns:
-        The result of calling `function`
+        If wait_for_result is True (which is the default), the return value will be the
+        result of calling `function`. If wait_for_result is False, the return value will
+        always be None.
     """
 
     if resources is None:
@@ -575,7 +585,7 @@ async def run_function(
         },
     )
 
-    job_completion = await host.run_job(resources.to_internal(), job)
+    job_completion = await host.run_job(resources.to_internal(), job, wait_for_result)
     return job_completion.result
 
 
@@ -589,6 +599,7 @@ async def run_command(
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
+    wait_for_result: bool = True,
 ) -> JobCompletion[None]:
     """
     Runs the specified command on a remote machine
@@ -613,6 +624,8 @@ async def run_command(
             job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened just for the
             duration of this job. Be careful as other jobs could be running on the same
             machine at the same time!
+        wait_for_result: If this is set to False, we will run in "fire and forget" mode,
+            which kicks off the command and doesn't wait for it to return.
 
     Returns:
         A JobCompletion object that contains metadata about the running of the job.
@@ -675,7 +688,7 @@ async def run_command(
         },
     )
 
-    return await host.run_job(resources.to_internal(), job)
+    return await host.run_job(resources.to_internal(), job, wait_for_result)
 
 
 async def run_map(
@@ -689,7 +702,8 @@ async def run_map(
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
-) -> Sequence[_U]:
+    wait_for_result: bool = True,
+) -> Optional[Sequence[_U]]:
     """
     Equivalent to `map(function, args)`, but runs distributed and in parallel.
 
@@ -716,9 +730,13 @@ async def run_map(
             tasks for this job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened
             just for the duration of this job. Be careful as other jobs could be running
             on the same machine at the same time!
+        wait_for_result: If this is set to False, we will run in "fire and forget" mode,
+            which kicks off the command and doesn't wait for it to return.
 
     Returns:
-        Returns the result of running `function` on each of `args`
+        If wait_for_result is True (which is the default), the return value will be the
+        result of running `function` on each of `args`. If wait_for_result is False, the
+        return value will always be None.
     """
 
     if resources_per_task is None:
@@ -776,6 +794,7 @@ async def run_map(
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,
+        wait_for_result,
     )
 
 

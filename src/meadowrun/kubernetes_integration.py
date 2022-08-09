@@ -438,9 +438,17 @@ class Kubernetes(Host):
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
     async def run_job(
-        self, resources_required: Optional[ResourcesInternal], job: Job
+        self,
+        resources_required: Optional[ResourcesInternal],
+        job: Job,
+        wait_for_result: bool,
     ) -> JobCompletion[Any]:
         # TODO add support for all of these features
+        if wait_for_result:
+            raise NotImplementedError(
+                "wait_for_result is not supported for Kubernetes yet"
+            )
+
         if resources_required is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
@@ -597,8 +605,13 @@ class Kubernetes(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-    ) -> Sequence[_U]:
+        wait_for_result: bool,
+    ) -> Optional[Sequence[_U]]:
         # TODO add support for all of these features
+        if wait_for_result:
+            raise NotImplementedError(
+                "wait_for_result is not supported on Kubernetes yet"
+            )
         if resources_required_per_task is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"

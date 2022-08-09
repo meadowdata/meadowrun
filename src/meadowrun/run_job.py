@@ -12,8 +12,8 @@ import urllib.parse
 import uuid
 from enum import Enum
 from typing import (
-    TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Coroutine,
     Dict,
@@ -21,6 +21,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    TYPE_CHECKING,
     Tuple,
     TypeVar,
     Union,
@@ -114,8 +115,8 @@ def _credentials_source_message(
     return result
 
 
-def _add_defaults_to_deployment(
-    deployment: Optional[Deployment],
+async def _add_defaults_to_deployment(
+    deployment: Union[Deployment, Awaitable[Deployment], None],
 ) -> Tuple[
     Union[InterpreterDeployment, VersionedInterpreterDeployment],
     Union[CodeDeployment, VersionedCodeDeployment],
@@ -129,6 +130,10 @@ def _add_defaults_to_deployment(
             {},
             [],
         )
+
+    if not isinstance(deployment, Deployment):
+        # TODO run this in parallel with e.g. launching instances
+        deployment = await deployment
 
     if deployment.credentials_sources:
         credentials_sources = [
@@ -447,7 +452,7 @@ async def run_function(
     function: Union[Callable[..., _T], str],
     host: Host,
     resources: Optional[Resources] = None,
-    deployment: Optional[Deployment] = None,
+    deployment: Union[Deployment, Awaitable[Deployment], None] = None,
     args: Optional[Sequence[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
     sidecar_containers: Union[
@@ -468,8 +473,10 @@ async def run_function(
         resources: Specifies the resources (e.g. CPU, RAM) needed by the
             function. For some hosts, this is optional, for other hosts it is required.
             See [Resources][meadowrun.Resources].
-        deployment: See [Deployment][meadowrun.Deployment]. Specifies the
-            environment (code and libraries) that are needed to run this function
+        deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
+            (code and libraries) that are needed to run this command. This can be an
+            actual Deployment object, or it can be an Awaitable that will produce a
+            Deployment object.
         args: Passed to the function like `function(*args)`
         kwargs: Passed to the function like `function(**kwargs)`
         sidecar_containers: Additional containers that will be available from the main
@@ -536,7 +543,7 @@ async def run_function(
         code,
         environment_variables,
         credentials_sources,
-    ) = _add_defaults_to_deployment(deployment)
+    ) = await _add_defaults_to_deployment(deployment)
     if resources.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
     ):
@@ -576,7 +583,7 @@ async def run_command(
     args: Union[str, Sequence[str]],
     host: Host,
     resources: Optional[Resources] = None,
-    deployment: Optional[Deployment] = None,
+    deployment: Union[Deployment, Awaitable[Deployment], None] = None,
     context_variables: Optional[Dict[str, Any]] = None,
     sidecar_containers: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
@@ -595,8 +602,10 @@ async def run_command(
         resources: Specifies the resources (e.g. CPU, RAM) needed by the
             command. For some hosts, this is optional, for other hosts it is required.
             See [Resources][meadowrun.Resources].
-        deployment: See [Deployment][meadowrun.Deployment]. Specifies
-            the environment (code and libraries) that are needed to run this command
+        deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
+            (code and libraries) that are needed to run this command. This can be an
+            actual Deployment object, or it can be an Awaitable that will produce a
+            Deployment object.
         context_variables: Experimental feature
         sidecar_containers: Additional containers that will be available from the main
             job as sidecar-container-0 sidecar-container-1, etc.
@@ -624,7 +633,7 @@ async def run_command(
         code,
         environment_variables,
         credentials_sources,
-    ) = _add_defaults_to_deployment(deployment)
+    ) = await _add_defaults_to_deployment(deployment)
 
     if resources.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
@@ -674,7 +683,7 @@ async def run_map(
     args: Sequence[_T],
     host: Host,
     resources_per_task: Optional[Resources] = None,
-    deployment: Optional[Deployment] = None,
+    deployment: Union[Deployment, Awaitable[Deployment], None] = None,
     num_concurrent_tasks: Optional[int] = None,
     sidecar_containers: Union[
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
@@ -698,7 +707,9 @@ async def run_map(
             equal to the number of args/tasks. Will default to half the total number of
             tasks plus one, rounded down if set to None.
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
-            (code and libraries) that are needed to run the function
+            (code and libraries) that are needed to run this command. This can be an
+            actual Deployment object, or it can be an Awaitable that will produce a
+            Deployment object.
         sidecar_containers: Additional containers that will be available from the main
             job as sidecar-container-0 sidecar-container-1, etc.
         ports: A specification of ports to make available on the machines that runs
@@ -725,7 +736,7 @@ async def run_map(
         code,
         environment_variables,
         credentials_sources,
-    ) = _add_defaults_to_deployment(deployment)
+    ) = await _add_defaults_to_deployment(deployment)
 
     if resources_per_task.needs_cuda() and isinstance(
         interpreter, (EnvironmentSpec, EnvironmentSpecInCode)

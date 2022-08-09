@@ -27,21 +27,20 @@ Here is an example template, create a file like this locally:
 import asyncio
 import meadowrun
 
-async def main():
-    result = await meadowrun.run_function(
-        # this is where the function to run goes
-        lambda: sum(range(1000)) / 1000,
-         # run on a dynamically allocated AWS EC2 instance
-        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
-        # requirements to choose an appropriate EC2 instance
-        meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
-        # mirror the local code and python environment
-        await meadowrun.Deployment.mirror_local()
+if __name__ == "__main__":
+    result = asyncio.run(
+       meadowrun.run_function(
+           # this is where the function to run goes
+           lambda: sum(range(1000)) / 1000,
+            # run on a dynamically allocated AWS EC2 instance
+           meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+           # requirements to choose an appropriate EC2 instance
+           meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
+           # mirror the local code and python environment
+           meadowrun.Deployment.mirror_local()
+       )
     )
     print(f"Meadowrun worked! Got {result}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
 ```
 
 ## Run the script

@@ -39,26 +39,25 @@ where you can easily run it from an environment with meadowrun installed.
 ```python
 import asyncio
 import meadowrun
-
-async def main():
-    result = await meadowrun.run_function(
-        # this is where the function to run goes
-        lambda: sum(range(1000)) / 1000,
-       # run on a dynamically allocated EC2 instance
-        meadowrun.AllocCloudInstance(cloud_provider="EC2"),
-        # requirements to choose an appropriate EC2 instance
-        meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
-        meadowrun.Deployment.git_repo(
-            # URL to the repo
-            "https://github.com/meadowdata/test_repo",
-            # name of the environment file we created in step 1
-            interpreter=meadowrun.CondaEnvironmentYmlFile("myenv.yml"),
-        )
+    
+if __name__ == "__main__":
+    result = asyncio.run(
+       meadowrun.run_function(
+           # this is the function to run
+           lambda: sum(range(1000)) / 1000,
+          # run on a dynamically allocated EC2 instance
+           meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+           # requirements to choose an appropriate EC2 instance
+           meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
+           meadowrun.Deployment.git_repo(
+               # URL to the repo
+               "https://github.com/meadowdata/test_repo",
+               # name of the environment file we created in step 1
+               interpreter=meadowrun.CondaEnvironmentYmlFile("myenv.yml"),
+           )
+       )
     )
     print(f"Meadowrun worked! Got {result}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
 ```
 
 ## Run the script

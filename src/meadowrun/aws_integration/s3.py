@@ -150,19 +150,56 @@ async def upload_async(
     await s3_client.put_object(Bucket=bucket_name, Key=object_name, Body=data)
 
 
-def download(object_name: str, region_name: str) -> bytes:
+async def list_objects_async(
+    prefix: str, start_after: str, region_name: str, s3_client: Any
+) -> List[str]:
+    """Returns the keys in the meadowrun bucket."""
+    bucket_name = _get_bucket_name(region_name)
+    # response = await s3_client.list_objects_v2(
+    #     Bucket=bucket_name, Prefix=prefix, StartAfter=start_after
+    # )
+
+    paginator = s3_client.get_paginator("list_objects_v2")
+    results = []
+    async for result in paginator.paginate(
+        Bucket=bucket_name, Prefix=prefix, StartAfter=start_after
+    ):
+        for c in result.get("Contents", []):
+            results.append(c["Key"])
+    return results
+
+    # if response["KeyCount"] == 0:
+    #     return tuple(), False
+    # return (
+    #     tuple(content["Key"] for content in response["Contents"]),
+    #     response["IsTruncated"],
+    # )
+
+
+def download(
+    object_name: str, region_name: str, byte_range: Optional[Tuple[int, int]] = None
+) -> bytes:
     s3 = boto3.client("s3", region_name=region_name)
     bucket_name = _get_bucket_name(region_name)
-    with BytesIO() as file_obj:
-        s3.download_fileobj(bucket_name, object_name, file_obj)
-        return file_obj.getvalue()
+    if byte_range is None:
+        response = s3.get_object(Bucket=bucket_name, Key=object_name)
+    else:
+        response = s3.get_object(
+            Bucket=bucket_name,
+            Key=object_name,
+            Range=f"bytes={byte_range[0]}-{byte_range[1]}",
+        )
+    with response["Body"] as stream:
+        return stream.read()
 
 
-async def download_async(object_name: str, region_name: str, s3_client: Any) -> bytes:
+async def download_async(
+    object_name: str, region_name: str, s3_client: Any
+) -> Tuple[str, bytes]:
     bucket_name = _get_bucket_name(region_name)
     response = await s3_client.get_object(Bucket=bucket_name, Key=object_name)
     async with response["Body"] as stream:
-        return await stream.read()
+        return object_name, await stream.read()
 
 
 def delete_bucket(region_name: str) -> None:

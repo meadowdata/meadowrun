@@ -587,4 +587,4 @@ class MapSuite(abc.ABC):
             num_concurrent_tasks=3,
         )
 
-        assert results == [1, 4, 27, 256]
+        assert results == [1, 4, 27, 256], str(results)

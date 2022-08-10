@@ -6,8 +6,8 @@ intervention beyond some initial setup. Also, these tests create instances (whic
 money!). Either `meadowrun-manage install` needs to be set up, or `meadowrun-manage
 clean` needs to be run periodically
 """
-
 import datetime
+import functools
 import pickle
 import pprint
 import threading
@@ -241,118 +241,53 @@ class TestGridTaskQueue:
         and S3 resources.
         """
         region_name = await _get_default_region_name()
-        # big argument should be uploaded to S3
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
-        # dummy variables
-        public_address = "foo"
-        worker_id = 1
-
-        (request_queue_url, result_queue_url) = await create_queues_and_add_tasks(
+        (request_queue_url, job_id) = await create_queues_and_add_tasks(
             region_name, task_arguments
         )
 
         def complete_tasks():
-            # get some tasks and complete them
-            task1 = _get_task(
-                request_queue_url,
-                result_queue_url,
-                region_name,
-                0,
-                public_address,
-                worker_id,
-            )
-            assert task1 is not None
-            task2 = _get_task(
-                request_queue_url,
-                result_queue_url,
-                region_name,
-                0,
-                public_address,
-                worker_id,
-            )
-            assert task2 is not None
-            _complete_task(
-                result_queue_url,
-                region_name,
-                task1,
-                ProcessState(
-                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                    pickled_result=task1.pickled_function_arguments,
-                ),
-                public_address,
-                worker_id,
-            )
-            task3 = _get_task(
-                request_queue_url,
-                result_queue_url,
-                region_name,
-                0,
-                public_address,
-                worker_id,
-            )
-            assert task3 is not None
-            task4 = _get_task(
-                request_queue_url,
-                result_queue_url,
-                region_name,
-                0,
-                public_address,
-                worker_id,
-            )
-            assert task4 is not None
-            # there should be no more tasks to get
-            assert (
-                _get_task(
-                    request_queue_url,
-                    result_queue_url,
+            tasks: List = []
+
+            def assert_task(index: int) -> None:
+                assert tasks[index] is not None
+                assert pickle.loads(tasks[index][1]) == task_arguments[index]
+
+            def complete_task(index: int) -> None:
+                _complete_task(
+                    job_id,
                     region_name,
-                    0,
-                    public_address,
-                    worker_id,
+                    tasks[index][0],
+                    ProcessState(
+                        state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                        pickled_result=tasks[index][1],
+                    ),
                 )
-                is None
-            )
-            _complete_task(
-                result_queue_url,
-                region_name,
-                task2,
-                ProcessState(
-                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                    pickled_result=task2.pickled_function_arguments,
-                ),
-                public_address,
-                worker_id,
-            )
-            _complete_task(
-                result_queue_url,
-                region_name,
-                task3,
-                ProcessState(
-                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                    pickled_result=task3.pickled_function_arguments,
-                ),
-                public_address,
-                worker_id,
-            )
-            _complete_task(
-                result_queue_url,
-                region_name,
-                task4,
-                ProcessState(
-                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                    pickled_result=task4.pickled_function_arguments,
-                ),
-                public_address,
-                worker_id,
-            )
+
+            # get some tasks and complete them
+            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+            assert_task(0)
+            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+            assert_task(1)
+            complete_task(0)
+
+            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+            assert_task(2)
+            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+            assert_task(3)
+            # there should be no more tasks to get
+            assert _get_task(request_queue_url, job_id, region_name, 0) is None
+            complete_task(1)
+            complete_task(2)
+            complete_task(3)
 
         results_thread = threading.Thread(target=complete_tasks)
         results_thread.start()
 
         results: List = [None] * len(task_arguments)
         async for task_id, process_state in get_results_unordered(
-            result_queue_url, region_name, len(task_arguments)
+            job_id, region_name, len(task_arguments)
         ):
             results[task_id] = pickle.loads(process_state.pickled_result)
 
@@ -368,33 +303,32 @@ class TestGridTaskQueue:
         public_address = "foo"
         worker_id = 1
 
-        request_queue_url, result_queue_url = await create_queues_and_add_tasks(
+        request_queue_url, job_id = await create_queues_and_add_tasks(
             region_name, task_arguments
         )
 
         helper = RunMapHelper(
             region_name,
             {},
-            lambda *args: None,
+            functools.partial(
+                worker_loop, lambda x: x**x, request_queue_url, job_id, region_name
+            ),
             "",
             asyncssh.SSHKey(),
             len(task_arguments),
-            get_results_unordered(result_queue_url, region_name, len(task_arguments)),
+            lambda workers_done: get_results_unordered(
+                job_id, region_name, len(task_arguments), workers_done=workers_done
+            ),
         )
 
         # start a worker_loop which will get tasks and complete them
         worker_thread = threading.Thread(
-            target=lambda: worker_loop(
-                lambda x: x**x,
-                request_queue_url,
-                result_queue_url,
-                region_name,
+            target=lambda: helper.worker_function(
                 public_address,
                 worker_id,
             )
         )
         worker_thread.start()
-
         results = await helper.get_results()
         worker_thread.join()
         assert results == [1, 4, 27, 256]

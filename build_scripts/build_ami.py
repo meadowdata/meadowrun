@@ -5,6 +5,7 @@ import os.path
 import subprocess
 from typing import List, Optional
 
+from ami_listings import BASE_AMIS
 from build_ami_helper import (
     BEHAVIOR_OPTIONS,
     BEHAVIOR_OPTIONS_TYPE,
@@ -13,32 +14,6 @@ from build_ami_helper import (
     get_name_from_ami,
 )
 from build_image_shared import upload_and_configure_meadowrun
-
-
-BASE_AMIS = {
-    "plain": {
-        "us-east-2": "ami-0147a27e9e7c91681",
-        "us-east-1": "ami-0493f8cc622a17594",
-        "us-west-1": "ami-0599f4bb79d709da3",
-        "us-west-2": "ami-07fe9668a4030438c",
-        "eu-central-1": "ami-0501a522734e3c811",
-        "eu-west-1": "ami-05ecb8a0ef47f6b2c",
-        "eu-west-2": "ami-0a0c2a5e70f3046a7",
-        "eu-west-3": "ami-0f34abf6119363854",
-        "eu-north-1": "ami-083a6b67a11ede550",
-    },
-    "cuda": {
-        "us-east-2": "ami-00fd4b9dd94bbb68b",
-        "us-east-1": "ami-0c5c6919b7e205fb2",
-        "us-west-1": "ami-09f73abffbd956cea",
-        "us-west-2": "ami-017c9334f5411ffda",
-        "eu-central-1": "ami-016b190d1dd39abed",
-        "eu-west-1": "ami-08e58ba1b815bea78",
-        "eu-west-2": "ami-0f4a6fe2237d109a2",
-        "eu-west-3": "ami-014850847dbc03893",
-        "eu-north-1": "ami-0cf21298737c6114f",
-    },
-}
 
 
 async def build_meadowrun_ami(

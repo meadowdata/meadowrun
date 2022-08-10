@@ -331,7 +331,7 @@ class AllocCloudInstance(Host):
                             helper.ssh_username,
                             helper.ssh_private_key,
                             (self.cloud_provider, helper.region_name),
-                        ).run_job(resources_required_per_task, job, True)
+                        ).run_job(resources_required_per_task, job, wait_for_result)
                     )
                 )
 

@@ -5,7 +5,7 @@ from datetime import timedelta
 from meadowrun.local_cache import MEADOWRUN_DIRS, get_cached_json, save_json_to_cache
 
 
-def test_json_cache():
+def test_json_cache() -> None:
     # def get_cached_json(name: str, freshness: timedelta) -> Optional[Any]:
     # def save_json_to_cache(name: str, json_data: Any) -> None:
     try:

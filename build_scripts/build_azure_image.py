@@ -18,7 +18,7 @@ _BASE_IMAGE = (
 )
 
 
-async def build_meadowrun_azure_image():
+async def build_meadowrun_azure_image() -> None:
     # get version
 
     # this only works if we're running in the directory with pyproject.toml

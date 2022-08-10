@@ -84,7 +84,7 @@ def _path_from_here(path: str) -> str:
 
 class BasicsSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_commit(self):
+    async def test_meadowrun_git_repo_commit(self) -> None:
         await self._test_meadowrun(
             GitRepoCommit(
                 repo_url=self.get_test_repo_url(),
@@ -94,14 +94,14 @@ class BasicsSuite(HostProvider, abc.ABC):
         )
 
     @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_branch(self):
+    async def test_meadowrun_git_repo_branch(self) -> None:
         await self._test_meadowrun(
             GitRepoBranch(repo_url=self.get_test_repo_url(), branch="main"),
             ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
         )
 
     @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_commit_container(self):
+    async def test_meadowrun_git_repo_commit_container(self) -> None:
         # TODO first make sure the image we're looking for is NOT already cached on this
         # system, then run it again after it has been cached, as this works different
         # code paths
@@ -119,7 +119,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         interpreter_deployment: Union[
             InterpreterDeployment, VersionedInterpreterDeployment
         ],
-    ):
+    ) -> None:
         results: str = await run_function(
             "example_package.example.example_runner",
             self.get_host(),
@@ -139,7 +139,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         assert "pip" in await self.get_log_file_text(job_completion)
 
     @pytest.mark.asyncio
-    async def test_meadowrun_path_in_git_repo(self):
+    async def test_meadowrun_path_in_git_repo(self) -> None:
         """Tests GitRepoCommit.path_to_source"""
 
         results: str = await run_function(
@@ -158,7 +158,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         assert results == "hello foo"
 
     @pytest.mark.asyncio
-    async def test_meadowrun_containers(self):
+    async def test_meadowrun_containers(self) -> None:
         """
         Basic test on running with containers, checks that different images behave as
         expected
@@ -188,7 +188,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         "running on >=3.8",
     )
     @pytest.mark.asyncio
-    async def test_conda_file_in_git_repo(self):
+    async def test_conda_file_in_git_repo(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -204,7 +204,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo(self):
+    async def test_pip_file_in_git_repo(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -220,7 +220,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_git_dependency(self):
+    async def test_pip_file_in_git_repo_with_git_dependency(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -238,8 +238,8 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_apt_dependency(self):
-        def remote_function():
+    async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
+        def remote_function() -> str:
             import importlib
 
             cv2 = importlib.import_module("cv2")
@@ -261,8 +261,8 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_sidecar_container(self):
-        def remote_function():
+    async def test_pip_file_in_git_repo_with_sidecar_container(self) -> None:
+        def remote_function() -> str:
             import requests
 
             return requests.get("http://sidecar-container-0").text
@@ -283,8 +283,8 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_data_file(self):
-        def remote_function():
+    async def test_pip_file_in_git_repo_with_data_file(self) -> None:
+        def remote_function() -> str:
             with open("example_package/test.txt", encoding="utf-8") as f:
                 return f.read()
 
@@ -301,7 +301,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_poetry_project_in_git_repo(self):
+    async def test_poetry_project_in_git_repo(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -317,7 +317,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_poetry_project_in_git_repo_with_git_dependency(self):
+    async def test_poetry_project_in_git_repo_with_git_dependency(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -336,7 +336,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_git_repo_with_container(self):
+    async def test_git_repo_with_container(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -352,7 +352,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_conda_interpreter(self):
+    async def test_local_conda_interpreter(self) -> None:
         # this currently needs a conda environment created from the test repo:
         # conda env create -n test_repo_conda_env -f myenv.yml
         exception_raised = False
@@ -380,7 +380,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_pip_interpreter(self):
+    async def test_local_pip_interpreter(self) -> None:
         # this requires creating a virtualenv in this git repo's parent directory.
         # For Windows:
         # > python -m virtualenv test_venv_windows
@@ -411,7 +411,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_conda_file(self):
+    async def test_local_conda_file(self) -> None:
         # this requires creating a virtualenv in this git repo's parent directory called
         # test_venv with the following steps:
         # - virtualenv test_venv
@@ -434,7 +434,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_pip_file(self):
+    async def test_local_pip_file(self) -> None:
         # this requires creating a virtualenv in this git repo's parent directory called
         # test_venv with the following steps:
         # - virtualenv test_venv
@@ -457,8 +457,8 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_pip_file_with_data_file(self):
-        def remote_function():
+    async def test_local_pip_file_with_data_file(self) -> None:
+        def remote_function() -> str:
             print(os.getcwd())
             print(os.listdir("."))
 
@@ -486,7 +486,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_poetry_project(self):
+    async def test_local_poetry_project(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -504,7 +504,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_code_with_container(self):
+    async def test_local_code_with_container(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
             self.get_host(),
@@ -520,7 +520,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     def _get_remote_function_for_deployment(self) -> Callable[[], Tuple[str, str, str]]:
         # we have a wrapper around this so that the function gets pickled as a lambda
-        def remote_function():
+        def remote_function() -> Tuple[str, str, str]:
             import importlib
 
             # we could just do import requests, but that messes with mypy
@@ -538,7 +538,7 @@ class BasicsSuite(HostProvider, abc.ABC):
 
 class ErrorsSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
-    async def test_run_request_failed(self):
+    async def test_run_request_failed(self) -> None:
         with pytest.raises(MeadowrunException) as exc_info:
             await run_function(
                 lambda: "hello",
@@ -554,8 +554,8 @@ class ErrorsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_non_zero_return_code(self):
-        def exit_immediately():
+    async def test_non_zero_return_code(self) -> None:
+        def exit_immediately() -> None:
             sys.exit(101)
 
         with pytest.raises(MeadowrunException) as exc_info:
@@ -577,7 +577,7 @@ class MapSuite(abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_run_map(self):
+    async def test_run_map(self) -> None:
         """Runs a "real" run_map"""
         results = await run_map(
             lambda x: x**x,

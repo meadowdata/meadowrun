@@ -149,7 +149,7 @@ async def parse_cuda_version(connection: asyncssh.SSHClientConnection) -> str:
     return match.group("version_string")
 
 
-def main():
+def main() -> None:
     r"""
     A script for creating a meadowrun EC2 base AMIs. The only reason to want to change
     the base AMI is because you want to change the version or flavour of

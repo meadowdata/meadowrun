@@ -1,6 +1,7 @@
 import os
 import tempfile
 import zipfile
+from typing import Sequence, Dict
 
 import pytest
 from meadowrun import local_code
@@ -75,12 +76,12 @@ from meadowrun import local_code
     ],
 )
 def test_consolidate_paths(
-    python_paths,
-    other_paths,
-    python_root_paths,
-    expected_python_paths,
-    expected_other_paths,
-):
+    python_paths: Sequence[str],
+    other_paths: Sequence[str],
+    python_root_paths: Dict[str, str],
+    expected_python_paths: Sequence[str],
+    expected_other_paths: Sequence[str],
+) -> None:
     (
         actual_python_paths,
         actual_other_paths,
@@ -94,7 +95,7 @@ def test_consolidate_paths(
     assert expected_other_paths == actual_other_paths
 
 
-def test_zip_file():
+def test_zip_file() -> None:
     with tempfile.TemporaryDirectory() as temp:
         result = local_code.zip_local_code(temp)
         assert result is not None
@@ -181,14 +182,14 @@ def test_zip_file():
     ],
 )
 def test_zip_local_code(
-    available_files,
-    working_directory,
-    working_directory_globs,
-    python_paths,
-    expected_files_in_zip,
-    expected_python_paths_in_zip,
-    expected_working_directory_in_zip,
-):
+    available_files: Sequence[str],
+    working_directory: str,
+    working_directory_globs: Sequence[str],
+    python_paths: Sequence[str],
+    expected_files_in_zip: Sequence[str],
+    expected_python_paths_in_zip: Sequence[str],
+    expected_working_directory_in_zip: str,
+) -> None:
     with tempfile.TemporaryDirectory() as temp_source, tempfile.TemporaryDirectory() as temp_dest:  # noqa: E501
         # create the specified files
         for file in available_files:
@@ -223,7 +224,7 @@ def test_zip_local_code(
             os.chdir(orig_dir)
 
 
-def test_zip_local_code_exception():
+def test_zip_local_code_exception() -> None:
     with pytest.raises(ValueError, match="outside of the current working directory"):
         # reference files two folders outside of root does not work
         test_zip_local_code(

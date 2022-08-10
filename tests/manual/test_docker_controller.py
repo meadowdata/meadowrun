@@ -19,8 +19,8 @@ from meadowrun.docker_controller import (
 )
 
 
-def manual_test_get_latest_digest():
-    async def run():
+def manual_test_get_latest_digest() -> None:
+    async def run() -> None:
         # this should raise a 401 unauthorized
         print(
             await get_latest_digest_from_registry(
@@ -64,8 +64,8 @@ def manual_test_get_latest_digest():
     asyncio.run(run())
 
 
-def manual_test_does_digest_exist_locally():
-    async def run():
+def manual_test_does_digest_exist_locally() -> None:
+    async def run() -> None:
         # test a digest that exists
         print(
             await _does_digest_exist_locally(
@@ -88,8 +88,8 @@ def manual_test_does_digest_exist_locally():
     asyncio.run(run())
 
 
-def manual_test_pull_digest():
-    async def run():
+def manual_test_pull_digest() -> None:
+    async def run() -> None:
         # digest that exists, no authentication required
         await pull_image(
             "python@sha256:76eaa9e5bd357d6983a88ddc9c4545ef4ad64c50f84f081ba952c7ed08e3bdd6",  # noqa: E501

@@ -164,7 +164,7 @@ async def _build_ami(
         )
 
 
-async def _wait_for_image_and_make_public(region_name: str, image_id: str):
+async def _wait_for_image_and_make_public(region_name: str, image_id: str) -> None:
     client = boto3.client("ec2", region_name=region_name)
     while True:
         images = client.describe_images(ImageIds=[image_id])
@@ -184,7 +184,7 @@ async def build_amis(
     all_region_base_amis: Dict[str, str],
     volume_size_gb: int,
     actions_on_vm: Callable[[asyncssh.SSHClientConnection], Awaitable[str]],
-):
+) -> None:
     """Builds the same AMI in every region specified by regions"""
     region_to_base_amis = [(region, all_region_base_amis[region]) for region in regions]
 

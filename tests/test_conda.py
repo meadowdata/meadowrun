@@ -18,7 +18,7 @@ _CONDA_RUN_NAME = f"meadowrun.conda.{conda._run.__qualname__}"
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_base(mocker: MockerFixture):
+async def test_conda_env_export_base(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.side_effect = [
         (json.dumps(dict(envs=["/home/user/anaconda"])), ""),
@@ -31,7 +31,7 @@ async def test_conda_env_export_base(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_no_envs(mocker: MockerFixture):
+async def test_conda_env_export_no_envs(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.return_value = ((json.dumps(dict(envs=[])), ""),)
 
@@ -40,7 +40,7 @@ async def test_conda_env_export_no_envs(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_name(mocker: MockerFixture):
+async def test_conda_env_export_name(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.side_effect = [
         (
@@ -63,7 +63,7 @@ async def test_conda_env_export_name(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_name_does_not_exist(mocker: MockerFixture):
+async def test_conda_env_export_name_does_not_exist(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.return_value = (
         (
@@ -85,7 +85,7 @@ async def test_conda_env_export_name_does_not_exist(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_path(mocker: MockerFixture):
+async def test_conda_env_export_path(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.side_effect = [
         (
@@ -109,7 +109,7 @@ async def test_conda_env_export_path(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_path_does_not_exist(mocker: MockerFixture):
+async def test_conda_env_export_path_does_not_exist(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.return_value = (
         (
@@ -131,7 +131,7 @@ async def test_conda_env_export_path_does_not_exist(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_activated(mocker: MockerFixture):
+async def test_conda_env_export_activated(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.return_value = ("some yaml", "")
     mocker.patch.dict(
@@ -143,7 +143,7 @@ async def test_conda_env_export_activated(mocker: MockerFixture):
 
 
 @pytest.mark.asyncio
-async def test_conda_env_export_not_activated(mocker: MockerFixture):
+async def test_conda_env_export_not_activated(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     mocker.patch.dict(os.environ, {}, clear=True)
     assert await conda.try_get_current_conda_env() is None

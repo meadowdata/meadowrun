@@ -13,7 +13,7 @@ import pickle
 import traceback
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--module-name")
     parser.add_argument("--function-name")

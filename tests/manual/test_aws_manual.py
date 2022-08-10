@@ -18,14 +18,14 @@ from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.run_job import run_function, AllocCloudInstance
 
 
-async def manual_test_deallocate_after_running():
+async def manual_test_deallocate_after_running() -> None:
     """Requires running commands manually during the test to confirm correct behavior"""
     async with EC2InstanceRegistrar(None, "create") as instance_registrar:
         await EC2InstanceRegistrarProvider().clear_instance_registrar(
             instance_registrar
         )
 
-        def remote_function():
+        def remote_function() -> None:
             time.sleep(60 * 10)
 
         await run_function(
@@ -44,7 +44,7 @@ async def manual_test_deallocate_after_running():
     # without the --job-id argument. You should see the job being deallocated.
 
 
-async def manual_test_deallocate_before_running():
+async def manual_test_deallocate_before_running() -> None:
     """Requires running commands manually during the test to confirm correct behavior"""
     # run this after another test when we still have an instance lying around
 
@@ -66,7 +66,7 @@ async def manual_test_deallocate_before_running():
     # deallocated
 
 
-async def manual_test_create_management_lambdas():
+async def manual_test_create_management_lambdas() -> None:
     """Tests setting up the ec2_alloc lambda"""
     # 1. delete the lambda and the ec2_alloc_lambda_role, then run this.
     # 2. make a small change to the lambda code then run this again

@@ -13,7 +13,7 @@ def _kubernetes_host() -> meadowrun.Kubernetes:
     )
 
 
-def _meadowrun_container_deployment():
+def _meadowrun_container_deployment() -> meadowrun.Deployment:
     return meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
 
 
@@ -31,7 +31,7 @@ class TestKubernetes:
     """
 
     @pytest.mark.asyncio
-    async def test_kubernetes_function(self):
+    async def test_kubernetes_function(self) -> None:
         result = await meadowrun.run_function(
             lambda: 2 * 2,
             _kubernetes_host(),
@@ -41,7 +41,7 @@ class TestKubernetes:
         assert result == 4
 
     @pytest.mark.asyncio
-    async def test_kubernetes_command(self):
+    async def test_kubernetes_command(self) -> None:
         result = await meadowrun.run_command(
             "python --version",
             _kubernetes_host(),
@@ -52,7 +52,7 @@ class TestKubernetes:
         assert result.result is None
 
     @pytest.mark.asyncio
-    async def test_kubernetes_map(self):
+    async def test_kubernetes_map(self) -> None:
         result = await meadowrun.run_map(
             lambda x: x**x,
             [1, 2, 3, 4, 5],

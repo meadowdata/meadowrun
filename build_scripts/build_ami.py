@@ -68,7 +68,7 @@ async def build_meadowrun_ami(
         print("Existing images:\n" + existing_images)
 
 
-def main():
+def main() -> None:
     r"""
     Creates meadowrun AMIs. Usage:
 

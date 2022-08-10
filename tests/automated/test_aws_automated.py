@@ -102,7 +102,7 @@ class TestAWSOnlyFeatures(AwsHostProvider):
     """
 
     @pytest.mark.asyncio
-    async def test_nvidia_gpu(self):
+    async def test_nvidia_gpu(self) -> None:
         deployment = Deployment.git_repo(
             "https://github.com/meadowdata/test_repo",
             interpreter=PipRequirementsFile("requirements_with_torch.txt", "3.9"),
@@ -125,7 +125,7 @@ class TestAWSOnlyFeatures(AwsHostProvider):
             assert job_completion.return_code == 0
 
     @pytest.mark.asyncio
-    async def manual_test_ports(self):
+    async def manual_test_ports(self) -> None:
         """
         This test requires manually checking that <host>:80 returns something.
 
@@ -188,7 +188,7 @@ class TestEC2InstanceRegistrar(EC2InstanceRegistrarProvider, InstanceRegistrarSu
 
 
 @pytest.mark.asyncio
-async def test_get_ec2_instance_types():
+async def test_get_ec2_instance_types() -> None:
     # This function makes a lot of assumptions about the format of the data we get from
     # various AWS endpoints, good to check that everything works. Look for unexpected
     # warnings!
@@ -235,7 +235,7 @@ async def test_get_ec2_instance_types():
 
 class TestGridTaskQueue:
     @pytest.mark.asyncio
-    async def test_grid_task_queue(self):
+    async def test_grid_task_queue(self) -> None:
         """
         Tests the grid_task_queue functions without actually running any tasks. Uses SQS
         and S3 resources.
@@ -247,7 +247,7 @@ class TestGridTaskQueue:
             region_name, task_arguments
         )
 
-        def complete_tasks():
+        def complete_tasks() -> None:
             tasks: List = []
 
             def assert_task(index: int) -> None:
@@ -295,7 +295,7 @@ class TestGridTaskQueue:
         assert results == task_arguments
 
     @pytest.mark.asyncio
-    async def test_worker_loop(self):
+    async def test_worker_loop(self) -> None:
         region_name = await _get_default_region_name()
         task_arguments = [1, 2, 3, 4]
 

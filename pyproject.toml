@@ -85,9 +85,6 @@ check_untyped_defs = true
 
 exclude = ["meadowrun/_vendor"]  # really meant to just exclude meadowrun._vendor.*
 
-
-[[tool.mypy.overrides]]
-module = ["meadowrun.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_untyped_decorators = true

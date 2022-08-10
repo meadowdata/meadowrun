@@ -40,7 +40,7 @@ def list_packages(path: str, prefix: str) -> Iterable[str]:
             )
 
 
-def generate_conda_yaml():
+def generate_conda_yaml() -> None:
     pyproject = toml.load("pyproject.toml")
 
     version = pyproject["tool"]["poetry"]["version"]
@@ -87,7 +87,7 @@ def generate_conda_yaml():
         yaml.dump(meta_yaml, f)
 
 
-def main():
+def main() -> None:
     result = subprocess.run(["poetry", "version", "--short"], capture_output=True)
     version = result.stdout.strip().decode("utf-8")
 

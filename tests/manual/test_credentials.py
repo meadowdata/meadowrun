@@ -24,7 +24,7 @@ from meadowrun.run_job_local import LocalHost
 _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
 
 
-async def manual_test_docker_credentials_file():
+async def manual_test_docker_credentials_file() -> None:
     r"""
     This is a manual test because it requires out-of-band steps to set up.
 
@@ -53,7 +53,7 @@ async def manual_test_docker_credentials_file():
     )
 
 
-async def manual_test_docker_credentials_aws_secret():
+async def manual_test_docker_credentials_aws_secret() -> None:
     """
     Follow the same steps as in manual_test_docker_credentials_file, but just a
     different step 2:
@@ -71,7 +71,7 @@ async def manual_test_docker_credentials_aws_secret():
     )
 
 
-async def manual_test_docker_credentials_azure_secret():
+async def manual_test_docker_credentials_azure_secret() -> None:
     """
     Follow the same steps as in manual_test_docker_credentials_file, but just a
     different step 2:
@@ -116,7 +116,7 @@ async def _manual_test_docker_credentials(
 _PRIVATE_GIT_REPOSITORY = "git@github.com:hrichardlee/test_repo.git"
 
 
-async def manual_test_git_ssh_key_file():
+async def manual_test_git_ssh_key_file() -> None:
     r"""
     This is a manual test because it requires out-of-band steps to set up.
 
@@ -154,7 +154,7 @@ async def manual_test_git_ssh_key_file():
     )
 
 
-async def manual_test_git_ssh_key_aws_secret():
+async def manual_test_git_ssh_key_aws_secret() -> None:
     r"""
     Follow the same steps as in manual_test_git_ssh_key_file but just an additional
     step before 6:
@@ -175,7 +175,7 @@ async def manual_test_git_ssh_key_aws_secret():
     )
 
 
-async def manual_test_git_ssh_key_azure_secret():
+async def manual_test_git_ssh_key_azure_secret() -> None:
     r"""
     Follow the same steps as in manual_test_git_ssh_key_file but just an additional
     step before 6:
@@ -197,7 +197,7 @@ async def manual_test_git_ssh_key_azure_secret():
 async def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> None:
     # make this a nested function so that it gets pickled as code rather than as a
     # reference
-    def test_function():
+    def test_function() -> str:
         import example_package.example  # type: ignore[import]
 
         return example_package.example.join_strings("hello ", "there")
@@ -214,7 +214,7 @@ async def _manual_test_git_ssh_key(credentials_source: CredentialsSource) -> Non
     )
 
 
-async def manual_test_kubernetes_container():
+async def manual_test_kubernetes_container() -> None:
     """
     Running this tests requires the same setup as TestKubernetes, plus following the
     instructions at docs/how_to/private_container_kubernetes.md, and replacing the names

@@ -172,7 +172,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         specs: List[
             Tuple[float, Tuple, Optional[Tuple[Dict[str, float], Dict[str, float]]]]
         ],
-    ):
+    ) -> MockInstanceRegistrar:
         instance_types = []
         for i, (price, positional_args, keyword_args_tuple) in enumerate(specs):
             if keyword_args_tuple is not None:
@@ -245,7 +245,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
 
 @pytest.mark.asyncio
-async def test_gpu():
+async def test_gpu() -> None:
     instance_registrar = MockInstanceRegistrar.from_tuples(
         [
             # this is instance type t0. It costs $0.5/hr, has 2 CPU, 4GB of memory, and
@@ -298,7 +298,7 @@ async def test_gpu():
 
 
 @pytest.mark.asyncio
-async def test_impossible_resources():
+async def test_impossible_resources() -> None:
     instance_registrar = MockInstanceRegistrar.from_tuples(
         [
             (0.25, (2, 4, 40, None), None),
@@ -324,7 +324,7 @@ async def test_impossible_resources():
 
 
 @pytest.mark.asyncio
-async def test_packing():
+async def test_packing() -> None:
     instance_registrar = MockInstanceRegistrar.from_tuples(
         [
             (0.25, (2, 4, 40, None), None),
@@ -351,7 +351,7 @@ async def test_packing():
 
 
 @pytest.mark.asyncio
-async def test_interruption_probability():
+async def test_interruption_probability() -> None:
     instance_registrar = MockInstanceRegistrar.from_tuples(
         [
             (0.25, (2, 4, 40, None), None),

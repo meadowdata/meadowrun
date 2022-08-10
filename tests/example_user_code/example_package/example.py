@@ -1,7 +1,7 @@
 import time
 
 
-def example_runner(arg: str):
+def example_runner(arg: str) -> str:
     print(f"example_runner called with {arg}")
     time.sleep(0.1)
     return "hello " + arg

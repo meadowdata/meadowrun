@@ -164,7 +164,7 @@ def shrink_ami(
     sdf_maps_to: str,
     sdh_maps_to: str,
     copy_mbr: bool,
-):
+) -> str:
     new_volume = None
     instance = None
 
@@ -427,7 +427,7 @@ def shrink_ami(
             instance.terminate()
 
 
-def main():
+def main() -> None:
     """
     This script resizes a base image to be as small as possible. There is some
     preliminary support for MBR-based disks, but this doesn't work at this point, so we

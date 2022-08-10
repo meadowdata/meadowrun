@@ -15,7 +15,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
 )
 
 
-async def main():
+async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("vm_name")
     args = parser.parse_args()

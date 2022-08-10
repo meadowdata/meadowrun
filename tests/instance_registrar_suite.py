@@ -97,7 +97,7 @@ TERMINATE_INSTANCES_IF_IDLE_FOR_TEST = datetime.timedelta(seconds=10)
 
 class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
     @pytest.mark.asyncio
-    async def test_allocate_deallocate_mechanics(self):
+    async def test_allocate_deallocate_mechanics(self) -> None:
         """Tests allocating and deallocating, does not involve real machines"""
         async with await self.get_instance_registrar() as instance_registrar:
             await self.clear_instance_registrar(instance_registrar)
@@ -173,7 +173,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert testhost1.get_available_resources().consumable[MEMORY_GB] == 56
 
     @pytest.mark.asyncio
-    async def test_allocate_existing_instances(self):
+    async def test_allocate_existing_instances(self) -> None:
         """
         Tests logic for allocating existing EC2 instances, does not involve actual
         instances
@@ -204,7 +204,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert len(results["testhost-4"]) == 1
 
     @pytest.mark.asyncio
-    async def test_prevent_further_allocation(self):
+    async def test_prevent_further_allocation(self) -> None:
         """
         Tests logic for allocating existing EC2 instances, does not involve actual
         instances
@@ -255,12 +255,12 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_launch_one_instance(self):
+    async def test_launch_one_instance(self) -> None:
         """Launches instances that must be cleaned up manually"""
         async with await self.get_instance_registrar() as instance_registrar:
             await self.clear_instance_registrar(instance_registrar)
 
-            def remote_function():
+            def remote_function() -> Tuple[int, str]:
                 return os.getpid(), platform.node()
 
             pid1, host1 = await run_function(
@@ -294,12 +294,12 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_launch_multiple_instances(self):
+    async def test_launch_multiple_instances(self) -> None:
         """Launches instances that must be cleaned up manually"""
         async with await self.get_instance_registrar() as instance_registrar:
             await self.clear_instance_registrar(instance_registrar)
 
-            def remote_function():
+            def remote_function() -> Tuple[int, str]:
                 return os.getpid(), platform.node()
 
             task1 = asyncio.create_task(
@@ -338,7 +338,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             )
 
     @pytest.mark.asyncio
-    async def test_deregister(self):
+    async def test_deregister(self) -> None:
         """Tests registering and deregistering, does not involve real machines"""
         async with await self.get_instance_registrar() as instance_registrar:
             await self.clear_instance_registrar(instance_registrar)
@@ -368,7 +368,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             )
 
     @pytest.mark.asyncio
-    async def test_adjust_instances(self):
+    async def test_adjust_instances(self) -> None:
         """
         Tests the adjust function, involves running real machines, but they should all
         get terminated automatically by the test.

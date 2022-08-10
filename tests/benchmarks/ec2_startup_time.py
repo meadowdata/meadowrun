@@ -5,12 +5,13 @@ from pprint import pprint
 from statistics import median
 import sys
 from time import monotonic
+from typing import Tuple
 
 from meadowrun import Resources
 from meadowrun.run_job import AllocCloudInstance, run_function
 
 
-async def main():
+async def main() -> None:
 
     nb_runs = 10
 
@@ -18,7 +19,7 @@ async def main():
     sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
     from automated.test_aws_automated import EC2InstanceRegistrarProvider
 
-    def remote_function():
+    def remote_function() -> Tuple[int, str]:
         return os.getpid(), platform.node()
 
     irp = EC2InstanceRegistrarProvider()

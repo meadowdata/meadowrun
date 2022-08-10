@@ -56,14 +56,14 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
     # attach it for these tests.
 
     @pytest.mark.asyncio
-    async def test_meadowrun_server_available_folder(self):
+    async def test_meadowrun_server_available_folder(self) -> None:
         await self._test_meadowrun(
             ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
         )
 
     @pytest.mark.asyncio
-    async def test_meadowrun_server_available_folder_container_digest(self):
+    async def test_meadowrun_server_available_folder_container_digest(self) -> None:
         await self._test_meadowrun(
             ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             await get_latest_interpreter_version(
@@ -72,14 +72,14 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
         )
 
     @pytest.mark.asyncio
-    async def test_meadowrun_server_available_folder_container_tag(self):
+    async def test_meadowrun_server_available_folder_container_tag(self) -> None:
         await self._test_meadowrun(
             ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
         )
 
     @pytest.mark.asyncio
-    async def test_meadowrun_command_context_variables(self):
+    async def test_meadowrun_command_context_variables(self) -> None:
         """
         Runs example_script twice (in parallel), once with no context variables, and
         once with context variables. Makes sure the output is the same in both cases.

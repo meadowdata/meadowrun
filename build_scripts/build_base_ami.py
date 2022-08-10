@@ -4,6 +4,7 @@ import re
 
 import asyncssh
 
+from ami_listings import VANILLA_UBUNTU_AMIS, BASE_AMIS
 from build_ami_helper import (
     parse_ubuntu_version,
     parse_docker_version,
@@ -13,37 +14,7 @@ from build_ami_helper import (
     BEHAVIOR_OPTIONS,
     _assert_str,
 )
-from meadowrun.ssh import run_and_print, run_and_capture
-
-BASE_AMIS = {
-    # generated via get_amis_for_regions. Got the initial AMI id in a single region by
-    # using the console and looking for "Ubuntu Server 20.04 LTS (HVM), SSD Volume Type"
-    # under quickstart AMIs
-    "plain": {
-        "us-east-2": "ami-0960ab670c8bb45f3",
-        "us-east-1": "ami-08d4ac5b634553e16",
-        "us-west-1": "ami-01154c8b2e9a14885",
-        "us-west-2": "ami-0ddf424f81ddb0720",
-        "eu-central-1": "ami-0c9354388bb36c088",
-        "eu-west-1": "ami-0d2a4a5d69e46ea0b",
-        "eu-west-2": "ami-0bd2099338bc55e6d",
-        "eu-west-3": "ami-0f7559f51d3a22167",
-        "eu-north-1": "ami-012ae45a4a2d92750",
-    },
-    # generated via get_amis_for_regions. AMI name is AWS Deep Learning Base AMI GPU
-    # CUDA 11 (Ubuntu 20.04) 20220627
-    "cuda": {
-        "us-east-2": "ami-01e2c6319392b1b40",
-        "us-east-1": "ami-0dbb3b4ca1bc58863",
-        "us-west-1": "ami-0ee8a8c2d207b8dd4",
-        "us-west-2": "ami-0acebbaf658eb64c1",
-        "eu-central-1": "ami-051729bad190218f0",
-        "eu-west-1": "ami-0152318739453cfc2",
-        "eu-west-2": "ami-0396e3201ddcd75ee",
-        "eu-west-3": "ami-0ec876e2bab7ac024",
-        "eu-north-1": "ami-00fd15de5ac9fe409",
-    },
-}
+from meadowrun.ssh import run_and_print, run_and_capture, write_text_to_file
 
 
 async def prepare_meadowrun_virtual_env(
@@ -68,8 +39,8 @@ async def plain_base_image_actions_on_vm(
     print("install Docker")
     await run_and_print(
         connection,
-        "sudo apt-get update "
-        "&& sudo apt-get install -y ca-certificates curl gnupg lsb-release",
+        "sudo apt update "
+        "&& sudo apt install -y ca-certificates curl gnupg lsb-release",
     )
     await run_and_print(
         connection,
@@ -85,8 +56,8 @@ async def plain_base_image_actions_on_vm(
     )
     await run_and_print(
         connection,
-        "sudo apt-get update "
-        "&& sudo apt-get install -y docker-ce docker-ce-cli containerd.io",
+        "sudo apt update "
+        "&& sudo apt install -y docker-ce docker-ce-cli containerd.io",
     )
 
     # https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket)
@@ -117,51 +88,56 @@ async def cuda_base_image_actions_on_vm(
     connection: asyncssh.SSHClientConnection,
 ) -> str:
     # https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=20.04&target_type=deb_network
+    # combined with
+    # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+
     print("Upgrade cuda")
     await run_and_print(
         connection,
-        "sudo apt-get update "
+        "sudo apt update "
         "&& wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin "  # noqa: E501
         "&& sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 "
         "&& sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub "  # noqa: E501
         '&& sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" '  # noqa: E501
-        "&& sudo apt-get update "
-        "&& sudo apt-get -y install cuda "
-        "&& sudo apt-get -y install libcudnn8 libcudnn8-dev ",
+        # stuff for nvidia-docker2
+        "&& curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg "  # noqa: E501
+        "&& curl -s -L https://nvidia.github.io/libnvidia-container/ubuntu20.04/libnvidia-container.list | "  # noqa: E501
+        "sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | "  # noqa: E501
+        "sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list "
+        "&& sudo apt update "
+        "&& sudo apt -y install cuda libcudnn8 libcudnn8-dev nvidia-docker2 "
+        "&& sudo systemctl restart docker",
     )
-
-    print("Uninstall older versions of cuda")
-    # (just leaving cuda-11.7). These take up a ton of disk space
-    await run_and_print(
-        connection,
-        "sudo rm -rf /usr/local/cuda-11.0 "
-        "&& sudo rm -rf /usr/local/cuda-11.1 "
-        "&& sudo rm -rf /usr/local/cuda-11.2 "
-        "&& sudo rm -rf /usr/local/cuda-11.3 "
-        "&& sudo rm -rf /usr/local/cuda-11.4 "
-        "&& sudo rm -rf /usr/local/cuda-11.5 "
-        "&& sudo rm -rf /usr/local/cuda-11.6 ",
-    )
-
-    print("Install venv")
-    await run_and_print(connection, "sudo apt-get install -y python3.8-venv")
 
     print("Delete apt cache")
     await run_and_print(connection, "sudo rm -rf /var/cache/apt")
 
-    print("Prepare a virtualenv for Meadowrun")
-    await prepare_meadowrun_virtual_env(connection, "python3.8")
+    print("Set up paths")
+    # copied from the Deep Learning AMIs provided by AWS
+    await write_text_to_file(
+        connection,
+        (
+            "export LD_LIBRARY_PATH=/usr/local/cuda/lib64:"
+            "/usr/local/cuda/targets/x86_64-linux/lib:/usr/local/lib:/usr/lib:"
+            "$LD_LIBRARY_PATH\n"
+            "export PATH=/usr/local/cuda/bin:$PATH"
+        ),
+        "/home/ubuntu/dlami.sh",
+    )
+    await run_and_print(
+        connection, "sudo mv /home/ubuntu/dlami.sh /etc/profile.d/dlami.sh"
+    )
 
     return (
         f"cuda{await parse_cuda_version(connection)}"
         f"-ubuntu{await parse_ubuntu_version(connection)}"
-        f"-python{await parse_python_version(connection, 'python3.8')}"
+        f"-python{await parse_python_version(connection, 'python3.9')}"
     )
 
 
 async def parse_cuda_version(connection: asyncssh.SSHClientConnection) -> str:
     nvcc_version = _assert_str(
-        (await run_and_capture(connection, "nvcc --version")).stdout
+        (await run_and_capture(connection, "/usr/local/cuda/bin/nvcc --version")).stdout
     ).strip()
 
     match = re.match(
@@ -225,14 +201,14 @@ def main():
     )
     args = parser.parse_args()
 
-    all_region_base_amis = BASE_AMIS[args.type]
-
     if args.type == "plain":
-        volume_size_gb = 16
+        volume_size_gb = 8
         actions_on_vm = plain_base_image_actions_on_vm
+        all_region_base_amis = VANILLA_UBUNTU_AMIS
     elif args.type == "cuda":
-        volume_size_gb = 100
+        volume_size_gb = 14
         actions_on_vm = cuda_base_image_actions_on_vm
+        all_region_base_amis = BASE_AMIS["plain"]
     else:
         raise ValueError(f"Unexpected type {args.type}")
 

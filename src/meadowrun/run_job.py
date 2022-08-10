@@ -337,17 +337,20 @@ class AllocCloudInstance(Host):
 
                 worker_id += 1
 
-        # finally, wait for results:
+        # start collecting results:
         if wait_for_result:
-            results = await helper.get_results()
+            workers_done = asyncio.Event()
+            results_future = asyncio.create_task(helper.get_results(workers_done))
+            worker_results = await asyncio.gather(*worker_tasks, return_exceptions=True)
+            workers_done.set()
+            results = await results_future
+            for worker_id, result in enumerate(worker_results):
+                if isinstance(result, Exception):
+                    print(f"Worker {worker_id} exited with error: {result}")
+            return results
         else:
-            results = None
-
-        # TODO if there's an error these workers will crash before the results_future
-        # returns
-        await asyncio.gather(*worker_tasks, return_exceptions=True)
-
-        return results
+            await asyncio.gather(*worker_tasks, return_exceptions=True)
+            return None
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:

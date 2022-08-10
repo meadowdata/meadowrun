@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import lru_cache
 from typing import Any, Callable, Iterable, Optional, Set, TypeVar, Union
 
 import aiohttp
@@ -167,6 +168,7 @@ async def _get_current_ip_for_ssh() -> str:
         return (await response.text()).strip()
 
 
+@lru_cache(maxsize=1)
 def _get_account_number() -> str:
     # weird that we have to do this to get the account number to construct the ARN
     return boto3.client("sts").get_caller_identity().get("Account")

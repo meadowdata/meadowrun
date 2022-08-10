@@ -316,5 +316,7 @@ async def prepare_azure_vm_run_map(
         ssh_username="meadowrunuser",
         ssh_private_key=private_key,
         num_tasks=len(tasks),
-        result_futures=get_results_unordered(result_queue, len(tasks), location),
+        result_futures=functools.partial(
+            get_results_unordered, result_queue, len(tasks), location
+        ),
     )

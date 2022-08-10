@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import functools
 import itertools
+import json
 import os
 import pickle
 import traceback
@@ -17,6 +17,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Set,
     Tuple,
     TypeVar,
 )
@@ -39,7 +40,7 @@ from meadowrun.instance_allocation import allocate_jobs_to_instances
 if TYPE_CHECKING:
     from meadowrun.instance_selection import ResourcesInternal
 
-from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
+from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import RunMapHelper
 from meadowrun.shared import pickle_exception
 
@@ -71,8 +72,8 @@ async def create_queues_and_add_tasks(
     request_queue_url, result_queue_url = await _create_queues_for_job(
         job_id, region_name
     )
-    await _add_tasks(request_queue_url, region_name, tasks)
-    return request_queue_url, result_queue_url
+    await _add_tasks(job_id, request_queue_url, region_name, tasks)
+    return request_queue_url, job_id
 
 
 async def _create_queues_for_job(job_id: str, region_name: str) -> Tuple[str, str]:
@@ -112,18 +113,22 @@ async def _create_queues_for_job(job_id: str, region_name: str) -> Tuple[str, st
     return request_queue_url, result_queue_url
 
 
-def _chunker(it: Iterable[_T], size: int) -> Iterable[List[_T]]:
+def _chunker(it: Iterable[_T], size: int) -> Iterable[Tuple[_T, ...]]:
     """E.g. _chunker([1, 2, 3, 4, 5], 2) -> [1, 2], [3, 4], [5]"""
     iterator = iter(it)
     while True:
-        chunk = list(itertools.islice(iterator, size))
+        chunk = tuple(itertools.islice(iterator, size))
         if not chunk:
             break
         yield chunk
 
 
+def _s3_args_key(job_id: str) -> str:
+    return f"task-args/{job_id}"
+
+
 async def _add_tasks(
-    request_queue_url: str, region_name: str, tasks: Iterable[Any]
+    job_id: str, request_queue_url: str, region_name: str, run_map_args: Iterable[Any]
 ) -> None:
     """
     See create_queues_and_add_tasks
@@ -132,15 +137,31 @@ async def _add_tasks(
     add_tasks more than once for the same job, we would need the caller to manage the
     task_ids
     """
-    async with aiobotocore.session.get_session().create_client(
+    session = aiobotocore.session.get_session()
+    async with session.create_client(
         "sqs", region_name=region_name
-    ) as client:
-        for tasks_chunk in _chunker(enumerate(tasks), 10):
+    ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
+
+        pickles = bytearray()
+        grid_tasks: List[str] = []
+        range_from = 0
+        for i, arg in enumerate(run_map_args):
+            arg_pkl = pickle.dumps(arg)
+            pickles.extend(arg_pkl)
+            range_to = len(pickles) - 1
+            grid_tasks.append(
+                json.dumps(dict(task_id=i, range_from=range_from, range_end=range_to))
+            )
+            range_from = range_to + 1
+
+        await s3.upload_async(_s3_args_key(job_id), bytes(pickles), region_name, s3c)
+
+        for tasks_chunk in _chunker(enumerate(grid_tasks), 10):
             # this function can only take 10 messages at a time, so we chunk into
             # batches of 10
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
             result = await _send_or_upload_message_batch(
-                client, region_name, request_queue_url, tasks_chunk
+                sqs, request_queue_url, tasks_chunk
             )
             if "Failed" in result:
                 raise ValueError(
@@ -148,135 +169,33 @@ async def _add_tasks(
                 )
 
 
-_BODY_INLINE = "inline:"
-_BODY_STORED = "stored:"
-# max SQS msg size is 256 KiB, but we check before b64 encoding which blows up size.
-MAX_MESSAGE_SIZE = 150_000
-
-
 async def _send_or_upload_message_batch(
     client: Any,
-    region_name: str,
     queue: str,
-    tasks_chunk: List[Tuple[int, Any]],
+    tasks_chunk: Iterable[Tuple[int, str]],
 ) -> Any:
     entries = []
-    upload_tasks = []
-    session = aiobotocore.session.get_session()
-    async with session.create_client("s3", region_name=region_name) as s3_client:
-        for i, task in tasks_chunk:
-            message_body_bytes = GridTask(
-                task_id=i, pickled_function_arguments=pickle.dumps(task)
-            ).SerializeToString()
-            if len(message_body_bytes) < MAX_MESSAGE_SIZE:
-                entries.append(
-                    {
-                        "Id": str(i),
-                        "MessageBody": _BODY_INLINE
-                        + base64.b64encode(message_body_bytes).decode("utf-8"),
-                        # TODO replace 0 with a retry count
-                        "MessageDeduplicationId": f"{i}:0",
-                        "MessageGroupId": "_",
-                    }
-                )
-            else:
-                msg_id = "sqs/" + str(uuid.uuid4())
-                upload_tasks.append(
-                    asyncio.create_task(
-                        s3.upload_async(
-                            msg_id, message_body_bytes, region_name, s3_client
-                        )
-                    )
-                )
-                entries.append(
-                    {
-                        "Id": str(i),
-                        "MessageBody": _BODY_STORED + msg_id,
-                        # TODO replace 0 with a retry count
-                        "MessageDeduplicationId": f"{i}:0",
-                        "MessageGroupId": "_",
-                    }
-                )
-        if upload_tasks:
-            await asyncio.gather(*upload_tasks)
+    for i, task in tasks_chunk:
+        entries.append(
+            {
+                "Id": str(i),
+                "MessageBody": task,
+                # TODO replace 0 with a retry count
+                "MessageDeduplicationId": f"{i}:0",
+                "MessageGroupId": "_",
+            }
+        )
 
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
     return await client.send_message_batch(QueueUrl=queue, Entries=entries)
 
 
-def _send_or_upload_message(
-    client: Any,
-    region_name: str,
-    queue: str,
-    response: GridTaskStateResponse,
-    deduplication_id: str,
-) -> None:
-
-    message_body_bytes = response.SerializeToString()
-    if len(message_body_bytes) < MAX_MESSAGE_SIZE:
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
-        client.send_message(
-            QueueUrl=queue,
-            MessageBody=_BODY_INLINE
-            + base64.b64encode(message_body_bytes).decode("utf-8"),
-            # TODO replace 0 here with a retry count
-            MessageDeduplicationId=deduplication_id,
-            MessageGroupId="_",
-        )
-    else:
-        msg_id = "sqs/" + str(uuid.uuid4())
-        s3.upload(msg_id, message_body_bytes, region_name)
-        client.send_message(
-            QueueUrl=queue,
-            MessageBody=_BODY_STORED + msg_id,
-            # TODO replace 0 here with a retry count
-            MessageDeduplicationId=deduplication_id,
-            MessageGroupId="_",
-        )
-
-
-def _get_result_from_body(
-    body: Any, region_name: str, task_result_fac: Callable[[], _T]
-) -> _T:
-    task_result = task_result_fac()
-    if body.startswith(_BODY_INLINE):
-        task_result.ParseFromString(  # type: ignore
-            base64.b64decode(body[len(_BODY_INLINE) :].encode("utf-8"))
-        )
-        return task_result
-    elif body.startswith(_BODY_STORED):
-        bs = s3.download(body[len(_BODY_STORED) :], region_name)
-        task_result.ParseFromString(bs)  # type:ignore
-        return task_result
-    else:
-        raise ValueError(f"Malformed SQS message body: {body}")
-
-
-async def _get_result_from_body_async(
-    body: Any, region_name: str, task_result_fac: Callable[[], _T], s3_client: Any
-) -> _T:
-    task_result = task_result_fac()
-    if body.startswith(_BODY_INLINE):
-        task_result.ParseFromString(  # type: ignore
-            base64.b64decode(body[len(_BODY_INLINE) :].encode("utf-8"))
-        )
-        return task_result
-    elif body.startswith(_BODY_STORED):
-        bs = await s3.download_async(body[len(_BODY_STORED) :], region_name, s3_client)
-        task_result.ParseFromString(bs)  # type:ignore
-        return task_result
-    else:
-        raise ValueError(f"Malformed SQS message body: {body}")
-
-
 def _get_task(
     request_queue_url: str,
-    result_queue_url: str,
+    job_id: str,
     region_name: str,
     receive_message_wait_seconds: int,
-    public_address: str,
-    worker_id: int,
-) -> Optional[GridTask]:
+) -> Optional[Tuple[int, bytes]]:
     """
     Gets the next task from the specified request_queue, sends a RUN_REQUESTED
     GridTaskStateResponse on the result_queue, and then deletes the message from the
@@ -285,10 +204,10 @@ def _get_task(
     Returns the GridTask from the queue if there was a task, otherwise returns None.
     Waits receive_message_wait_seconds for a task.
     """
-    client = boto3.client("sqs", region_name=region_name)
+    sqs = boto3.client("sqs", region_name=region_name)
 
     # get the GridTask message
-    result = client.receive_message(
+    result = sqs.receive_message(
         QueueUrl=request_queue_url, WaitTimeSeconds=receive_message_wait_seconds
     )
 
@@ -300,60 +219,56 @@ def _get_task(
         raise ValueError(f"Requested one message but got {len(messages)}")
 
     # parse the task request
-    task = _get_result_from_body(messages[0]["Body"], region_name, GridTask)
-
-    # send the RUN_REQUESTED message on the result queue
-    _send_or_upload_message(
-        client,
-        region_name,
-        result_queue_url,
-        GridTaskStateResponse(
-            task_id=task.task_id,
-            process_state=ProcessState(
-                state=ProcessState.ProcessStateEnum.RUN_REQUESTED,
-                # TODO needs to include public address and worker id
-            ),
-        ),
-        # TODO replace 0 here with a retry count
-        f"{task.task_id}:0:{public_address}:{worker_id}:requested",
+    task = json.loads(messages[0]["Body"])
+    task_id, range_from, range_end = (
+        task["task_id"],
+        task["range_from"],
+        task["range_end"],
     )
+    arg = s3.download(_s3_args_key(job_id), region_name, (range_from, range_end))
+    # task = _get_result_from_body(messages[0]["Body"], region_name, GridTask)
+
+    # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
+
     # acknowledge receipt/delete the task request message so we don't have duplicate
     # tasks running
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_message
-    client.delete_message(
+    sqs.delete_message(
         QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
     )
 
-    return task
+    return task_id, arg
+
+
+def _s3_results_prefix(job_id: str) -> str:
+    return f"task-results/{job_id}/"
+
+
+def _s3_results_key(job_id: str, task_id: int) -> str:
+    # A million tasks should be enough for everybody. Formatting the task is important
+    # because when we task download results from S3, we use the StartFrom argument to
+    # S3's ListObjects to exclude most tasks we've already downloaded.
+    return f"{_s3_results_prefix(job_id)}{task_id:06d}"
+
+
+def _s3_result_key_to_task_id(key: str, results_prefix: str) -> int:
+    return int(key.replace(results_prefix, ""))
 
 
 def _complete_task(
-    result_queue_url: str,
-    region_name: str,
-    task: GridTask,
-    process_state: ProcessState,
-    public_address: str,
-    worker_id: int,
+    job_id: str, region_name: str, task_id: int, process_state: ProcessState
 ) -> None:
     """
-    Sends a message to the result queue that the specified task has completed with the
-    specified process_state
+    Uploads the result of the task to S3.
     """
-    client = boto3.client("sqs", region_name=region_name)
-    _send_or_upload_message(
-        client,
-        region_name,
-        result_queue_url,
-        GridTaskStateResponse(task_id=task.task_id, process_state=process_state),
-        # TODO replace 0 here with a retry count
-        f"{task.task_id}:0:{public_address}:{worker_id}:completed",
-    )
+    process_state_bytes = process_state.SerializeToString()
+    s3.upload(_s3_results_key(job_id, task_id), process_state_bytes, region_name)
 
 
 def worker_loop(
     function: Callable[[Any], Any],
     request_queue_url: str,
-    result_queue_url: str,
+    job_id: str,
     region_name: str,
     public_address: str,
     worker_id: int,
@@ -380,17 +295,16 @@ def worker_loop(
     while True:
         task = _get_task(
             request_queue_url,
-            result_queue_url,
+            job_id,
             region_name,
             1,
-            public_address,
-            worker_id,
         )
         if not task:
             break
 
+        task_id, arg = task
         try:
-            result = function(pickle.loads(task.pickled_function_arguments))
+            result = function(pickle.loads(arg))
         except Exception as e:
             traceback.print_exc()
 
@@ -409,106 +323,70 @@ def worker_loop(
             )
 
         _complete_task(
-            result_queue_url,
+            job_id,
             region_name,
-            task,
+            task_id,
             process_state,
-            public_address,
-            worker_id,
         )
 
 
-async def _delete_messages_batch(
-    client: Any, result_queue_url: str, receipt_handles: Iterable[Any]
-) -> None:
-    delete_result = await client.delete_message_batch(
-        QueueUrl=result_queue_url,
-        Entries=[
-            {
-                "Id": str(i),
-                "ReceiptHandle": receipt_handle,
-            }
-            for i, receipt_handle in enumerate(receipt_handles)
-        ],
-    )
-    if "Failed" in delete_result:
-        raise ValueError(f"Failed to delete messages: {delete_result['Failed']}")
-
-
 async def get_results_unordered(
-    result_queue_url: str,
+    job_id: str,
     region_name: str,
     num_tasks: int,
     receive_message_wait_seconds: int = 20,
+    workers_done: Optional[asyncio.Event] = None,
 ) -> AsyncGenerator[Tuple[int, ProcessState], None]:
     """
     Listens to a result queue until we have results for num_tasks. Returns the unpickled
     results of those tasks.
     """
 
-    # TODO currently, we get back messages saying that a task is running on a particular
-    # worker. We don't really do anything with these messages, but eventually we should
-    # use them to react appropriately if a worker crashes unexpectedly.
+    # TODO monitor workers and react appropriately if a worker crashes.
+    if workers_done is None:
+        workers_done = asyncio.Event()
 
-    num_tasks_running, num_tasks_completed = 0, 0
+    num_tasks_completed = 0
+    results_prefix = _s3_results_prefix(job_id)
+    download_keys_received: Set[str] = set()
+    wait = True
+
     session = aiobotocore.session.get_session()
-    async with session.create_client(
-        "sqs", region_name=region_name
-    ) as sqs, session.create_client("s3", region_name=region_name) as s3:
-
-        delete_message_tasks = []
+    async with session.create_client("s3", region_name=region_name) as s3c:
         while num_tasks_completed < num_tasks:
             print(
                 f"Waiting for grid tasks. Requested: {num_tasks}, "
-                f"running: {num_tasks_running}, "
                 f"completed: {num_tasks_completed}"
             )
+            if wait and not workers_done.is_set():
+                try:
+                    await asyncio.wait_for(
+                        workers_done.wait(), timeout=receive_message_wait_seconds
+                    )
+                except asyncio.TimeoutError:
+                    pass
 
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.receive_message
-            receive_result = await sqs.receive_message(
-                QueueUrl=result_queue_url,
-                MaxNumberOfMessages=10,
-                WaitTimeSeconds=receive_message_wait_seconds,
-            )
+            keys = await s3.list_objects_async(results_prefix, "", region_name, s3c)
 
-            if "Messages" in receive_result:
-                receipt_handles = []
-                task_result_tasks = []
-                for message in receive_result["Messages"]:
-                    receipt_handles.append(message["ReceiptHandle"])
-                    task_result_tasks.append(
-                        asyncio.create_task(
-                            _get_result_from_body_async(
-                                message["Body"],
-                                region_name,
-                                GridTaskStateResponse,
-                                s3_client=s3,
-                            )
-                        )
+            download_tasks = []
+            for key in keys:
+                if key not in download_keys_received:
+                    download_tasks.append(
+                        asyncio.create_task(s3.download_async(key, region_name, s3c))
                     )
 
-                for task_result_future in asyncio.as_completed(task_result_tasks):
-                    task_result = await task_result_future
-                    if (
-                        task_result.process_state.state
-                        == ProcessState.ProcessStateEnum.RUN_REQUESTED
-                    ):
-                        num_tasks_running += 1
-                    else:
-                        num_tasks_running -= 1
-                        num_tasks_completed += 1
-                        yield task_result.task_id, task_result.process_state
+            download_keys_received.update(keys)
 
-                # run delete messages in the background
-                delete_message_tasks.append(
-                    asyncio.create_task(
-                        _delete_messages_batch(sqs, result_queue_url, receipt_handles)
-                    )
-                )
-        results = await asyncio.gather(*delete_message_tasks, return_exceptions=True)
-        exceptions = [result for result in results if isinstance(result, Exception)]
-        if exceptions:
-            raise Exception(exceptions)
+            if len(download_tasks) == 0:
+                wait = True
+            else:
+                wait = False
+                for task_result_future in asyncio.as_completed(download_tasks):
+                    key, process_state_bytes = await task_result_future
+                    process_state = ProcessState()
+                    process_state.ParseFromString(process_state_bytes)
+                    yield _s3_result_key_to_task_id(key, results_prefix), process_state
+                    num_tasks_completed += 1
 
 
 async def prepare_ec2_run_map(
@@ -539,16 +417,18 @@ async def prepare_ec2_run_map(
             ports,
         )
 
-    request_queue, result_queue = await queues_future
+    request_queue, job_id = await queues_future
 
     return RunMapHelper(
         region_name,
         allocated_hosts,
         worker_function=functools.partial(
-            worker_loop, function, request_queue, result_queue, region_name
+            worker_loop, function, request_queue, job_id, region_name
         ),
         ssh_username=SSH_USER,
         ssh_private_key=pkey,
         num_tasks=len(tasks),
-        result_futures=get_results_unordered(result_queue, region_name, len(tasks)),
+        result_futures=functools.partial(
+            get_results_unordered, job_id, region_name, len(tasks)
+        ),
     )

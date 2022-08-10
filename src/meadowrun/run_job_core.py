@@ -357,16 +357,18 @@ class RunMapHelper:
     ssh_username: str
     ssh_private_key: asyncssh.SSHKey
     num_tasks: int
-    result_futures: AsyncGenerator[Tuple[int, ProcessState], None]
+    result_futures: Callable[..., AsyncGenerator[Tuple[int, ProcessState], None]]
 
     async def get_results(
-        self,
+        self, workers_done: Optional[asyncio.Event] = None
     ) -> List[Any]:
 
         task_results: List[Optional[ProcessState]] = [
             None for _ in range(self.num_tasks)
         ]
-        async for task_id, process_state in self.result_futures:
+        async for task_id, process_state in self.result_futures(
+            workers_done=workers_done
+        ):
             if task_results[task_id] is None:
                 task_results[task_id] = process_state
             else:

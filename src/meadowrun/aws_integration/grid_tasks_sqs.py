@@ -197,16 +197,15 @@ def _get_task(
     receive_message_wait_seconds: int,
 ) -> Optional[Tuple[int, bytes]]:
     """
-    Gets the next task from the specified request_queue, sends a RUN_REQUESTED
-    GridTaskStateResponse on the result_queue, and then deletes the message from the
-    request_queue.
+    Gets the next task from the specified request_queue, downloads the task argument
+    from S3, and then deletes the message from the request_queue.
 
-    Returns the GridTask from the queue if there was a task, otherwise returns None.
-    Waits receive_message_wait_seconds for a task.
+    Returns a tuple of task_id and pickled argument if there was a task, otherwise
+    returns None. Waits receive_message_wait_seconds for a task.
     """
     sqs = boto3.client("sqs", region_name=region_name)
 
-    # get the GridTask message
+    # get the task message
     result = sqs.receive_message(
         QueueUrl=request_queue_url, WaitTimeSeconds=receive_message_wait_seconds
     )
@@ -226,7 +225,6 @@ def _get_task(
         task["range_end"],
     )
     arg = s3.download(_s3_args_key(job_id), region_name, (range_from, range_end))
-    # task = _get_result_from_body(messages[0]["Body"], region_name, GridTask)
 
     # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
 
@@ -274,8 +272,8 @@ def worker_loop(
     worker_id: int,
 ) -> None:
     """
-    Runs a loop that gets GridTasks off of the request_queue, calls function on the
-    arguments in the GridTask, and sends the results back on the result_queue.
+    Runs a loop that gets tasks off of the request_queue, calls function on the
+    arguments of the task, and uploads the results to S3.
 
     public_address is the public address of the current (worker) machine and worker_id
     is a unique identifier for this worker within this grid job.
@@ -341,6 +339,14 @@ async def get_results_unordered(
     Listens to a result queue until we have results for num_tasks. Returns the unpickled
     results of those tasks.
     """
+
+    # Note: download here is all via S3. It's important that downloads are fast enough -
+    # in some cases (many workers, small-ish tasks) the rate of downloading the results
+    # to the client can be a limiting factor. In the original implementation results
+    # were put on an SQS queue, which only allows 10 messages to be downloaded at a
+    # time, some of which may be too big so need an additional S3 download. The current
+    # implementation only relies on S3 instead, which allows faster and more concurrent
+    # downloads.
 
     # TODO monitor workers and react appropriately if a worker crashes.
     if workers_done is None:

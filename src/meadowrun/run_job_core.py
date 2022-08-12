@@ -377,10 +377,12 @@ class RunMapHelper:
                     "results returned more than once."
                 )
 
-        # we're guaranteed by the logic in the loop that we don't have any Nones left
-        # in task_results
-        task_results = cast(List[ProcessState], task_results)
+        missing_count = task_results.count(None)
+        if missing_count > 0:
+            raise Exception(f"Did not receive results for {missing_count} tasks.")
 
+        # if tasks were None, we'd have throw already
+        task_results = cast(List[ProcessState], task_results)
         failed_tasks = [
             result
             for result in task_results
@@ -388,7 +390,7 @@ class RunMapHelper:
         ]
         if failed_tasks:
             # TODO better error message
-            raise ValueError(f"Some tasks failed: {failed_tasks}")
+            raise Exception(f"Some tasks failed: {failed_tasks}")
 
         # TODO try/catch on pickle.loads?
         return [pickle.loads(result.pickled_result) for result in task_results]

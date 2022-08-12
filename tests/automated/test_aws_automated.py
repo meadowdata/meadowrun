@@ -1,4 +1,6 @@
 from __future__ import annotations
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 """
 These tests require an AWS account to be set up, but don't require any manual
@@ -332,3 +334,50 @@ class TestGridTaskQueue:
         results = await helper.get_results()
         worker_thread.join()
         assert results == [1, 4, 27, 256]
+
+    @pytest.mark.asyncio
+    async def test_worker_loop_unfinished(self) -> None:
+        region_name = await _get_default_region_name()
+        task_arguments = [1, 2, 3, 4]
+
+        request_queue_url, job_id = await create_queues_and_add_tasks(
+            region_name, task_arguments
+        )
+
+        helper = RunMapHelper(
+            region_name,
+            {},
+            functools.partial(
+                worker_loop, lambda x: x**x, request_queue_url, job_id, region_name
+            ),
+            "",
+            asyncssh.SSHKey(),
+            len(task_arguments),
+            lambda workers_done: get_results_unordered(
+                job_id, region_name, len(task_arguments), workers_done=workers_done
+            ),
+        )
+
+        event = asyncio.Event()
+        results_future = asyncio.create_task(helper.get_results(event))
+
+        # only complete one task - get_results should still exit.
+        def complete_tasks() -> None:
+            task = _get_task(request_queue_url, job_id, region_name, 0)
+            assert task is not None
+            _complete_task(
+                job_id,
+                region_name,
+                task[0],
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                    pickled_result=task[1],
+                ),
+            )
+
+        e = ThreadPoolExecutor()
+        await asyncio.get_running_loop().run_in_executor(e, complete_tasks)
+        event.set()
+
+        with pytest.raises(Exception, match="Did not receive results for 3 tasks") as e:
+            await results_future

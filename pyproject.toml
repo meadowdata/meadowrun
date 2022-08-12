@@ -39,7 +39,7 @@ types-pytz = "^2022.1.1"
 mypy-protobuf = "^3.0.0"
 # a big controversy: https://github.com/PyCQA/flake8/pull/1438
 flake8 = "3.9.2"
-pytest-asyncio = "^0.18.2"
+pytest-asyncio = "^0.19.0"
 types-psutil = "^5.8.22"
 flake8-noqa = "^1.2.1"
 boto3-stubs = "^1.24.22"

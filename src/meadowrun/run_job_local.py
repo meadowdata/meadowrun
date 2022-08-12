@@ -1157,9 +1157,9 @@ class LocalHost(Host):
         job: Job,
         wait_for_result: bool,
     ) -> JobCompletion[Any]:
-        if wait_for_result:
+        if not wait_for_result:
             raise NotImplementedError(
-                "wait_for_result is not supported for LocalHost yet"
+                "wait_for_result=False is not supported for LocalHost yet"
             )
 
         if resources_required is not None:

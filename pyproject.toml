@@ -67,7 +67,7 @@ testpaths = "tests"
 log_level = "INFO"
 log_cli = true
 log_cli_level = "INFO"
-addopts = "-v --strict-markers --durations=10"
+addopts = "-s -v --strict-markers --durations=10"
 asyncio_mode="auto"
 
 [tool.mypy]

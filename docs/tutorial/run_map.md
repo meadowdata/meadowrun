@@ -46,7 +46,7 @@ Assuming you saved the file above as mdr.py:
 > python -m mdr
 1/3 workers allocated to existing EC2 instances: ec2-18-188-55-74.us-east-2.compute.amazonaws.com
 Launched 1 new EC2 instances (total $0.0898/hr) for the remaining 2 workers:
-    ec2-3-16-123-166.us-east-2.compute.amazonaws.com: r5n.2xlarge (8 CPU/64.0 GB), spot ($0.0898/hr, 2.5% chance of interruption), will run 2 job/worker
+    ec2-3-16-123-166.us-east-2.compute.amazonaws.com: r5n.2xlarge (8 CPU/64.0 GB), spot ($0.0898/hr, 2.5% eviction rate), will run 2 job/worker
 ```
 
 The output will walk you through what Meadowrun's [run_map][meadowrun.run_map] is doing:
@@ -56,7 +56,7 @@ Based on the options specified in [Resources][meadowrun.Resources] and
 combination of EC2 instances/Azure VMs such that we can run 3 workers that each are
 allocated at least 4 CPU and 32GB of memory. (In this case, we already have one instance
 that can run a worker, so we'll use that in addition to launching another instance for
-the remaining 2 workers.) The instances will have <15% chance of being interrupted. You
+the remaining 2 workers.) The instances will have <15% chance of being evicted. You
 can set this to 0 to exclude spot instances and only use on-demand instances. The exact
 instance types chosen depends on current EC2/Azure VM prices.
 

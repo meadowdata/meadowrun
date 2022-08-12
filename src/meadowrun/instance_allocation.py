@@ -391,7 +391,7 @@ async def _launch_new_instances(
             f"{instance.public_dns_name}: {instance_info.name} "
             f"({instance_info.resources.format_cpu_memory_gpu()}), "
             f"{instance_info.on_demand_or_spot} (${instance_info.price}/hr, "
-            f"{instance_info.resources.format_interruption_probability()}), will run "
+            f"{instance_info.resources.format_eviction_rate()}), will run "
             f"{num_allocated_jobs} workers"
         )
         total_cost_per_hour += instance_info.price
@@ -428,8 +428,6 @@ async def allocate_jobs_to_instances(
         instance_registrar.authorize_current_ip()
     )
 
-    # TODO this should take interruption_probability_threshold into account for existing
-    # instances as well
     allocated_jobs, allocated_existing_instances = await _choose_existing_instances(
         instance_registrar,
         resources_required_per_task,

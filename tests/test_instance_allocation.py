@@ -351,14 +351,14 @@ async def test_packing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_interruption_probability() -> None:
+async def test_max_eviction_rate() -> None:
     instance_registrar = MockInstanceRegistrar.from_tuples(
         [
             (0.25, (2, 4, 40, None), None),
             (0.5, (2, 4, 20, None), None),
         ]
     )
-    # choose the cheaper instance type, even if it has a higher interruption probability
+    # choose the cheaper instance type, even if it has a higher eviction rate
     assert (
         await instance_registrar.allocate_jobs(
             ResourcesInternal.from_cpu_and_memory(2, 4, 80), 1
@@ -371,7 +371,7 @@ async def test_interruption_probability() -> None:
             ResourcesInternal.from_cpu_and_memory(2, 4, 80), 1
         )
     )[0] == [("i0", "t0")]
-    # but if we specify a lower interruption probability we have to make a new instance
+    # but if we specify a lower max eviction rate we have to make a new instance
     await instance_registrar.deallocate_all_jobs()
     assert (
         await instance_registrar.allocate_jobs(
@@ -386,7 +386,7 @@ async def test_interruption_probability() -> None:
         ]
     )
     # if the instance types have the same price, then choose the instance type with the
-    # lowest interruption probability
+    # lowest eviction rate
     assert (
         await instance_registrar.allocate_jobs(
             ResourcesInternal.from_cpu_and_memory(2, 4, 80), 3

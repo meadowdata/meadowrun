@@ -27,8 +27,8 @@ from meadowrun.run_job_core import CloudProvider
 async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
     """
     Checks to see if we're running on a spot instance that's scheduled for
-    interruption. If so, updates the InstanceRegistrar to prevent new jobs from being
-    scheduled on this instance
+    eviction (aka interruption). If so, updates the InstanceRegistrar to prevent new
+    jobs from being scheduled on this instance
     """
     if cloud == "EC2":
         if (await _get_ec2_metadata("spot/instance-action")) is None:
@@ -61,7 +61,7 @@ async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
     async with instance_registrar:
         if not public_address:
             raise ValueError(
-                "Cannot register spot instance interruption because we can't get the "
+                "Cannot register spot instance eviction because we can't get the "
                 f"public address of the current {cloud} instance (maybe we're not "
                 f"running on a {cloud} instance?)"
             )

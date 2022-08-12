@@ -21,8 +21,8 @@ MEMORY_GB = "memory_gb"
 LOGICAL_CPU = "logical_cpu"
 GPU = "gpu"
 GPU_MEMORY = "gpu_memory"
-# in the resources, we set 100 - interruption probability as a non-consumable resource
-INTERRUPTION_PROBABILITY_INVERSE = "interruption_probability_inverse"
+# in the resources, we set 100 - eviction rate as a non-consumable resource
+EVICTION_RATE_INVERSE = "eviction_rate_inverse"
 INTEL = "intel"
 AMD = "amd"
 AVX = "avx"
@@ -53,7 +53,6 @@ DEFAULT_LOGICAL_CPU_REQUIRED = 1
 
 
 DEFAULT_PRIORITY = 100
-DEFAULT_INTERRUPTION_PROBABILITY_THRESHOLD = 15
 
 
 # names of environment variables to communicate with the child process

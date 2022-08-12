@@ -97,41 +97,41 @@ async def upload_and_configure_meadowrun(
         "sudo systemctl enable --now meadowrun-deallocate-jobs.timer",
     )
 
-    # set check_spot_interruption to run from systemd timer
+    # set check_spot_eviction to run from systemd timer
     await write_text_to_file(
         connection,
         "[Unit]\n"
-        "Description=Check for spot instance interruption for Meadowrun\n"
+        "Description=Check for spot instance eviction for Meadowrun\n"
         "[Service]\n"
-        "ExecStart=/var/meadowrun/env/bin/python -m meadowrun.check_spot_interruption"
+        "ExecStart=/var/meadowrun/env/bin/python -m meadowrun.check_spot_eviction"
         f" --cloud {cloud_provider} --cloud-region-name default\n"
-        "StandardOutput=append:/var/meadowrun/check_spot_interruption.log\n"
-        "StandardError=append:/var/meadowrun/check_spot_interruption.log\n"
+        "StandardOutput=append:/var/meadowrun/check_spot_eviction.log\n"
+        "StandardError=append:/var/meadowrun/check_spot_eviction.log\n"
         f"Environment=HOME={home_dir}\n",
-        f"{home_dir}/meadowrun-check-spot-interruption.service",
+        f"{home_dir}/meadowrun-check-spot-eviction.service",
     )
 
     await write_text_to_file(
         connection,
         "[Unit]\n"
-        "Description=Check for spot instance interruption for Meadowrun (timer)\n"
+        "Description=Check for spot instance eviction for Meadowrun (timer)\n"
         "[Timer]\n"
         "OnBootSec=10\n"
         "OnUnitActiveSec=10\n"
         "AccuracySec=1\n"
         "[Install]\n"
         "WantedBy=timers.target\n",
-        f"{home_dir}/meadowrun-check-spot-interruption.timer",
+        f"{home_dir}/meadowrun-check-spot-eviction.timer",
     )
 
     await run_and_print(
         connection,
-        f"sudo mv {home_dir}/meadowrun-check-spot-interruption.service "
-        f"{home_dir}/meadowrun-check-spot-interruption.timer {systemd_config_dir}",
+        f"sudo mv {home_dir}/meadowrun-check-spot-eviction.service "
+        f"{home_dir}/meadowrun-check-spot-eviction.timer {systemd_config_dir}",
     )
     await run_and_print(
         connection,
-        "sudo systemctl enable --now meadowrun-check-spot-interruption.timer",
+        "sudo systemctl enable --now meadowrun-check-spot-eviction.timer",
     )
 
     return image_name

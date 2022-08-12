@@ -444,11 +444,10 @@ class Kubernetes(Host):
         wait_for_result: bool,
     ) -> JobCompletion[Any]:
         # TODO add support for all of these features
-        if wait_for_result:
+        if not wait_for_result:
             raise NotImplementedError(
-                "wait_for_result is not supported for Kubernetes yet"
+                "wait_for_result=False is not supported for Kubernetes yet"
             )
-
         if resources_required is not None:
             raise NotImplementedError(
                 "Specifying Resources for a Kubernetes job is not yet supported"
@@ -608,9 +607,9 @@ class Kubernetes(Host):
         wait_for_result: bool,
     ) -> Optional[Sequence[_U]]:
         # TODO add support for all of these features
-        if wait_for_result:
+        if not wait_for_result:
             raise NotImplementedError(
-                "wait_for_result is not supported on Kubernetes yet"
+                "wait_for_result=False is not supported on Kubernetes yet"
             )
         if resources_required_per_task is not None:
             raise NotImplementedError(

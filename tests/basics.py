@@ -284,9 +284,11 @@ class BasicsSuite(HostProvider, abc.ABC):
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_pip_file_in_git_repo_with_data_file(self) -> None:
-        def remote_function() -> str:
+        """This test is doing double-duty, also checking for the machine_cache folder"""
+
+        def remote_function() -> Tuple[bool, str]:
             with open("example_package/test.txt", encoding="utf-8") as f:
-                return f.read()
+                return os.path.isdir("/meadowrun/machine_cache"), f.read()
 
         results = await run_function(
             remote_function,
@@ -297,7 +299,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PipRequirementsFile("requirements.txt", "3.9"),
             ),
         )
-        assert results == "Hello world!"
+        assert results == (True, "Hello world!")
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio

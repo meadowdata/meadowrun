@@ -82,7 +82,9 @@ def list_all_images() -> None:
         print(f"Checking {region}")
         client = boto3.client("ec2", region_name=region)
         response = client.describe_images(Owners=["self"])
-        for image in response.get("Images", ()):
+        for image in sorted(
+            response.get("Images", ()), key=lambda image: image["Name"]
+        ):
             print(f"{region}, {image['ImageId']}, {image['Name']}")
 
 

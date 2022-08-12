@@ -53,30 +53,27 @@ _U = TypeVar("_U")
 
 
 async def create_queues_and_add_tasks(
-    region_name: str, tasks: Iterable[Any]
+    region_name: str, run_map_args: Iterable[Any]
 ) -> Tuple[str, str]:
     """
     Creates the queues necessary to run a grid job. Returns (request_queue_url,
-    result_queue_url). The request queue contains GridTasks that represent tasks that
-    need to run. The result queue contains GridTaskStateResponses that represent updates
-    to the state of a task from a grid worker.
+    run_map_id). The request queue contains messages that represent tasks that need to
+    run.
 
-    Then adds tasks to the specified request queue. tasks should contain arguments that
-    will be passed to the function corresponding to this request queue.
+    Then adds tasks to the specified request queue - one task is created for each
+    argument in the given run_map_args.
     """
 
     # this id is just used for creating the job's queues. It has no relationship to any
     # Job.job_ids
     job_id = str(uuid.uuid4())
     print(f"The current run_map's id is {job_id}")
-    request_queue_url, result_queue_url = await _create_queues_for_job(
-        job_id, region_name
-    )
-    await _add_tasks(job_id, request_queue_url, region_name, tasks)
+    request_queue_url = await _create_request_queue(job_id, region_name)
+    await _add_tasks(job_id, request_queue_url, region_name, run_map_args)
     return request_queue_url, job_id
 
 
-async def _create_queues_for_job(job_id: str, region_name: str) -> Tuple[str, str]:
+async def _create_request_queue(job_id: str, region_name: str) -> str:
     """
     See create_queues_and_add_tasks
 
@@ -92,25 +89,15 @@ async def _create_queues_for_job(job_id: str, region_name: str) -> Tuple[str, st
         # exception
         # TODO try to detect job id collisions?
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.create_queue
-        request_queue_future = asyncio.create_task(
-            client.create_queue(
-                QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}{_QUEUE_NAME_SUFFIX}",
-                Attributes={"FifoQueue": "true"},
-                tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
-            )
-        )
-        result_queue_future = asyncio.create_task(
-            client.create_queue(
-                QueueName=f"{_RESULT_QUEUE_NAME_PREFIX}{job_id}{_QUEUE_NAME_SUFFIX}",
-                Attributes={"FifoQueue": "true"},
-                tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
-            )
+        request_queue_response = await client.create_queue(
+            QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}{_QUEUE_NAME_SUFFIX}",
+            Attributes={"FifoQueue": "true"},
+            tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
         )
 
-        request_queue_url = (await request_queue_future)["QueueUrl"]
-        result_queue_url = (await result_queue_future)["QueueUrl"]
+        request_queue_url = request_queue_response["QueueUrl"]
 
-    return request_queue_url, result_queue_url
+        return request_queue_url
 
 
 def _chunker(it: Iterable[_T], size: int) -> Iterable[Tuple[_T, ...]]:
@@ -356,18 +343,30 @@ async def get_results_unordered(
     results_prefix = _s3_results_prefix(job_id)
     download_keys_received: Set[str] = set()
     wait = True
-
+    workers_done_wait_count = 0
     session = aiobotocore.session.get_session()
     async with session.create_client("s3", region_name=region_name) as s3c:
-        while num_tasks_completed < num_tasks:
-            print(
-                f"Waiting for grid tasks. Requested: {num_tasks}, "
-                f"completed: {num_tasks_completed}"
-            )
-            if wait and not workers_done.is_set():
+        while num_tasks_completed < num_tasks and workers_done_wait_count < 3:
+
+            if workers_done.is_set():
+                print(
+                    "All workers exited, waiting for task results. "
+                    f"Requested: {num_tasks}, received: {num_tasks_completed}"
+                )
+                workers_done_wait_count += 1
+            else:
+                print(
+                    f"Waiting for task results. Requested: {num_tasks}, "
+                    f"received: {num_tasks_completed}"
+                )
+
+            if wait:
                 try:
                     await asyncio.wait_for(
-                        workers_done.wait(), timeout=receive_message_wait_seconds
+                        workers_done.wait(),
+                        timeout=1.0  # poll more frequently if workers are done.
+                        if workers_done.is_set()
+                        else receive_message_wait_seconds,
                     )
                 except asyncio.TimeoutError:
                     pass
@@ -393,6 +392,14 @@ async def get_results_unordered(
                     process_state.ParseFromString(process_state_bytes)
                     yield _s3_result_key_to_task_id(key, results_prefix), process_state
                     num_tasks_completed += 1
+
+        if num_tasks_completed < num_tasks:
+            print(
+                "Gave up retrieving task results. "
+                f"Received {num_tasks_completed}/{num_tasks} task results."
+            )
+        else:
+            print(f"Received all {num_tasks} task results.")
 
 
 async def prepare_ec2_run_map(

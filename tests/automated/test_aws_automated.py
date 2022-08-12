@@ -47,7 +47,7 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     get_results_unordered,
     worker_loop,
 )
-from meadowrun.config import INTERRUPTION_PROBABILITY_INVERSE, LOGICAL_CPU, MEMORY_GB
+from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import (
     ResourcesInternal,
@@ -217,7 +217,7 @@ async def test_get_ec2_instance_types() -> None:
         (
             100
             - instance_type.instance_type.resources.non_consumable[
-                INTERRUPTION_PROBABILITY_INVERSE
+                EVICTION_RATE_INVERSE
             ]
         )
         <= 10

@@ -18,7 +18,7 @@ from meadowrun.config import (
     GPU,
     GPU_MEMORY,
     INTEL_DEEP_LEARNING_BOOST,
-    INTERRUPTION_PROBABILITY_INVERSE,
+    EVICTION_RATE_INVERSE,
     LOGICAL_CPU,
     MEMORY_GB,
 )
@@ -148,7 +148,7 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
         instance_type = attributes["instanceType"]
 
         consumable_resources = {}
-        non_consumable_resources = {INTERRUPTION_PROBABILITY_INVERSE: 100.0}
+        non_consumable_resources = {EVICTION_RATE_INVERSE: 100.0}
 
         # We don't expect the "warnings" to get hit, we just don't want to get thrown
         # off if the data format changes unexpectedly or something like that.
@@ -353,7 +353,7 @@ async def _get_ec2_spot_prices(
             )
             # if interruption_probability is missing, just default to 80%
             spot_instance_type.resources.non_consumable[
-                INTERRUPTION_PROBABILITY_INVERSE
+                EVICTION_RATE_INVERSE
             ] = 100 - interruption_probabilities.get(instance_type, 80)
             results.append(spot_instance_type)
 

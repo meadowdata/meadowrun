@@ -8,7 +8,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
 )
 from meadowrun.config import (
     GPU,
-    INTERRUPTION_PROBABILITY_INVERSE,
+    EVICTION_RATE_INVERSE,
     LOGICAL_CPU,
     MEMORY_GB,
 )
@@ -310,7 +310,7 @@ async def get_vm_types(location: str) -> List[CloudInstanceType]:
                         price,
                         ResourcesInternal(
                             consumable_resources,
-                            {INTERRUPTION_PROBABILITY_INVERSE: 100 - eviction_rate},
+                            {EVICTION_RATE_INVERSE: 100 - eviction_rate},
                         ),
                     )
                 )

@@ -84,8 +84,8 @@ class Resources:
         memory_gb: Specifies RAM required. E.g. 1.5 means we requires 1.5 GB of RAM
         max_eviction_rate: Specifies what eviction rate (aka interruption probability)
             we're okay with as a percent. E.g. `80` means that any instance type with an
-            interruption probability less than 80% can be used. Use `0` to indicate that
-            only on-demand instance are acceptable (i.e. do not use spot instances)
+            eviction rate less than 80% can be used. Use `0` to indicate that only
+            on-demand instance are acceptable (i.e. do not use spot instances)
         gpus: Number of GPUs required. If gpu_memory is set, but this value is not set,
             this is implied to be 1
         gpu_memory: Total GPU memory (aka VRAM) required across all GPUs

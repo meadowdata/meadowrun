@@ -48,12 +48,11 @@ if __name__ == "__main__":
 Assuming you saved the file above as mdr.py:
 
 ```
-> python -m mdr
+> python -m mdr 
 Size of pickled function is 40
 Job was not allocated to any existing EC2 instances, will launch a new EC2 instance
 Launched a new EC2 instance for the job: ec2-18-216-7-235.us-east-2.compute.amazonaws.com:
-t2.medium (2 CPU/4.0 GB), spot ($0.0139/hr, 2.5% chance of interruption), will run 1
-job/worker
+t2.medium (2 CPU/4.0 GB), spot ($0.0139/hr, 2.5% eviction rate), will run 1 job/worker
 Meadowrun worked! Got 499.5
 ```
 
@@ -63,7 +62,7 @@ is doing:
 1. Based on the options specified in [Resources][meadowrun.Resources] and
    [AllocCloudInstance][meadowrun.AllocCloudInstance], `run_function` will launch the
    cheapest EC2 instance type that has at least 1 CPU and 4GB of memory, and a <15%
-   chance of being interrupted. You can set this to 0 to exclude spot instances and only
+   chance of being evicted. You can set this to 0 to exclude spot instances and only
    use on-demand instances. The exact instance type chosen depends on current EC2
    prices, but in this case we can see that it's a spot t2.medium, and we're paying
    $0.0139/hr for it.

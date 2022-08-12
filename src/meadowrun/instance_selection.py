@@ -12,7 +12,7 @@ from meadowrun.config import (
     AVX,
     GPU,
     GPU_MEMORY,
-    INTERRUPTION_PROBABILITY_INVERSE,
+    EVICTION_RATE_INVERSE,
     LOGICAL_CPU,
     MEMORY_GB,
     avx_from_string,
@@ -131,11 +131,8 @@ class ResourcesInternal:
             + gpu_string
         )
 
-    def format_interruption_probability(self) -> str:
-        return (
-            f"{100 - self.non_consumable[INTERRUPTION_PROBABILITY_INVERSE]}% chance of "
-            "interruption"
-        )
+    def format_eviction_rate(self) -> str:
+        return f"{100 - self.non_consumable[EVICTION_RATE_INVERSE]}% eviction rate"
 
     def consumable_as_decimals(self) -> Dict[str, decimal.Decimal]:
         return {key: decimal.Decimal(value) for key, value in self.consumable.items()}
@@ -157,7 +154,7 @@ class ResourcesInternal:
         other_non_consumables_str = ", ".join(
             f"{key}: {value}"
             for key, value in self.non_consumable.items()
-            if key != INTERRUPTION_PROBABILITY_INVERSE
+            if key != EVICTION_RATE_INVERSE
         )
         if other_non_consumables_str:
             other_non_consumables_str = ", " + other_non_consumables_str
@@ -165,7 +162,7 @@ class ResourcesInternal:
             "Resources: consumables("
             f"{self.format_cpu_memory_gpu()}{other_consumables_str}), "
             f"non_consumables("
-            f"{self.format_interruption_probability()}{other_non_consumables_str}"
+            f"{self.format_eviction_rate()}{other_non_consumables_str}"
             f")"
         )
 
@@ -188,7 +185,7 @@ class ResourcesInternal:
         cls,
         logical_cpu: float,
         memory_gb: float,
-        interruption_probability: Optional[float] = None,
+        max_eviction_rate: Optional[float] = None,
         gpus: Optional[float] = None,
         gpu_memory: Optional[float] = None,
         flags_required: Union[Iterable[str], str, None] = None,
@@ -213,10 +210,8 @@ class ResourcesInternal:
         else:
             non_consumables = other_non_consumables.copy()
 
-        if interruption_probability is not None:
-            non_consumables[INTERRUPTION_PROBABILITY_INVERSE] = (
-                100.0 - interruption_probability
-            )
+        if max_eviction_rate is not None:
+            non_consumables[EVICTION_RATE_INVERSE] = 100.0 - max_eviction_rate
 
         if flags_required is not None:
             if isinstance(flags_required, str):
@@ -286,10 +281,11 @@ class CloudInstanceType:
     # - MEMORY_GB (e.g. 4 means 4 GiB)
     # - LOGICAL CPU (2 means 2 logical aka virtual cpus)
     # And non_consumables:
-    # - INTERRUPTION_PROBABILITY_INVERSE (e.g. 100 for on-demand instances, <0 for spot
-    #   instances as (100 - percentage), so e.g. 75 means 25% chance of interruption)
-    # TODO instance_type.interruption_probability should always use the latest data
-    # rather than always using the number from when the instance was launched
+    # - EVICTION_RATE_INVERSE (e.g. 100 for on-demand instances, <100 for spot instances
+    #   as (100 - percentage), so e.g. EVICTION_RATE_INVERSE==75 means 25% eviction rate
+    #   aka probability of interruption)
+    # TODO EVICTION_RATE_INVERSE should always use the latest data rather than always
+    # using the number from when the instance was launched
     resources: ResourcesInternal
 
     def to_dict(self) -> Dict[str, Any]:
@@ -351,13 +347,12 @@ def choose_instance_types_for_job(
     This chooses how many of which instance types we should launch for a job with 1 or
     more tasks where each task requires resources_required so that
     num_workers_to_allocate tasks can run in parallel. We choose the cheapest instances
-    that have interruption probability lower than or equal to the specified threshold.
-    If you only want to use on-demand instances that have 0 probability of interruption,
-    you can set interruption_probability_threshold to 0. If there are multiple instances
-    that are the cheapest, we choose the ones that have the lowest interruption
-    probability. If there are still multiple instances, then we diversify among those
-    instance types (it seems that interruptions are more likely to happen at the same
-    time on the same instance types).
+    that have an eviction rate lower than or equal to the specified threshold. If you
+    only want to use on-demand instances that have 0 eviction rate, you can set
+    max_eviction_rate to 0. If there are multiple instances that are the cheapest, we
+    choose the ones that have the lowest eviction rate. If there are still multiple
+    instances, then we diversify among those instance types (it seems that evictions are
+    more likely to happen at the same time on the same instance types).
 
     TODO we should maybe have an option where e.g. if you want to allocate 53 workers
      worth of capacity for a 100-task job, it makes more sense to allocate e.g. 55 or 60
@@ -411,8 +406,8 @@ def choose_instance_types_for_job(
 
         # Now find the instance types that have the lowest price per worker. If there
         # are multiple instance types that have the same price per worker (or are within
-        # half a penny per hour), then take the ones that have the lowest probability of
-        # interruption (within 1%)
+        # half a penny per hour), then take the ones that have the lowest eviction rate
+        # (within 1%)
         # TODO maybe the rounding should be configurable?
         best_price_per_worker = min(
             instance_type.price_per_worker_current for instance_type in instance_types
@@ -422,25 +417,23 @@ def choose_instance_types_for_job(
             for instance_type in instance_types
             if instance_type.price_per_worker_current - best_price_per_worker < 0.005
         ]
-        best_interruption_probability = max(
-            instance_type.instance_type.resources.non_consumable[
-                INTERRUPTION_PROBABILITY_INVERSE
-            ]
+        best_eviction_rate = max(
+            instance_type.instance_type.resources.non_consumable[EVICTION_RATE_INVERSE]
             for instance_type in best
         )
         best = [
             instance_type
             for instance_type in best
-            if best_interruption_probability
+            if best_eviction_rate
             - instance_type.instance_type.resources.non_consumable[
-                INTERRUPTION_PROBABILITY_INVERSE
+                EVICTION_RATE_INVERSE
             ]
             < 1
         ]
 
         # At this point, best is the set of instance types that are the cheapest and
-        # least interruption-likely for our workload. Next, we'll make sure to take one,
-        # so that we definitely make progress on allocating workers to instances. After
+        # least eviction-likely for our workload. Next, we'll make sure to take one, so
+        # that we definitely make progress on allocating workers to instances. After
         # that, though, if we still have workers left to allocate, we want to allocate
         # them round-robin to the remaining instance types in best--the diversity in
         # instance types is good because instances of the same type are more likely to

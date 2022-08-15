@@ -311,7 +311,17 @@ class AllocCloudInstance(Host):
 
         worker_tasks = []
         worker_id = 0
+        address_to_ssh_host: Dict[str, SshHost] = {}
         for public_address, worker_job_ids in helper.allocated_hosts.items():
+            ssh_host = address_to_ssh_host.get(public_address)
+            if ssh_host is None:
+                ssh_host = SshHost(
+                    public_address,
+                    helper.ssh_username,
+                    helper.ssh_private_key,
+                    (self.cloud_provider, helper.region_name),
+                )
+                address_to_ssh_host[public_address] = ssh_host
             for worker_job_id in worker_job_ids:
                 job = Job(
                     job_id=worker_job_id,
@@ -326,31 +336,38 @@ class AllocCloudInstance(Host):
 
                 worker_tasks.append(
                     asyncio.create_task(
-                        SshHost(
-                            public_address,
-                            helper.ssh_username,
-                            helper.ssh_private_key,
-                            (self.cloud_provider, helper.region_name),
-                        ).run_job(resources_required_per_task, job, wait_for_result)
+                        ssh_host.run_job(
+                            resources_required_per_task, job, wait_for_result
+                        )
                     )
                 )
 
                 worker_id += 1
 
-        # start collecting results:
-        if wait_for_result:
-            workers_done = asyncio.Event()
-            results_future = asyncio.create_task(helper.get_results(workers_done))
-            worker_results = await asyncio.gather(*worker_tasks, return_exceptions=True)
-            workers_done.set()
-            results = await results_future
-            for worker_id, result in enumerate(worker_results):
-                if isinstance(result, Exception):
-                    print(f"Worker {worker_id} exited with error: {result}")
-            return results
-        else:
-            await asyncio.gather(*worker_tasks, return_exceptions=True)
-            return None
+        try:
+            if wait_for_result:
+                workers_done = asyncio.Event()
+                results_future = asyncio.create_task(helper.get_results(workers_done))
+                worker_results = await asyncio.gather(
+                    *worker_tasks, return_exceptions=True
+                )
+                workers_done.set()
+                results = await results_future
+                for worker_id, result in enumerate(worker_results):
+                    if isinstance(result, Exception):
+                        print(f"Worker {worker_id} exited with error: {result}")
+                return results
+            else:
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+                return None
+        finally:
+            await asyncio.gather(
+                *[
+                    ssh_host.close_connection()
+                    for ssh_host in address_to_ssh_host.values()
+                ],
+                return_exceptions=True,
+            )
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:

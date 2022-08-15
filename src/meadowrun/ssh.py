@@ -1,13 +1,20 @@
+from __future__ import annotations
+
 import asyncio
+from typing import (
+    TYPE_CHECKING,
+)
+
 import asyncssh
+
+if TYPE_CHECKING:
+    from asyncssh import SSHClientConnection, SSHKey
 
 
 @asyncssh.misc.async_context_manager
-async def connect(
-    host: str, username: str, private_key: asyncssh.SSHKey
-) -> asyncssh.SSHClientConnection:
+async def connect(host: str, username: str, private_key: SSHKey) -> SSHClientConnection:
     return await asyncssh.connect(
-        host,
+        host=host,
         username=username,
         known_hosts=None,
         config=None,

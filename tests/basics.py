@@ -586,7 +586,7 @@ class MapSuite(abc.ABC):
             [1, 2, 3, 4],
             AllocCloudInstance(self.cloud_provider()),
             Resources(1, 1, 15),
-            num_concurrent_tasks=3,
+            num_concurrent_tasks=4,
         )
 
         assert results == [1, 4, 27, 256], str(results)

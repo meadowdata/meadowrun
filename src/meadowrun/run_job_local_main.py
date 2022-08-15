@@ -83,6 +83,7 @@ import asyncio
 import logging
 import os
 import sys
+import traceback
 from typing import Optional, Tuple
 
 import meadowrun.run_job_local
@@ -125,6 +126,10 @@ async def main_async(
             # this .process_state file
             with open(f"{job_io_prefix}.process_state", mode="wb") as f:
                 f.write(final_process_state.SerializeToString())
+    except:  # noqa: E722
+        # so we know what's wrong
+        traceback.print_exc()
+        raise
     finally:
         if cloud is not None:
             # we want to kick this off and then allow the current process to complete

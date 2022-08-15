@@ -151,21 +151,45 @@ class Host(abc.ABC):
         pass
 
 
-@dataclasses.dataclass(frozen=True)
 class SshHost(Host):
     """
     Tells run_function and related functions to connect to the remote machine over SSH.
     """
 
-    address: str
-    username: str
-    private_key: asyncssh.SSHKey
-    # If this field is populated, it will be a tuple of (cloud provider, region name).
-    # Cloud provider will be e.g. "EC2" indicating that we're running on e.g. an EC2
-    # instance allocated via instance_allocation.py, so we need to deallocate the job
-    # via the right InstanceRegistrar when we're done. region name indicates where
-    # the InstanceRegistrar that we used to allocate this job is.
-    cloud_provider: Optional[Tuple[CloudProviderType, str]] = None
+    def __init__(
+        self,
+        address: str,
+        username: str,
+        private_key: asyncssh.SSHKey,
+        cloud_provider: Optional[Tuple[CloudProviderType, str]] = None,
+    ) -> None:
+        super().__init__()
+        self.address = address
+        self.username = username
+        self.private_key = private_key
+        # If this field is populated, it will be a tuple of (cloud provider, region
+        # name). Cloud provider will be e.g. "EC2" indicating that we're running on e.g.
+        # an EC2 instance allocated via instance_allocation.py, so we need to deallocate
+        # the job via the right InstanceRegistrar when we're done. region name indicates
+        # where the InstanceRegistrar that we used to allocate this job is.
+        self.cloud_provider = cloud_provider
+        self._connect_task: Optional[asyncio.Task[asyncssh.SSHClientConnection]] = None
+
+    def _connection_future(self) -> asyncio.Task[asyncssh.SSHClientConnection]:
+        # try the connection 20 times.
+        if self._connect_task is None:
+            self._connect_task = asyncio.create_task(
+                _retry(
+                    lambda: ssh.connect(
+                        self.address,
+                        username=self.username,
+                        private_key=self.private_key,
+                    ),
+                    (TimeoutError, ConnectionRefusedError, OSError),
+                    max_num_attempts=20,
+                )
+            )
+        return self._connect_task
 
     async def run_job(
         self,
@@ -173,14 +197,8 @@ class SshHost(Host):
         job: Job,
         wait_for_result: bool,
     ) -> JobCompletion[Any]:
-        # try the connection 20 times.
-        connection = await _retry(
-            lambda: ssh.connect(
-                self.address, username=self.username, private_key=self.private_key
-            ),
-            (TimeoutError, ConnectionRefusedError, OSError),
-            max_num_attempts=20,
-        )
+
+        connection = await self._connection_future()
 
         try:
             job_io_prefix = ""
@@ -311,6 +329,10 @@ class SshHost(Host):
                     print(
                         f"Error cleaning up files on remote machine: {remote_paths} {e}"
                     )
+
+    async def close_connection(self) -> None:
+        if self._connect_task is not None:
+            connection = await self._connect_task
             connection.close()
             await connection.wait_closed()
 

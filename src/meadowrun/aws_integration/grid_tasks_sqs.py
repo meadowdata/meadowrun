@@ -39,13 +39,14 @@ from meadowrun.instance_allocation import allocate_jobs_to_instances
 
 if TYPE_CHECKING:
     from meadowrun.instance_selection import ResourcesInternal
+    from types_aiobotocore_s3.client import S3Client
+    from types_aiobotocore_sqs.client import SQSClient
 
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import RunMapHelper
 from meadowrun.shared import pickle_exception
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-request-"
-_RESULT_QUEUE_NAME_PREFIX = "meadowrun-task-result-"
 _QUEUE_NAME_SUFFIX = ".fifo"
 
 _T = TypeVar("_T")
@@ -53,7 +54,7 @@ _U = TypeVar("_U")
 
 
 async def create_queues_and_add_tasks(
-    region_name: str, run_map_args: Iterable[Any]
+    region_name: str, run_map_args: Iterable[Any], num_workers: int
 ) -> Tuple[str, str]:
     """
     Creates the queues necessary to run a grid job. Returns (request_queue_url,
@@ -68,12 +69,17 @@ async def create_queues_and_add_tasks(
     # Job.job_ids
     job_id = str(uuid.uuid4())
     print(f"The current run_map's id is {job_id}")
-    request_queue_url = await _create_request_queue(job_id, region_name)
-    await _add_tasks(job_id, request_queue_url, region_name, run_map_args)
+    session = aiobotocore.session.get_session()
+    async with session.create_client(
+        "sqs", region_name=region_name
+    ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
+        request_queue_url = await _create_request_queue(job_id, sqs)
+        await _add_tasks(job_id, request_queue_url, s3c, sqs, run_map_args)
+        await _add_end_of_job_messages(job_id, request_queue_url, sqs, num_workers)
     return request_queue_url, job_id
 
 
-async def _create_request_queue(job_id: str, region_name: str) -> str:
+async def _create_request_queue(job_id: str, sqs: SQSClient) -> str:
     """
     See create_queues_and_add_tasks
 
@@ -81,23 +87,20 @@ async def _create_request_queue(job_id: str, region_name: str) -> str:
     hyphens
     """
 
-    async with aiobotocore.session.get_session().create_client(
-        "sqs", region_name=region_name
-    ) as client:
-        # interestingly, this call will not fail if the exact same queue already exists,
-        # but if the queue exists but has different attributes/tags, it will throw an
-        # exception
-        # TODO try to detect job id collisions?
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.create_queue
-        request_queue_response = await client.create_queue(
-            QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}{_QUEUE_NAME_SUFFIX}",
-            Attributes={"FifoQueue": "true"},
-            tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
-        )
+    # interestingly, this call will not fail if the exact same queue already exists,
+    # but if the queue exists but has different attributes/tags, it will throw an
+    # exception
+    # TODO try to detect job id collisions?
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.create_queue
+    request_queue_response = await sqs.create_queue(
+        QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}{_QUEUE_NAME_SUFFIX}",
+        Attributes={"FifoQueue": "true"},
+        tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
+    )
 
-        request_queue_url = request_queue_response["QueueUrl"]
+    request_queue_url = request_queue_response["QueueUrl"]
 
-        return request_queue_url
+    return request_queue_url
 
 
 def _chunker(it: Iterable[_T], size: int) -> Iterable[Tuple[_T, ...]]:
@@ -115,7 +118,11 @@ def _s3_args_key(job_id: str) -> str:
 
 
 async def _add_tasks(
-    job_id: str, request_queue_url: str, region_name: str, run_map_args: Iterable[Any]
+    job_id: str,
+    request_queue_url: str,
+    s3c: S3Client,
+    sqs: SQSClient,
+    run_map_args: Iterable[Any],
 ) -> None:
     """
     See create_queues_and_add_tasks
@@ -124,41 +131,58 @@ async def _add_tasks(
     add_tasks more than once for the same job, we would need the caller to manage the
     task_ids
     """
-    session = aiobotocore.session.get_session()
-    async with session.create_client(
-        "sqs", region_name=region_name
-    ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
 
-        pickles = bytearray()
-        grid_tasks: List[str] = []
-        range_from = 0
-        for i, arg in enumerate(run_map_args):
-            arg_pkl = pickle.dumps(arg)
-            pickles.extend(arg_pkl)
-            range_to = len(pickles) - 1
-            grid_tasks.append(
-                json.dumps(dict(task_id=i, range_from=range_from, range_end=range_to))
+    pickles = bytearray()
+    grid_tasks: List[str] = []
+    range_from = 0
+    for i, arg in enumerate(run_map_args):
+        arg_pkl = pickle.dumps(arg)
+        pickles.extend(arg_pkl)
+        range_to = len(pickles) - 1
+        grid_tasks.append(
+            json.dumps(dict(task_id=i, range_from=range_from, range_end=range_to))
+        )
+        range_from = range_to + 1
+
+    await s3.upload_async(
+        _s3_args_key(job_id), bytes(pickles), s3c.meta.region_name, s3c
+    )
+
+    for tasks_chunk in _chunker(enumerate(grid_tasks), 10):
+        # this function can only take 10 messages at a time, so we chunk into
+        # batches of 10
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
+        result = await _send_or_upload_message_batch(
+            sqs, request_queue_url, "task", tasks_chunk
+        )
+        if "Failed" in result:
+            raise ValueError(f"Some grid tasks could not be queued: {result['Failed']}")
+
+
+async def _add_end_of_job_messages(
+    job_id: str,
+    request_queue_url: str,
+    sqs: SQSClient,
+    num_workers: int,
+) -> None:
+    # done_message: Dict[str, Any] = dict(worker_done=True)
+    batch: List[str] = [
+        json.dumps(dict(worker_id=i, worker_done=True)) for i in range(num_workers)
+    ]
+    for msg_chunk in _chunker(enumerate(batch), 10):
+        result = await _send_or_upload_message_batch(
+            sqs, request_queue_url, "worker-done", msg_chunk
+        )
+        if "Failed" in result:
+            raise ValueError(
+                f"Some worker done messages could not be queued: {result['Failed']}"
             )
-            range_from = range_to + 1
-
-        await s3.upload_async(_s3_args_key(job_id), bytes(pickles), region_name, s3c)
-
-        for tasks_chunk in _chunker(enumerate(grid_tasks), 10):
-            # this function can only take 10 messages at a time, so we chunk into
-            # batches of 10
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
-            result = await _send_or_upload_message_batch(
-                sqs, request_queue_url, tasks_chunk
-            )
-            if "Failed" in result:
-                raise ValueError(
-                    f"Some grid tasks could not be queued: {result['Failed']}"
-                )
 
 
 async def _send_or_upload_message_batch(
     client: Any,
     queue: str,
+    message_id_prefix: str,
     tasks_chunk: Iterable[Tuple[int, str]],
 ) -> Any:
     entries = []
@@ -168,7 +192,7 @@ async def _send_or_upload_message_batch(
                 "Id": str(i),
                 "MessageBody": task,
                 # TODO replace 0 with a retry count
-                "MessageDeduplicationId": f"{i}:0",
+                "MessageDeduplicationId": f"{message_id_prefix}-{i}:0",
                 "MessageGroupId": "_",
             }
         )
@@ -193,12 +217,13 @@ def _get_task(
     sqs = boto3.client("sqs", region_name=region_name)
 
     # get the task message
-    result = sqs.receive_message(
-        QueueUrl=request_queue_url, WaitTimeSeconds=receive_message_wait_seconds
-    )
+    while True:
+        result = sqs.receive_message(
+            QueueUrl=request_queue_url, WaitTimeSeconds=receive_message_wait_seconds
+        )
 
-    if "Messages" not in result:
-        return None  # there was nothing in the queue
+        if "Messages" in result:
+            break
 
     messages = result["Messages"]
     if len(messages) != 1:
@@ -206,23 +231,30 @@ def _get_task(
 
     # parse the task request
     task = json.loads(messages[0]["Body"])
-    task_id, range_from, range_end = (
-        task["task_id"],
-        task["range_from"],
-        task["range_end"],
-    )
-    arg = s3.download(_s3_args_key(job_id), region_name, (range_from, range_end))
+    if "task_id" in task:
+        task_id, range_from, range_end = (
+            task["task_id"],
+            task["range_from"],
+            task["range_end"],
+        )
+        arg = s3.download(_s3_args_key(job_id), region_name, (range_from, range_end))
 
-    # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
+        # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
 
-    # acknowledge receipt/delete the task request message so we don't have duplicate
-    # tasks running
-    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_message
+        # acknowledge receipt/delete the task request message so we don't have duplicate
+        # tasks running
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_message
+        sqs.delete_message(
+            QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
+        )
+
+        return task_id, arg
+
+    # it's a worker exit message, so return None to exit
     sqs.delete_message(
         QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
     )
-
-    return task_id, arg
+    return None
 
 
 def _s3_results_prefix(job_id: str) -> str:
@@ -282,7 +314,7 @@ def worker_loop(
             request_queue_url,
             job_id,
             region_name,
-            1,
+            3,
         )
         if not task:
             break
@@ -418,7 +450,9 @@ async def prepare_ec2_run_map(
     pkey = get_meadowrun_ssh_key(region_name)
 
     # create SQS queues and add tasks to the request queue
-    queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, tasks))
+    queues_future = asyncio.create_task(
+        create_queues_and_add_tasks(region_name, tasks, num_concurrent_tasks)
+    )
 
     # get hosts
     async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:

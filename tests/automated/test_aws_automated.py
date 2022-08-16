@@ -246,7 +246,7 @@ class TestGridTaskQueue:
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
         (request_queue_url, job_id) = await create_queues_and_add_tasks(
-            region_name, task_arguments
+            region_name, task_arguments, 1
         )
 
         def complete_tasks() -> None:
@@ -306,7 +306,7 @@ class TestGridTaskQueue:
         worker_id = 1
 
         request_queue_url, job_id = await create_queues_and_add_tasks(
-            region_name, task_arguments
+            region_name, task_arguments, 1
         )
 
         helper = RunMapHelper(
@@ -341,7 +341,7 @@ class TestGridTaskQueue:
         task_arguments = [1, 2, 3, 4]
 
         request_queue_url, job_id = await create_queues_and_add_tasks(
-            region_name, task_arguments
+            region_name, task_arguments, 1
         )
 
         helper = RunMapHelper(

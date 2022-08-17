@@ -69,7 +69,9 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
     JobCompletion,
+    LocalObjectStorage,
     MeadowrunException,
+    ObjectStorage,
 )
 from meadowrun.shared import pickle_exception
 
@@ -1204,3 +1206,6 @@ class LocalHost(Host):
         wait_for_result: bool,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map on LocalHost is not implemented")
+
+    async def get_object_storage(self) -> ObjectStorage:
+        return LocalObjectStorage()

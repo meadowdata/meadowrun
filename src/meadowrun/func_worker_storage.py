@@ -9,7 +9,6 @@ full Meadowrun installation is available.
 
 import argparse
 import importlib
-import io
 import logging
 import os
 import pickle
@@ -21,12 +20,13 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
     get_storage_client_from_args,
+    read_storage_pickle,
+    write_storage_bytes,
+    write_storage_pickle,
 )
 
 
 def main() -> None:
-    global STORAGE_CLIENT
-
     logging.basicConfig(level=logging.INFO)
 
     # parse arguments
@@ -79,7 +79,7 @@ def main() -> None:
         storage_client = get_storage_client_from_args(
             args.storage_endpoint_url, storage_username, storage_password
         )
-    meadowrun.func_worker_storage_helper.STORAGE_CLIENT = storage_client
+    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
 
     suffix = os.environ.get("JOB_COMPLETION_INDEX", "")
     state_filename = f"{storage_file_prefix}.state{suffix}"
@@ -107,26 +107,20 @@ def main() -> None:
                 f"{pickled_function_filename}"
             )
 
-            assert storage_client is not None  # just for mypy
-            with io.BytesIO() as buffer:
-                storage_client.download_fileobj(
-                    Bucket=storage_bucket, Key=pickled_function_filename, Fileobj=buffer
-                )
-                buffer.seek(0)
-                function = pickle.load(buffer)
+            # just for mypy
+            assert storage_client is not None and storage_bucket is not None
+            function = read_storage_pickle(
+                storage_client, storage_bucket, pickled_function_filename
+            )
 
         # read the arguments
 
         if args.has_pickled_arguments:
-            assert storage_client is not None  # just for mypy
-            with io.BytesIO() as buffer:
-                storage_client.download_fileobj(
-                    Bucket=storage_bucket,
-                    Key=storage_file_prefix + ".arguments",
-                    Fileobj=buffer,
-                )
-                buffer.seek(0)
-                function_args, function_kwargs = pickle.load(buffer)
+            # just for mypy
+            assert storage_client is not None and storage_bucket is not None
+            function_args, function_kwargs = read_storage_pickle(
+                storage_client, storage_bucket, storage_file_prefix + ".arguments"
+            )
         else:
             function_args, function_kwargs = (), {}
 
@@ -140,7 +134,8 @@ def main() -> None:
 
         # next, send the exception back if we can
 
-        if storage_client is None:
+        # extra check on storage_bucket is just for mypy
+        if storage_client is None or storage_bucket is None:
             print(
                 "Warning, failed but not sending back results because --storage-bucket "
                 "was not specified"
@@ -148,40 +143,41 @@ def main() -> None:
             raise
 
         # see MeadowRunClientAsync for why we don't just pickle the exception
-        with io.BytesIO() as buffer:
-            buffer.write("PYTHON_EXCEPTION".encode("utf-8"))
-            buffer.seek(0)
-            storage_client.upload_fileobj(
-                Fileobj=buffer, Bucket=storage_bucket, Key=state_filename
-            )
-        with io.BytesIO() as buffer:
-            pickle.dump(
-                (str(type(e)), str(e), tb), buffer, protocol=result_pickle_protocol
-            )
-            buffer.seek(0)
-            storage_client.upload_fileobj(
-                Fileobj=buffer, Bucket=storage_bucket, Key=result_filename
-            )
+        write_storage_bytes(
+            storage_client,
+            storage_bucket,
+            state_filename,
+            "PYTHON_EXCEPTION".encode("utf-8"),
+        )
+        write_storage_pickle(
+            storage_client,
+            storage_bucket,
+            result_filename,
+            (str(type(e)), str(e), tb),
+            result_pickle_protocol,
+        )
     else:
-        if storage_client is None:
+        # extra check on storage_bucket is just for mypy
+        if storage_client is None or storage_bucket is None:
             print(
                 "Warning, succeeded but not sending back results because "
                 "--storage-bucket was not specified"
             )
         else:
             # send back results
-            with io.BytesIO() as buffer:
-                buffer.write("SUCCEEDED".encode("utf-8"))
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Fileobj=buffer, Bucket=storage_bucket, Key=state_filename
-                )
-            with io.BytesIO() as buffer:
-                pickle.dump(result, buffer, protocol=result_pickle_protocol)
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Fileobj=buffer, Bucket=storage_bucket, Key=result_filename
-                )
+            write_storage_bytes(
+                storage_client,
+                storage_bucket,
+                state_filename,
+                "SUCCEEDED".encode("utf-8"),
+            )
+            write_storage_pickle(
+                storage_client,
+                storage_bucket,
+                result_filename,
+                result,
+                result_pickle_protocol,
+            )
 
 
 if __name__ == "__main__":

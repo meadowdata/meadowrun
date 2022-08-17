@@ -1,16 +1,14 @@
 """Manages local deployments for run_job_local"""
 
+from __future__ import annotations
+
 import asyncio.subprocess
 import hashlib
 import os
 import shutil
 import tempfile
 import urllib.parse
-import zipfile
 from typing import (
-    Any,
-    Callable,
-    Coroutine,
     List,
     Mapping,
     Optional,
@@ -22,14 +20,12 @@ from typing import (
 import filelock
 
 from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
-from meadowrun.aws_integration import s3
 from meadowrun.aws_integration.ecr import (
     get_ecr_helper,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
-from meadowrun.azure_integration import blob_storage
 from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
@@ -39,13 +35,19 @@ from meadowrun.docker_controller import (
     push_image,
 )
 from meadowrun.meadowrun_pb2 import (
+    CodeZipFile,
     EnvironmentSpec,
     EnvironmentSpecInCode,
     EnvironmentType,
     Job,
     ServerAvailableContainer,
 )
-from meadowrun.run_job_core import CloudProviderType, ContainerRegistryHelper
+from meadowrun.run_job import S3ObjectStorage, AzureBlobStorage
+from meadowrun.run_job_core import (
+    CloudProviderType,
+    ContainerRegistryHelper,
+    LocalObjectStorage,
+)
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
@@ -166,12 +168,7 @@ async def get_code_paths(
             credentials,
         )
     elif case == "code_zip_file":
-        return await _get_zip_file_code_paths(
-            local_copies_folder,
-            job.code_zip_file.url,
-            job.code_zip_file.code_paths,
-            job.code_zip_file.cwd_path,
-        )
+        return await _get_zip_file_code_paths(local_copies_folder, job.code_zip_file)
     else:
         raise ValueError(f"Unrecognized code_deployment {case}")
 
@@ -250,55 +247,33 @@ async def _get_git_code_paths(
         return ([source_path], local_copy_path, local_copy_path)
 
 
+_ALL_OBJECT_STORAGES = {
+    # see the note on get_url_scheme
+    s.get_url_scheme(): s  # type: ignore
+    for s in [LocalObjectStorage, S3ObjectStorage, AzureBlobStorage]
+}
+
+
 async def _get_zip_file_code_paths(
-    local_copies_folder: str,
-    zip_file_url: str,
-    code_paths: Sequence[str],
-    cwd_path: str,
+    local_copies_folder: str, code_zip_file: CodeZipFile
 ) -> Tuple[List[str], None, str]:
-    decoded_url = urllib.parse.urlparse(zip_file_url)
-    if decoded_url.scheme == "file":
-        with zipfile.ZipFile(decoded_url.path) as zip_file:
-            extracted_folder = os.path.splitext(os.path.basename(decoded_url.path))[0]
-            zip_file.extractall(os.path.join(local_copies_folder, extracted_folder))
-        return (
-            [
-                os.path.join(local_copies_folder, extracted_folder, zip_path)
-                for zip_path in code_paths
-            ],
-            None,
-            os.path.join(local_copies_folder, extracted_folder, cwd_path),
-        )
+    decoded_url = urllib.parse.urlparse(code_zip_file.url)
+    if decoded_url.scheme not in _ALL_OBJECT_STORAGES:
+        raise ValueError(f"Unknown URL scheme in {code_zip_file.url}")
 
-    async def download_and_unzip(
-        download: Callable[[str, str, str], Coroutine[Any, Any, None]],
-    ) -> Tuple[List[str], None, str]:
-        bucket_name = decoded_url.netloc
-        object_name = decoded_url.path.lstrip("/")
-        extracted_folder = os.path.join(local_copies_folder, object_name)
+    object_storage = _ALL_OBJECT_STORAGES[decoded_url.scheme]()
+    extracted_folder = await object_storage.download_and_unzip(
+        code_zip_file.url, local_copies_folder
+    )
 
-        with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
-            if not os.path.exists(extracted_folder):
-                zip_file_path = extracted_folder + ".zip"
-                await download(bucket_name, object_name, zip_file_path)
-                with zipfile.ZipFile(zip_file_path) as zip_file:
-                    zip_file.extractall(
-                        os.path.join(local_copies_folder, extracted_folder)
-                    )
-
-        return (
-            [os.path.join(extracted_folder, zip_path) for zip_path in code_paths],
-            None,
-            os.path.join(extracted_folder, cwd_path),
-        )
-
-    if decoded_url.scheme == "s3":
-        return await download_and_unzip(s3.download_file)
-
-    if decoded_url.scheme == "azblob":
-        return await download_and_unzip(blob_storage.download_file)
-
-    raise ValueError(f"Unknown URL scheme in {zip_file_url}")
+    return (
+        [
+            os.path.join(local_copies_folder, extracted_folder, zip_path)
+            for zip_path in code_zip_file.code_paths
+        ],
+        None,
+        os.path.join(local_copies_folder, extracted_folder, code_zip_file.cwd_path),
+    )
 
 
 async def compile_environment_spec_to_container(

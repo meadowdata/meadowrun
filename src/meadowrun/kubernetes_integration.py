@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import dataclasses
-import io
 import os
 import pickle
 import traceback
@@ -43,11 +42,22 @@ from meadowrun.meadowrun_pb2 import (
     PyFunctionJob,
     QualifiedFunctionName,
 )
-from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException
+from meadowrun.run_job_core import (
+    Host,
+    JobCompletion,
+    MeadowrunException,
+    ObjectStorage,
+)
 from meadowrun.run_job_local import (
     _get_credentials_for_docker,
     _get_credentials_sources,
     _string_pairs_to_dict,
+)
+from meadowrun.func_worker_storage_helper import (
+    read_storage_bytes,
+    read_storage_pickle,
+    write_storage_bytes,
+    write_storage_pickle,
 )
 
 _T = TypeVar("_T")
@@ -81,12 +91,12 @@ def _indexed_map_worker(
     This is a worker function to help with running a run_map. This worker assumes that
     JOB_COMPLETION_INDEX is set, which Kubernetes will set for indexed completion jobs.
     This worker assumes task arguments are accessible via
-    meadowrun.func_worker_storage_helper.STORAGE_CLIENT and will just complete all of
-    the tasks where task_index % num_workers == current worker index.
+    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT and will just
+    complete all of the tasks where task_index % num_workers == current worker index.
     """
 
     current_worker_index = int(os.environ["JOB_COMPLETION_INDEX"])
-    storage_client = meadowrun.func_worker_storage_helper.STORAGE_CLIENT
+    storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
     if storage_client is None:
         raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
@@ -99,12 +109,9 @@ def _indexed_map_worker(
         state_filename = f"{file_prefix}.taskstate{i}"
         result_filename = f"{file_prefix}.taskresult{i}"
 
-        with io.BytesIO() as buffer:
-            storage_client.download_fileobj(
-                Bucket=storage_bucket, Key=f"{file_prefix}.taskarg{i}", Fileobj=buffer
-            )
-            buffer.seek(0)
-            arg = pickle.load(buffer)
+        arg = read_storage_pickle(
+            storage_client, storage_bucket, f"{file_prefix}.taskarg{i}"
+        )
 
         try:
             result = function(arg)
@@ -115,34 +122,34 @@ def _indexed_map_worker(
             tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
 
             # now send back result
-            with io.BytesIO() as buffer:
-                buffer.write("PYTHON_EXCEPTION".encode("utf-8"))
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Fileobj=buffer, Bucket=storage_bucket, Key=state_filename
-                )
-            with io.BytesIO() as buffer:
-                pickle.dump(
-                    (str(type(e)), str(e), tb), buffer, protocol=result_pickle_protocol
-                )
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Fileobj=buffer, Bucket=storage_bucket, Key=result_filename
-                )
+            write_storage_bytes(
+                storage_client,
+                storage_bucket,
+                state_filename,
+                "PYTHON_EXCEPTION".encode("utf-8"),
+            )
+            write_storage_pickle(
+                storage_client,
+                storage_bucket,
+                result_filename,
+                (str(type(e)), str(e), tb),
+                result_pickle_protocol,
+            )
         else:
             # send back results
-            with io.BytesIO() as buffer:
-                buffer.write("SUCCEEDED".encode("utf-8"))
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Fileobj=buffer, Bucket=storage_bucket, Key=state_filename
-                )
-            with io.BytesIO() as buffer:
-                pickle.dump(result, buffer, protocol=result_pickle_protocol)
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Fileobj=buffer, Bucket=storage_bucket, Key=result_filename
-                )
+            write_storage_bytes(
+                storage_client,
+                storage_bucket,
+                state_filename,
+                "SUCCEEDED".encode("utf-8"),
+            )
+            write_storage_pickle(
+                storage_client,
+                storage_bucket,
+                result_filename,
+                result,
+                result_pickle_protocol,
+            )
 
         i += num_workers
 
@@ -190,50 +197,41 @@ def _get_job_completion(
             "Cannot provide a storage_client and not provide a storage_bucket"
         )
 
-    with io.BytesIO() as buffer:
-        try:
-            storage_client.download_fileobj(
-                Bucket=storage_bucket,
-                Key=f"{file_prefix}.state{file_suffix}",
-                Fileobj=buffer,
-            )
-        except botocore.exceptions.ClientError as e:
-            # if we were expecting a state file but didn't get it we need to
-            # throw an exception
-            if (
-                getattr(e, "response", {}).get("Error", {}).get("Code", None) == "404"
-                and job_spec_type == "py_function"
-            ):
-                raise
+    try:
+        state_bytes = read_storage_bytes(
+            storage_client, storage_bucket, f"{file_prefix}.state{file_suffix}"
+        )
+    except botocore.exceptions.ClientError as e:
+        # if we were expecting a state file but didn't get it we need to
+        # throw an exception
+        if (
+            getattr(e, "response", {}).get("Error", {}).get("Code", None) == "404"
+            and job_spec_type == "py_function"
+        ):
+            raise
 
-            # if we're okay with not getting a state file, just return that we
-            # succeeded, and we don't have a result
-            return JobCompletion(
-                None,
-                ProcessState.ProcessStateEnum.SUCCEEDED,
-                "",
-                return_code,
-                public_address,
-            )
+        # if we're okay with not getting a state file, just return that we
+        # succeeded, and we don't have a result
+        return JobCompletion(
+            None,
+            ProcessState.ProcessStateEnum.SUCCEEDED,
+            "",
+            return_code,
+            public_address,
+        )
 
-        buffer.seek(0)
-        state_string = buffer.read().decode("utf-8")
-        if state_string == "SUCCEEDED":
-            state = ProcessState.ProcessStateEnum.SUCCEEDED
-        elif state_string == "PYTHON_EXCEPTION":
-            state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
-        else:
-            raise ValueError(f"Unknown state string: {state_string}")
+    state_string = state_bytes.decode("utf-8")
+    if state_string == "SUCCEEDED":
+        state = ProcessState.ProcessStateEnum.SUCCEEDED
+    elif state_string == "PYTHON_EXCEPTION":
+        state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
+    else:
+        raise ValueError(f"Unknown state string: {state_string}")
 
     # if we got a state string, we should have a result file
-    with io.BytesIO() as buffer:
-        storage_client.download_fileobj(
-            Bucket=storage_bucket,
-            Key=f"{file_prefix}.result{file_suffix}",
-            Fileobj=buffer,
-        )
-        buffer.seek(0)
-        result = pickle.load(buffer)
+    result = read_storage_pickle(
+        storage_client, storage_bucket, f"{file_prefix}.result{file_suffix}"
+    )
 
     if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
         # TODO very weird that we're re-pickling result here. Also, we should
@@ -411,26 +409,29 @@ class Kubernetes(Host):
                     )
                 if function.pickled_function is None:
                     raise ValueError("pickled_function cannot be None")
-                with io.BytesIO() as buffer:
-                    buffer.write(function.pickled_function)
-                    buffer.seek(0)
-                    storage_client.upload_fileobj(
-                        Fileobj=buffer,
-                        Bucket=self.storage_bucket,
-                        Key=f"{file_prefix}.function",
-                    )
+
+                write_storage_bytes(
+                    storage_client,
+                    self.storage_bucket,
+                    f"{file_prefix}.function",
+                    function.pickled_function,
+                )
                 command.append("--has-pickled-function")
 
             # prepare arguments
             if job.py_function.pickled_function_arguments:
-                with io.BytesIO() as buffer:
-                    buffer.write(function.pickled_function_arguments)
-                    buffer.seek(0)
-                    storage_client.upload_fileobj(
-                        Fileobj=buffer,
-                        Bucket=self.storage_bucket,
-                        Key=f"{file_prefix}.arguments",
+                if self.storage_bucket is None:
+                    raise ValueError(
+                        "Cannot use pickled function arguments without providing a "
+                        "storage_bucket. Please either specify the function to run with"
+                        " a string or provide a storage_bucket"
                     )
+                write_storage_bytes(
+                    storage_client,
+                    self.storage_bucket,
+                    f"{file_prefix}.arguments",
+                    function.pickled_function_arguments,
+                )
                 command.append("--has-pickled-arguments")
 
             return command
@@ -623,7 +624,8 @@ class Kubernetes(Host):
             raise NotImplementedError("Ports are not yet supported for Kubernetes")
 
         storage_client = await self._get_storage_client()
-        if storage_client is None:
+        # extra storage_bucket check is for mypy
+        if storage_client is None or self.storage_bucket is None:
             raise ValueError(
                 "storage_bucket and other storage_* parameters must be specified to use"
                 " Kubernetes with run_map"
@@ -634,14 +636,13 @@ class Kubernetes(Host):
         file_prefix = f"{self.storage_file_prefix}{job_id}"
 
         for i, arg in enumerate(args):
-            with io.BytesIO() as buffer:
-                pickle.dump(arg, buffer, protocol=pickle_protocol)
-                buffer.seek(0)
-                storage_client.upload_fileobj(
-                    Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.taskarg{i}",
-                    Fileobj=buffer,
-                )
+            write_storage_pickle(
+                storage_client,
+                self.storage_bucket,
+                f"{file_prefix}.taskarg{i}",
+                arg,
+                pickle_protocol,
+            )
 
         indexed_map_worker_args = (
             len(args),
@@ -673,29 +674,19 @@ class Kubernetes(Host):
 
         results = []
         for i in range(len(args)):
-            with io.BytesIO() as buffer:
-                storage_client.download_fileobj(
-                    Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.taskstate{i}",
-                    Fileobj=buffer,
-                )
-                buffer.seek(0)
-                state_string = buffer.read().decode("utf-8")
-                if state_string == "SUCCEEDED":
-                    state = ProcessState.ProcessStateEnum.SUCCEEDED
-                elif state_string == "PYTHON_EXCEPTION":
-                    state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
-                else:
-                    raise ValueError(f"Unknown state string: {state_string}")
+            state_string = read_storage_bytes(
+                storage_client, self.storage_bucket, f"{file_prefix}.taskstate{i}"
+            ).decode("utf-8")
+            if state_string == "SUCCEEDED":
+                state = ProcessState.ProcessStateEnum.SUCCEEDED
+            elif state_string == "PYTHON_EXCEPTION":
+                state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
+            else:
+                raise ValueError(f"Unknown state string: {state_string}")
 
-            with io.BytesIO() as buffer:
-                storage_client.download_fileobj(
-                    Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.taskresult{i}",
-                    Fileobj=buffer,
-                )
-                buffer.seek(0)
-                result = pickle.load(buffer)
+            result = read_storage_pickle(
+                storage_client, self.storage_bucket, f"{file_prefix}.taskresult{i}"
+            )
 
             if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
                 # TODO very weird that we're re-pickling result here. Also, we should
@@ -710,6 +701,9 @@ class Kubernetes(Host):
             results.append(result)
 
         return results
+
+    async def get_object_storage(self) -> ObjectStorage:
+        pass
 
 
 async def _get_pods_for_job(

@@ -228,7 +228,12 @@ kubectl apply -f minio.yaml
 ```
 
 If you're running this on anything other than Minikube, make sure to change `ROOTNAME`
-and `CHANGEME123`.
+and `CHANGEME123`. If you're running this on Minikube and don't need to change the
+username/password, you can skip creating your own file and just run:
+
+```shell
+kubectl apply -f https://raw.githubusercontent.com/meadowdata/meadowrun/main/docs/how_to/minio.yaml
+```
 
 This will create a Minio service accessible from inside of Kubernetes as
 `minio-service:9000`, and the web admin UI will be available as `minio-service:9090`

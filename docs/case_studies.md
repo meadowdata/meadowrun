@@ -11,3 +11,7 @@ used to accomplish a variety of tasks. Here are a few fully worked examples:
   EC2](https://medium.com/@meadowrun/run-your-own-dall-e-mini-craiyon-server-on-ec2-e8aef6f974c1)
   Uses Meadowrun's support for specifying GPU instances to do inference quickly with large
   ML models.
+- [How to Deploy ML Models Using Gravity AI and
+  Meadowrun](https://medium.com/@meadowrun/how-to-deploy-ml-models-using-gravity-ai-and-meadowrun-97aa8c8537b4)
+  Uses Meadowrun's support for sidecar containers to use ML models deployed as containers
+  efficiently from batch jobs.

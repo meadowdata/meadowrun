@@ -34,6 +34,7 @@ from meadowrun.docker_controller import (
     pull_image,
     push_image,
 )
+from meadowrun.func_worker_storage_helper import FuncWorkerClientObjectStorage
 from meadowrun.meadowrun_pb2 import (
     CodeZipFile,
     EnvironmentSpec,
@@ -250,7 +251,12 @@ async def _get_git_code_paths(
 _ALL_OBJECT_STORAGES = {
     # see the note on get_url_scheme
     s.get_url_scheme(): s  # type: ignore
-    for s in [LocalObjectStorage, S3ObjectStorage, AzureBlobStorage]
+    for s in [
+        AzureBlobStorage,
+        FuncWorkerClientObjectStorage,
+        LocalObjectStorage,
+        S3ObjectStorage,
+    ]
 }
 
 

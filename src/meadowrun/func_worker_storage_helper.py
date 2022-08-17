@@ -7,13 +7,19 @@ sys.modules after import of package 'meadowrun', but prior to execution of
 'meadowrun.func_worker_storage'; this may result in unpredictable behaviour
 warn(RuntimeWarning(msg))
 """
+from __future__ import annotations
+
+import dataclasses
+import hashlib
 import io
 import pickle
-
-from typing import Optional, Any
+from typing import Optional, Any, Tuple
 
 import boto3
+import botocore.exceptions
 
+from meadowrun.run_job_core import S3CompatibleObjectStorage
+import meadowrun.func_worker_storage_helper
 
 MEADOWRUN_STORAGE_USERNAME = "MEADOWRUN_STORAGE_USERNAME"
 MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
@@ -91,3 +97,48 @@ def write_storage_bytes(
         storage_client.upload_fileobj(
             Fileobj=buffer, Bucket=storage_bucket, Key=storage_filename
         )
+
+
+@dataclasses.dataclass
+class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
+    # this really belongs in kubernetes_integration.py but can't put it there because of
+    # circular imports
+    storage_client: Any = None
+    bucket_name: Optional[str] = None
+
+    @classmethod
+    def get_url_scheme(cls) -> str:
+        return "meadowrunfuncworkerstorage"
+
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        if self.bucket_name is None:
+            raise Exception("Can't use _upload without a bucket_name")
+
+        hasher = hashlib.blake2b()
+        with open(file_path, "rb") as file:
+            buf = file.read()
+            hasher.update(buf)
+        digest = hasher.hexdigest()
+
+        try:
+            self.storage_client.head_object(Bucket=self.bucket_name, Key=digest)
+            return self.bucket_name, digest
+        except botocore.exceptions.ClientError as error:
+            # don't raise an error saying the file doesn't exist, we'll just upload it
+            # in that case by falling through to the next bit of code
+            if not error.response["Error"]["Code"] == "404":
+                raise error
+
+        # doesn't exist, need to upload it
+        self.storage_client.upload_file(
+            Filename=file_path, Bucket=self.bucket_name, Key=digest
+        ),
+        return self.bucket_name, digest
+
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
+        if storage_client is None:
+            raise Exception("FUNC_WORKER_STORAGE_CLIENT is not available")
+        storage_client.download_file(bucket_name, object_name, file_name)

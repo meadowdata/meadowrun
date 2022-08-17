@@ -29,6 +29,7 @@ import kubernetes_asyncio.watch as kubernetes_watch
 import meadowrun.func_worker_storage_helper
 from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.func_worker_storage_helper import (
+    FuncWorkerClientObjectStorage,
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
     get_storage_client_from_args,
@@ -486,12 +487,30 @@ class Kubernetes(Host):
 
         # detect any unsupported Jobs
 
-        if (
-            job.WhichOneof("code_deployment") != "server_available_folder"
+        file_prefix = f"{self.storage_file_prefix}{job.job_id}"
+
+        command_suffixes = []
+        code_deployment_type = job.WhichOneof("code_deployment")
+        if code_deployment_type == "code_zip_file":
+            if self.storage_bucket is None:
+                raise ValueError(
+                    "Cannot use mirror_local without providing a storage_bucket. Please"
+                    " either use a different Deployment or provide a storage_bucket"
+                )
+            write_storage_bytes(
+                storage_client,
+                self.storage_bucket,
+                f"{file_prefix}.codezipfile",
+                job.code_zip_file.SerializeToString(),
+            )
+
+            command_suffixes.append("--has-code-zip-file")
+        elif (
+            code_deployment_type != "server_available_folder"
             or len(job.server_available_folder.code_paths) > 0
         ):
             raise NotImplementedError(
-                "code_deployment is not supported in run_job_container_local"
+                f"{code_deployment_type} is not supported for Kubernetes"
             )
 
         interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
@@ -528,7 +547,6 @@ class Kubernetes(Host):
                     )
                 image_pull_secret_name = image_pull_secret.secret_name
 
-        file_prefix = f"{self.storage_file_prefix}{job.job_id}"
         try:
             try:
                 # run the job
@@ -540,6 +558,7 @@ class Kubernetes(Host):
                 command = self._prepare_command(
                     job, job_spec_type, storage_client, file_prefix
                 )
+                command.extend(command_suffixes)
 
                 environment_variables = {"PYTHONUNBUFFERED": "1"}
                 environment_variables.update(
@@ -587,7 +606,7 @@ class Kubernetes(Host):
             # TODO we should separately periodically clean up these files in case we
             # aren't able to execute this finally block
             if storage_client is not None:
-                for suffix in ["state", "result", "function", "arguments"]:
+                for suffix in ["state", "result", "function", "arguments", "codezipfile"]:
                     try:
                         storage_client.delete_object(
                             Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
@@ -703,7 +722,14 @@ class Kubernetes(Host):
         return results
 
     async def get_object_storage(self) -> ObjectStorage:
-        pass
+        storage_client = await self._get_storage_client()
+
+        if storage_client is None or self.storage_bucket is None:
+            raise ValueError(
+                "Cannot use mirror_local without providing a storage_bucket. Please "
+                "either use a different Deployment method or provide a storage_bucket"
+            )
+        return FuncWorkerClientObjectStorage(storage_client, self.storage_bucket)
 
 
 async def _get_pods_for_job(

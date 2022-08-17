@@ -7,6 +7,8 @@ sys.modules after import of package 'meadowrun', but prior to execution of
 'meadowrun.func_worker_storage'; this may result in unpredictable behaviour
 warn(RuntimeWarning(msg))
 """
+import io
+import pickle
 
 from typing import Optional, Any
 
@@ -18,7 +20,7 @@ MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 
 # This is a global variable that will be updated with the storage client if it's
 # available in func_worker_storage
-STORAGE_CLIENT: Optional[Any] = None
+FUNC_WORKER_STORAGE_CLIENT: Optional[Any] = None
 
 
 def get_storage_client_from_args(
@@ -41,3 +43,51 @@ def get_storage_client_from_args(
         # TODO if all the parameters are None then we're implicitly falling back on AWS
         # S3, which we should make explicit
         return boto3.client("s3", **client_kwargs)  # type: ignore
+
+
+def read_storage_pickle(
+    storage_client: Any, storage_bucket: str, storage_filename: str
+) -> Any:
+    with io.BytesIO() as buffer:
+        storage_client.download_fileobj(
+            Bucket=storage_bucket, Key=storage_filename, Fileobj=buffer
+        )
+        buffer.seek(0)
+        return pickle.load(buffer)
+
+
+def read_storage_bytes(
+    storage_client: Any, storage_bucket: str, storage_filename: str
+) -> bytes:
+    with io.BytesIO() as buffer:
+        storage_client.download_fileobj(
+            Bucket=storage_bucket, Key=storage_filename, Fileobj=buffer
+        )
+        buffer.seek(0)
+        return buffer.read()
+
+
+def write_storage_pickle(
+    storage_client: Any,
+    storage_bucket: str,
+    storage_filename: str,
+    obj: Any,
+    pickle_protocol: Optional[int],
+) -> None:
+    with io.BytesIO() as buffer:
+        pickle.dump(obj, buffer, protocol=pickle_protocol)
+        buffer.seek(0)
+        storage_client.upload_fileobj(
+            Fileobj=buffer, Bucket=storage_bucket, Key=storage_filename
+        )
+
+
+def write_storage_bytes(
+    storage_client: Any, storage_bucket: str, storage_filename: str, bs: bytes
+) -> None:
+    with io.BytesIO() as buffer:
+        buffer.write(bs)
+        buffer.seek(0)
+        storage_client.upload_fileobj(
+            Fileobj=buffer, Bucket=storage_bucket, Key=storage_filename
+        )

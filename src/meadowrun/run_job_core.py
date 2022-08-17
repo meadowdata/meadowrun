@@ -6,7 +6,13 @@ from __future__ import annotations
 import abc
 import asyncio
 import dataclasses
+import os
+import os.path
 import pickle
+import shutil
+import sys
+import urllib.parse
+import zipfile
 from typing import (
     Any,
     AsyncGenerator,
@@ -27,14 +33,15 @@ from typing import (
 )
 
 import asyncssh
+import filelock
 from typing_extensions import Literal
 
 import meadowrun.ssh as ssh
+from meadowrun.instance_selection import ResourcesInternal
+from meadowrun.meadowrun_pb2 import Job, ProcessState
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
-from meadowrun.instance_selection import ResourcesInternal
-from meadowrun.meadowrun_pb2 import Job, ProcessState
 
 
 _T = TypeVar("_T")
@@ -119,6 +126,121 @@ class Resources:
             )
 
 
+class ObjectStorage(abc.ABC):
+    """An ObjectStorage is a place where you can upload files and download them"""
+
+    @classmethod
+    @abc.abstractmethod
+    def get_url_scheme(cls) -> str:
+        """
+        Right now we're using the URL scheme to effectively serialize the ObjectStorage
+        object to the job. This works as long as we don't need any additional parameters
+        (region name, username/password), but we may need to make this more flexible in
+        the future.
+        """
+        pass
+
+    @abc.abstractmethod
+    async def upload_from_file_url(self, file_url: str) -> str:
+        """
+        file_url will be a file:// url to a file on the local machine. This function
+        should upload that file to the object storage, delete the local file, and return
+        the URL of the remote file.
+        """
+        pass
+
+    @abc.abstractmethod
+    async def download_and_unzip(
+        self, remote_url: str, local_copies_folder: str
+    ) -> str:
+        """
+        remote_url will be the URL of a file in the object storage system as generated
+        by upload_from_file_url. This function should download the file and extract it
+        to local_copies_folder if it has not already been extracted.
+        """
+        pass
+
+
+class LocalObjectStorage(ObjectStorage):
+    """
+    This is a "pretend" version of ObjectStorage where we assume that we have the same
+    file system available on both the client and the server. Mostly for testing.
+    """
+
+    @classmethod
+    def get_url_scheme(cls) -> str:
+        return "file"
+
+    async def upload_from_file_url(self, file_url: str) -> str:
+        # TODO maybe assert that this starts with file://
+        return file_url
+
+    async def download_and_unzip(
+        self, remote_url: str, local_copies_folder: str
+    ) -> str:
+        decoded_url = urllib.parse.urlparse(remote_url)
+        extracted_folder = os.path.join(
+            local_copies_folder, os.path.splitext(os.path.basename(decoded_url.path))[0]
+        )
+        with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
+            if not os.path.exists(extracted_folder):
+                with zipfile.ZipFile(decoded_url.path) as zip_file:
+                    zip_file.extractall(extracted_folder)
+
+        return extracted_folder
+
+
+class S3CompatibleObjectStorage(ObjectStorage, abc.ABC):
+    """
+    Think of this class as what ObjectStorage "should be" if it weren't for
+    LocalObjectStorage. Most implementations of ObjectStorage should implement this
+    class.
+    """
+
+    @abc.abstractmethod
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        pass
+
+    @abc.abstractmethod
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        pass
+
+    async def upload_from_file_url(self, file_url: str) -> str:
+        decoded_url = urllib.parse.urlparse(file_url)
+        if decoded_url.scheme != "file":
+            raise ValueError(f"Expected file URI: {file_url}")
+        if sys.platform == "win32" and decoded_url.path.startswith("/"):
+            # on Windows, file:///C:\foo turns into file_url.path = /C:\foo so we need
+            # to remove the forward slash at the beginning
+            file_path = decoded_url.path[1:]
+        else:
+            file_path = decoded_url.path
+        bucket_name, object_name = await self._upload(file_path)
+        shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+        return urllib.parse.urlunparse(
+            (self.get_url_scheme(), bucket_name, object_name, "", "", "")
+        )
+
+    async def download_and_unzip(
+        self, remote_url: str, local_copies_folder: str
+    ) -> str:
+        decoded_url = urllib.parse.urlparse(remote_url)
+        bucket_name = decoded_url.netloc
+        object_name = decoded_url.path.lstrip("/")
+        extracted_folder = os.path.join(local_copies_folder, object_name)
+
+        with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
+            if not os.path.exists(extracted_folder):
+                zip_file_path = extracted_folder + ".zip"
+                await self._download(bucket_name, object_name, zip_file_path)
+                with zipfile.ZipFile(zip_file_path) as zip_file:
+                    zip_file.extractall(extracted_folder)
+
+        return extracted_folder
+
+
 class Host(abc.ABC):
     """
     Host is an abstract class for specifying where to run a job. See implementations
@@ -148,6 +270,10 @@ class Host(abc.ABC):
         # Note for implementors: job_fields will be populated with everything other than
         # job_id and py_function, so the implementation should construct
         # Job(job_id=job_id, py_function=py_function, **job_fields)
+        pass
+
+    @abc.abstractmethod
+    async def get_object_storage(self) -> ObjectStorage:
         pass
 
 
@@ -347,6 +473,9 @@ class SshHost(Host):
         wait_for_result: bool,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map is not implemented for SshHost")
+
+    async def get_object_storage(self) -> ObjectStorage:
+        raise NotImplementedError("get_object_storage is not implemented for SshHost")
 
 
 @dataclasses.dataclass

@@ -6,16 +6,11 @@ import os
 import os.path
 import pickle
 import shlex
-import shutil
-import sys
-import urllib.parse
 import uuid
-from enum import Enum
 from typing import (
     Any,
     Awaitable,
     Callable,
-    Coroutine,
     Dict,
     Iterable,
     List,
@@ -29,12 +24,6 @@ from typing import (
 
 import cloudpickle
 
-from meadowrun.deployment_spec import (
-    ContainerInterpreterBase,
-    ContainerInterpreter,
-    ContainerAtDigestInterpreter,
-    Deployment,
-)
 from meadowrun.aws_integration import s3
 from meadowrun.aws_integration.ec2_instance_allocation import (
     run_job_ec2_instance_registrar,
@@ -46,16 +35,12 @@ from meadowrun.azure_integration.azure_instance_allocation import (
 )
 from meadowrun.azure_integration.grid_tasks_queue import prepare_azure_vm_run_map
 from meadowrun.config import JOB_ID_VALID_CHARACTERS, MEADOWRUN_INTERPRETER
-
-if TYPE_CHECKING:
-    from meadowrun.deployment_internal_types import (
-        CodeDeployment,
-        InterpreterDeployment,
-        VersionedCodeDeployment,
-        VersionedInterpreterDeployment,
-    )
-    from meadowrun.instance_selection import ResourcesInternal
-    from meadowrun.credentials import CredentialsSourceForService
+from meadowrun.deployment_spec import (
+    ContainerAtDigestInterpreter,
+    ContainerInterpreter,
+    ContainerInterpreterBase,
+    Deployment,
+)
 from meadowrun.docker_controller import get_registry_domain
 from meadowrun.meadowrun_pb2 import (
     AwsSecretProto,
@@ -85,9 +70,21 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
     JobCompletion,
+    ObjectStorage,
     Resources,
     SshHost,
+    S3CompatibleObjectStorage,
 )
+
+if TYPE_CHECKING:
+    from meadowrun.deployment_internal_types import (
+        CodeDeployment,
+        InterpreterDeployment,
+        VersionedCodeDeployment,
+        VersionedInterpreterDeployment,
+    )
+    from meadowrun.instance_selection import ResourcesInternal
+    from meadowrun.credentials import CredentialsSourceForService
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -159,65 +156,48 @@ async def _add_defaults_to_deployment(
     )
 
 
-class _DeploymentTarget(Enum):
-    LOCAL = "local"
-    S3 = "s3"
-    AZURE_BLOB_STORAGE = "azure blob storage"
-
-    @staticmethod
-    def from_cloud_provider(cloud_provider: CloudProviderType) -> _DeploymentTarget:
-        if cloud_provider == "EC2":
-            return _DeploymentTarget.S3
-        elif cloud_provider == "AzureVM":
-            return _DeploymentTarget.AZURE_BLOB_STORAGE
-        else:
-            raise ValueError(f"Unknown cloud provider {cloud_provider}")
-
-    @staticmethod
-    def from_single_host(host: Host) -> _DeploymentTarget:
-        if isinstance(host, AllocCloudInstance):
-            return _DeploymentTarget.from_cloud_provider(host.cloud_provider)
-        else:
-            return _DeploymentTarget.LOCAL
-
-
 async def _prepare_code_deployment(
     code_deploy: Union[CodeDeployment, VersionedCodeDeployment],
-    target: _DeploymentTarget,
-) -> Union[CodeDeployment, VersionedCodeDeployment]:
-    if not isinstance(code_deploy, CodeZipFile):
-        return code_deploy
+    object_storage: ObjectStorage,
+) -> None:
+    """Modifies code_deploy in place!"""
+    if isinstance(code_deploy, CodeZipFile):
+        code_deploy.url = await object_storage.upload_from_file_url(code_deploy.url)
 
-    async def upload(
-        code_deploy: CodeZipFile,
-        ensure_upload: Callable[[str], Coroutine[Any, Any, Tuple[str, str]]],
-        scheme_name: str,
-    ) -> CodeZipFile:
-        file_url = urllib.parse.urlparse(code_deploy.url)
-        if file_url.scheme != "file":
-            raise ValueError(f"Expected file URI: {code_deploy.url}")
-        if sys.platform == "win32" and file_url.path.startswith("/"):
-            # on Windows, file:///C:\foo turns into file_url.path = /C:\foo so we need
-            # to remove the forward slash at the beginning
-            file_path = file_url.path[1:]
-        else:
-            file_path = file_url.path
-        bucket_name, object_name = await ensure_upload(file_path)
-        code_deploy.url = urllib.parse.urlunparse(
-            (scheme_name, bucket_name, object_name, "", "", "")
+
+@dataclasses.dataclass
+class S3ObjectStorage(S3CompatibleObjectStorage):
+    region_name: Optional[str] = None
+
+    @classmethod
+    def get_url_scheme(cls) -> str:
+        return "s3"
+
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        return await s3.ensure_uploaded(file_path)
+
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        return await s3.download_file(
+            bucket_name, object_name, file_name, self.region_name
         )
-        shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
-        return code_deploy
 
-    if target == _DeploymentTarget.LOCAL:
-        return code_deploy
-    elif target == _DeploymentTarget.S3:
-        return await upload(code_deploy, s3.ensure_uploaded, "s3")
 
-    elif target == _DeploymentTarget.AZURE_BLOB_STORAGE:
-        return await upload(code_deploy, blob_storage.ensure_uploaded, "azblob")
-    else:
-        raise ValueError(f"Unexpected value for target {target}")
+class AzureBlobStorage(S3CompatibleObjectStorage):
+    # TODO this should have a region_name property also
+
+    @classmethod
+    def get_url_scheme(cls) -> str:
+        return "azblob"
+
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        return await blob_storage.ensure_uploaded(file_path)
+
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        return await blob_storage.download_file(bucket_name, object_name, file_name)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -367,6 +347,16 @@ class AllocCloudInstance(Host):
                     for ssh_host in address_to_ssh_host.values()
                 ],
                 return_exceptions=True,
+            )
+
+    async def get_object_storage(self) -> ObjectStorage:
+        if self.cloud_provider == "EC2":
+            return S3ObjectStorage(self.region_name)
+        elif self.cloud_provider == "AzureVM":
+            return AzureBlobStorage()
+        else:
+            raise ValueError(
+                f"Unexpected value for cloud_provider {self.cloud_provider}"
             )
 
 
@@ -579,9 +569,7 @@ async def run_function(
     ):
         interpreter.additional_software["cuda"] = ""
 
-    code = await _prepare_code_deployment(
-        code, _DeploymentTarget.from_single_host(host)
-    )
+    await _prepare_code_deployment(code, await host.get_object_storage())
 
     (
         sidecar_containers_prepared,
@@ -673,9 +661,7 @@ async def run_command(
     ):
         interpreter.additional_software["cuda"] = ""
 
-    code = await _prepare_code_deployment(
-        code, _DeploymentTarget.from_single_host(host)
-    )
+    await _prepare_code_deployment(code, await host.get_object_storage())
 
     if context_variables:
         pickled_context_variables = pickle.dumps(
@@ -781,9 +767,7 @@ async def run_map(
     ):
         interpreter.additional_software["cuda"] = ""
 
-    code = await _prepare_code_deployment(
-        code, _DeploymentTarget.from_single_host(host)
-    )
+    await _prepare_code_deployment(code, await host.get_object_storage())
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 

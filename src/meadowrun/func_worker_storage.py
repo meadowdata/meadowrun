@@ -8,22 +8,27 @@ full Meadowrun installation is available.
 """
 
 import argparse
+import asyncio
 import importlib
 import logging
 import os
 import pickle
+import sys
 import traceback
 from typing import Optional
 
 import meadowrun.func_worker_storage_helper
+from meadowrun.deployment_manager import _get_zip_file_code_paths
 from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
     get_storage_client_from_args,
+    read_storage_bytes,
     read_storage_pickle,
     write_storage_bytes,
     write_storage_pickle,
 )
+from meadowrun.meadowrun_pb2 import CodeZipFile
 
 
 def main() -> None:
@@ -46,6 +51,9 @@ def main() -> None:
     parser.add_argument("--storage-file-prefix", required=True)
     parser.add_argument("--storage-endpoint-url")
 
+    # arguments for getting code
+    parser.add_argument("--has-code-zip-file", action="store_true")
+
     args = parser.parse_args()
 
     if bool(args.module_name) ^ bool(args.function_name):
@@ -63,11 +71,13 @@ def main() -> None:
     storage_file_prefix: str = args.storage_file_prefix
 
     if (
-        args.has_pickled_function or args.has_pickled_arguments
+        args.has_pickled_function
+        or args.has_pickled_arguments
+        or args.has_code_zip_file
     ) and storage_bucket is None:
         raise ValueError(
-            "Cannot specify --has-pickled-function or --has-pickled-arguments without "
-            "also providing a --storage-bucket"
+            "Cannot specify --has-pickled-function, --has-pickled-arguments, or "
+            "--has-code-zip-file without also providing a --storage-bucket"
         )
 
     # prepare storage client, filenames and pickle protocol for the result
@@ -88,6 +98,24 @@ def main() -> None:
     result_pickle_protocol = min(
         args.result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
     )
+
+    # try to get the code_zip_file if it exists
+    if args.has_code_zip_file:
+        # just for mypy
+        assert storage_client is not None and storage_bucket is not None
+
+        print("Downloading and extracting CodeZipFile")
+        code_zip_file = CodeZipFile.FromString(
+            read_storage_bytes(
+                storage_client, storage_bucket, f"{storage_file_prefix}.codezipfile"
+            )
+        )
+        os.makedirs("/meadowrun/local_copies", exist_ok=True)
+        code_paths, _, cwd_path = asyncio.run(
+            _get_zip_file_code_paths("/meadowrun/local_copies", code_zip_file)
+        )
+        sys.path.extend(code_paths)
+        os.chdir(cwd_path)
 
     try:
         # import the module/unpickle the function

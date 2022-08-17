@@ -111,6 +111,8 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
         return "meadowrunfuncworkerstorage"
 
     async def _upload(self, file_path: str) -> Tuple[str, str]:
+        # TODO these will never get cleaned up
+
         if self.bucket_name is None:
             raise Exception("Can't use _upload without a bucket_name")
 

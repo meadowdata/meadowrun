@@ -392,6 +392,18 @@ async def push_image(
                 raise ValueError(f"Error building docker image: f{line['errorDetail']}")
 
 
+def expand_ports(ports: Iterable[str]) -> Iterable[str]:
+    for port in ports:
+        if "-" in port:
+            split = port.split("-")
+            if len(split) != 2:
+                raise ValueError(f"Bad port specification {port}")
+            for i in range(int(split[0]), int(split[1]) + 1):
+                yield str(i)
+        else:
+            yield port
+
+
 async def run_container(
     client: Optional[aiodocker.Docker],
     image: str,
@@ -463,16 +475,7 @@ async def run_container(
 
     # unfortunately PortBindings doesn't support port ranges so we expand them manually
     # here
-    expanded_ports = []
-    for port in ports:
-        if "-" in port:
-            split = port.split("-")
-            if len(split) != 2:
-                raise ValueError(f"Bad port specification {port}")
-            for i in range(int(split[0]), int(split[1]) + 1):
-                expanded_ports.append(str(i))
-        else:
-            expanded_ports.append(port)
+    expanded_ports = list(expand_ports(ports))
 
     if expanded_ports:
         config["HostConfig"]["PortBindings"] = {

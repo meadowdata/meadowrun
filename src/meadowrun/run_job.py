@@ -158,11 +158,13 @@ async def _add_defaults_to_deployment(
 
 async def _prepare_code_deployment(
     code_deploy: Union[CodeDeployment, VersionedCodeDeployment],
-    object_storage: ObjectStorage,
+    host: Host,
 ) -> None:
     """Modifies code_deploy in place!"""
     if isinstance(code_deploy, CodeZipFile):
-        code_deploy.url = await object_storage.upload_from_file_url(code_deploy.url)
+        code_deploy.url = await (await host.get_object_storage()).upload_from_file_url(
+            code_deploy.url
+        )
 
 
 @dataclasses.dataclass
@@ -569,7 +571,7 @@ async def run_function(
     ):
         interpreter.additional_software["cuda"] = ""
 
-    await _prepare_code_deployment(code, await host.get_object_storage())
+    await _prepare_code_deployment(code, host)
 
     (
         sidecar_containers_prepared,
@@ -661,7 +663,7 @@ async def run_command(
     ):
         interpreter.additional_software["cuda"] = ""
 
-    await _prepare_code_deployment(code, await host.get_object_storage())
+    await _prepare_code_deployment(code, host)
 
     if context_variables:
         pickled_context_variables = pickle.dumps(
@@ -767,7 +769,7 @@ async def run_map(
     ):
         interpreter.additional_software["cuda"] = ""
 
-    await _prepare_code_deployment(code, await host.get_object_storage())
+    await _prepare_code_deployment(code, host)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 

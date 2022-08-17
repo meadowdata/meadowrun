@@ -28,6 +28,7 @@ import kubernetes_asyncio.watch as kubernetes_watch
 
 import meadowrun.func_worker_storage_helper
 from meadowrun.credentials import KubernetesSecretRaw
+from meadowrun.docker_controller import expand_ports
 from meadowrun.func_worker_storage_helper import (
     FuncWorkerClientObjectStorage,
     MEADOWRUN_STORAGE_PASSWORD,
@@ -458,8 +459,6 @@ class Kubernetes(Host):
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
             )
-        if job.ports:
-            raise NotImplementedError("Ports are not yet supported for Kubernetes")
 
         job_completions = await self._run_job_helper(
             await self._get_storage_client(), job, None
@@ -574,6 +573,7 @@ class Kubernetes(Host):
                     self.storage_username_password_secret,
                     image_pull_secret_name,
                     indexed_completions,
+                    [int(p) for p in expand_ports(job.ports)],
                 )
             except asyncio.CancelledError:
                 raise
@@ -606,7 +606,13 @@ class Kubernetes(Host):
             # TODO we should separately periodically clean up these files in case we
             # aren't able to execute this finally block
             if storage_client is not None:
-                for suffix in ["state", "result", "function", "arguments", "codezipfile"]:
+                for suffix in [
+                    "state",
+                    "result",
+                    "function",
+                    "arguments",
+                    "codezipfile",
+                ]:
                     try:
                         storage_client.delete_object(
                             Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
@@ -639,8 +645,6 @@ class Kubernetes(Host):
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
             )
-        if job_fields["ports"]:
-            raise NotImplementedError("Ports are not yet supported for Kubernetes")
 
         storage_client = await self._get_storage_client()
         # extra storage_bucket check is for mypy
@@ -963,6 +967,7 @@ async def _run_kubernetes_job(
     storage_username_password_secret: Optional[str],
     image_pull_secret_name: Optional[str],
     indexed_completions: Optional[int],
+    ports: List[int],
 ) -> Sequence[int]:
     """
     Runs the specified job on Kubernetes, waits for it to complete, and returns the exit
@@ -1022,6 +1027,28 @@ async def _run_kubernetes_job(
     else:
         additional_pod_spec_parameters = {}
 
+    if ports:
+        additional_container_parameters = {
+            "ports": [
+                kubernetes_client.V1ContainerPort(container_port=port) for port in ports
+            ]
+        }
+        service = kubernetes_client.V1Service(
+            metadata=kubernetes_client.V1ObjectMeta(name=f"svc-{job_id}"),
+            spec=kubernetes_client.V1ServiceSpec(
+                # The job-name label is automatically set by Kubernetes for pods created
+                # by jobs
+                selector={"job-name": job_id},
+                ports=[
+                    kubernetes_client.V1ServicePort(port=port, name=f"port{port}")
+                    for port in ports
+                ],
+            ),
+        )
+    else:
+        additional_container_parameters = {}
+        service = None
+
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
     body = kubernetes_client.V1Job(
         metadata=kubernetes_client.V1ObjectMeta(name=job_id),
@@ -1031,7 +1058,11 @@ async def _run_kubernetes_job(
                 spec=kubernetes_client.V1PodSpec(
                     containers=[
                         kubernetes_client.V1Container(
-                            name="main", image=image, args=args, env=environment
+                            name="main",
+                            image=image,
+                            args=args,
+                            env=environment,
+                            **additional_container_parameters,
                         )
                     ],
                     restart_policy="Never",
@@ -1057,6 +1088,10 @@ async def _run_kubernetes_job(
             await batch_api.create_namespaced_job(kubernetes_namespace, body)
 
             core_api = kubernetes_client.CoreV1Api(api_client)
+
+            if service:
+                await core_api.create_namespaced_service(kubernetes_namespace, service)
+                print(f"Created service {service.metadata.name}")
 
             # Now that we've created the job, wait for the pods to be created
 
@@ -1088,8 +1123,17 @@ async def _run_kubernetes_job(
                 ]
             )
         finally:
-            # TODO we should separately periodically clean up these jobs/pods in case we
-            # aren't able to execute this finally block
+            # TODO we should separately periodically clean up these jobs/pods services
+            # in case we aren't able to execute this finally block
+            if service is not None:
+                try:
+                    await core_api.delete_namespaced_service(
+                        service.metadata.name,
+                        kubernetes_namespace,
+                        propagation_policy="Foreground",
+                    )
+                except kubernetes_client_exceptions.ApiException as e:
+                    print(f"Warning, error cleaning up service: {e}")
             try:
                 await batch_api.delete_namespaced_job(
                     job_id, kubernetes_namespace, propagation_policy="Foreground"

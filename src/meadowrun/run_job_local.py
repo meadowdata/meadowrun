@@ -13,6 +13,7 @@ import sys
 import traceback
 from typing import (
     Any,
+    AsyncIterable,
     Callable,
     Coroutine,
     Dict,
@@ -73,6 +74,7 @@ from meadowrun.run_job_core import (
     LocalObjectStorage,
     MeadowrunException,
     ObjectStorage,
+    TaskResult,
 )
 from meadowrun.shared import pickle_exception
 
@@ -1229,6 +1231,19 @@ class LocalHost(Host):
         wait_for_result: bool,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map on LocalHost is not implemented")
+
+    def run_map_as_completed(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> AsyncIterable[TaskResult[_U]]:
+        raise NotImplementedError(
+            "run_map_as_completed is not implemented for LocalHost"
+        )
 
     async def get_object_storage(self) -> ObjectStorage:
         return LocalObjectStorage()

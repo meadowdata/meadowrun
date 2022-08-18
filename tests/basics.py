@@ -21,6 +21,7 @@ from meadowrun import (
     run_map,
 )
 from meadowrun.config import MEADOWRUN_INTERPRETER
+from meadowrun.run_job import run_map_as_completed
 
 if TYPE_CHECKING:
     from meadowrun.deployment_internal_types import (
@@ -592,3 +593,18 @@ class MapSuite(HostProvider, abc.ABC):
         )
 
         assert results == [1, 4, 27, 256], str(results)
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_run_map_as_completed(self) -> None:
+        actual = []
+        async for result in await run_map_as_completed(
+            lambda x: x**x,
+            [1, 2, 3, 4],
+            self.get_host(),
+            self.get_resources_required(),
+            num_concurrent_tasks=2,
+        ):
+            actual.append(result.result_or_raise())
+
+        assert set(actual) == set([1, 4, 27, 256])

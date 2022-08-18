@@ -15,7 +15,7 @@ import urllib.parse
 import zipfile
 from typing import (
     Any,
-    AsyncGenerator,
+    AsyncIterable,
     Awaitable,
     Callable,
     Dict,
@@ -34,7 +34,7 @@ from typing import (
 
 import asyncssh
 import filelock
-from typing_extensions import Literal
+from typing_extensions import Literal, Protocol
 
 import meadowrun.ssh as ssh
 from meadowrun.instance_selection import ResourcesInternal
@@ -273,6 +273,18 @@ class Host(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def run_map_as_completed(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> AsyncIterable[TaskResult[_U]]:
+        pass
+
+    @abc.abstractmethod
     async def get_object_storage(self) -> ObjectStorage:
         pass
 
@@ -474,6 +486,17 @@ class SshHost(Host):
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map is not implemented for SshHost")
 
+    def run_map_as_completed(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> AsyncIterable[TaskResult[_U]]:
+        raise NotImplementedError("run_map_as_completed is not implemented for SshHost")
+
     async def get_object_storage(self) -> ObjectStorage:
         raise NotImplementedError("get_object_storage is not implemented for SshHost")
 
@@ -497,6 +520,51 @@ class MeadowrunException(Exception):
         self.process_state = process_state
 
 
+class _GetResultsUnordered(Protocol):
+    def __call__(
+        self, *, workers_done: Optional[asyncio.Event]
+    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+        ...
+
+
+class TaskException(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class TaskResult(Generic[_T]):
+    """The result of a run_map_as_completed task."""
+
+    task_id: int
+    is_success: bool
+    result: Optional[_T] = None
+    exception: Optional[Tuple[str, str, str]] = None
+
+    def result_or_raise(self) -> _T:
+        """Returns a succesful task result, or raises a TaskException.
+
+        Raises:
+            TaskException: if the task did not finish successfully.
+
+        Returns:
+            _T: the unpickled result if the task finished successfully.
+        """
+        if self.is_success:
+            assert self.result is not None
+            return self.result
+        elif self.exception is not None:
+            raise TaskException(*self.exception)
+        else:
+            # fallback exception
+            raise TaskException("Task was not successful")
+
+
+_EXCEPTION_STATES = (
+    ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+    ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
+)
+
+
 @dataclasses.dataclass(frozen=True)
 class RunMapHelper:
     """See run_map. This allows run_map to use EC2 or Azure VMs"""
@@ -508,16 +576,47 @@ class RunMapHelper:
     ssh_username: str
     ssh_private_key: asyncssh.SSHKey
     num_tasks: int
-    result_futures: Callable[..., AsyncGenerator[Tuple[int, ProcessState], None]]
+    process_state_futures: _GetResultsUnordered
 
-    async def get_results(
+    async def get_results_as_completed(
+        self, workers_done: Optional[asyncio.Event]
+    ) -> AsyncIterable[TaskResult]:
+        """Generates TaskResult objects for each task as tasks are completed. Useful for
+        overlapping async work with getting task results, or getting the results from
+        jobs with partially unsuccesful tasks.
+
+        See also get_all_results.
+        """
+
+        async for task_id, result in self.process_state_futures(
+            workers_done=workers_done
+        ):
+            if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+                yield TaskResult(
+                    task_id, is_success=True, result=pickle.loads(result.pickled_result)
+                )
+            elif result.state in _EXCEPTION_STATES:
+                yield TaskResult(
+                    task_id,
+                    is_success=False,
+                    exception=pickle.loads(result.pickled_result),
+                )
+            else:
+                yield TaskResult(task_id, is_success=False)
+
+    async def get_all_results(
         self, workers_done: Optional[asyncio.Event] = None
     ) -> List[Any]:
+        """Waits until all results for all tasks are received, and returns their results
+        if they are all successful. An exception is thrown if not all results are
+        received, or if some tasks failed.
 
+        See also get_results_as_completed.
+        """
         task_results: List[Optional[ProcessState]] = [
             None for _ in range(self.num_tasks)
         ]
-        async for task_id, process_state in self.result_futures(
+        async for task_id, process_state in self.process_state_futures(
             workers_done=workers_done
         ):
             if task_results[task_id] is None:

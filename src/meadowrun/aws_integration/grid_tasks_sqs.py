@@ -11,7 +11,7 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncGenerator,
+    AsyncIterable,
     Callable,
     Iterable,
     List,
@@ -353,7 +353,7 @@ async def get_results_unordered(
     num_tasks: int,
     receive_message_wait_seconds: int = 20,
     workers_done: Optional[asyncio.Event] = None,
-) -> AsyncGenerator[Tuple[int, ProcessState], None]:
+) -> AsyncIterable[Tuple[int, ProcessState]]:
     """
     Listens to a result queue until we have results for num_tasks. Returns the unpickled
     results of those tasks.
@@ -475,7 +475,7 @@ async def prepare_ec2_run_map(
         ssh_username=SSH_USER,
         ssh_private_key=pkey,
         num_tasks=len(tasks),
-        result_futures=functools.partial(
+        process_state_futures=functools.partial(
             get_results_unordered, job_id, region_name, len(tasks)
         ),
     )

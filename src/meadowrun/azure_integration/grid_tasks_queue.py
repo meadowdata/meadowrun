@@ -13,7 +13,7 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncGenerator,
+    AsyncIterable,
     Callable,
     Iterable,
     Optional,
@@ -224,8 +224,12 @@ def worker_loop(
 
 
 async def get_results_unordered(
-    result_queue: Queue, num_tasks: int, location: str, workers_done: bool
-) -> AsyncGenerator[Tuple[int, ProcessState], None]:
+    result_queue: Queue,
+    num_tasks: int,
+    location: str,
+    workers_done: Optional[asyncio.Event] = None,
+) -> AsyncIterable[Tuple[int, ProcessState]]:
+
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
     # use them to react appropriately if a worker crashes unexpectedly.
@@ -315,7 +319,7 @@ async def prepare_azure_vm_run_map(
         ssh_username="meadowrunuser",
         ssh_private_key=private_key,
         num_tasks=len(tasks),
-        result_futures=functools.partial(
+        process_state_futures=functools.partial(
             get_results_unordered, result_queue, len(tasks), location
         ),
     )

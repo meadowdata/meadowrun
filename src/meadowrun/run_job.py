@@ -9,6 +9,7 @@ import shlex
 import uuid
 from typing import (
     Any,
+    AsyncIterable,
     Awaitable,
     Callable,
     Dict,
@@ -72,8 +73,10 @@ from meadowrun.run_job_core import (
     JobCompletion,
     ObjectStorage,
     Resources,
+    RunMapHelper,
     SshHost,
     S3CompatibleObjectStorage,
+    TaskResult,
 )
 
 if TYPE_CHECKING:
@@ -262,6 +265,111 @@ class AllocCloudInstance(Host):
                 "AllocCloudInstance"
             )
 
+        helper = await self._create_run_map_helper(
+            function,
+            args,
+            resources_required_per_task,
+            job_fields["ports"],
+            num_concurrent_tasks,
+        )
+
+        worker_tasks, ssh_hosts = await self._run_worker_loops(
+            helper,
+            pickle_protocol,
+            job_fields,
+            resources_required_per_task,
+            wait_for_result,
+        )
+
+        try:
+            if wait_for_result:
+                workers_done = asyncio.Event()
+                results_future = asyncio.create_task(
+                    helper.get_all_results(workers_done)
+                )
+                worker_results = await asyncio.gather(
+                    *worker_tasks, return_exceptions=True
+                )
+                workers_done.set()
+                results = await results_future
+                for worker_id, result in enumerate(worker_results):
+                    if isinstance(result, Exception):
+                        print(f"Worker {worker_id} exited with error: {result}")
+                return results
+            else:
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+                return None
+        finally:
+            await asyncio.gather(
+                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
+                return_exceptions=True,
+            )
+
+    async def run_map_as_completed(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> AsyncIterable[TaskResult[_U]]:
+        if resources_required_per_task is None:
+            raise ValueError(
+                "Resources.logical_cpu and memory_gb must be specified for "
+                "AllocCloudInstance"
+            )
+
+        helper = await self._create_run_map_helper(
+            function,
+            args,
+            resources_required_per_task,
+            job_fields["ports"],
+            num_concurrent_tasks,
+        )
+
+        worker_tasks, ssh_hosts = await self._run_worker_loops(
+            helper,
+            pickle_protocol,
+            job_fields,
+            resources_required_per_task,
+            wait_for_result=True,
+        )
+
+        async def gather_workers_and_set(
+            event: asyncio.Event, worker_tasks: List[asyncio.Task[JobCompletion]]
+        ) -> List:
+            worker_results = await asyncio.gather(*worker_tasks, return_exceptions=True)
+            event.set()
+            return worker_results
+
+        try:
+            workers_done = asyncio.Event()
+            workers_done_future = asyncio.create_task(
+                gather_workers_and_set(workers_done, worker_tasks)
+            )
+
+            async for result in helper.get_results_as_completed(workers_done):
+                yield result
+
+            worker_results = await workers_done_future
+            for worker_id, result in enumerate(worker_results):
+                if isinstance(result, Exception):
+                    print(f"Worker {worker_id} exited with error: {result}")
+        finally:
+            await asyncio.gather(
+                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
+                return_exceptions=True,
+            )
+
+    async def _create_run_map_helper(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: ResourcesInternal,
+        ports: Sequence[str],
+        num_concurrent_tasks: int,
+    ) -> RunMapHelper:
         if self.cloud_provider == "EC2":
             helper = await prepare_ec2_run_map(
                 function,
@@ -269,7 +377,7 @@ class AllocCloudInstance(Host):
                 self.region_name,
                 resources_required_per_task,
                 num_concurrent_tasks,
-                job_fields["ports"],
+                ports,
             )
         elif self.cloud_provider == "AzureVM":
             helper = await prepare_azure_vm_run_map(
@@ -278,13 +386,23 @@ class AllocCloudInstance(Host):
                 self.region_name,
                 resources_required_per_task,
                 num_concurrent_tasks,
-                job_fields["ports"],
+                ports,
             )
         else:
             raise ValueError(
                 f"Unexpected value for cloud_provider {self.cloud_provider}"
             )
 
+        return helper
+
+    async def _run_worker_loops(
+        self,
+        helper: RunMapHelper,
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        resources_required_per_task: Optional[ResourcesInternal],
+        wait_for_result: bool,
+    ) -> Tuple[List[asyncio.Task[JobCompletion]], Iterable[SshHost]]:
         # Now we will run worker_loop jobs on the hosts we got:
 
         pickled_worker_function = cloudpickle.dumps(
@@ -326,30 +444,7 @@ class AllocCloudInstance(Host):
 
                 worker_id += 1
 
-        try:
-            if wait_for_result:
-                workers_done = asyncio.Event()
-                results_future = asyncio.create_task(helper.get_results(workers_done))
-                worker_results = await asyncio.gather(
-                    *worker_tasks, return_exceptions=True
-                )
-                workers_done.set()
-                results = await results_future
-                for worker_id, result in enumerate(worker_results):
-                    if isinstance(result, Exception):
-                        print(f"Worker {worker_id} exited with error: {result}")
-                return results
-            else:
-                await asyncio.gather(*worker_tasks, return_exceptions=True)
-                return None
-        finally:
-            await asyncio.gather(
-                *[
-                    ssh_host.close_connection()
-                    for ssh_host in address_to_ssh_host.values()
-                ],
-                return_exceptions=True,
-            )
+        return worker_tasks, address_to_ssh_host.values()
 
     async def get_object_storage(self) -> ObjectStorage:
         if self.cloud_provider == "EC2":
@@ -801,6 +896,81 @@ async def run_map(
         num_concurrent_tasks,
         pickle_protocol,
         wait_for_result,
+    )
+
+
+async def run_map_as_completed(
+    function: Callable[[_T], _U],
+    args: Sequence[_T],
+    host: Host,
+    resources_per_task: Optional[Resources] = None,
+    deployment: Union[Deployment, Awaitable[Deployment], None] = None,
+    num_concurrent_tasks: Optional[int] = None,
+    sidecar_containers: Union[
+        Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
+    ] = None,
+    ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
+) -> AsyncIterable[TaskResult[_U]]:
+    """
+    Equivalent to [run_map][meadowrun.run_map], but returns results from tasks as they
+    are completed.
+    Returns:
+        An async iterable returning TaskResult objects.
+    """
+
+    if resources_per_task is None:
+        resources_per_task = Resources()
+
+    if not num_concurrent_tasks:
+        num_concurrent_tasks = len(args) // 2 + 1
+    else:
+        num_concurrent_tasks = min(num_concurrent_tasks, len(args))
+
+    # prepare some variables for constructing the worker jobs
+    friendly_name = _get_friendly_name(function)
+    (
+        interpreter,
+        code,
+        environment_variables,
+        credentials_sources,
+    ) = await _add_defaults_to_deployment(deployment)
+
+    if resources_per_task.needs_cuda() and isinstance(
+        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
+    ):
+        interpreter.additional_software["cuda"] = ""
+
+    await _prepare_code_deployment(code, host)
+
+    pickle_protocol = _pickle_protocol_for_deployed_interpreter()
+
+    (
+        sidecar_containers_prepared,
+        additional_credentials_sources,
+    ) = _prepare_sidecar_containers(sidecar_containers)
+    credentials_sources.extend(additional_credentials_sources)
+
+    prepared_ports = _prepare_ports(ports)
+
+    job_fields = {
+        "job_friendly_name": friendly_name,
+        "environment_variables": environment_variables,
+        "result_highest_pickle_protocol": pickle.HIGHEST_PROTOCOL,
+        "sidecar_containers": sidecar_containers_prepared,
+        "credentials_sources": credentials_sources,
+        "ports": prepared_ports,
+        "uses_gpu": resources_per_task.uses_gpu(),
+        _job_field_for_code_deployment(code): code,
+        _job_field_for_interpreter_deployment(interpreter): interpreter,
+    }
+
+    return host.run_map_as_completed(
+        function,
+        args,
+        resources_per_task.to_internal(),
+        job_fields,
+        num_concurrent_tasks,
+        pickle_protocol,
     )
 
 

@@ -47,6 +47,7 @@ from meadowrun.run_job import (
     run_command,
     run_function,
     run_map,
+    run_map_as_completed,
 )
 from meadowrun.deployment_spec import (
     AwsSecret,
@@ -77,6 +78,7 @@ __all__ = [
     "run_command",
     "run_function",
     "run_map",
+    "run_map_as_completed",
     "AwsSecret",
     "AzureSecret",
     "CondaEnvironmentYmlFile",

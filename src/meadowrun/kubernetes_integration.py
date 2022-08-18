@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import dataclasses
+import math
 import os
 import pickle
 import traceback
@@ -17,6 +18,7 @@ from typing import (
     Sequence,
     TYPE_CHECKING,
     TypeVar,
+    Tuple,
 )
 
 import botocore.exceptions
@@ -27,6 +29,7 @@ import kubernetes_asyncio.config as kubernetes_config
 import kubernetes_asyncio.watch as kubernetes_watch
 
 import meadowrun.func_worker_storage_helper
+from meadowrun.config import LOGICAL_CPU, MEMORY_GB, GPU
 from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.docker_controller import expand_ports
 from meadowrun.func_worker_storage_helper import (
@@ -451,17 +454,13 @@ class Kubernetes(Host):
             raise NotImplementedError(
                 "wait_for_result=False is not supported for Kubernetes yet"
             )
-        if resources_required is not None:
-            raise NotImplementedError(
-                "Specifying Resources for a Kubernetes job is not yet supported"
-            )
         if job.sidecar_containers:
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
             )
 
         job_completions = await self._run_job_helper(
-            await self._get_storage_client(), job, None
+            await self._get_storage_client(), job, resources_required, None
         )
         if len(job_completions) != 1:
             raise ValueError(
@@ -474,6 +473,7 @@ class Kubernetes(Host):
         self,
         storage_client: Any,
         job: Job,
+        resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
     ) -> List[JobCompletion[Any]]:
         # A wrapper around _run_kubernetes_job. Main tasks at this level are:
@@ -574,6 +574,7 @@ class Kubernetes(Host):
                     image_pull_secret_name,
                     indexed_completions,
                     [int(p) for p in expand_ports(job.ports)],
+                    resources_required,
                 )
             except asyncio.CancelledError:
                 raise
@@ -637,10 +638,6 @@ class Kubernetes(Host):
             raise NotImplementedError(
                 "wait_for_result=False is not supported on Kubernetes yet"
             )
-        if resources_required_per_task is not None:
-            raise NotImplementedError(
-                "Specifying Resources for a Kubernetes job is not yet supported"
-            )
         if job_fields["sidecar_containers"]:
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
@@ -692,6 +689,7 @@ class Kubernetes(Host):
                 ),
                 **job_fields,
             ),
+            resources_required_per_task,
             num_concurrent_tasks,
         )
 
@@ -812,24 +810,41 @@ async def _get_pods_for_job(
 
 
 def _get_main_container_state(
-    container_statuses: Optional[List[kubernetes_client.V1ContainerStatus]],
-    job_id: str,
-    pod_name: str,
-) -> Optional[kubernetes_client.V1ContainerState]:
-    if container_statuses is None or len(container_statuses) == 0:
-        return None
+    pod: kubernetes_client.V1Pod, job_id: str, pod_name: str
+) -> Tuple[Optional[kubernetes_client.V1ContainerState], Optional[str]]:
+    # first get main container state
+    container_statuses = pod.status.container_statuses
 
-    main_container_statuses = [s for s in container_statuses if s.name == "main"]
-    if len(main_container_statuses) == 0:
-        raise ValueError(
-            f"The job {job_id} has a pod {pod_name} but there is no `main` container"
-        )
-    if len(main_container_statuses) > 1:
-        raise ValueError(
-            f"The job {job_id} has a pod {pod_name} but there is more than one `main` "
-            f"container"
-        )
-    return main_container_statuses[0].state
+    if container_statuses is None or len(container_statuses) == 0:
+        main_container_state = None
+    else:
+        main_container_statuses = [s for s in container_statuses if s.name == "main"]
+        if len(main_container_statuses) == 0:
+            raise ValueError(
+                f"The job {job_id} has a pod {pod_name} but there is no `main` "
+                "container"
+            )
+        if len(main_container_statuses) > 1:
+            raise ValueError(
+                f"The job {job_id} has a pod {pod_name} but there is more than one "
+                "`main` container"
+            )
+        main_container_state = main_container_statuses[0].state
+
+    # then get the latest condition's reason, this is where Kubernetes will tell us that
+    # e.g. the pod is unschedulable
+    if pod.status.conditions:
+        latest_condition = pod.status.conditions[-1]
+        result_builder = []
+        if latest_condition.reason:
+            result_builder.append(latest_condition.reason)
+        if latest_condition.message:
+            result_builder.append(latest_condition.message)
+        latest_condition_reason = ", ".join(result_builder)
+    else:
+        latest_condition_reason = None
+
+    return main_container_state, latest_condition_reason
 
 
 async def _stream_pod_logs_and_get_exit_code(
@@ -859,22 +874,23 @@ async def _stream_pod_logs_and_get_exit_code(
     i = 0
     wait_until = 15
     max_wait_until = 60 * 7
-    main_container_state: kubernetes_client.V1ContainerState = (
-        _get_main_container_state(pod.status.container_statuses, job_id, pod_name)
+    main_container_state, latest_condition_reason = _get_main_container_state(
+        pod, job_id, pod_name
     )
     prev_additional_info = None
     while main_container_state is None or (
         main_container_state.running is None and main_container_state.terminated is None
     ):
         is_happy_path = False
+        additional_info_builder = [":"]
         if (
             main_container_state is not None
             and main_container_state.waiting is not None
         ):
-            additional_info = f": {main_container_state.waiting.reason}"
+            additional_info_builder.append(str(main_container_state.waiting.reason))
             if main_container_state.waiting.message is not None:
-                additional_info = (
-                    f"{additional_info} {main_container_state.waiting.message}"
+                additional_info_builder.append(
+                    str(main_container_state.waiting.message)
                 )
             elif main_container_state.waiting.reason == "ContainerCreating":
                 # TODO Kubernetes unfortunately doesn't distinguish between waiting for
@@ -882,12 +898,17 @@ async def _stream_pod_logs_and_get_exit_code(
                 # need to use the Events API to get that information. At some point it
                 # may come through in this waiting.reason field, though:
                 # https://github.com/kubernetes/kubernetes/issues/19077
-                additional_info = (
-                    f"{additional_info} (pulling image or waiting for available nodes)"
+                additional_info_builder.append(
+                    "(pulling image or waiting for available nodes)"
                 )
                 is_happy_path = True
-        else:
+        if latest_condition_reason:
+            additional_info_builder.append(latest_condition_reason)
+
+        if len(additional_info_builder) == 1:
             additional_info = ""
+        else:
+            additional_info = " ".join(additional_info_builder)
         if additional_info != prev_additional_info:
             print(f"Waiting for pod {pod_name} to start running{additional_info}")
             prev_additional_info = additional_info
@@ -902,8 +923,8 @@ async def _stream_pod_logs_and_get_exit_code(
             )
 
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-        main_container_state = _get_main_container_state(
-            pod.status.container_statuses, job_id, pod_name
+        main_container_state, latest_condition_reason = _get_main_container_state(
+            pod, job_id, pod_name
         )
 
     # Now our pod is running, so we can stream the logs
@@ -922,9 +943,7 @@ async def _stream_pod_logs_and_get_exit_code(
 
     i = 0
     pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-    main_container_state = _get_main_container_state(
-        pod.status.container_statuses, job_id, pod_name
-    )
+    main_container_state, _ = _get_main_container_state(pod, job_id, pod_name)
     while main_container_state is None or main_container_state.running is not None:
         print("Waiting for the pod to stop running")
         await asyncio.sleep(1.0)
@@ -936,9 +955,7 @@ async def _stream_pod_logs_and_get_exit_code(
                 "running"
             )
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-        main_container_state = _get_main_container_state(
-            pod.status.container_statuses, job_id, pod_name
-        )
+        main_container_state, _ = _get_main_container_state(pod, job_id, pod_name)
 
     return main_container_state.terminated.exit_code
 
@@ -958,6 +975,30 @@ async def _get_kubernetes_secret(
     }
 
 
+def _resources_to_kubernetes(resources: ResourcesInternal) -> Dict[str, int]:
+    result = {}
+
+    if LOGICAL_CPU in resources.consumable:
+        result["cpu"] = math.ceil(resources.consumable[LOGICAL_CPU])
+    if MEMORY_GB in resources.consumable:
+        result["memory"] = math.ceil(resources.consumable[MEMORY_GB] * (1024**3))
+    if GPU in resources.consumable:
+        num_gpus = math.ceil(resources.consumable[GPU])
+        if "nvidia" in resources.non_consumable:
+            result["nvidia.com/gpu"] = num_gpus
+        else:
+            raise ValueError(
+                "Must specify a type of GPU (e.g. nvidia) if a GPU resource is "
+                "requested"
+            )
+
+    # TODO maybe warn if people are trying to use resources that we don't know how to
+    # interpret
+    # TODO maybe turn max_eviction_rate into a pod disruption budget?
+
+    return result
+
+
 async def _run_kubernetes_job(
     job_id: str,
     kubernetes_namespace: str,
@@ -968,6 +1009,7 @@ async def _run_kubernetes_job(
     image_pull_secret_name: Optional[str],
     indexed_completions: Optional[int],
     ports: List[int],
+    resources: Optional[ResourcesInternal],
 ) -> Sequence[int]:
     """
     Runs the specified job on Kubernetes, waits for it to complete, and returns the exit
@@ -1027,12 +1069,12 @@ async def _run_kubernetes_job(
     else:
         additional_pod_spec_parameters = {}
 
+    additional_container_parameters = {}
+
     if ports:
-        additional_container_parameters = {
-            "ports": [
-                kubernetes_client.V1ContainerPort(container_port=port) for port in ports
-            ]
-        }
+        additional_container_parameters["ports"] = [
+            kubernetes_client.V1ContainerPort(container_port=port) for port in ports
+        ]
         service = kubernetes_client.V1Service(
             metadata=kubernetes_client.V1ObjectMeta(name=f"svc-{job_id}"),
             spec=kubernetes_client.V1ServiceSpec(
@@ -1046,8 +1088,14 @@ async def _run_kubernetes_job(
             ),
         )
     else:
-        additional_container_parameters = {}
         service = None
+
+    if resources is not None:
+        additional_container_parameters[
+            "resources"
+        ] = kubernetes_client.V1ResourceRequirements(
+            requests=_resources_to_kubernetes(resources)
+        )
 
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
     body = kubernetes_client.V1Job(

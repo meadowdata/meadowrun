@@ -9,14 +9,15 @@ import pickle
 import traceback
 import uuid
 from typing import (
+    TYPE_CHECKING,
     Any,
+    AsyncIterable,
     Callable,
     Dict,
     Iterable,
     List,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
     TypeVar,
 )
@@ -29,16 +30,14 @@ import kubernetes_asyncio.config as kubernetes_config
 import kubernetes_asyncio.watch as kubernetes_watch
 
 import meadowrun.func_worker_storage_helper
-from meadowrun.config import LOGICAL_CPU, MEMORY_GB, GPU
+from meadowrun.config import GPU, LOGICAL_CPU, MEMORY_GB
 from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.docker_controller import expand_ports
 from meadowrun.func_worker_storage_helper import (
-    FuncWorkerClientObjectStorage,
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
+    FuncWorkerClientObjectStorage,
     get_storage_client_from_args,
-)
-from meadowrun.func_worker_storage_helper import (
     read_storage_bytes,
     read_storage_pickle,
     write_storage_bytes,
@@ -64,8 +63,10 @@ from meadowrun.run_job_local import (
 from meadowrun.version import __version__
 
 if TYPE_CHECKING:
-    from meadowrun.instance_selection import ResourcesInternal
     from typing_extensions import Literal
+
+    from meadowrun.instance_selection import ResourcesInternal
+    from meadowrun.run_job_core import TaskResult
 
 
 _T = TypeVar("_T")
@@ -983,6 +984,19 @@ class Kubernetes(Host):
             results.append(result)
 
         return results
+
+    def run_map_as_completed(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> AsyncIterable[TaskResult[_U]]:
+        raise NotImplementedError(
+            "run_map_as_completed is not implemented for Kubernetes"
+        )
 
     async def get_object_storage(self) -> ObjectStorage:
         storage_client = await self._get_storage_client()

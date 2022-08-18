@@ -330,7 +330,7 @@ class TestGridTaskQueue:
             )
         )
         worker_thread.start()
-        results = await helper.get_results()
+        results = await helper.get_all_results()
         worker_thread.join()
         assert results == [1, 4, 27, 256]
 
@@ -358,7 +358,7 @@ class TestGridTaskQueue:
         )
 
         event = asyncio.Event()
-        results_future = asyncio.create_task(helper.get_results(event))
+        results_future = asyncio.create_task(helper.get_all_results(event))
 
         # only complete one task - get_results should still exit.
         def complete_tasks() -> None:

@@ -224,9 +224,8 @@ def worker_loop(
 
 
 async def get_results_unordered(
-    result_queue: Queue, num_tasks: int, location: str
+    result_queue: Queue, num_tasks: int, location: str, workers_done: bool
 ) -> AsyncGenerator[Tuple[int, ProcessState], None]:
-    task_results_received = 0
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
     # use them to react appropriately if a worker crashes unexpectedly.
@@ -234,7 +233,7 @@ async def get_results_unordered(
     num_tasks_running, num_tasks_completed = 0, 0
     t0 = None
     updated = True
-    while task_results_received < num_tasks:
+    while num_tasks_completed < num_tasks:
         if updated or t0 is None or time.time() - t0 > 20:
             # log this message every 20 seconds, or whenever there's an update
             t0 = time.time()

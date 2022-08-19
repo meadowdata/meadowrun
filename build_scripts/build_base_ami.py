@@ -212,7 +212,7 @@ def main() -> None:
         actions_on_vm = plain_base_image_actions_on_vm
         all_region_base_amis = VANILLA_UBUNTU_AMIS
     elif args.type == "cuda":
-        volume_size_gb = 14
+        volume_size_gb = 16
         actions_on_vm = cuda_base_image_actions_on_vm
         all_region_base_amis = BASE_AMIS["plain"]
     else:

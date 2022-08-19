@@ -128,6 +128,12 @@ async def cuda_base_image_actions_on_vm(
         connection, "sudo mv /home/ubuntu/dlami.sh /etc/profile.d/dlami.sh"
     )
 
+    # we make one ssh connection per host, but sometimes have many workers on a host.
+    # Default maxsessions is 10, we set it to 64 here somewhat arbitrarily.
+    await run_and_print(
+        connection, "echo 'MaxSessions 64' | sudo tee -a /etc/ssh/sshd_config"
+    )
+
     return (
         f"cuda{await parse_cuda_version(connection)}"
         f"-ubuntu{await parse_ubuntu_version(connection)}"

@@ -134,10 +134,4 @@ async def upload_and_configure_meadowrun(
         "sudo systemctl enable --now meadowrun-check-spot-eviction.timer",
     )
 
-    # we make one ssh connection per host, but sometimes have many workers on a host.
-    # Default maxsessions is 10, we set it to 64 here somewhat arbitrarily.
-    await run_and_print(
-        connection, "echo 'MaxSessions 64' | sudo tee -a /etc/ssh/sshd_config"
-    )
-
     return image_name

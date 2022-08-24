@@ -27,6 +27,7 @@ MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 # This is a global variable that will be updated with the storage client if it's
 # available in func_worker_storage
 FUNC_WORKER_STORAGE_CLIENT: Optional[Any] = None
+FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 
 
 def get_storage_client_from_args(
@@ -97,6 +98,32 @@ def write_storage_bytes(
         storage_client.upload_fileobj(
             Fileobj=buffer, Bucket=storage_bucket, Key=storage_filename
         )
+
+
+def write_storage_file(
+    storage_client: Any, storage_bucket: str, local_filename: str, storage_filename: str
+) -> None:
+    storage_client.upload_file(
+        Filename=local_filename, Bucket=storage_bucket, Key=storage_filename
+    )
+
+
+def try_get_storage_file(
+    storage_client: Any,
+    storage_bucket: str,
+    storage_filename: str,
+    local_filename: str,
+) -> bool:
+    try:
+        storage_client.download_file(storage_bucket, storage_filename, local_filename)
+        return True
+    except botocore.exceptions.ClientError as error:
+        # don't raise an error saying the file doesn't exist, we'll just upload it
+        # in that case by falling through to the next bit of code
+        if not error.response["Error"]["Code"] == "404":
+            raise error
+
+        return False
 
 
 @dataclasses.dataclass

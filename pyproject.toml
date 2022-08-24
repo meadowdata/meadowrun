@@ -57,6 +57,11 @@ toml = "^0.10.2"
 PyYAML = "^6.0"
 types-toml = "^0.10.8"
 types-PyYAML = "^6.0.11"
+# this is a weird dependency--we will actually depend on it in production but only
+# inside of the meadowrun container or the meadowrun AMI (TODO need to actually add to
+# the AMI) which we fully control. We don't want to cause it to be downloaded when
+# there's no need for it
+venv-pack = "^0.2.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -100,5 +105,6 @@ module = [
     "kubernetes_asyncio.config",
     "kubernetes_asyncio.watch",
     "kubernetes_asyncio.client.exceptions",
+    "venv_pack",
 ]
 ignore_missing_imports = true

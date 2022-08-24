@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio.subprocess
+import functools
 import hashlib
 import os
 import shutil
@@ -44,13 +45,18 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableContainer,
     ServerAvailableInterpreter,
 )
-from meadowrun.pip_integration import create_pip_environment
+from meadowrun.pip_integration import get_cached_or_create_pip_environment
 from meadowrun.run_job import S3ObjectStorage, AzureBlobStorage
 from meadowrun.run_job_core import (
     CloudProviderType,
     ContainerRegistryHelper,
     LocalObjectStorage,
 )
+from meadowrun.func_worker_storage_helper import (
+    try_get_storage_file,
+    write_storage_file,
+)
+import meadowrun.func_worker_storage_helper
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
@@ -456,11 +462,25 @@ async def compile_environment_spec_locally(
             "Building conda environments locally is not yet supported"
         )
     elif environment_spec.environment_type == EnvironmentType.PIP:
-        # TODO we should usually have a filelock around this but we're currently only
-        # using this code path inside a single-use container so we don't need that
         return ServerAvailableInterpreter(
-            interpreter_path=await create_pip_environment(
-                path_to_spec, os.path.join(built_interpreters_folder, spec_hash)
+            interpreter_path=await get_cached_or_create_pip_environment(
+                spec_hash,
+                path_to_spec,
+                os.path.join(built_interpreters_folder, spec_hash),
+                # TODO this isn't the right way to do this--these try_get_storage_file
+                # and write_storage file functions should be getting passed in from
+                # higher up. For now this works because this code path is only being hit
+                # from Kubernetes
+                functools.partial(
+                    try_get_storage_file,
+                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT,
+                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET,
+                ),
+                functools.partial(
+                    write_storage_file,
+                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT,
+                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET,
+                ),
             )
         )
     elif environment_spec.environment_type == EnvironmentType.POETRY:

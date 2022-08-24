@@ -14,7 +14,6 @@ from typing import (
     Dict,
     Iterable,
     List,
-    Literal,
     Optional,
     Sequence,
     TYPE_CHECKING,
@@ -28,6 +27,7 @@ import kubernetes_asyncio.client as kubernetes_client
 import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
 import kubernetes_asyncio.config as kubernetes_config
 import kubernetes_asyncio.watch as kubernetes_watch
+from typing_extensions import Literal
 
 import meadowrun.func_worker_storage_helper
 from meadowrun.config import LOGICAL_CPU, MEMORY_GB, GPU

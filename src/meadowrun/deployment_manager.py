@@ -42,7 +42,9 @@ from meadowrun.meadowrun_pb2 import (
     EnvironmentType,
     Job,
     ServerAvailableContainer,
+    ServerAvailableInterpreter,
 )
+from meadowrun.pip_integration import create_pip_environment
 from meadowrun.run_job import S3ObjectStorage, AzureBlobStorage
 from meadowrun.run_job_core import (
     CloudProviderType,
@@ -425,6 +427,54 @@ async def compile_environment_spec_to_container(
             )
 
     return result
+
+
+async def compile_environment_spec_locally(
+    environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
+    interpreter_spec_path: str,
+    built_interpreters_folder: str,
+) -> ServerAvailableInterpreter:
+    """
+    Turns e.g. a conda_environment.yml file into a locally available python interpreter
+    """
+    path_to_spec, spec_hash, has_git_dependency = _get_path_and_hash(
+        environment_spec, interpreter_spec_path
+    )
+    # we don't have to worry about has_git_dependency as we assume we always have git
+    # installed in this environment
+
+    print(f"Building python environment locally {spec_hash}")
+
+    # TODO we shouldn't install apt packages but we should check to see whether they're
+    # installed
+    # apt_packages = [
+    #     p for p in environment_spec.additional_software.keys() if p != "cuda"
+    # ]
+
+    if environment_spec.environment_type == EnvironmentType.CONDA:
+        raise NotImplementedError(
+            "Building conda environments locally is not yet supported"
+        )
+    elif environment_spec.environment_type == EnvironmentType.PIP:
+        # TODO we should usually have a filelock around this but we're currently only
+        # using this code path inside a single-use container so we don't need that
+        return ServerAvailableInterpreter(
+            interpreter_path=await create_pip_environment(
+                path_to_spec, os.path.join(built_interpreters_folder, spec_hash)
+            )
+        )
+    elif environment_spec.environment_type == EnvironmentType.POETRY:
+        # os.path.join(path_to_spec, "pyproject.toml")
+        # os.path.join(path_to_spec, "poetry.lock")
+        raise NotImplementedError(
+            "Building poetry environments locally is not yet supported"
+        )
+    else:
+        raise ValueError(
+            f"Unexpected environment_type {environment_spec.environment_type}"
+        )
+
+    # TODO cache the image so that we don't have to build it from scratch every time
 
 
 def _hash_spec(spec_contents: bytes) -> str:

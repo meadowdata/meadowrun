@@ -74,3 +74,46 @@ async def pip_freeze_without_local_current_interpreter() -> str:
             processed_result.append(line)
 
     return "\n".join(processed_result)
+
+
+async def create_pip_environment(
+    requirements_file_path: str, new_environment_path: str
+) -> str:
+    """
+    Creates a pip environment in new_environment_path, returns the path to the python
+    executable in the newly created environment (always
+    new_environment_path/bin/python). requirements_file_path should point to a
+    requirements.txt file that will determine what packages are installed.
+
+    There should usually use filelock around this function.
+    """
+    return_code = await (
+        await asyncio.create_subprocess_exec(
+            "python", "-m", "venv", new_environment_path
+        )
+    ).wait()
+    if return_code != 0:
+        raise ValueError(
+            f"venv creation in {new_environment_path} failed with return code "
+            f"{return_code}"
+        )
+
+    new_environment_interpreter = os.path.join(new_environment_path, "bin", "python")
+
+    return_code = await (
+        await asyncio.create_subprocess_exec(
+            new_environment_interpreter,
+            "-m",
+            "pip",
+            "install",
+            "-r",
+            requirements_file_path,
+        )
+    ).wait()
+    if return_code != 0:
+        raise ValueError(
+            f"Installing requirements from {requirements_file_path} in "
+            f"{new_environment_path} failed with return code {return_code}"
+        )
+
+    return new_environment_interpreter

@@ -8,6 +8,14 @@ from typing import Callable
 
 import filelock
 
+from meadowrun.shared import remove_corrupted_environment
+
+
+# _pip_freeze and friends are run in the user environment and have to deal with
+# arbitrary configurations. get_cached_or_create_pip_environment and
+# create_pip_environment run in controlled environments, either in the Meadowrun docker
+# image or a Meadowrun AMI
+
 
 async def _pip_freeze(python_interpreter: str) -> str:
     """Effectively returns the output of <python_interpreter> -m pip freeze"""
@@ -94,12 +102,8 @@ async def get_cached_or_create_pip_environment(
     cached, creates it from the cache. Otherwise creates the environment from scratch
     and caches it. Returns the path to the newly created python interpreter.
 
-    try_get_file(remote_file_name: str, local_file_name: str) -> bool. Tries to download
-    the specified remote file to the specified local file name. Returns True if the file
-    is available, False if the file is not available.
-
-    upload_file(local_file_name: str, remote_file_name: str) -> None. Uploads the
-    specified file, overwrites any existing remote file.
+    try_get_file and upload_file are for interacting with the cache, see
+    compile_environment_spec_locally for more details
     """
     # this assumes that that current version of python is what will be used in
     # create_pip_environment
@@ -123,18 +127,22 @@ async def get_cached_or_create_pip_environment(
             try:
                 print("Unpacking cached pip environment")
                 os.makedirs(new_environment_path, exist_ok=True)
-                # TODO maybe cleaner to use the built-in python tar libraries?
-                return_code = await (
-                    await asyncio.create_subprocess_exec(
-                        "tar", "-xzf", local_cached_file, "-C", new_environment_path
-                    )
-                ).wait()
-                if return_code != 0:
-                    raise ValueError(
-                        f"Unpacking cached pip environment {local_cached_file} "
-                        f"returned code {return_code}"
-                    )
-                return new_environment_interpreter
+                try:
+                    # TODO maybe cleaner to use the built-in python tar libraries?
+                    return_code = await (
+                        await asyncio.create_subprocess_exec(
+                            "tar", "-xzf", local_cached_file, "-C", new_environment_path
+                        )
+                    ).wait()
+                    if return_code != 0:
+                        raise ValueError(
+                            f"Unpacking cached pip environment {local_cached_file} "
+                            f"returned code {return_code}"
+                        )
+                    return new_environment_interpreter
+                except BaseException:
+                    remove_corrupted_environment(new_environment_path)
+                    raise
             finally:
                 try:
                     os.remove(local_cached_file)
@@ -144,7 +152,11 @@ async def get_cached_or_create_pip_environment(
                     pass
 
         print("Creating the pip environment")
-        await create_pip_environment(requirements_file_path, new_environment_path)
+        try:
+            await create_pip_environment(requirements_file_path, new_environment_path)
+        except BaseException:
+            remove_corrupted_environment(new_environment_path)
+            raise
 
         try:
             import venv_pack  # see note on reference in pyproject.toml
@@ -172,6 +184,7 @@ async def create_pip_environment(
 
     There should usually be a filelock around this function.
     """
+    # this code is roughly equivalent to the code in PipDockerfile and PipAptDockerfile
     return_code = await (
         await asyncio.create_subprocess_exec(
             "python", "-m", "venv", new_environment_path

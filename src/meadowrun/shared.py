@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import pickle
+import shutil
 import traceback
 from typing import Optional, TypeVar
 
@@ -36,3 +38,15 @@ def assert_is_not_none(resources: Optional[_T]) -> _T:
     """A helper for mypy"""
     assert resources is not None
     return resources
+
+
+def remove_corrupted_environment(path: str) -> None:
+    try:
+        shutil.rmtree(path, True)
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        print(
+            f"Warning, exception trying to delete {path}, this environment is corrupted"
+        )
+        traceback.print_exc()

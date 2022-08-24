@@ -10,6 +10,8 @@ import shutil
 import tempfile
 import urllib.parse
 from typing import (
+    Awaitable,
+    Callable,
     List,
     Mapping,
     Optional,
@@ -28,6 +30,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
 from meadowrun.azure_integration.acr import get_acr_helper
+from meadowrun.conda import get_cached_or_create_conda_environment
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
     _does_digest_exist_locally,
@@ -46,6 +49,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableInterpreter,
 )
 from meadowrun.pip_integration import get_cached_or_create_pip_environment
+from meadowrun.poetry_integration import get_cached_or_create_poetry_environment
 from meadowrun.run_job import S3ObjectStorage, AzureBlobStorage
 from meadowrun.run_job_core import (
     CloudProviderType,
@@ -458,43 +462,45 @@ async def compile_environment_spec_locally(
     # ]
 
     if environment_spec.environment_type == EnvironmentType.CONDA:
-        raise NotImplementedError(
-            "Building conda environments locally is not yet supported"
-        )
+        get_cached_or_create: Callable[
+            [str, str, str, Callable[[str, str], bool], Callable[[str, str], None]],
+            Awaitable[str],
+        ] = get_cached_or_create_conda_environment
     elif environment_spec.environment_type == EnvironmentType.PIP:
-        return ServerAvailableInterpreter(
-            interpreter_path=await get_cached_or_create_pip_environment(
-                spec_hash,
-                path_to_spec,
-                os.path.join(built_interpreters_folder, spec_hash),
-                # TODO this isn't the right way to do this--these try_get_storage_file
-                # and write_storage file functions should be getting passed in from
-                # higher up. For now this works because this code path is only being hit
-                # from Kubernetes
-                functools.partial(
-                    try_get_storage_file,
-                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT,
-                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET,
-                ),
-                functools.partial(
-                    write_storage_file,
-                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT,
-                    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET,
-                ),
-            )
-        )
+        get_cached_or_create = get_cached_or_create_pip_environment
     elif environment_spec.environment_type == EnvironmentType.POETRY:
-        # os.path.join(path_to_spec, "pyproject.toml")
-        # os.path.join(path_to_spec, "poetry.lock")
-        raise NotImplementedError(
-            "Building poetry environments locally is not yet supported"
-        )
+        get_cached_or_create = get_cached_or_create_poetry_environment
     else:
         raise ValueError(
             f"Unexpected environment_type {environment_spec.environment_type}"
         )
 
-    # TODO cache the image so that we don't have to build it from scratch every time
+    return ServerAvailableInterpreter(
+        interpreter_path=await get_cached_or_create(
+            spec_hash,
+            path_to_spec,
+            os.path.join(built_interpreters_folder, spec_hash),
+            # TODO this isn't the right way to do this--these try_get_storage_file and
+            # write_storage file functions should be getting passed in from higher up.
+            # For now this works because this code path is only being hit from
+            # Kubernetes
+            # try_get_file(remote_file_name: str, local_file_name: str) -> bool. Tries
+            # to download the specified remote file to the specified local file name.
+            # Returns True if the file is available, False if the file is not available.
+            functools.partial(
+                try_get_storage_file,
+                meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT,
+                meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET,
+            ),
+            # upload_file(local_file_name: str, remote_file_name: str) -> None. Uploads
+            # the specified file, overwrites any existing remote file.
+            functools.partial(
+                write_storage_file,
+                meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT,
+                meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET,
+            ),
+        )
+    )
 
 
 def _hash_spec(spec_contents: bytes) -> str:

@@ -27,6 +27,8 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
     choose_instance_types_for_job,
 )
+from meadowrun.version import __version__
+
 
 _MEADOWRUN_VIRTUAL_NETWORK_NAME = "Meadowrun-vnet"
 _MEADOWRUN_SUBNET_NAME = "Meadowrun-subnet"
@@ -41,7 +43,6 @@ _MEADOWRUN_COMMUNITY_IMAGE_ID = (
     "/CommunityGalleries/meadowprodeastus-e8b60fd5-8978-467b-a1b0-5b83cbf5393d/Images/"
     "meadowrun"
 )
-_MEADOWRUN_IMAGE_VERSION = "0.2.1"
 
 
 async def _ensure_virtual_network_and_subnet(location: str) -> str:
@@ -314,7 +315,7 @@ async def launch_vms(
     vm_detail_tasks = []
     chosen_instance_types_repeated = []
 
-    image_id = f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/{_MEADOWRUN_IMAGE_VERSION}"
+    image_id = f"{_MEADOWRUN_COMMUNITY_IMAGE_ID}/versions/{__version__}"
     # for development, you can uncomment the following, and replace "Community" with
     # "Regular" below
     # image_id = (

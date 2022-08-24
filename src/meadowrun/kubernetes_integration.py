@@ -14,11 +14,12 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Literal,
     Optional,
     Sequence,
     TYPE_CHECKING,
-    TypeVar,
     Tuple,
+    TypeVar,
 )
 
 import botocore.exceptions
@@ -64,6 +65,8 @@ from meadowrun.func_worker_storage_helper import (
     write_storage_bytes,
     write_storage_pickle,
 )
+
+from meadowrun.version import __version__
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -159,7 +162,7 @@ def _indexed_map_worker(
         i += num_workers
 
 
-def _get_job_completion(
+def _get_job_completion_from_state_result(
     storage_client: Any,
     storage_bucket: Optional[str],
     file_prefix: str,
@@ -251,6 +254,60 @@ def _get_job_completion(
         )
 
     return JobCompletion(result, state, "", return_code, public_address)
+
+
+def _get_job_completion_from_process_state(
+    storage_client: Any,
+    storage_bucket: str,
+    file_prefix: str,
+    file_suffix: str,
+    job_spec_type: Literal["py_command", "py_function"],
+    return_code: int,
+) -> JobCompletion[Any]:
+    """
+    Creates a JobCompletion object based on the return code, and .process_state file if
+    it's available
+
+    file_suffix is used by indexed completion jobs to distinguish between the
+    completions of different workers, this should be set to the job completion index.
+    """
+
+    # kind of copy/pasted from SshHost.run_job
+
+    # TODO get the name of the pod that ran the job? It won't be super useful
+    # because we delete the pod right away
+    public_address = "kubernetes"
+
+    if return_code != 0:
+        raise MeadowrunException(
+            ProcessState(
+                state=ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
+                return_code=return_code,
+            )
+        )
+
+    process_state = ProcessState.FromString(
+        read_storage_bytes(
+            storage_client, storage_bucket, f"{file_prefix}.process_state{file_suffix}"
+        )
+    )
+
+    if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+        # we must have a result from functions, in other cases we can optionally have a
+        # result
+        if job_spec_type == "py_function" or process_state.pickled_result:
+            result = pickle.loads(process_state.pickled_result)
+        else:
+            result = None
+        return JobCompletion(
+            result,
+            process_state.state,
+            process_state.log_file_name,
+            process_state.return_code,
+            public_address,
+        )
+    else:
+        raise MeadowrunException(process_state)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -469,101 +526,111 @@ class Kubernetes(Host):
             )
         return job_completions[0]
 
-    async def _run_job_helper(
+    async def _run_job_helper_custom_container(
         self,
         storage_client: Any,
         job: Job,
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
+        interpreter_deployment_type: str,
+        file_prefix: str,
     ) -> List[JobCompletion[Any]]:
-        # A wrapper around _run_kubernetes_job. Main tasks at this level are:
-        # - Interpret the Job object into a container + command that Kubernetes can run
-        # - Upload arguments to S3 and download results from S3, including for indexed
-        #   job completions.
-
-        # This code encompasses everything that happens in SshHost.run_job and
-        # run_job_local
-
-        # detect any unsupported Jobs
-
-        file_prefix = f"{self.storage_file_prefix}{job.job_id}"
-
-        command_suffixes = []
-        code_deployment_type = job.WhichOneof("code_deployment")
-        if code_deployment_type == "code_zip_file":
-            if self.storage_bucket is None:
-                raise ValueError(
-                    "Cannot use mirror_local without providing a storage_bucket. Please"
-                    " either use a different Deployment or provide a storage_bucket"
-                )
-            write_storage_bytes(
-                storage_client,
-                self.storage_bucket,
-                f"{file_prefix}.codezipfile",
-                job.code_zip_file.SerializeToString(),
-            )
-
-            command_suffixes.append("--has-code-zip-file")
-        elif (
-            code_deployment_type != "server_available_folder"
-            or len(job.server_available_folder.code_paths) > 0
-        ):
-            raise NotImplementedError(
-                f"{code_deployment_type} is not supported for Kubernetes"
-            )
-
-        interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
-        if interpreter_deployment_type == "container_at_digest":
-            image_repository_name = job.container_at_digest.repository
-            image_name = (
-                f"{job.container_at_digest.repository}@{job.container_at_digest.digest}"
-            )
-        elif interpreter_deployment_type == "container_at_tag":
-            image_repository_name = job.container_at_tag.repository
-            image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"
-        elif interpreter_deployment_type == "server_available_container":
-            image_repository_name = None
-            image_name = f"{job.server_available_container.image_name}"
-        else:
-            raise NotImplementedError(
-                "Only pre-built containers are supported for interpreter_deployment in"
-                " run_job_container_local"
-            )
-
-        # get any image pull secrets
-        # first, get all available credentials sources from the JobToRun
-        image_pull_secret_name = None
-        if image_repository_name is not None:
-            image_pull_secret = await _get_credentials_for_docker(
-                image_repository_name, _get_credentials_sources(job), None
-            )
-            if image_pull_secret is not None:
-                if not isinstance(image_pull_secret, KubernetesSecretRaw):
-                    raise NotImplementedError(
-                        "Using anything other than KubernetesSecret with a Kubernetes "
-                        f"host has not been implemented, {type(image_pull_secret)} was "
-                        "provided"
-                    )
-                image_pull_secret_name = image_pull_secret.secret_name
-
+        # This function is for jobs where job.interpreter_deployment is a user-specified
+        # container (i.e. not something we need to build ourselves). For these kinds of
+        # jobs, this function is effectively functioning as "the agent", i.e.
+        # run_job_local_main. The container we launch will only have a single process.
+        # That means we send (via S3-compatible object store) e.g. the pickled function,
+        # or we might not need to send anything at all if we're just running a command
+        # or a function based on the name of the function. The result comes back as a
+        # pair of .state and .result files (the same way run_job_local_main.py interacts
+        # with its child process).
+        #
+        # Right now we only use this approach for when we have a user-specified
+        # container. We could theoretically use this approach with environment specs by
+        # building the container locally or with various techniques for building
+        # containers from inside of a container.
         try:
+            if interpreter_deployment_type == "container_at_digest":
+                image_repository_name = job.container_at_digest.repository
+                image_name = (
+                    f"{job.container_at_digest.repository}@"
+                    f"{job.container_at_digest.digest}"
+                )
+            elif interpreter_deployment_type == "container_at_tag":
+                image_repository_name = job.container_at_tag.repository
+                image_name = (
+                    f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"
+                )
+            elif interpreter_deployment_type == "server_available_container":
+                image_repository_name = None
+                image_name = f"{job.server_available_container.image_name}"
+            else:
+                raise Exception(
+                    "Programming error in caller. Called "
+                    "_run_job_helper_prebuilt_container with "
+                    f"interpreter_deployment_type {interpreter_deployment_type}"
+                )
+
+            # get any image pull secrets
+            # first, get all available credentials sources from the JobToRun
+            image_pull_secret_name = None
+            if image_repository_name is not None:
+                image_pull_secret = await _get_credentials_for_docker(
+                    image_repository_name, _get_credentials_sources(job), None
+                )
+                if image_pull_secret is not None:
+                    if not isinstance(image_pull_secret, KubernetesSecretRaw):
+                        raise NotImplementedError(
+                            "Using anything other than KubernetesSecret with a "
+                            "Kubernetes host has not been implemented, "
+                            f"{type(image_pull_secret)} was provided"
+                        )
+                    image_pull_secret_name = image_pull_secret.secret_name
+
+            # code deployment
+            command_suffixes = []
+            code_deployment_type = job.WhichOneof("code_deployment")
+            if code_deployment_type == "code_zip_file":
+                if self.storage_bucket is None:
+                    raise ValueError(
+                        "Cannot use mirror_local without providing a storage_bucket. "
+                        "Please either use a different Deployment or provide a "
+                        "storage_bucket"
+                    )
+                write_storage_bytes(
+                    storage_client,
+                    self.storage_bucket,
+                    f"{file_prefix}.codezipfile",
+                    job.code_zip_file.SerializeToString(),
+                )
+
+                command_suffixes.append("--has-code-zip-file")
+            elif (
+                code_deployment_type != "server_available_folder"
+                or len(job.server_available_folder.code_paths) > 0
+            ):
+                raise NotImplementedError(
+                    f"code_deployment_type {code_deployment_type} is not supported for"
+                    " prebuilt containers on Kubernetes"
+                )
+
+            # run the job
+
+            job_spec_type = job.WhichOneof("job_spec")
+            if job_spec_type is None:
+                raise ValueError("Unexpected: job_spec is None")
+
+            command = self._prepare_command(
+                job, job_spec_type, storage_client, file_prefix
+            )
+            command.extend(command_suffixes)
+
+            environment_variables = {"PYTHONUNBUFFERED": "1"}
+            environment_variables.update(
+                **_string_pairs_to_dict(job.environment_variables)
+            )
+
             try:
-                # run the job
-
-                job_spec_type = job.WhichOneof("job_spec")
-                if job_spec_type is None:
-                    raise ValueError("Unexpected: job_spec is None")
-
-                command = self._prepare_command(
-                    job, job_spec_type, storage_client, file_prefix
-                )
-                command.extend(command_suffixes)
-
-                environment_variables = {"PYTHONUNBUFFERED": "1"}
-                environment_variables.update(
-                    **_string_pairs_to_dict(job.environment_variables)
-                )
-
                 return_codes = await _run_kubernetes_job(
                     job.job_id,
                     self.kubernetes_namespace,
@@ -593,7 +660,7 @@ class Kubernetes(Host):
                 file_suffixes = [""]
 
             return [
-                _get_job_completion(
+                _get_job_completion_from_state_result(
                     storage_client,
                     self.storage_bucket,
                     file_prefix,
@@ -622,6 +689,174 @@ class Kubernetes(Host):
                         raise
                     except Exception:
                         pass
+
+    async def _run_job_helper_generic_container(
+        self,
+        storage_client: Any,
+        job: Job,
+        resources_required: Optional[ResourcesInternal],
+        indexed_completions: Optional[int],
+        interpreter_deployment_type: str,
+        file_prefix: str,
+    ) -> List[JobCompletion[Any]]:
+        # This function is for jobs where job.interpreter_deployment is an "environment
+        # spec" of some sort that requires us to build an environment. For these kinds
+        # of jobs, this function will send over a Job object (via S3-compatible object
+        # store) and run_job_local_storage_main.py will read the Job object, create the
+        # environment in the container, and then run the specified job. The result comes
+        # back as a .process_state file.
+        #
+        # This will always run using a "generic container image" (i.e. the prebuilt
+        # Meadowrun image) because the user did not specify a custom container.
+        #
+        # This approach can only be used with an "environment spec", it cannot be used
+        # with a user-defined container as containers in Kubernetes can't launch other
+        # containers.
+        try:
+            if interpreter_deployment_type == "environment_spec_in_code":
+                python_version = job.environment_spec_in_code.python_version
+            elif interpreter_deployment_type == "environment_spec":
+                python_version = job.environment_spec.python_version
+            else:
+                raise Exception(
+                    "Programming error in caller. Called "
+                    "_run_job_helper_generic_container with "
+                    f"interpreter_deployment_type {interpreter_deployment_type}"
+                )
+
+            if self.storage_bucket is None or self.storage_endpoint_url is None:
+                raise ValueError(
+                    "Cannot use an environment_spec without providing a storage_bucket."
+                    " Please either provide a pre-built container image for the "
+                    "interpreter or provide a storage_bucket"
+                )
+
+            write_storage_bytes(
+                storage_client,
+                self.storage_bucket,
+                f"{file_prefix}.job_to_run",
+                job.SerializeToString(),
+            )
+
+            command = [
+                "python",
+                "-m",
+                "meadowrun.run_job_local_storage_main",
+                "--storage-bucket",
+                self.storage_bucket,
+                "--storage-file-prefix",
+                file_prefix,
+            ]
+            if self.storage_endpoint_url_in_cluster:
+                command.extend(
+                    ["--storage-endpoint-url", self.storage_endpoint_url_in_cluster]
+                )
+            else:
+                command.extend(["--storage-endpoint-url", self.storage_endpoint_url])
+
+            # TODO use meadowrun-cuda if we need cuda. Also choose based on python
+            # version in environment_spec
+            image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
+            # uncomment this for development
+            # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
+
+            try:
+                return_codes = await _run_kubernetes_job(
+                    job.job_id,
+                    self.kubernetes_namespace,
+                    image_name,
+                    command,
+                    {},
+                    self.storage_username_password_secret,
+                    None,
+                    indexed_completions,
+                    [int(p) for p in expand_ports(job.ports)],
+                    resources_required,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                raise MeadowrunException(
+                    ProcessState(
+                        state=ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
+                    )
+                ) from e
+
+            if indexed_completions:
+                file_suffixes: Iterable[str] = (
+                    str(i) for i in range(indexed_completions)
+                )
+            else:
+                file_suffixes = [""]
+
+            job_spec_type = job.WhichOneof("job_spec")
+            if job_spec_type is None:
+                raise ValueError("Unexpected, job.job_spec is None")
+            return [
+                _get_job_completion_from_process_state(
+                    storage_client,
+                    self.storage_bucket,
+                    file_prefix,
+                    file_suffix,
+                    job_spec_type,
+                    return_code,
+                )
+                for file_suffix, return_code in zip(file_suffixes, return_codes)
+            ]
+        finally:
+            # TODO we should separately periodically clean up these files in case we
+            # aren't able to execute this finally block
+            for suffix in ["job_to_run", "process_state"]:
+                try:
+                    storage_client.delete_object(
+                        Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+
+    async def _run_job_helper(
+        self,
+        storage_client: Any,
+        job: Job,
+        resources_required: Optional[ResourcesInternal],
+        indexed_completions: Optional[int],
+    ) -> List[JobCompletion[Any]]:
+        file_prefix = f"{self.storage_file_prefix}{job.job_id}"
+
+        # interpreter deployment
+        interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
+        if interpreter_deployment_type in (
+            "container_at_digest",
+            "container_at_tag",
+            "server_available_container",
+        ):
+            return await self._run_job_helper_custom_container(
+                storage_client,
+                job,
+                resources_required,
+                indexed_completions,
+                interpreter_deployment_type,
+                file_prefix,
+            )
+        elif interpreter_deployment_type in (
+            "environment_spec_in_code",
+            "environment_spec",
+        ):
+            return await self._run_job_helper_generic_container(
+                storage_client,
+                job,
+                resources_required,
+                indexed_completions,
+                interpreter_deployment_type,
+                file_prefix,
+            )
+        else:
+            raise NotImplementedError(
+                f"interpreter_deployment_type {interpreter_deployment_type} is not "
+                "implemented yet on Kubernetes"
+            )
 
     async def run_map(
         self,

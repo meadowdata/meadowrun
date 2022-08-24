@@ -1,9 +1,6 @@
 To publish meadowrun:
 
-- Increment the version in:
-  - `pyproject.toml`
-  - `docker_images/meadowrun/Dockerfile` and `build_scripts/publish_docker_image.bat`
-  - `azure_vms.py`
+- Increment the version in `pyproject.toml` and `version.py`
 - Build the EC2 AMIs and copy the new AMI ids into the code by following the
   instructions in build_scripts\build_ami.py.
 - Build the Azure Image by following the instructions in
@@ -20,7 +17,7 @@ These steps can be done in parallel:
   ```
 - Build and publish the conda package by running `build_scripts/build_conda.py`
 - Build and publish the docker images by running
-  `build_scripts/publish_docker_image.bat`
+  `docker_images/meadowrun/build.bat`
 
 Finally:
 - Optionally, delete old AMIs to save money:

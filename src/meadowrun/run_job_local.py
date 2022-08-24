@@ -48,6 +48,7 @@ from meadowrun.credentials import (
     get_matching_credentials,
 )
 from meadowrun.deployment_manager import (
+    compile_environment_spec_locally,
     compile_environment_spec_to_container,
     get_code_paths,
 )
@@ -917,6 +918,7 @@ async def run_local(
     job: Job,
     working_folder: Optional[str] = None,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
+    compile_environment_in_container: bool = True,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """
     Runs a job locally using the specified working_folder (or uses the default). Meant
@@ -934,6 +936,12 @@ async def run_local(
     NON_ZERO_RETURN_CODE.
 
     If the initial job state is RUN_REQUEST_FAILED, the continuation will be None.
+
+    compile_environment_in_container controls the behavior when job has an environment
+    spec for the interpreter. If compile_environment_in_container is true, environment
+    specs get compiled into container images. If it's false, environment specs are
+    turned into environments in the local environment
+    TODO compile_environment_in_container should probably be part of the Job object.
     """
 
     (
@@ -968,21 +976,36 @@ async def run_local(
                     "Cannot specify environment_spec_in_code and not provide any code "
                     "paths"
                 )
-            job.server_available_container.CopyFrom(
-                await compile_environment_spec_to_container(
-                    job.environment_spec_in_code, interpreter_spec_path, cloud
+            if compile_environment_in_container:
+                job.server_available_container.CopyFrom(
+                    await compile_environment_spec_to_container(
+                        job.environment_spec_in_code, interpreter_spec_path, cloud
+                    )
                 )
-            )
-            interpreter_deployment = "server_available_container"
+                interpreter_deployment = "server_available_container"
+            else:
+                job.server_available_interpreter.CopyFrom(
+                    await compile_environment_spec_locally(
+                        job.environment_spec_in_code, interpreter_spec_path, misc_folder
+                    )
+                )
+                interpreter_deployment = "server_available_interpreter"
 
         if interpreter_deployment == "environment_spec":
-
-            job.server_available_container.CopyFrom(
-                await compile_environment_spec_to_container(
-                    job.environment_spec, misc_folder, cloud
+            if compile_environment_in_container:
+                job.server_available_container.CopyFrom(
+                    await compile_environment_spec_to_container(
+                        job.environment_spec, misc_folder, cloud
+                    )
                 )
-            )
-            interpreter_deployment = "server_available_container"
+                interpreter_deployment = "server_available_container"
+            else:
+                job.server_available_interpreter.CopyFrom(
+                    await compile_environment_spec_locally(
+                        job.environment_spec, misc_folder, misc_folder
+                    )
+                )
+                interpreter_deployment = "server_available_interpreter"
 
         # then decide if we're running in a container or not
 

@@ -58,7 +58,7 @@ async def main() -> None:
             )
         )
         first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, working_folder, None
+            job, working_folder, None, False
         )
         # TODO to be analogous to run_job_local_main.py we should write
         # f"{storage_file_prefix}.initial_process_state to the storage bucket here

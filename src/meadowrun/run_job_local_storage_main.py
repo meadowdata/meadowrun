@@ -49,6 +49,7 @@ async def main() -> None:
         args.storage_endpoint_url, storage_username, storage_password
     )
     meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
+    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
 
     # run the job
     try:

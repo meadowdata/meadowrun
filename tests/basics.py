@@ -9,7 +9,6 @@ import pytest
 
 import meadowrun.docker_controller
 from meadowrun import (
-    AllocCloudInstance,
     CondaEnvironmentYmlFile,
     ContainerInterpreter,
     Deployment,
@@ -40,7 +39,6 @@ from meadowrun.meadowrun_pb2 import (
     ProcessState,
 )
 from meadowrun.run_job_core import (
-    CloudProviderType,
     Host,
     JobCompletion,
     MeadowrunException,
@@ -69,7 +67,9 @@ class HostProvider(abc.ABC):
     def get_test_repo_url(self) -> str:
         pass
 
-    @abc.abstractmethod
+    def can_get_log_file(self) -> bool:
+        return True
+
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         pass
 
@@ -136,7 +136,10 @@ class BasicsSuite(HostProvider, abc.ABC):
             Deployment(interpreter_deployment, code_deployment),
         )
 
-        assert "pip" in await self.get_log_file_text(job_completion)
+        if self.can_get_log_file():
+            assert "pip" in await self.get_log_file_text(job_completion)
+        else:
+            print("Warning get_log_file_text is not implemented")
 
     @pytest.mark.asyncio
     async def test_meadowrun_path_in_git_repo(self) -> None:
@@ -177,9 +180,12 @@ class BasicsSuite(HostProvider, abc.ABC):
                 Deployment(ContainerAtDigest(repository="python", digest=digest)),
             )
 
-            assert (await self.get_log_file_text(result)).startswith(
-                f"Python" f" {version}"
-            )
+            if self.can_get_log_file():
+                assert (await self.get_log_file_text(result)).startswith(
+                    f"Python" f" {version}"
+                )
+            else:
+                print("Warning get_log_file_text is not implemented")
 
     @pytest.mark.skipif(
         "sys.version_info < (3, 8)",
@@ -572,11 +578,7 @@ class ErrorsSuite(HostProvider, abc.ABC):
         assert exc_info.value.process_state.return_code == 101
 
 
-class MapSuite(abc.ABC):
-    @abc.abstractmethod
-    def cloud_provider(self) -> CloudProviderType:
-        pass
-
+class MapSuite(HostProvider, abc.ABC):
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map(self) -> None:
@@ -584,8 +586,8 @@ class MapSuite(abc.ABC):
         results = await run_map(
             lambda x: x**x,
             [1, 2, 3, 4],
-            AllocCloudInstance(self.cloud_provider()),
-            Resources(1, 1, 15),
+            self.get_host(),
+            self.get_resources_required(),
             num_concurrent_tasks=4,
         )
 

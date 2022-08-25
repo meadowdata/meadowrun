@@ -358,7 +358,7 @@ async def _launch_non_container_job(
     paths_to_search = env_vars["PATH"]
     if cwd_path:
         working_directory = cwd_path
-        paths_to_search = f"{working_directory};{paths_to_search}"
+        paths_to_search = f"{working_directory}{os.pathsep}{paths_to_search}"
     else:
         # TODO probably cleanest to allocate a new working directory for each job
         #  instead of just using the default

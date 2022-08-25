@@ -60,9 +60,8 @@ class TestErrorsAzure(AzureHostProvider, ErrorsSuite):
     pass
 
 
-class TestMapAzure(MapSuite):
-    def cloud_provider(self) -> CloudProviderType:
-        return "AzureVM"
+class TestMapAzure(AzureHostProvider, MapSuite):
+    pass
 
 
 class AzureVMInstanceRegistrarProvider(

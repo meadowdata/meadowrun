@@ -1,6 +1,8 @@
 import pytest
+
 import meadowrun
-from meadowrun.meadowrun_pb2 import ProcessState
+from basics import BasicsSuite, HostProvider, MapSuite, ErrorsSuite
+from meadowrun import Host, Resources, Kubernetes
 
 
 def _kubernetes_host() -> meadowrun.Kubernetes:
@@ -17,47 +19,65 @@ def _meadowrun_container_deployment() -> meadowrun.Deployment:
     return meadowrun.Deployment.container_image("meadowrun/meadowrun-dev")
 
 
-class TestKubernetes:
+class MinikubeHostProvider(HostProvider):
     """
     In order to run these tests, you'll need to configure Minikube and Minio as per
     docs/how_to/kubernetes.md.
 
-    You'll also probably want to run `build_scripts/build_docker_image.bat && docker
-    push meadowrun/meadowrun-dev`
-
-    TODO eventually this should be replaced by a
-    TestBasicsKubernetes(KubernetesHostProvider, BasicsSuite) class once we support more
-    functionality in Kubernetes
+    You'll also probably want to run `docker_images/meadowrun/build-dev.bat`. You can
+    also run `minikube image load meadowrun/meadowrun-dev:py3.10` which is faster than
+    letting minikube download the image from Dockerhub.
     """
 
-    @pytest.mark.asyncio
-    async def test_kubernetes_function(self) -> None:
-        result = await meadowrun.run_function(
-            lambda: 2 * 2,
-            _kubernetes_host(),
-            deployment=_meadowrun_container_deployment(),
+    def get_resources_required(self) -> Resources:
+        return Resources(1, 1)
+
+    def get_host(self) -> Host:
+        return Kubernetes(
+            storage_bucket="meadowrunbucket",
+            storage_endpoint_url="http://127.0.0.1:9000",
+            storage_endpoint_url_in_cluster="http://minio-service:9000",
+            storage_username_password_secret="minio-credentials",
+            kube_config_context="minikube",
         )
 
-        assert result == 4
+    def get_test_repo_url(self) -> str:
+        return "https://github.com/meadowdata/test_repo"
+
+    def can_get_log_file(self) -> bool:
+        return False
+
+
+class TestBasicsKubernetes(MinikubeHostProvider, BasicsSuite):
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
+        # Kubernetes doesn't support (and may never support) an environment spec with an
+        # apt dependency at the same time
+        pass
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_sidecar_container(self) -> None:
+        # We have not yet implemented sidecar containers on Kubernetes
+        pass
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_git_repo_with_container(self) -> None:
+        # We have not yet implemented specifying a custom container and a git repo at
+        # the same time on Kubernetes
+        pass
 
     @pytest.mark.asyncio
-    async def test_kubernetes_command(self) -> None:
-        result = await meadowrun.run_command(
-            "python --version",
-            _kubernetes_host(),
-            deployment=_meadowrun_container_deployment(),
-        )
+    async def test_meadowrun_git_repo_commit_container(self) -> None:
+        # see test_git_repo_with_container
+        pass
 
-        assert result.process_state == ProcessState.ProcessStateEnum.SUCCEEDED
-        assert result.result is None
 
-    @pytest.mark.asyncio
-    async def test_kubernetes_map(self) -> None:
-        result = await meadowrun.run_map(
-            lambda x: x**x,
-            [1, 2, 3, 4, 5],
-            _kubernetes_host(),
-            deployment=_meadowrun_container_deployment(),
-        )
+class TestErrorsKubernetes(MinikubeHostProvider, ErrorsSuite):
+    pass
 
-        assert result == [1, 4, 27, 256, 3125]
+
+class TestMapKubernetes(MinikubeHostProvider, MapSuite):
+    pass

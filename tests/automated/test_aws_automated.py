@@ -92,9 +92,8 @@ class TestErrorsAws(AwsHostProvider, ErrorsSuite):
     pass
 
 
-class TestMapAws(MapSuite):
-    def cloud_provider(self) -> CloudProviderType:
-        return "EC2"
+class TestMapAws(AwsHostProvider, MapSuite):
+    pass
 
 
 class TestAWSOnlyFeatures(AwsHostProvider):

@@ -27,7 +27,6 @@ import kubernetes_asyncio.client as kubernetes_client
 import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
 import kubernetes_asyncio.config as kubernetes_config
 import kubernetes_asyncio.watch as kubernetes_watch
-from typing_extensions import Literal
 
 import meadowrun.func_worker_storage_helper
 from meadowrun.config import LOGICAL_CPU, MEMORY_GB, GPU
@@ -39,9 +38,12 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_USERNAME,
     get_storage_client_from_args,
 )
-
-if TYPE_CHECKING:
-    from meadowrun.instance_selection import ResourcesInternal
+from meadowrun.func_worker_storage_helper import (
+    read_storage_bytes,
+    read_storage_pickle,
+    write_storage_bytes,
+    write_storage_pickle,
+)
 from meadowrun.meadowrun_pb2 import (
     Job,
     ProcessState,
@@ -59,14 +61,12 @@ from meadowrun.run_job_local import (
     _get_credentials_sources,
     _string_pairs_to_dict,
 )
-from meadowrun.func_worker_storage_helper import (
-    read_storage_bytes,
-    read_storage_pickle,
-    write_storage_bytes,
-    write_storage_pickle,
-)
-
 from meadowrun.version import __version__
+
+if TYPE_CHECKING:
+    from meadowrun.instance_selection import ResourcesInternal
+    from typing_extensions import Literal
+
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -93,6 +93,7 @@ def _indexed_map_worker(
     function: Callable[[_T], _U],
     storage_bucket: str,
     file_prefix: str,
+    storage_endpoint_url: Optional[str],
     result_highest_pickle_protocol: int,
 ) -> None:
     """
@@ -104,9 +105,26 @@ def _indexed_map_worker(
     """
 
     current_worker_index = int(os.environ["JOB_COMPLETION_INDEX"])
+    # if we're the main process launched in the container (via
+    # _run_job_helper_custom_container) then FUNC_WORKER_STORAGE_CLIENT will already be
+    # set by func_worker_storage. If we're a child process launched by
+    # run_job_local_storage_main (via _run_job_helper_generic_container) then we need to
+    # use the arguments passed to this function to create the storage client in this
+    # function.
+    if meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT is None:
+        storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
+        storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
+        if storage_username is None and storage_password is None:
+            raise ValueError("Cannot call _indexed_map_worker without a storage client")
+
+        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = (
+            get_storage_client_from_args(
+                storage_endpoint_url, storage_username, storage_password
+            )
+        )
+        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
+
     storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
-    if storage_client is None:
-        raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
     result_pickle_protocol = min(
         result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
@@ -717,12 +735,18 @@ class Kubernetes(Host):
                 python_version = job.environment_spec_in_code.python_version
             elif interpreter_deployment_type == "environment_spec":
                 python_version = job.environment_spec.python_version
+            elif interpreter_deployment_type == "server_available_interpreter":
+                python_version = None
             else:
                 raise Exception(
                     "Programming error in caller. Called "
                     "_run_job_helper_generic_container with "
                     f"interpreter_deployment_type {interpreter_deployment_type}"
                 )
+            if not python_version:
+                # conda environments and raw server_available_interpreter won't have a
+                # python version
+                python_version = "3.10"
 
             if self.storage_bucket is None or self.storage_endpoint_url is None:
                 raise ValueError(
@@ -843,6 +867,7 @@ class Kubernetes(Host):
         elif interpreter_deployment_type in (
             "environment_spec_in_code",
             "environment_spec",
+            "server_available_interpreter",
         ):
             return await self._run_job_helper_generic_container(
                 storage_client,
@@ -905,6 +930,7 @@ class Kubernetes(Host):
             function,
             self.storage_bucket,
             file_prefix,
+            self.storage_endpoint_url_in_cluster,
             pickle.HIGHEST_PROTOCOL,
         )
 

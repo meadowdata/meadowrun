@@ -58,6 +58,11 @@ async def main() -> None:
                 storage_client, storage_bucket, f"{storage_file_prefix}.job_to_run"
             )
         )
+        # hypothetically we should make sure MEADOWRUN_STORAGE_USERNAME and
+        # MEADOWRUN_STORAGE_PASSWORD should get added to the Job object because if we
+        # are running _indexed_map_worker we will need those variables. However, this
+        # only happens in the non-container job case, in which case the environment
+        # variables should just get inherited by the child process that we start.
         first_state, continuation = await meadowrun.run_job_local.run_local(
             job, working_folder, None, False
         )

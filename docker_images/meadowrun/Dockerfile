@@ -4,6 +4,12 @@ FROM python:$PYTHON_VERSION-slim-buster
 WORKDIR /meadowrun
 
 
+RUN apt update && \
+    apt install -y git && \
+    rm -rf /var/lib/apt
+
+RUN git config --global --add safe.directory '*'; exit 0
+
 RUN python -c 'import urllib.request; urllib.request.urlretrieve("https://install.python-poetry.org", "poetry_install.py")' && \
     python poetry_install.py && \
     rm poetry_install.py && \

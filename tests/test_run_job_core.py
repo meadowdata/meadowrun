@@ -1,11 +1,13 @@
 import asyncio
 import pickle
 from typing import AsyncIterable, Optional, Tuple
-from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import RunMapHelper, TaskException, TaskResult
-from meadowrun.shared import pickle_exception
-import pytest
+
 import asyncssh
+import pytest
+from meadowrun import TaskResult
+from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.run_job_core import RunMapHelper, TaskException
+from meadowrun.shared import pickle_exception
 
 
 def test_task_result() -> None:

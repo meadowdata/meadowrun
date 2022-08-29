@@ -8,6 +8,10 @@
 
 ::: meadowrun.run_map
 
+::: meadowrun.run_map_as_completed
+
+::: meadowrun.TaskResult
+
 
 ## Specifying resource requirements
 

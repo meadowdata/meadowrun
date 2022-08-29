@@ -533,7 +533,7 @@ class TaskException(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class TaskResult(Generic[_T]):
-    """The result of a run_map_as_completed task."""
+    """The result of a [run_map_as_completed][meadowrun.run_map_as_completed] task."""
 
     task_id: int
     is_success: bool

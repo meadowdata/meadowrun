@@ -838,8 +838,8 @@ async def run_map(
 
     Returns:
         If wait_for_result is True (which is the default), the return value will be the
-        result of running `function` on each of `args`. If wait_for_result is False, the
-        return value will always be None.
+            result of running `function` on each of `args`. If wait_for_result is False,
+            the return value will always be None.
     """
 
     if resources_per_task is None:
@@ -913,9 +913,12 @@ async def run_map_as_completed(
 ) -> AsyncIterable[TaskResult[_U]]:
     """
     Equivalent to [run_map][meadowrun.run_map], but returns results from tasks as they
-    are completed.
+    are completed. This means that to access the results, you need to iterate using
+    `async for`, and call `result_or_raise`  on the returned
+    [TaskResult][meadowrun.TaskResult] objects.
+
     Returns:
-        An async iterable returning TaskResult objects.
+        An async iterable returning [TaskResult][meadowrun.TaskResult] objects.
     """
 
     if resources_per_task is None:

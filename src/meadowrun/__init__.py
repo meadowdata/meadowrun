@@ -42,13 +42,6 @@ if sys.platform == "win32":
             traceback.print_exc()
 
 
-from meadowrun.run_job import (
-    AllocCloudInstance,
-    run_command,
-    run_function,
-    run_map,
-    run_map_as_completed,
-)
 from meadowrun.deployment_spec import (
     AwsSecret,
     AzureSecret,
@@ -66,11 +59,18 @@ from meadowrun.deployment_spec import (
     PoetryProjectPath,
     Secret,
 )
-from meadowrun.run_job_local import Host, LocalHost
-from meadowrun.run_job_core import Resources, SshHost
 from meadowrun.kubernetes_integration import Kubernetes
+from meadowrun.run_job import (
+    AllocCloudInstance,
+    TaskResult,
+    run_command,
+    run_function,
+    run_map,
+    run_map_as_completed,
+)
+from meadowrun.run_job_core import Resources, SshHost, TaskException
+from meadowrun.run_job_local import Host, LocalHost
 from meadowrun.version import __version__
-
 
 __all__ = [
     "__version__",
@@ -99,4 +99,6 @@ __all__ = [
     "Resources",
     "SshHost",
     "Kubernetes",
+    "TaskResult",
+    "TaskException",
 ]

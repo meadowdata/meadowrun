@@ -528,12 +528,26 @@ class _GetResultsUnordered(Protocol):
 
 
 class TaskException(Exception):
+    """Represents an exception that occurred in a task."""
+
     pass
 
 
 @dataclasses.dataclass(frozen=True)
 class TaskResult(Generic[_T]):
-    """The result of a [run_map_as_completed][meadowrun.run_map_as_completed] task."""
+    """
+    The result of a [run_map_as_completed][meadowrun.run_map_as_completed] task.
+
+    Attributes:
+        task_id: The index of the task as it was originally passed to
+            `run_map_as_completed`.
+        is_success: True if the task completed successfully, False if the task raised an
+            exception
+        result: If `is_success`, the result of the task. Otherwise, None. See also
+            `result_or_raise`
+        exception: If `not is_success`, a Tuple describing the exception that the task
+            raised. Otherwise, None. See also `result_or_raise`.
+    """
 
     task_id: int
     is_success: bool
@@ -541,7 +555,7 @@ class TaskResult(Generic[_T]):
     exception: Optional[Tuple[str, str, str]] = None
 
     def result_or_raise(self) -> _T:
-        """Returns a succesful task result, or raises a TaskException.
+        """Returns a successful task result, or raises a TaskException.
 
         Raises:
             TaskException: if the task did not finish successfully.

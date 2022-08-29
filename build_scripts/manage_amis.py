@@ -89,7 +89,7 @@ def list_all_images() -> None:
 
 
 def delete_replicated_images(
-    image_starts_with: str, include_source_region: bool, dry_run: bool
+    image_name_to_delete: str, include_source_region: bool, dry_run: bool
 ) -> None:
     """
     Deletes all images in _SUPPORTED_REGIONS (excluding _SOURCE_REGION unless
@@ -103,7 +103,7 @@ def delete_replicated_images(
             client = boto3.client("ec2", region_name=region)
             response = client.describe_images(Owners=["self"])
             for image in response.get("Images", ()):
-                if "Name" in image and image["Name"].startswith(image_starts_with):
+                if "Name" in image and image["Name"] == image_name_to_delete:
                     print(f"Will delete: {region}, {image['ImageId']}, {image['Name']}")
                     if not dry_run:
                         client.deregister_image(ImageId=image["ImageId"])
@@ -135,7 +135,7 @@ def main() -> None:
         "delete",
         help="Delete AMIs across all regions that start with the specified string",
     )
-    parser_delete.add_argument("starts_with")
+    parser_delete.add_argument("image_name_to_delete")
     parser_delete.add_argument("--include-source-region", action="store_true")
     parser_delete.add_argument("--dry-run", action="store_true")
 
@@ -147,7 +147,7 @@ def main() -> None:
         list_all_images()
     elif args.command == "delete":
         delete_replicated_images(
-            args.starts_with, args.include_source_region, args.dry_run
+            args.image_name_to_delete, args.include_source_region, args.dry_run
         )
     else:
         ValueError(f"Unrecognized command: {args.command}")

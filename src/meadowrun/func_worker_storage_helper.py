@@ -19,7 +19,6 @@ import boto3
 import botocore.exceptions
 
 from meadowrun.run_job_core import S3CompatibleObjectStorage
-import meadowrun.func_worker_storage_helper
 
 MEADOWRUN_STORAGE_USERNAME = "MEADOWRUN_STORAGE_USERNAME"
 MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
@@ -167,7 +166,7 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
     async def _download(
         self, bucket_name: str, object_name: str, file_name: str
     ) -> None:
-        storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
+        storage_client = FUNC_WORKER_STORAGE_CLIENT
         if storage_client is None:
             raise Exception("FUNC_WORKER_STORAGE_CLIENT is not available")
         storage_client.download_file(bucket_name, object_name, file_name)

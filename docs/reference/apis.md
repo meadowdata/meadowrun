@@ -12,6 +12,8 @@
 
 ::: meadowrun.TaskResult
 
+::: meadowrun.TaskException
+
 
 ## Specifying resource requirements
 

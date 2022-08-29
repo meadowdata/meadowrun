@@ -915,7 +915,40 @@ async def run_map_as_completed(
     Equivalent to [run_map][meadowrun.run_map], but returns results from tasks as they
     are completed. This means that to access the results, you need to iterate using
     `async for`, and call `result_or_raise`  on the returned
-    [TaskResult][meadowrun.TaskResult] objects.
+    [TaskResult][meadowrun.TaskResult] objects. Usage for approximating `run_map`
+    behavior is:
+
+    ```python
+    sorted_tasks = sorted(
+        [task async for task in run_map_as_completed(...)],
+        key=lambda t: t.task_id
+    )
+    results = [task.result_or_raise() for task in sorted_tasks]
+    ```
+
+    Args:
+        function: A reference to a function (e.g. `package.module.function_name`) or a
+            lambda
+        args: A list of objects, each item in the list represents a "task",
+            where each "task" is an invocation of `function` on the item in the list
+        resources_per_task: The resources (e.g. CPU and RAM) required to run a
+            single task. For some hosts, this is optional, for other hosts it is
+            required. See [Resources][meadowrun.Resources].
+        host: Specifies where to get compute resources from. See
+            [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        num_concurrent_tasks: The number of workers to launch. This can be less than or
+            equal to the number of args/tasks. Will default to half the total number of
+            tasks plus one, rounded down if set to None.
+        deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
+            (code and libraries) that are needed to run this command. This can be an
+            actual Deployment object, or it can be an Awaitable that will produce a
+            Deployment object.
+        sidecar_containers: Additional containers that will be available from the main
+            job as sidecar-container-0 sidecar-container-1, etc.
+        ports: A specification of ports to make available on the machines that runs
+            tasks for this job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened
+            just for the duration of this job. Be careful as other jobs could be running
+            on the same machine at the same time!
 
     Returns:
         An async iterable returning [TaskResult][meadowrun.TaskResult] objects.

@@ -791,7 +791,7 @@ class Kubernetes(Host):
                     self.kubernetes_namespace,
                     image_name,
                     command,
-                    {},
+                    {"PYTHONUNBUFFERED": "1"},
                     self.storage_username_password_secret,
                     None,
                     indexed_completions,

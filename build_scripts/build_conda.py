@@ -131,7 +131,7 @@ def main() -> None:
     print("To publish this image, run")
     print(
         "conda activate base && anaconda upload "
-        r"C:\bin\Miniconda\conda-bld\noarch\meadowrun-0.2.1-py_0.tar.bz2"
+        rf"C:\bin\Miniconda\conda-bld\noarch\meadowrun-{version}-py_0.tar.bz2"
     )
 
     print(

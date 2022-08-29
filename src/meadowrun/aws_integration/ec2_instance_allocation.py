@@ -67,7 +67,7 @@ from meadowrun.run_job_core import JobCompletion, SshHost
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-0d286275bd5cb2c21",
+        "us-east-2": "ami-00b3ccbb03d019683",
         "us-east-1": "ami-03d544128ac184a1c",
         "us-west-1": "ami-061247287c799a8ad",
         "us-west-2": "ami-077512577f7eaeff6",

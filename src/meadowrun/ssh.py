@@ -19,6 +19,9 @@ async def connect(host: str, username: str, private_key: SSHKey) -> SSHClientCon
         known_hosts=None,
         config=None,
         client_keys=[private_key],
+        # keepalive necessary otherwise client silently loses connection on long-running
+        # jobs. The symptom is that e.g. run_and_print just hangs indefinitely.
+        keepalive_interval=60,
     )
 
 

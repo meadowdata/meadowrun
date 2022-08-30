@@ -525,7 +525,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 ],
             ),
         )
-        assert results == ("2.28.0", "1.4.2", "a, b")
+        assert results == ("2.28.1", "1.4.3", "a, b")
 
     def _get_remote_function_for_deployment(self) -> Callable[[], Tuple[str, str, str]]:
         # we have a wrapper around this so that the function gets pickled as a lambda

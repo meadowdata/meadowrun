@@ -20,6 +20,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 #   something like https://github.com/python-poetry/poetry/issues/2179 gets implemented
 RUN python -c 'import urllib.request; urllib.request.urlretrieve("https://install.python-poetry.org", "poetry_install.py")' && \
     python poetry_install.py && \
+    rm poetry_install.py && \
     /root/.local/bin/poetry config virtualenvs.in-project true
 
 

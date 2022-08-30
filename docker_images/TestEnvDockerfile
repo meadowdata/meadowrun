@@ -1,7 +1,9 @@
 # To be used like:
 # docker build -t hrichardlee/meadowrun_test_env -f docker_images/TestEnvDockerfile docker_images
+# docker push hrichardlee/meadowrun_test_env
+# minikube image load hrichardlee/meadowrun_test_env
 
-FROM python:3.10-slim-bullseye
+FROM meadowrun/meadowrun-dev:py3.10
 
 WORKDIR /tmp/
-RUN pip install requests pandas meadowrun
+RUN pip install requests pandas

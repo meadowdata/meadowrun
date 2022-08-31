@@ -6,6 +6,7 @@ import os
 import os.path
 import pickle
 import shlex
+import traceback
 import uuid
 from typing import (
     Any,
@@ -294,7 +295,14 @@ class AllocCloudInstance(Host):
                 results = await results_future
                 for worker_id, result in enumerate(worker_results):
                     if isinstance(result, Exception):
-                        print(f"Worker {worker_id} exited with error: {result}")
+                        print(
+                            f"Worker {worker_id} exited with error: "
+                            + "".join(
+                                traceback.format_exception(
+                                    None, result, result.__traceback__
+                                )
+                            )
+                        )
                 return results
             else:
                 await asyncio.gather(*worker_tasks, return_exceptions=True)

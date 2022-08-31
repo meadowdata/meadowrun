@@ -140,12 +140,14 @@ def _deregister_and_terminate_instances(
     2. Terminates and deregisters idle instances
     """
 
-    # by "running" here we mean anything that's not terminated
+    ec2_resource = boto3.resource("ec2", region_name=region_name)
+    non_terminated_instances = {
+        instance.public_dns_name: instance
+        for instance in _get_non_terminated_instances(ec2_resource)
+    }
     running_instances = {
         instance.public_dns_name: instance
-        for instance in _get_non_terminated_instances(
-            boto3.resource("ec2", region_name=region_name)
-        )
+        for instance in _get_running_instances(ec2_resource)
     }
 
     registered_instances = _get_registered_ec2_instances(region_name)
@@ -160,6 +162,9 @@ def _deregister_and_terminate_instances(
                 f" will deregister it"
             )
             _deregister_ec2_instance(public_address, False, region_name)
+            if public_address in non_terminated_instances:
+                # just in case
+                non_terminated_instances[public_address].terminate()
         elif num_jobs == 0 and (now - last_updated) > terminate_instances_if_idle_for:
             success = _deregister_ec2_instance(public_address, True, region_name)
             if success:
@@ -167,11 +172,11 @@ def _deregister_and_terminate_instances(
                     f"{public_address} is not running any jobs and has not run anything"
                     f" since {last_updated} so we will deregister and terminate it"
                 )
-                running_instances[public_address].terminate()
+                non_terminated_instances[public_address].terminate()
         else:
             print(f"Letting {public_address} continue to run--this instance is active")
 
-    for public_address, instance in running_instances.items():
+    for public_address, instance in non_terminated_instances.items():
         if (
             public_address not in registered_instances
             and (now_with_timezone - instance.launch_time) > launch_register_delay

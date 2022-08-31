@@ -367,16 +367,16 @@ async def compile_environment_spec_to_container(
 
     if environment_spec.environment_type == EnvironmentType.CONDA:
         if apt_packages:
-            docker_file_name = "CondaDockerfile"
-        else:
             docker_file_name = "CondaAptDockerfile"
+        else:
+            docker_file_name = "CondaDockerfile"
         spec_filename = os.path.basename(path_to_spec)
         build_args["ENV_FILE"] = spec_filename
         files_to_copy.append((path_to_spec, spec_filename))
         if "cuda" in environment_spec.additional_software:
             build_args[
                 "CONDA_IMAGE"
-            ] = "meadowrun/cuda-conda:cuda11.6.2-cudnn8-ubuntu20.04"
+            ] = "meadowrun/cuda-conda:conda4.12.0-cuda11.6.2-cudnn8-ubuntu20.04"
         else:
             build_args["CONDA_IMAGE"] = "continuumio/miniconda3"
     else:
@@ -610,15 +610,17 @@ def _get_path_and_hash(
 def _has_git_dependency(
     spec_contents: str, environment_type: EnvironmentType.ValueType
 ) -> bool:
-    # We just operate on bytes rather than decoding the string
-    if environment_type == EnvironmentType.PIP:
+    if (
+        environment_type == EnvironmentType.PIP
+        or environment_type == EnvironmentType.CONDA
+    ):
         # example line resulting from pip freeze:
         # package @ git+https://github.com/name/repo.git@sha
-        return any("git+" in line for line in spec_contents.splitlines())
+        # Conda can have git-based dependencies via pip
+        return "git+" in spec_contents
     elif environment_type == EnvironmentType.POETRY:
         return any(
             line.startswith('type = "git"') for line in spec_contents.splitlines()
         )
     else:
-        # TODO add support for conda
         return False

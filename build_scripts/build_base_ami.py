@@ -4,7 +4,7 @@ import re
 
 import asyncssh
 
-from ami_listings import VANILLA_UBUNTU_AMIS, BASE_AMIS
+from ami_listings import VANILLA_UBUNTU_AMIS, BASE_AMIS, AMI_SIZES_GB
 from build_ami_helper import (
     parse_ubuntu_version,
     parse_docker_version,
@@ -77,6 +77,13 @@ async def plain_base_image_actions_on_vm(
     print("Prepare a virtualenv for Meadowrun")
     await prepare_meadowrun_virtual_env(connection, "python3.9")
 
+    print("Set MaxSessions for sshd")
+    # We make one ssh connection per host, but sometimes have many workers on a host.
+    # Default maxsessions is 10, we set it to 1024 here somewhat arbitrarily.
+    await run_and_print(
+        connection, "echo 'MaxSessions 1024' | sudo tee -a /etc/ssh/sshd_config"
+    )
+
     return (
         f"ubuntu{await parse_ubuntu_version(connection)}"
         f"-docker{await parse_docker_version(connection)}"
@@ -126,12 +133,6 @@ async def cuda_base_image_actions_on_vm(
     )
     await run_and_print(
         connection, "sudo mv /home/ubuntu/dlami.sh /etc/profile.d/dlami.sh"
-    )
-
-    # we make one ssh connection per host, but sometimes have many workers on a host.
-    # Default maxsessions is 10, we set it to 64 here somewhat arbitrarily.
-    await run_and_print(
-        connection, "echo 'MaxSessions 64' | sudo tee -a /etc/ssh/sshd_config"
     )
 
     return (
@@ -208,11 +209,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.type == "plain":
-        volume_size_gb = 8
         actions_on_vm = plain_base_image_actions_on_vm
         all_region_base_amis = VANILLA_UBUNTU_AMIS
     elif args.type == "cuda":
-        volume_size_gb = 16
         actions_on_vm = cuda_base_image_actions_on_vm
         all_region_base_amis = BASE_AMIS["plain"]
     else:
@@ -238,7 +237,9 @@ def main() -> None:
 
     print(f"Creating {args.type} base AMIs")
     asyncio.run(
-        build_amis(regions, all_region_base_amis, volume_size_gb, actions_on_vm)
+        build_amis(
+            regions, all_region_base_amis, AMI_SIZES_GB[args.type], actions_on_vm
+        )
     )
     print(f"Created {args.type} base AMIs")
 

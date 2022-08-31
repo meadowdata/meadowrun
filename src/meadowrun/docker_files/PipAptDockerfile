@@ -9,6 +9,9 @@ FROM $PYTHON_IMAGE
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Some packages like tzinfo expect the user to interact with the install process,
+# setting this environment variable avoids the interaction
+ARG DEBIAN_FRONTEND=noninteractive
 ARG APT_PACKAGES
 RUN apt update && \
     apt install -y $APT_PACKAGES && \

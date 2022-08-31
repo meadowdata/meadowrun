@@ -484,7 +484,7 @@ class Deployment:
     async def mirror_local(
         cls,
         include_sys_path: bool = True,
-        additional_python_paths: Iterable[str] = tuple(),
+        additional_python_paths: Union[Iterable[str], str] = tuple(),
         interpreter: Union[
             LocalInterpreter, InterpreterSpecFile, ContainerInterpreterBase, None
         ] = None,
@@ -594,6 +594,9 @@ class Deployment:
             working_directory_globs = ()
         elif isinstance(working_directory_globs, str):
             working_directory_globs = [working_directory_globs]
+
+        if isinstance(additional_python_paths, str):
+            additional_python_paths = [additional_python_paths]
 
         # annoyingly, this tmp dir now gets deleted in run_local when the file
         # has been uploaded/unpacked depending on the Host implementation

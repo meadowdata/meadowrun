@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import dataclasses
+import itertools
 import uuid
 from typing import (
     TYPE_CHECKING,
@@ -157,6 +158,15 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         """
         pass
 
+    def allocate_jobs_to_instance_max_chunk(self) -> int:
+        """
+        allocate_jobs_to_instance in some cases has relatively low limits for how many
+        jobs can be allocated to an instance a time. This tells the caller that
+        new_job_ids in allocate_jobs_to_instance shouldn't be larger than the limit
+        returned by this function.
+        """
+        return -1
+
     @abc.abstractmethod
     async def deallocate_job_from_instance(
         self, instance: _TInstanceState, job_id: str
@@ -290,28 +300,48 @@ async def _choose_existing_instances(
         # process is trying to do an allocation at the same time as us so the instances
         # we've chosen actually don't have enough resources (even though they did at the
         # top of this function).
+
+        allocate_jobs_max_chunk = (
+            instance_registrar.allocate_jobs_to_instance_max_chunk()
+        )
         all_success = True
-        for instance in instances:
-            if instance.proposed_jobs:
-                success = await instance_registrar.allocate_jobs_to_instance(
-                    # it's very important to pass the orig_instance
-                    # here--allocate_jobs_to_instance can rely on available_resources
-                    # being correct and we want the original one, not the
-                    # proposed_available_resources that we've modified.
-                    instance.orig_instance,
-                    resources_required_per_job,
-                    instance.proposed_jobs,
-                )
-                if success:
-                    allocated_jobs.setdefault(
-                        instance.orig_instance.public_address, []
-                    ).extend(instance.proposed_jobs)
-                    allocated_instances[
-                        instance.orig_instance.public_address
-                    ] = instance.orig_instance
-                    num_jobs_allocated += len(instance.proposed_jobs)
+        for top_instance in instances:
+            if top_instance.proposed_jobs:
+                if allocate_jobs_max_chunk != -1:
+                    # split proposed_jobs into chunks of size allocate_jobs_max_chunk
+                    it = iter(top_instance.proposed_jobs)
+                    chunked_instances: Iterable[_InstanceWithProposedJobs] = (
+                        dataclasses.replace(
+                            top_instance, proposed_jobs=proposed_jobs_chunk
+                        )
+                        for proposed_jobs_chunk in iter(
+                            lambda: list(itertools.islice(it, allocate_jobs_max_chunk)),
+                            [],
+                        )
+                    )
                 else:
-                    all_success = False
+                    chunked_instances = (top_instance,)
+
+                for instance in chunked_instances:
+                    success = await instance_registrar.allocate_jobs_to_instance(
+                        # it's very important to pass the orig_instance
+                        # here--allocate_jobs_to_instance can rely on
+                        # available_resources being correct and we want the original
+                        # one, not the proposed_available_resources that we've modified.
+                        instance.orig_instance,
+                        resources_required_per_job,
+                        instance.proposed_jobs,
+                    )
+                    if success:
+                        allocated_jobs.setdefault(
+                            instance.orig_instance.public_address, []
+                        ).extend(instance.proposed_jobs)
+                        allocated_instances[
+                            instance.orig_instance.public_address
+                        ] = instance.orig_instance
+                        num_jobs_allocated += len(instance.proposed_jobs)
+                    else:
+                        all_success = False
 
         i += 1
 

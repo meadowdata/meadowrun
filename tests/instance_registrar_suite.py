@@ -253,6 +253,26 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert len(results["testhost-5"]) == 2
             assert "testhost-6" not in results
 
+    @pytest.mark.asyncio
+    async def test_allocate_many_workers(self) -> None:
+        """Tests allocating and deallocating, does not involve real machines"""
+        async with await self.get_instance_registrar() as instance_registrar:
+            await self.clear_instance_registrar(instance_registrar)
+
+            await instance_registrar.register_instance(
+                "testhost-1",
+                "testhost-1-name",
+                ResourcesInternal.from_cpu_and_memory(2 * 200, 4 * 200),
+                [],
+            )
+
+            await _choose_existing_instances(
+                instance_registrar, ResourcesInternal.from_cpu_and_memory(2, 4), 200
+            )
+
+            instance = await instance_registrar.get_registered_instance("testhost-1")
+            assert len(instance.get_running_jobs()) == 200
+
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_launch_one_instance(self) -> None:

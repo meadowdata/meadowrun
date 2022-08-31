@@ -352,6 +352,13 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         )
         return success
 
+    def allocate_jobs_to_instance_max_chunk(self) -> int:
+        # the limit for update/conditional expressions in DynamoDB is 4KB:
+        # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ServiceQuotas.html
+        # We hit this at around 90 jobs, and we give ourselves a bit of extra buffer
+        # here
+        return 85
+
     async def deallocate_job_from_instance(
         self, instance: _InstanceState, job_id: str
     ) -> bool:

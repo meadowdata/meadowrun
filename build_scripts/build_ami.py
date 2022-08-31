@@ -5,7 +5,7 @@ import os.path
 import subprocess
 from typing import List, Optional
 
-from ami_listings import BASE_AMIS
+from ami_listings import BASE_AMIS, AMI_SIZES_GB
 from build_ami_helper import (
     BEHAVIOR_OPTIONS,
     BEHAVIOR_OPTIONS_TYPE,
@@ -54,7 +54,7 @@ async def build_meadowrun_ami(
     await build_amis(
         regions,
         all_region_base_amis,
-        16 if ami_type == "plain" else 100,
+        AMI_SIZES_GB[ami_type],
         functools.partial(
             upload_and_configure_meadowrun,
             version=version,

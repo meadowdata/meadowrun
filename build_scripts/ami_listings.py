@@ -15,25 +15,28 @@ VANILLA_UBUNTU_AMIS = {
 
 BASE_AMIS = {
     "plain": {
-        "us-east-2": "ami-0c0e9b2876490a848",
-        "us-east-1": "ami-02926e1774240c532",
-        "us-west-1": "ami-0676090a7fc8e7a83",
-        "us-west-2": "ami-0db5ccf67230b16dd",
-        "eu-central-1": "ami-042e250513f73e4c8",
-        "eu-west-1": "ami-0972fee81e27b19d0",
-        "eu-west-2": "ami-0e1ef164398622295",
-        "eu-west-3": "ami-03838e066e91ec758",
-        "eu-north-1": "ami-05e71a7f8e72bf481",
+        "us-east-2": "ami-0eed2bad104153216",
+        "us-east-1": "ami-0237a465e7f465b10",
+        "us-west-1": "ami-0ccdaf675a40e9117",
+        "us-west-2": "ami-01428f068e1a56d69",
+        "eu-central-1": "ami-09f2794e7d903bcef",
+        "eu-west-1": "ami-07c1ea49baf56df87",
+        "eu-west-2": "ami-0726d725c53077e8f",
+        "eu-west-3": "ami-07e07ed18b2be6885",
+        "eu-north-1": "ami-075035b99ea138b74",
     },
     "cuda": {
-        "us-east-2": "ami-0b0cfe133703b7017",
-        "us-east-1": "ami-09097bb6bb2fc7a01",
-        "us-west-1": "ami-01ec7d42be6a73082",
-        "us-west-2": "ami-0d4179a49ea001e32",
-        "eu-central-1": "ami-06a3533bd5264512d",
-        "eu-west-1": "ami-069ba66c5f142d362",
-        "eu-west-2": "ami-09b8bcfa50817d43a",
-        "eu-west-3": "ami-05595226381771738",
-        "eu-north-1": "ami-0232fcf335c875423",
+        "us-east-2": "ami-0a71ec6df86abde74",
+        "us-east-1": "ami-0079ddb41f8365264",
+        "us-west-1": "ami-008b573d9c68f9e2a",
+        "us-west-2": "ami-0ce7eb2c350324d29",
+        "eu-central-1": "ami-04682aea45f749afb",
+        "eu-west-1": "ami-055d9249476b39cca",
+        "eu-west-2": "ami-03f87b8eade45709d",
+        "eu-west-3": "ami-04653e6ad61b9b8a5",
+        "eu-north-1": "ami-0358b4c743a05cdc4",
     },
 }
+
+
+AMI_SIZES_GB = {"plain": 8, "cuda": 16}

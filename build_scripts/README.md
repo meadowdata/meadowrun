@@ -1,4 +1,13 @@
-To publish meadowrun:
+### To rebuild the base images (should only be necessary once in a while):
+
+- Delete any existing base images via build_scripts\manage_amis.py list and delete
+- Build new plain base AMIs with `build_scripts\build_base_ami.py plain all`
+- Copy the region/AMI ID mapping from the output of that script into ami_listing.py under BASE_AMIS["plain"]
+- Build new cuda base AMIs with `build_scripts\build_base_ami.py cuda all`
+- Copy the region/AMI ID mapping from the output of that script into ami_listing.py under BASE_AMIS["cuda"]
+
+
+### To publish meadowrun:
 
 - Increment the version in `pyproject.toml` and `version.py`
 - Build the EC2 AMIs and copy the new AMI ids into the code by following the

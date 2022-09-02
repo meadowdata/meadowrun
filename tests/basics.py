@@ -293,9 +293,19 @@ class BasicsSuite(HostProvider, abc.ABC):
     async def test_pip_file_in_git_repo_with_data_file(self) -> None:
         """This test is doing double-duty, also checking for the machine_cache folder"""
 
-        def remote_function() -> Tuple[bool, str]:
+        # TODO upgrade the Meadowrun referenced in requirements.txt and move this inside
+        # remote_function
+        machine_cache_folder = meadowrun.MACHINE_CACHE_FOLDER
+
+        def remote_function() -> str:
+            # make sure the machine cache folder is writable
+            with open(
+                os.path.join(machine_cache_folder, "foo"), "w", encoding="utf-8"
+            ) as f:
+                f.write("test")
+
             with open("example_package/test.txt", encoding="utf-8") as f:
-                return os.path.isdir("/meadowrun/machine_cache"), f.read()
+                return f.read()
 
         results = await run_function(
             remote_function,
@@ -306,7 +316,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=PipRequirementsFile("requirements.txt", "3.9"),
             ),
         )
-        assert results == (True, "Hello world!")
+        assert results == "Hello world!"
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio

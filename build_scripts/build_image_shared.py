@@ -5,6 +5,8 @@ from typing import Optional, TYPE_CHECKING
 
 import asyncssh
 
+from meadowrun.run_job_local import MACHINE_CACHE_FOLDER
+
 if TYPE_CHECKING:
     from meadowrun.run_job_core import CloudProviderType
 from meadowrun.ssh import (
@@ -133,5 +135,8 @@ async def upload_and_configure_meadowrun(
         connection,
         "sudo systemctl enable --now meadowrun-check-spot-eviction.timer",
     )
+
+    # TODO move this into the base image at some point
+    await run_and_print(connection, f"mkdir -p {MACHINE_CACHE_FOLDER}")
 
     return image_name

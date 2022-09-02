@@ -87,6 +87,7 @@ _U = TypeVar("_U")
 _MEADOWRUN_CONTEXT_VARIABLES = "MEADOWRUN_CONTEXT_VARIABLES"
 _MEADOWRUN_RESULT_FILE = "MEADOWRUN_RESULT_FILE"
 _MEADOWRUN_RESULT_PICKLE_PROTOCOL = "MEADOWRUN_RESULT_PICKLE_PROTOCOL"
+MACHINE_CACHE_FOLDER = "/var/meadowrun/machine_cache"
 
 
 def _string_pairs_to_dict(pairs: Iterable[StringPair]) -> Dict[str, str]:
@@ -458,7 +459,6 @@ async def _launch_container_job(
     log_file_name: str,
     job: Job,
     io_folder: str,
-    machine_cache_folder: str,
     sidecar_container_images: List[str],
 ) -> Tuple[str, Coroutine[Any, Any, ProcessState]]:
     """
@@ -474,7 +474,7 @@ async def _launch_container_job(
     continuation.
     """
 
-    binds: List[Tuple[str, str]] = [(machine_cache_folder, "/meadowrun/machine_cache")]
+    binds: List[Tuple[str, str]] = [(MACHINE_CACHE_FOLDER, MACHINE_CACHE_FOLDER)]
 
     if cwd_path is not None:
         unique_code_paths = list(dict.fromkeys(itertools.chain([cwd_path], code_paths)))
@@ -736,7 +736,7 @@ def _get_default_working_folder() -> str:
 
 def _set_up_working_folder(
     working_folder: Optional[str],
-) -> Tuple[str, str, str, str, str, str]:
+) -> Tuple[str, str, str, str, str]:
     """
     Sets the working_folder to a default if it's not set, creates the necessary
     subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
@@ -760,15 +760,12 @@ def _set_up_working_folder(
     local_copies_folder = os.path.join(working_folder, "local_copies")
     # misc folder for e.g. storing environment export files sent from local machine
     misc_folder = os.path.join(working_folder, "misc")
-    # machine_cache folder for providing a machine-wide folder on the machine
-    machine_cache_folder = os.path.join(working_folder, "machine_cache")
 
     os.makedirs(io_folder, exist_ok=True)
     os.makedirs(job_logs_folder, exist_ok=True)
     os.makedirs(git_repos_folder, exist_ok=True)
     os.makedirs(local_copies_folder, exist_ok=True)
     os.makedirs(misc_folder, exist_ok=True)
-    os.makedirs(machine_cache_folder, exist_ok=True)
 
     return (
         io_folder,
@@ -776,7 +773,6 @@ def _set_up_working_folder(
         git_repos_folder,
         local_copies_folder,
         misc_folder,
-        machine_cache_folder,
     )
 
 
@@ -952,7 +948,6 @@ async def run_local(
         git_repos_folder,
         local_copies_folder,
         misc_folder,
-        machine_cache_folder,
     ) = _set_up_working_folder(working_folder)
 
     # unpickle credentials if necessary
@@ -1142,7 +1137,6 @@ async def run_local(
                 log_file_name,
                 job,
                 io_folder,
-                machine_cache_folder,
                 sidecar_containers,
             )
             # due to the way protobuf works, this is equivalent to None

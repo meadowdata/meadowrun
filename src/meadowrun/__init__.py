@@ -69,7 +69,7 @@ from meadowrun.run_job import (
     run_map_as_completed,
 )
 from meadowrun.run_job_core import Resources, SshHost, TaskException
-from meadowrun.run_job_local import Host, LocalHost
+from meadowrun.run_job_local import Host, LocalHost, MACHINE_CACHE_FOLDER
 from meadowrun.version import __version__
 
 __all__ = [
@@ -96,6 +96,7 @@ __all__ = [
     "Secret",
     "Host",
     "LocalHost",
+    "MACHINE_CACHE_FOLDER",
     "Resources",
     "SshHost",
     "Kubernetes",

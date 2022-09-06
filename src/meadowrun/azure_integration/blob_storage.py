@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import os
 from typing import Tuple
@@ -18,7 +20,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_RESOURCE_GROUP_NAME,
 )
-
+from meadowrun.run_job_core import S3CompatibleObjectStorage
 
 CONTAINER_NAME = "meadowrun"
 
@@ -109,3 +111,19 @@ async def download_file(container_name: str, object_name: str, file_name: str) -
     )
     with open(file_name, "wb") as file:
         file.write(result)
+
+
+class AzureBlobStorage(S3CompatibleObjectStorage):
+    # TODO this should have a region_name property also
+
+    @classmethod
+    def get_url_scheme(cls) -> str:
+        return "azblob"
+
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        return await ensure_uploaded(file_path)
+
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        return await download_file(bucket_name, object_name, file_name)

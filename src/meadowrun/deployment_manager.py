@@ -50,7 +50,8 @@ from meadowrun.meadowrun_pb2 import (
 )
 from meadowrun.pip_integration import get_cached_or_create_pip_environment
 from meadowrun.poetry_integration import get_cached_or_create_poetry_environment
-from meadowrun.run_job import S3ObjectStorage, AzureBlobStorage
+from meadowrun.azure_integration.blob_storage import AzureBlobStorage
+from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.run_job_core import (
     CloudProviderType,
     ContainerRegistryHelper,

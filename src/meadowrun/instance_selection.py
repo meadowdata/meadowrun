@@ -70,7 +70,8 @@ class ResourcesInternal:
     def add(self, returned: ResourcesInternal) -> ResourcesInternal:
         """
         Interpreting `self` as the available resources on an instance, adds back
-        "resources required" for a job that has completed
+        "resources required" for a job that has completed. returned.non_consumable is
+        ignored.
         """
         return ResourcesInternal(
             {
@@ -79,6 +80,42 @@ class ResourcesInternal:
             },
             self.non_consumable,
         )
+
+    def combine(self, other: ResourcesInternal) -> ResourcesInternal:
+        """
+        combines two disjoint sets of resources. This is meant to combine instance type
+        resources (like CPU and memory) with runtime resources (like AMI id and subnet
+        id).
+
+        I.e. the same resource cannot be present in self and other. This is different
+        from add because add ignores non_consumable resources, and supports the case
+        when self and other have the same consumable resources.
+        """
+        if other.consumable:
+            new_consumable = self.consumable.copy()
+            for key, value in other.consumable.items():
+                if key in new_consumable:
+                    raise ValueError(
+                        f"Cannot combine resources, consumable resource {key} was in "
+                        "both resources"
+                    )
+                new_consumable[key] = value
+        else:
+            new_consumable = self.consumable
+
+        if other.non_consumable:
+            new_non_consumable = self.non_consumable.copy()
+            for key, value in other.non_consumable.items():
+                if key in new_non_consumable:
+                    raise ValueError(
+                        f"Cannot combine resources, non-consumable resource {key} was "
+                        "in both resources"
+                    )
+                new_non_consumable[key] = value
+        else:
+            new_non_consumable = self.non_consumable
+
+        return ResourcesInternal(new_consumable, new_non_consumable)
 
     def divide_by(self, required: ResourcesInternal) -> int:
         """

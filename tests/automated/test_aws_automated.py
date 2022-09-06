@@ -27,7 +27,6 @@ from instance_registrar_suite import (
     InstanceRegistrarSuite,
 )
 from meadowrun import (
-    AllocCloudInstance,
     Deployment,
     PipRequirementsFile,
     Resources,
@@ -37,8 +36,9 @@ from meadowrun import (
 )
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
-    SSH_USER,
+    AllocEC2Instance,
     EC2InstanceRegistrar,
+    SSH_USER,
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
@@ -59,7 +59,7 @@ from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import RunMapHelper
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import CloudProviderType, Host, JobCompletion
+    from meadowrun.run_job_core import Host, JobCompletion
 
 # TODO don't always run tests in us-east-2
 REGION = "us-east-2"
@@ -70,7 +70,7 @@ class AwsHostProvider(HostProvider):
         return Resources(1, 4, 80)
 
     def get_host(self) -> Host:
-        return AllocCloudInstance("EC2", region_name=REGION)
+        return AllocEC2Instance(REGION)
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"
@@ -180,8 +180,8 @@ class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar])
             instance_registrar.get_region_name(), False
         )
 
-    def cloud_provider(self) -> CloudProviderType:
-        return "EC2"
+    def get_host(self) -> Host:
+        return AllocEC2Instance()
 
 
 class TestEC2InstanceRegistrar(EC2InstanceRegistrarProvider, InstanceRegistrarSuite):

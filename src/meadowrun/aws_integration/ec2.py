@@ -320,13 +320,24 @@ class LaunchEC2InstanceQuota(LaunchEC2InstanceTypeUnavailable):
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class LaunchEC2InstanceSettings:
+    """
+    This class contains the settings that come from AllocEC2Instance. See that class for
+    details on the semantics of each argument.
+    """
+
+    ami_id: str
+    subnet_id: Optional[str] = None
+    security_group_ids: Optional[Sequence[str]] = None
+    iam_role_instance_profile: Optional[str] = None
+
+
 async def launch_ec2_instance(
     region_name: str,
     instance_type: str,
     on_demand_or_spot: OnDemandOrSpotType,
-    ami_id: str,
-    security_group_ids: Optional[Sequence[str]] = None,
-    iam_role_name: Optional[str] = None,
+    launch_settings: LaunchEC2InstanceSettings,
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
@@ -350,10 +361,16 @@ async def launch_ec2_instance(
             }
         ]
     }
-    if security_group_ids:
-        optional_args["SecurityGroupIds"] = security_group_ids
-    if iam_role_name:
-        optional_args["IamInstanceProfile"] = {"Name": iam_role_name}
+    if launch_settings.subnet_id:
+        # this should not be set if we specify a custom network interface (which isn't
+        # supported yet)
+        optional_args["SubnetId"] = launch_settings.subnet_id
+    if launch_settings.security_group_ids:
+        optional_args["SecurityGroupIds"] = launch_settings.security_group_ids
+    if launch_settings.iam_role_instance_profile:
+        optional_args["IamInstanceProfile"] = {
+            "Name": launch_settings.iam_role_instance_profile
+        }
     if key_name:
         optional_args["KeyName"] = key_name
     if user_data:
@@ -377,7 +394,7 @@ async def launch_ec2_instance(
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
     success, instances, error_code = ignore_boto3_error_code(
         lambda: ec2_resource.create_instances(
-            ImageId=ami_id,
+            ImageId=launch_settings.ami_id,
             MinCount=1,
             MaxCount=1,
             InstanceType=instance_type,
@@ -449,22 +466,36 @@ async def _launch_instance_continuation(instance: Any) -> str:
     await instance_running_future
 
     instance.load()
-    if not instance.public_dns_name:
+    if instance.public_dns_name:
+        dns_name = instance.public_dns_name
+    else:
         # try one more time after waiting 1 seconds
         await asyncio.sleep(1.0)
         instance.load()
-        if not instance.public_dns_name:
-            raise ValueError("Waited until running, but still no IP address!")
-    return instance.public_dns_name
+        if instance.public_dns_name:
+            dns_name = instance.public_dns_name
+        elif instance.private_dns_name:
+            print(
+                f"Warning, no public DNS name available for instance {instance.id}. "
+                "Will try to use the private DNS name, but this will only work if the "
+                "current machine is in the same VPC as the new instance. If this "
+                "message is unexpected, please try setting your subnet to automatically"
+                " assign public IPv4 addresses"
+            )
+            dns_name = instance.private_dns_name
+        else:
+            raise ValueError(
+                f"Instance {instance.id} is running, but does not have a public DNS "
+                "name or a private DNS name."
+            )
+    return dns_name
 
 
 async def launch_ec2_instances(
-    resources_required_per_job: ResourcesInternal,
+    instance_type_resources_required_per_job: ResourcesInternal,
     num_jobs: int,
-    ami_id: str,
+    launch_settings: LaunchEC2InstanceSettings,
     region_name: Optional[str] = None,
-    security_group_ids: Optional[Sequence[str]] = None,
-    iam_role_name: Optional[str] = None,
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
@@ -501,7 +532,7 @@ async def launch_ec2_instances(
             )
 
         chosen_instance_types = choose_instance_types_for_job(
-            resources_required_per_job,
+            instance_type_resources_required_per_job,
             num_jobs_left_to_allocate,
             (
                 i
@@ -519,9 +550,7 @@ async def launch_ec2_instances(
                     region_name,
                     instance_type.instance_type.name,
                     instance_type.instance_type.on_demand_or_spot,
-                    ami_id=ami_id,
-                    security_group_ids=security_group_ids,
-                    iam_role_name=iam_role_name,
+                    launch_settings,
                     user_data=user_data,
                     key_name=key_name,
                     tags=tags,
@@ -551,7 +580,7 @@ async def launch_ec2_instances(
         if not at_least_one_chosen_instance_type:
             raise ValueError(
                 "There were no instance types that could be selected for: "
-                f"{resources_required_per_job}"
+                f"{instance_type_resources_required_per_job}"
             )
 
     public_dns_names = await asyncio.gather(*public_dns_name_tasks)

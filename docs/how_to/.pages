@@ -5,6 +5,7 @@ nav:
 - private_container_azure.md
 - private_git_repo_aws.md
 - private_git_repo_azure.md
+- custom_ami.md
 - ssh_to_instance.md
 - machine_cache.md
 - kubernetes.md

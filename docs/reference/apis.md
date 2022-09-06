@@ -24,6 +24,12 @@
 
 ::: meadowrun.Host
 
+::: meadowrun.AllocVM
+
+::: meadowrun.AllocEC2Instance
+
+::: meadowrun.AllocAzureVM
+
 ::: meadowrun.AllocCloudInstance
 
 ::: meadowrun.Kubernetes

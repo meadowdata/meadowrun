@@ -18,6 +18,7 @@ import asyncssh
 import boto3
 
 from meadowrun.aws_integration.ec2 import (
+    LaunchEC2InstanceSettings,
     LaunchEC2InstanceSuccess,
     _MEADOWRUN_SSH_SECURITY_GROUP,
     authorize_current_ip_for_meadowrun_ssh,
@@ -118,8 +119,12 @@ async def _build_ami(
             region_name,
             REGION_TO_INSTANCE_TYPE[region_name],
             "on_demand",
-            base_ami_id,
-            [ensure_security_group(_MEADOWRUN_SSH_SECURITY_GROUP, region_name)],
+            LaunchEC2InstanceSettings(
+                ami_id=base_ami_id,
+                security_group_ids=[
+                    ensure_security_group(_MEADOWRUN_SSH_SECURITY_GROUP, region_name)
+                ],
+            ),
             key_name=MEADOWRUN_KEY_PAIR_NAME,
             volume_size_gb=volume_size_gb,
         )

@@ -46,7 +46,7 @@ print(
     asyncio.run(
         meadowrun.run_function(
             lambda: sum(range(1000)) / 1000,
-            meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+            meadowrun.AllocEC2Instance(),
             meadowrun.Resources(logical_cpu=4, memory_gb=32, max_eviction_rate=15),
             meadowrun.Deployment.mirror_local()
         )

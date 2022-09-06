@@ -19,7 +19,6 @@ from typing import (
     TypeVar,
 )
 
-
 from meadowrun.instance_selection import (
     CloudInstance,
     ResourcesInternal,
@@ -29,6 +28,7 @@ from meadowrun.shared import assert_is_not_none
 
 if TYPE_CHECKING:
     from types import TracebackType
+    from meadowrun.run_job_core import AllocVM
 
 
 @dataclasses.dataclass
@@ -185,7 +185,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         self,
         resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
-        region_name: str,
+        alloc_cloud_instances: AllocVM,
     ) -> Sequence[CloudInstance]:
         """
         This isn't per se part of the "instance registration" process, but it's helpful
@@ -367,9 +367,9 @@ async def _choose_existing_instances(
 
 async def _launch_new_instances(
     instance_registrar: InstanceRegistrar,
-    resources_required_per_task: ResourcesInternal,
+    instance_type_resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
-    region_name: str,
+    alloc_cloud_instance: AllocVM,
     original_num_concurrent_tasks: int,
 ) -> Tuple[Dict[str, List[str]], Dict[str, CloudInstance]]:
     """
@@ -379,11 +379,19 @@ async def _launch_new_instances(
     Returns two dictionaries, {public_address: [job_ids]}, {public_address:
     cloud_instance}. The keys of the two dictionaries will be the same.
 
+    The CloudInstance objects returned will have a resources field that includes both
+    the instance type resources (like CPU and memory) that were used to select an
+    instance type as well as the "runtime resources" provided by alloc_cloud_instance
+    (like the AMI id and subnet ID) which describe how the instance was actaully
+    launched.
+
     original_num_jobs is only needed to produce more coherent logging.
     """
 
     instances = await instance_registrar.launch_instances(
-        resources_required_per_task, num_concurrent_tasks, region_name
+        instance_type_resources_required_per_task,
+        num_concurrent_tasks,
+        alloc_cloud_instance,
     )
 
     description_strings = []
@@ -395,6 +403,9 @@ async def _launch_new_instances(
     for instance in instances:
         # just to make the code more readable
         instance_info = instance.instance_type.instance_type
+        all_resources = instance_info.resources.combine(
+            alloc_cloud_instance.get_runtime_resources()
+        )
 
         # the number of jobs to allocate to this instance
         num_allocated_jobs = min(
@@ -408,11 +419,13 @@ async def _launch_new_instances(
             instance.public_dns_name,
             instance.name,
             assert_is_not_none(
-                instance_info.resources.subtract(
-                    resources_required_per_task.multiply(num_allocated_jobs)
+                all_resources.subtract(
+                    instance_type_resources_required_per_task.multiply(
+                        num_allocated_jobs
+                    )
                 )
             ),
-            [(job_id, resources_required_per_task) for job_id in job_ids],
+            [(job_id, instance_type_resources_required_per_task) for job_id in job_ids],
         )
 
         allocated_jobs[instance.public_dns_name] = job_ids
@@ -444,7 +457,7 @@ async def allocate_jobs_to_instances(
     instance_registrar: InstanceRegistrar,
     resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
-    region_name: str,
+    alloc_cloud_instance: AllocVM,
     ports: Optional[Sequence[str]],
 ) -> Dict[str, List[str]]:
     """
@@ -460,7 +473,9 @@ async def allocate_jobs_to_instances(
 
     allocated_jobs, allocated_existing_instances = await _choose_existing_instances(
         instance_registrar,
-        resources_required_per_task,
+        resources_required_per_task.combine(
+            alloc_cloud_instance.get_runtime_resources()
+        ),
         num_concurrent_tasks,
     )
 
@@ -474,7 +489,7 @@ async def allocate_jobs_to_instances(
             instance_registrar,
             resources_required_per_task,
             num_concurrent_tasks_remaining,
-            region_name,
+            alloc_cloud_instance,
             num_concurrent_tasks,
         )
         allocated_jobs.update(allocated_new_jobs)

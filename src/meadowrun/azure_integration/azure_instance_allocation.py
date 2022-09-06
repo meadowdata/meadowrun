@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import datetime
+import functools
 import json
-from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Sequence, Tuple, Type
-
-if TYPE_CHECKING:
-    from typing_extensions import Literal
-    from types import TracebackType
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    TYPE_CHECKING,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
 import meadowrun.azure_integration.azure_vms
 from meadowrun.azure_integration.azure_meadowrun_core import (
@@ -15,6 +24,12 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.azure_integration.blob_storage import AzureBlobStorage
+from meadowrun.azure_integration.grid_tasks_queue import (
+    create_queues_and_add_tasks,
+    get_results_unordered,
+    worker_loop,
+)
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
     LAST_UPDATE_TIME,
@@ -45,11 +60,22 @@ from meadowrun.instance_allocation import (
     allocate_jobs_to_instances,
 )
 from meadowrun.instance_selection import CloudInstance, ResourcesInternal
+from meadowrun.run_job_core import (
+    AllocVM,
+    CloudProviderType,
+    JobCompletion,
+    ObjectStorage,
+    RunMapHelper,
+    SshHost,
+)
 
 if TYPE_CHECKING:
+    from typing_extensions import Literal
+    from types import TracebackType
     from meadowrun.meadowrun_pb2 import Job
 
-from meadowrun.run_job_core import JobCompletion, SshHost
+_T = TypeVar("_T")
+_U = TypeVar("_U")
 
 
 @dataclasses.dataclass
@@ -374,8 +400,16 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         self,
         resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
-        region_name: str,
+        alloc_cloud_instances: AllocVM,
     ) -> Sequence[CloudInstance]:
+        if not isinstance(alloc_cloud_instances, AllocAzureVM):
+            # TODO do this in the type checker somehow
+            raise ValueError(
+                "Programming error: AzureInstanceRegistrar can only be used with "
+                "AllocAzureVM"
+            )
+
+        region_name = alloc_cloud_instances._get_location()
         return await meadowrun.azure_integration.azure_vms.launch_vms(
             resources_required_per_task,
             num_concurrent_tasks,
@@ -400,14 +434,87 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             )
 
 
+@dataclasses.dataclass
+class AllocAzureVM(AllocVM):
+    """
+    Specifies that the job should be run on a dynamically allocated Azure VM. Any
+    existing Meadowrun-managed VMs will be reused if available. If none are available,
+    Meadowrun will launch the cheapest VM type that meets the resource requirements for
+    a job.
+
+    `resources_required` must be provided with the AllocAzureVM Host.
+
+    Attributes:
+        location: Specifies the location for the Azure VM, e.g. "eastus". None will use
+            the default location.
+    """
+
+    location: Optional[str] = None
+
+    def get_cloud_provider(self) -> CloudProviderType:
+        return "AzureVM"
+
+    async def set_defaults(self) -> None:
+        self.location = get_default_location()
+
+    def _get_location(self) -> str:
+        # Small wrapper around region_name that throws if it is None. Should only be
+        # used internally.
+        if self.location is None:
+            raise ValueError(
+                "Programming error: location is None but it should have been set by "
+                "set_defaults earlier"
+            )
+        return self.location
+
+    def get_runtime_resources(self) -> ResourcesInternal:
+        return ResourcesInternal({}, {})
+
+    async def run_job(
+        self,
+        resources_required: Optional[ResourcesInternal],
+        job: Job,
+        wait_for_result: bool,
+    ) -> JobCompletion[Any]:
+        if resources_required is None:
+            raise ValueError(
+                "Resources.logical_cpu and memory_gb must be specified for "
+                "AllocAzureVM"
+            )
+
+        return await run_job_azure_vm_instance_registrar(
+            job, resources_required, self, wait_for_result
+        )
+
+    async def _create_run_map_helper(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: ResourcesInternal,
+        ports: Sequence[str],
+        num_concurrent_tasks: int,
+    ) -> RunMapHelper:
+        return await prepare_azure_vm_run_map(
+            function,
+            args,
+            self,
+            resources_required_per_task,
+            num_concurrent_tasks,
+            ports,
+        )
+
+    async def get_object_storage(self) -> ObjectStorage:
+        return AzureBlobStorage()
+
+
 async def run_job_azure_vm_instance_registrar(
     job: Job,
     resources_required: ResourcesInternal,
-    location: Optional[str],
+    alloc_azure_vm: AllocAzureVM,
     wait_for_result: bool,
 ) -> JobCompletion[Any]:
-    if not location:
-        location = get_default_location()
+    location = alloc_azure_vm._get_location()
+
     pkey, public_key = await ensure_meadowrun_key_pair(location)
 
     async with AzureInstanceRegistrar(location, "create") as instance_registrar:
@@ -420,7 +527,7 @@ async def run_job_azure_vm_instance_registrar(
             instance_registrar,
             resources_required,
             1,
-            location,
+            alloc_azure_vm,
             job.ports,
         )
 
@@ -436,4 +543,57 @@ async def run_job_azure_vm_instance_registrar(
 
     return await SshHost(host, "meadowrunuser", pkey, ("AzureVM", location)).run_job(
         resources_required, job, wait_for_result
+    )
+
+
+async def prepare_azure_vm_run_map(
+    function: Callable[[_T], _U],
+    tasks: Sequence[_T],
+    alloc_cloud_instance: AllocAzureVM,
+    resources_required_per_task: ResourcesInternal,
+    num_concurrent_tasks: int,
+    ports: Optional[Sequence[str]],
+) -> RunMapHelper:
+    """
+    This code is tightly coupled with run_map. This code belongs in grid_tasks_queue.py,
+    but it has to be here because of circular import issues
+    """
+    if not alloc_cloud_instance.location:
+        alloc_cloud_instance = dataclasses.replace(
+            alloc_cloud_instance, location=get_default_location()
+        )
+    location = alloc_cloud_instance._get_location()
+
+    key_pair_future = asyncio.create_task(ensure_meadowrun_key_pair(location))
+    queues_future = asyncio.create_task(create_queues_and_add_tasks(location, tasks))
+
+    async with AzureInstanceRegistrar(location, "create") as instance_registrar:
+        if ports:
+            raise NotImplementedError(
+                "Support for opening ports on Azure is not yet implemented, please "
+                "create an issue at https://github.com/meadowdata/meadowrun/issues"
+            )
+        allocated_hosts = await allocate_jobs_to_instances(
+            instance_registrar,
+            resources_required_per_task,
+            num_concurrent_tasks,
+            alloc_cloud_instance,
+            ports,
+        )
+
+    private_key, public_key = await key_pair_future
+    request_queue, result_queue = await queues_future
+
+    return RunMapHelper(
+        location,
+        allocated_hosts,
+        worker_function=functools.partial(
+            worker_loop, function, request_queue, result_queue
+        ),
+        ssh_username="meadowrunuser",
+        ssh_private_key=private_key,
+        num_tasks=len(tasks),
+        process_state_futures=functools.partial(
+            get_results_unordered, result_queue, len(tasks), location
+        ),
     )

@@ -24,7 +24,7 @@ if __name__ == "__main__":
             meadowrun.run_map(
                 lambda n: n ** n,
                 [1, 2, 3, 4],
-                host=meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+                host=meadowrun.AllocEC2Instance(),
                 resources_per_task=meadowrun.Resources(
                     logical_cpu=4, memory_gb=32, max_eviction_rate=15
                 ),
@@ -52,13 +52,13 @@ Launched 1 new EC2 instances (total $0.0898/hr) for the remaining 2 workers:
 The output will walk you through what Meadowrun's [run_map][meadowrun.run_map] is doing:
 
 Based on the options specified in [Resources][meadowrun.Resources] and
-[AllocCloudInstance][meadowrun.AllocCloudInstance], `run_map` launches the cheapest
-combination of EC2 instances/Azure VMs such that we can run 3 workers that each are
-allocated at least 4 CPU and 32GB of memory. (In this case, we already have one instance
-that can run a worker, so we'll use that in addition to launching another instance for
-the remaining 2 workers.) The instances will have <15% chance of being evicted. You
-can set this to 0 to exclude spot instances and only use on-demand instances. The exact
-instance types chosen depends on current EC2/Azure VM prices.
+[AllocEC2Instance][meadowrun.AllocEC2Instance], `run_map` launches the cheapest
+combination of EC2 instances such that we can run 3 workers that each are allocated at
+least 4 CPU and 32GB of memory. (In this case, we already have one instance that can run
+a worker, so we'll use that in addition to launching another instance for the remaining
+2 workers.) The instances will have <15% chance of being evicted. You can set this to 0
+to exclude spot instances and only use on-demand instances. The exact instance types
+chosen depends on current EC2/Azure VM prices.
 
 The workers will execute tasks until there are none left, eventually returning a list of
 results:

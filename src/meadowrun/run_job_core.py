@@ -11,6 +11,7 @@ import os.path
 import pickle
 import shutil
 import sys
+import traceback
 import urllib.parse
 import zipfile
 from typing import (
@@ -33,12 +34,13 @@ from typing import (
 )
 
 import asyncssh
+import cloudpickle
 import filelock
 from typing_extensions import Literal, Protocol
 
 import meadowrun.ssh as ssh
 from meadowrun.instance_selection import ResourcesInternal
-from meadowrun.meadowrun_pb2 import Job, ProcessState
+from meadowrun.meadowrun_pb2 import Job, ProcessState, PyFunctionJob
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
@@ -246,6 +248,11 @@ class Host(abc.ABC):
     Host is an abstract class for specifying where to run a job. See implementations
     below.
     """
+
+    async def set_defaults(self) -> None:
+        # This function gives derived classes an opportunity to set defaults before any
+        # other functions on the object are called.
+        pass
 
     @abc.abstractmethod
     async def run_job(
@@ -671,3 +678,208 @@ class ContainerRegistryHelper:
     username_password: Optional[UsernamePassword]
     image_name: str
     does_image_exist: bool
+
+
+class AllocVM(Host, abc.ABC):
+    """
+    An abstract class that provides shared implementation for
+    [AllocEC2Instance][meadowrun.AllocEC2Instance] and
+    [AllocAzureVM][meadowrun.AllocAzureVM]
+    """
+
+    cloud_provider: CloudProviderType
+
+    async def run_map(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+        wait_for_result: bool,
+    ) -> Optional[Sequence[_U]]:
+        if resources_required_per_task is None:
+            raise ValueError(
+                "Resources.logical_cpu and memory_gb must be specified for "
+                "AllocEC2Instance and AllocAzureVM"
+            )
+
+        helper = await self._create_run_map_helper(
+            function,
+            args,
+            resources_required_per_task,
+            job_fields["ports"],
+            num_concurrent_tasks,
+        )
+
+        worker_tasks, ssh_hosts = await self._run_worker_loops(
+            helper,
+            pickle_protocol,
+            job_fields,
+            resources_required_per_task,
+            wait_for_result,
+        )
+
+        try:
+            if wait_for_result:
+                workers_done = asyncio.Event()
+                results_future = asyncio.create_task(
+                    helper.get_all_results(workers_done)
+                )
+                worker_results = await asyncio.gather(
+                    *worker_tasks, return_exceptions=True
+                )
+                workers_done.set()
+                results = await results_future
+                for worker_id, result in enumerate(worker_results):
+                    if isinstance(result, Exception):
+                        print(
+                            f"Worker {worker_id} exited with error: "
+                            + "".join(
+                                traceback.format_exception(
+                                    None, result, result.__traceback__
+                                )
+                            )
+                        )
+                return results
+            else:
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+                return None
+        finally:
+            await asyncio.gather(
+                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
+                return_exceptions=True,
+            )
+
+    async def run_map_as_completed(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        num_concurrent_tasks: int,
+        pickle_protocol: int,
+    ) -> AsyncIterable[TaskResult[_U]]:
+        if resources_required_per_task is None:
+            raise ValueError(
+                "Resources.logical_cpu and memory_gb must be specified for "
+                "AllocEC2Instance and AllocAzureVM"
+            )
+
+        helper = await self._create_run_map_helper(
+            function,
+            args,
+            resources_required_per_task,
+            job_fields["ports"],
+            num_concurrent_tasks,
+        )
+
+        worker_tasks, ssh_hosts = await self._run_worker_loops(
+            helper,
+            pickle_protocol,
+            job_fields,
+            resources_required_per_task,
+            wait_for_result=True,
+        )
+
+        async def gather_workers_and_set(
+            event: asyncio.Event, worker_tasks: List[asyncio.Task[JobCompletion]]
+        ) -> List:
+            worker_results = await asyncio.gather(*worker_tasks, return_exceptions=True)
+            event.set()
+            return worker_results
+
+        try:
+            workers_done = asyncio.Event()
+            workers_done_future = asyncio.create_task(
+                gather_workers_and_set(workers_done, worker_tasks)
+            )
+
+            async for result in helper.get_results_as_completed(workers_done):
+                yield result
+
+            worker_results = await workers_done_future
+            for worker_id, result in enumerate(worker_results):
+                if isinstance(result, Exception):
+                    print(f"Worker {worker_id} exited with error: {result}")
+        finally:
+            await asyncio.gather(
+                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
+                return_exceptions=True,
+            )
+
+    @abc.abstractmethod
+    async def _create_run_map_helper(
+        self,
+        function: Callable[[_T], _U],
+        args: Sequence[_T],
+        resources_required_per_task: ResourcesInternal,
+        ports: Sequence[str],
+        num_concurrent_tasks: int,
+    ) -> RunMapHelper:
+        pass
+
+    @abc.abstractmethod
+    def get_cloud_provider(self) -> CloudProviderType:
+        pass
+
+    async def _run_worker_loops(
+        self,
+        helper: RunMapHelper,
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        resources_required_per_task: Optional[ResourcesInternal],
+        wait_for_result: bool,
+    ) -> Tuple[List[asyncio.Task[JobCompletion]], Iterable[SshHost]]:
+        # Now we will run worker_loop jobs on the hosts we got:
+
+        pickled_worker_function = cloudpickle.dumps(
+            helper.worker_function, protocol=pickle_protocol
+        )
+
+        worker_tasks = []
+        worker_id = 0
+        address_to_ssh_host: Dict[str, SshHost] = {}
+        for public_address, worker_job_ids in helper.allocated_hosts.items():
+            ssh_host = address_to_ssh_host.get(public_address)
+            if ssh_host is None:
+                ssh_host = SshHost(
+                    public_address,
+                    helper.ssh_username,
+                    helper.ssh_private_key,
+                    (self.get_cloud_provider(), helper.region_name),
+                )
+                address_to_ssh_host[public_address] = ssh_host
+            for worker_job_id in worker_job_ids:
+                job = Job(
+                    job_id=worker_job_id,
+                    py_function=PyFunctionJob(
+                        pickled_function=pickled_worker_function,
+                        pickled_function_arguments=pickle.dumps(
+                            ([public_address, worker_id], {}), protocol=pickle_protocol
+                        ),
+                    ),
+                    **job_fields,
+                )
+
+                worker_tasks.append(
+                    asyncio.create_task(
+                        ssh_host.run_job(
+                            resources_required_per_task, job, wait_for_result
+                        )
+                    )
+                )
+
+                worker_id += 1
+
+        return worker_tasks, address_to_ssh_host.values()
+
+    @abc.abstractmethod
+    def get_runtime_resources(self) -> ResourcesInternal:
+        # "Runtime resources" are resources that aren't tied to a particular instance
+        # type. Instance type resources are things like CPU and memory. Runtime
+        # resources are things like an AMI id or subnet id. Runtime resources should NOT
+        # be considered when choosing an instance type, but need to be considered when
+        # deciding whether an existing instance can run a new job.
+        pass

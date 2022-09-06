@@ -33,7 +33,7 @@ if __name__ == "__main__":
            # this is where the function to run goes
            lambda: sum(range(1000)) / 1000,
             # run on a dynamically allocated AWS EC2 instance
-           meadowrun.AllocCloudInstance(cloud_provider="EC2"),
+           meadowrun.AllocEC2Instance(),
            # requirements to choose an appropriate EC2 instance
            meadowrun.Resources(logical_cpu=1, memory_gb=4, max_eviction_rate=15),
            # mirror the local code and python environment
@@ -60,7 +60,7 @@ The output will walk you through what Meadowrun's [run_function][meadowrun.run_f
 is doing:
 
 1. Based on the options specified in [Resources][meadowrun.Resources] and
-   [AllocCloudInstance][meadowrun.AllocCloudInstance], `run_function` will launch the
+   [AllocEC2Instance][meadowrun.AllocEC2Instance], `run_function` will launch the
    cheapest EC2 instance type that has at least 1 CPU and 4GB of memory, and a <15%
    chance of being evicted. You can set this to 0 to exclude spot instances and only
    use on-demand instances. The exact instance type chosen depends on current EC2

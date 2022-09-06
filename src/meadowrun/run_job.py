@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-import dataclasses
 import os
 import os.path
 import pickle
 import shlex
-import traceback
 import uuid
 from typing import (
     Any,
@@ -26,16 +23,6 @@ from typing import (
 
 import cloudpickle
 
-from meadowrun.aws_integration import s3
-from meadowrun.aws_integration.ec2_instance_allocation import (
-    run_job_ec2_instance_registrar,
-)
-from meadowrun.aws_integration.grid_tasks_sqs import prepare_ec2_run_map
-from meadowrun.azure_integration import blob_storage
-from meadowrun.azure_integration.azure_instance_allocation import (
-    run_job_azure_vm_instance_registrar,
-)
-from meadowrun.azure_integration.grid_tasks_queue import prepare_azure_vm_run_map
 from meadowrun.config import JOB_ID_VALID_CHARACTERS, MEADOWRUN_INTERPRETER
 from meadowrun.deployment_spec import (
     ContainerAtDigestInterpreter,
@@ -69,14 +56,9 @@ from meadowrun.meadowrun_pb2 import (
     StringPair,
 )
 from meadowrun.run_job_core import (
-    CloudProviderType,
     Host,
     JobCompletion,
-    ObjectStorage,
     Resources,
-    RunMapHelper,
-    SshHost,
-    S3CompatibleObjectStorage,
     TaskResult,
 )
 
@@ -87,7 +69,6 @@ if TYPE_CHECKING:
         VersionedCodeDeployment,
         VersionedInterpreterDeployment,
     )
-    from meadowrun.instance_selection import ResourcesInternal
     from meadowrun.credentials import CredentialsSourceForService
 
 _T = TypeVar("_T")
@@ -169,300 +150,6 @@ async def _prepare_code_deployment(
         code_deploy.url = await (await host.get_object_storage()).upload_from_file_url(
             code_deploy.url
         )
-
-
-@dataclasses.dataclass
-class S3ObjectStorage(S3CompatibleObjectStorage):
-    region_name: Optional[str] = None
-
-    @classmethod
-    def get_url_scheme(cls) -> str:
-        return "s3"
-
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
-        return await s3.ensure_uploaded(file_path)
-
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        return await s3.download_file(
-            bucket_name, object_name, file_name, self.region_name
-        )
-
-
-class AzureBlobStorage(S3CompatibleObjectStorage):
-    # TODO this should have a region_name property also
-
-    @classmethod
-    def get_url_scheme(cls) -> str:
-        return "azblob"
-
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
-        return await blob_storage.ensure_uploaded(file_path)
-
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        return await blob_storage.download_file(bucket_name, object_name, file_name)
-
-
-@dataclasses.dataclass(frozen=True)
-class AllocCloudInstance(Host):
-    """
-    Specifies that the job should be run on a dynamically allocated cloud instance (i.e.
-    either an EC2 instance or Azure VM) depending on the cloud_provider parameter. Any
-    existing Meadowrun-managed instances will be reused if available. If none are
-    available, Meadowrun will launch the cheapest instance that meets the resource
-    requirements for a job.
-
-    resources_required must be provided with the AllocCloudInstance Host.
-
-    Attributes:
-        cloud_provider: `EC2` or `AzureVM`
-        region_name:
-    """
-
-    cloud_provider: CloudProviderType
-    region_name: Optional[str] = None
-
-    async def run_job(
-        self,
-        resources_required: Optional[ResourcesInternal],
-        job: Job,
-        wait_for_result: bool,
-    ) -> JobCompletion[Any]:
-        if resources_required is None:
-            raise ValueError(
-                "Resources.logical_cpu and memory_gb must be specified for "
-                "AllocCloudInstance"
-            )
-
-        if self.cloud_provider == "EC2":
-            return await run_job_ec2_instance_registrar(
-                job, resources_required, self.region_name, wait_for_result
-            )
-        elif self.cloud_provider == "AzureVM":
-            return await run_job_azure_vm_instance_registrar(
-                job, resources_required, self.region_name, wait_for_result
-            )
-        else:
-            raise ValueError(
-                f"Unexpected value for cloud_provider {self.cloud_provider}"
-            )
-
-    async def run_map(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
-        job_fields: Dict[str, Any],
-        num_concurrent_tasks: int,
-        pickle_protocol: int,
-        wait_for_result: bool,
-    ) -> Optional[Sequence[_U]]:
-        if resources_required_per_task is None:
-            raise ValueError(
-                "Resources.logical_cpu and memory_gb must be specified for "
-                "AllocCloudInstance"
-            )
-
-        helper = await self._create_run_map_helper(
-            function,
-            args,
-            resources_required_per_task,
-            job_fields["ports"],
-            num_concurrent_tasks,
-        )
-
-        worker_tasks, ssh_hosts = await self._run_worker_loops(
-            helper,
-            pickle_protocol,
-            job_fields,
-            resources_required_per_task,
-            wait_for_result,
-        )
-
-        try:
-            if wait_for_result:
-                workers_done = asyncio.Event()
-                results_future = asyncio.create_task(
-                    helper.get_all_results(workers_done)
-                )
-                worker_results = await asyncio.gather(
-                    *worker_tasks, return_exceptions=True
-                )
-                workers_done.set()
-                results = await results_future
-                for worker_id, result in enumerate(worker_results):
-                    if isinstance(result, Exception):
-                        print(
-                            f"Worker {worker_id} exited with error: "
-                            + "".join(
-                                traceback.format_exception(
-                                    None, result, result.__traceback__
-                                )
-                            )
-                        )
-                return results
-            else:
-                await asyncio.gather(*worker_tasks, return_exceptions=True)
-                return None
-        finally:
-            await asyncio.gather(
-                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
-                return_exceptions=True,
-            )
-
-    async def run_map_as_completed(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
-        job_fields: Dict[str, Any],
-        num_concurrent_tasks: int,
-        pickle_protocol: int,
-    ) -> AsyncIterable[TaskResult[_U]]:
-        if resources_required_per_task is None:
-            raise ValueError(
-                "Resources.logical_cpu and memory_gb must be specified for "
-                "AllocCloudInstance"
-            )
-
-        helper = await self._create_run_map_helper(
-            function,
-            args,
-            resources_required_per_task,
-            job_fields["ports"],
-            num_concurrent_tasks,
-        )
-
-        worker_tasks, ssh_hosts = await self._run_worker_loops(
-            helper,
-            pickle_protocol,
-            job_fields,
-            resources_required_per_task,
-            wait_for_result=True,
-        )
-
-        async def gather_workers_and_set(
-            event: asyncio.Event, worker_tasks: List[asyncio.Task[JobCompletion]]
-        ) -> List:
-            worker_results = await asyncio.gather(*worker_tasks, return_exceptions=True)
-            event.set()
-            return worker_results
-
-        try:
-            workers_done = asyncio.Event()
-            workers_done_future = asyncio.create_task(
-                gather_workers_and_set(workers_done, worker_tasks)
-            )
-
-            async for result in helper.get_results_as_completed(workers_done):
-                yield result
-
-            worker_results = await workers_done_future
-            for worker_id, result in enumerate(worker_results):
-                if isinstance(result, Exception):
-                    print(f"Worker {worker_id} exited with error: {result}")
-        finally:
-            await asyncio.gather(
-                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
-                return_exceptions=True,
-            )
-
-    async def _create_run_map_helper(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
-        ports: Sequence[str],
-        num_concurrent_tasks: int,
-    ) -> RunMapHelper:
-        if self.cloud_provider == "EC2":
-            helper = await prepare_ec2_run_map(
-                function,
-                args,
-                self.region_name,
-                resources_required_per_task,
-                num_concurrent_tasks,
-                ports,
-            )
-        elif self.cloud_provider == "AzureVM":
-            helper = await prepare_azure_vm_run_map(
-                function,
-                args,
-                self.region_name,
-                resources_required_per_task,
-                num_concurrent_tasks,
-                ports,
-            )
-        else:
-            raise ValueError(
-                f"Unexpected value for cloud_provider {self.cloud_provider}"
-            )
-
-        return helper
-
-    async def _run_worker_loops(
-        self,
-        helper: RunMapHelper,
-        pickle_protocol: int,
-        job_fields: Dict[str, Any],
-        resources_required_per_task: Optional[ResourcesInternal],
-        wait_for_result: bool,
-    ) -> Tuple[List[asyncio.Task[JobCompletion]], Iterable[SshHost]]:
-        # Now we will run worker_loop jobs on the hosts we got:
-
-        pickled_worker_function = cloudpickle.dumps(
-            helper.worker_function, protocol=pickle_protocol
-        )
-
-        worker_tasks = []
-        worker_id = 0
-        address_to_ssh_host: Dict[str, SshHost] = {}
-        for public_address, worker_job_ids in helper.allocated_hosts.items():
-            ssh_host = address_to_ssh_host.get(public_address)
-            if ssh_host is None:
-                ssh_host = SshHost(
-                    public_address,
-                    helper.ssh_username,
-                    helper.ssh_private_key,
-                    (self.cloud_provider, helper.region_name),
-                )
-                address_to_ssh_host[public_address] = ssh_host
-            for worker_job_id in worker_job_ids:
-                job = Job(
-                    job_id=worker_job_id,
-                    py_function=PyFunctionJob(
-                        pickled_function=pickled_worker_function,
-                        pickled_function_arguments=pickle.dumps(
-                            ([public_address, worker_id], {}), protocol=pickle_protocol
-                        ),
-                    ),
-                    **job_fields,
-                )
-
-                worker_tasks.append(
-                    asyncio.create_task(
-                        ssh_host.run_job(
-                            resources_required_per_task, job, wait_for_result
-                        )
-                    )
-                )
-
-                worker_id += 1
-
-        return worker_tasks, address_to_ssh_host.values()
-
-    async def get_object_storage(self) -> ObjectStorage:
-        if self.cloud_provider == "EC2":
-            return S3ObjectStorage(self.region_name)
-        elif self.cloud_provider == "AzureVM":
-            return AzureBlobStorage()
-        else:
-            raise ValueError(
-                f"Unexpected value for cloud_provider {self.cloud_provider}"
-            )
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:
@@ -589,8 +276,8 @@ async def run_function(
             lambda, or a string like `"package.module.function_name"` (which is useful
             if the function cannot be referenced in the current environment but can be
             referenced in the deployed environment)
-        host: Specifies where to run the function. See
-            [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        host: Specifies where to run the function. See [Host][meadowrun.Host] and
+            derived classes.
         resources: Specifies the resources (e.g. CPU, RAM) needed by the
             function. For some hosts, this is optional, for other hosts it is required.
             See [Resources][meadowrun.Resources].
@@ -674,6 +361,7 @@ async def run_function(
     ):
         interpreter.additional_software["cuda"] = ""
 
+    await host.set_defaults()
     await _prepare_code_deployment(code, host)
 
     (
@@ -721,8 +409,8 @@ async def run_command(
         args: Specifies the command to run, can be a string (e.g. `"jupyter nbconvert
             --to html analysis.ipynb"`) or a list of strings (e.g. `["jupyter",
             --"nbconvert", "--to", "html", "analysis.ipynb"]`)
-        host: Specifies where to run the function. See
-            [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        host: Specifies where to run the function. See [Host][meadowrun.Host] and
+            derived classes.
         resources: Specifies the resources (e.g. CPU, RAM) needed by the
             command. For some hosts, this is optional, for other hosts it is required.
             See [Resources][meadowrun.Resources].
@@ -766,6 +454,7 @@ async def run_command(
     ):
         interpreter.additional_software["cuda"] = ""
 
+    await host.set_defaults()
     await _prepare_code_deployment(code, host)
 
     if context_variables:
@@ -826,8 +515,8 @@ async def run_map(
         resources_per_task: The resources (e.g. CPU and RAM) required to run a
             single task. For some hosts, this is optional, for other hosts it is
             required. See [Resources][meadowrun.Resources].
-        host: Specifies where to get compute resources from. See
-            [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        host: Specifies where to get compute resources from. See [Host][meadowrun.Host]
+            and derived classes.
         num_concurrent_tasks: The number of workers to launch. This can be less than or
             equal to the number of args/tasks. Will default to half the total number of
             tasks plus one, rounded down if set to None.
@@ -872,6 +561,7 @@ async def run_map(
     ):
         interpreter.additional_software["cuda"] = ""
 
+    await host.set_defaults()
     await _prepare_code_deployment(code, host)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
@@ -942,8 +632,8 @@ async def run_map_as_completed(
         resources_per_task: The resources (e.g. CPU and RAM) required to run a
             single task. For some hosts, this is optional, for other hosts it is
             required. See [Resources][meadowrun.Resources].
-        host: Specifies where to get compute resources from. See
-            [AllocCloudInstance][meadowrun.AllocCloudInstance].
+        host: Specifies where to get compute resources from. See [Host][meadowrun.Host]
+            and derived classes.
         num_concurrent_tasks: The number of workers to launch. This can be less than or
             equal to the number of args/tasks. Will default to half the total number of
             tasks plus one, rounded down if set to None.
@@ -984,6 +674,7 @@ async def run_map_as_completed(
     ):
         interpreter.additional_software["cuda"] = ""
 
+    await host.set_defaults()
     await _prepare_code_deployment(code, host)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()

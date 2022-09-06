@@ -12,7 +12,10 @@ from instance_registrar_suite import (
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
 )
 from meadowrun import Resources
-from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
+from meadowrun.azure_integration.azure_instance_allocation import (
+    AzureInstanceRegistrar,
+    AllocAzureVM,
+)
 from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
     ensure_meadowrun_resource_group,
@@ -25,10 +28,9 @@ from meadowrun.azure_integration.mgmt_functions.vm_adjust import (
     _get_all_vms,
     terminate_all_vms,
 )
-from meadowrun.run_job import AllocCloudInstance
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import Host, JobCompletion, CloudProviderType
+    from meadowrun.run_job_core import Host, JobCompletion
 
 
 class AzureHostProvider(HostProvider):
@@ -37,7 +39,7 @@ class AzureHostProvider(HostProvider):
 
     def get_host(self) -> Host:
         # TODO don't always run tests in us-east-2
-        return AllocCloudInstance("AzureVM", region_name="eastus")
+        return AllocAzureVM("eastus")
 
     def get_test_repo_url(self) -> str:
         return "https://github.com/meadowdata/test_repo"
@@ -116,8 +118,8 @@ class AzureVMInstanceRegistrarProvider(
             await ensure_meadowrun_resource_group(instance_registrar.get_region_name())
         )
 
-    def cloud_provider(self) -> CloudProviderType:
-        return "AzureVM"
+    def get_host(self) -> Host:
+        return AllocAzureVM()
 
 
 class TestAzureVMInstanceRegistrar(

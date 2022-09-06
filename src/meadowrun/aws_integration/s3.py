@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import dataclasses
 import hashlib
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,6 +18,7 @@ from meadowrun.aws_integration.aws_core import (
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
+from meadowrun.run_job_core import S3CompatibleObjectStorage
 
 BUCKET_PREFIX = "meadowrun"
 
@@ -224,3 +228,22 @@ def delete_bucket(region_name: str) -> None:
             bucket.delete_objects(Delete=dict(Objects=key_chunk))
 
         bucket.delete()
+
+
+@dataclasses.dataclass
+class S3ObjectStorage(S3CompatibleObjectStorage):
+    region_name: Optional[str] = None
+
+    @classmethod
+    def get_url_scheme(cls) -> str:
+        return "s3"
+
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        return await ensure_uploaded(file_path)
+
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        return await download_file(
+            bucket_name, object_name, file_name, self.region_name
+        )

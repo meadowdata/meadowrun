@@ -42,6 +42,8 @@ if sys.platform == "win32":
             traceback.print_exc()
 
 
+from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
+from meadowrun.azure_integration.azure_instance_allocation import AllocAzureVM
 from meadowrun.deployment_spec import (
     AwsSecret,
     AzureSecret,
@@ -61,20 +63,23 @@ from meadowrun.deployment_spec import (
 )
 from meadowrun.kubernetes_integration import Kubernetes
 from meadowrun.run_job import (
-    AllocCloudInstance,
     TaskResult,
     run_command,
     run_function,
     run_map,
     run_map_as_completed,
 )
-from meadowrun.run_job_core import Resources, SshHost, TaskException
+from meadowrun.alloc_cloud_instance import AllocCloudInstance
+from meadowrun.run_job_core import AllocVM, Resources, SshHost, TaskException
 from meadowrun.run_job_local import Host, LocalHost, MACHINE_CACHE_FOLDER
 from meadowrun.version import __version__
 
 __all__ = [
     "__version__",
+    "AllocVM",
     "AllocCloudInstance",
+    "AllocEC2Instance",
+    "AllocAzureVM",
     "run_command",
     "run_function",
     "run_map",

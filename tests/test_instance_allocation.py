@@ -16,8 +16,7 @@ from typing import (
 
 import pytest
 
-if TYPE_CHECKING:
-    from types import TracebackType
+from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
 
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
@@ -31,6 +30,10 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
     choose_instance_types_for_job,
 )
+
+if TYPE_CHECKING:
+    from types import TracebackType
+    from meadowrun.run_job_core import AllocVM
 
 
 class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
@@ -133,7 +136,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         self,
         resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
-        region_name: str,
+        alloc_cloud_instances: AllocVM,
     ) -> Sequence[CloudInstance]:
         result = []
         for chosen_instance_type in choose_instance_types_for_job(
@@ -215,7 +218,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
             self,
             resources,
             num_concurrent_jobs,
-            "test_region",
+            AllocEC2Instance("test_region"),
             None,
         )
         all_job_ids = []

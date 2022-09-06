@@ -7,8 +7,8 @@ import sys
 from time import monotonic
 from typing import Tuple
 
-from meadowrun import Resources
-from meadowrun.run_job import AllocCloudInstance, run_function
+from meadowrun.run_job_core import Resources
+from meadowrun.run_job import run_function
 
 
 async def main() -> None:
@@ -31,7 +31,7 @@ async def main() -> None:
             start_time = monotonic()
             pid1, host1 = await run_function(
                 remote_function,
-                AllocCloudInstance(irp.cloud_provider()),
+                irp.get_host(),
                 Resources(1, 0.5, 80),
             )
             times.append(monotonic() - start_time)

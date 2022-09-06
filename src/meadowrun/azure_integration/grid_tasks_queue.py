@@ -4,31 +4,31 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime
-import functools
 import os
 import pickle
 import time
 import traceback
 import uuid
 from typing import (
-    TYPE_CHECKING,
     Any,
     AsyncIterable,
     Callable,
     Iterable,
     Optional,
-    Sequence,
     Tuple,
     TypeVar,
 )
 
-from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_storage_account,
-    get_default_location,
     record_last_used,
 )
-from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
+from meadowrun.azure_integration.mgmt_functions.azure_constants import (
+    GRID_TASK_QUEUE,
+    QUEUE_NAME_TIMESTAMP_FORMAT,
+    _REQUEST_QUEUE_NAME_PREFIX,
+    _RESULT_QUEUE_NAME_PREFIX,
+)
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
 )
@@ -38,18 +38,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
     queue_receive_messages,
     queue_send_message,
 )
-from meadowrun.azure_integration.mgmt_functions.azure_constants import (
-    GRID_TASK_QUEUE,
-    QUEUE_NAME_TIMESTAMP_FORMAT,
-    _REQUEST_QUEUE_NAME_PREFIX,
-    _RESULT_QUEUE_NAME_PREFIX,
-)
-from meadowrun.instance_allocation import allocate_jobs_to_instances
-
-if TYPE_CHECKING:
-    from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
-from meadowrun.run_job_core import RunMapHelper
 from meadowrun.shared import pickle_exception
 
 _T = TypeVar("_T")
@@ -276,50 +265,3 @@ async def get_results_unordered(
                 message.message_id,
                 message.pop_receipt,
             )
-
-
-async def prepare_azure_vm_run_map(
-    function: Callable[[_T], _U],
-    tasks: Sequence[_T],
-    location: Optional[str],
-    resources_required_per_task: ResourcesInternal,
-    num_concurrent_tasks: int,
-    ports: Optional[Sequence[str]],
-) -> RunMapHelper:
-    """This code is tightly coupled with run_map"""
-    if not location:
-        location = get_default_location()
-
-    key_pair_future = asyncio.create_task(ensure_meadowrun_key_pair(location))
-    queues_future = asyncio.create_task(create_queues_and_add_tasks(location, tasks))
-
-    async with AzureInstanceRegistrar(location, "create") as instance_registrar:
-        if ports:
-            raise NotImplementedError(
-                "Support for opening ports on Azure is not yet implemented, please "
-                "create an issue at https://github.com/meadowdata/meadowrun/issues"
-            )
-        allocated_hosts = await allocate_jobs_to_instances(
-            instance_registrar,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            location,
-            ports,
-        )
-
-    private_key, public_key = await key_pair_future
-    request_queue, result_queue = await queues_future
-
-    return RunMapHelper(
-        location,
-        allocated_hosts,
-        worker_function=functools.partial(
-            worker_loop, function, request_queue, result_queue
-        ),
-        ssh_username="meadowrunuser",
-        ssh_private_key=private_key,
-        num_tasks=len(tasks),
-        process_state_futures=functools.partial(
-            get_results_unordered, result_queue, len(tasks), location
-        ),
-    )

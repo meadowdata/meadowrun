@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import itertools
 import json
 import os
@@ -16,7 +15,6 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Sequence,
     Set,
     Tuple,
     TypeVar,
@@ -24,27 +22,18 @@ from typing import (
 
 import aiobotocore.session
 import boto3
+
 from meadowrun.aws_integration import s3
-from meadowrun.aws_integration.aws_core import _get_default_region_name
-from meadowrun.aws_integration.ec2_instance_allocation import (
-    SSH_USER,
-    EC2InstanceRegistrar,
-)
-from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
 )
-from meadowrun.instance_allocation import allocate_jobs_to_instances
+from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.shared import pickle_exception
 
 if TYPE_CHECKING:
-    from meadowrun.instance_selection import ResourcesInternal
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_sqs.client import SQSClient
-
-from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import RunMapHelper
-from meadowrun.shared import pickle_exception
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-request-"
 _QUEUE_NAME_SUFFIX = ".fifo"
@@ -432,50 +421,3 @@ async def get_results_unordered(
             )
         else:
             print(f"Received all {num_tasks} task results.")
-
-
-async def prepare_ec2_run_map(
-    function: Callable[[_T], _U],
-    tasks: Sequence[_T],
-    region_name: Optional[str],
-    resources_required_per_task: ResourcesInternal,
-    num_concurrent_tasks: int,
-    ports: Optional[Sequence[str]],
-) -> RunMapHelper:
-    """This code is tightly coupled with run_map"""
-
-    if not region_name:
-        region_name = await _get_default_region_name()
-
-    pkey = get_meadowrun_ssh_key(region_name)
-
-    # create SQS queues and add tasks to the request queue
-    queues_future = asyncio.create_task(
-        create_queues_and_add_tasks(region_name, tasks, num_concurrent_tasks)
-    )
-
-    # get hosts
-    async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
-        allocated_hosts = await allocate_jobs_to_instances(
-            instance_registrar,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            region_name,
-            ports,
-        )
-
-    request_queue, job_id = await queues_future
-
-    return RunMapHelper(
-        region_name,
-        allocated_hosts,
-        worker_function=functools.partial(
-            worker_loop, function, request_queue, job_id, region_name
-        ),
-        ssh_username=SSH_USER,
-        ssh_private_key=pkey,
-        num_tasks=len(tasks),
-        process_state_futures=functools.partial(
-            get_results_unordered, job_id, region_name, len(tasks)
-        ),
-    )

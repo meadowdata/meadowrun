@@ -8,8 +8,10 @@ import functools
 import itertools
 from typing import (
     Any,
+    AsyncIterable,
     Callable,
     Dict,
+    Generic,
     Iterable,
     List,
     Optional,
@@ -69,7 +71,7 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     JobCompletion,
     ObjectStorage,
-    RunMapHelper,
+    GridJobDriver,
     SshHost,
     WaitOption,
 )
@@ -77,7 +79,7 @@ from meadowrun.run_job_core import (
 if TYPE_CHECKING:
     from types import TracebackType
     from typing_extensions import Literal
-    from meadowrun.meadowrun_pb2 import Job
+    from meadowrun.meadowrun_pb2 import Job, ProcessState
 
 # SEE ALSO ec2_alloc_stub.py
 
@@ -648,14 +650,14 @@ class AllocEC2Instance(AllocVM):
             job, resources_required, self, wait_for_result
         )
 
-    async def _create_run_map_helper(
+    async def _create_grid_job_driver(
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
         resources_required_per_task: ResourcesInternal,
         ports: Sequence[str],
         num_concurrent_tasks: int,
-    ) -> RunMapHelper:
+    ) -> GridJobDriver:
         return await prepare_ec2_run_map(
             function,
             args,
@@ -710,7 +712,7 @@ async def prepare_ec2_run_map(
     resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     ports: Optional[Sequence[str]],
-) -> RunMapHelper:
+) -> GridJobDriver:
     """
     This code is tightly coupled with run_map. This code belongs in grid_tasks_sqs.py,
     but it has to be here because of circular import issues
@@ -741,16 +743,37 @@ async def prepare_ec2_run_map(
 
     request_queue, job_id = await queues_future
 
-    return RunMapHelper(
+    return EC2GridJobDriver(
         region_name,
         allocated_hosts,
-        worker_function=functools.partial(
-            worker_loop, function, request_queue, job_id, region_name
-        ),
         ssh_username=SSH_USER,
         ssh_private_key=pkey,
         num_tasks=len(tasks),
-        process_state_futures=functools.partial(
-            get_results_unordered, job_id, region_name, len(tasks)
-        ),
+        function=function,
+        request_queue=request_queue,
+        job_id=job_id,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class EC2GridJobDriver(GridJobDriver, Generic[_U, _T]):
+    request_queue: str
+    job_id: str
+
+    def worker_function(self) -> Callable[[str, int], None]:
+        return functools.partial(
+            worker_loop,
+            self.function,
+            self.request_queue,
+            self.job_id,
+            self.region_name,
+        )
+
+    def process_state_futures(
+        self,
+        *,
+        workers_done: Optional[asyncio.Event],
+    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+        return get_results_unordered(
+            self.job_id, self.region_name, self.num_tasks, workers_done=workers_done
+        )

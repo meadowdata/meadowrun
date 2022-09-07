@@ -37,7 +37,7 @@ from typing import (
 import asyncssh
 import cloudpickle
 import filelock
-from typing_extensions import Literal, Protocol
+from typing_extensions import Literal
 
 import meadowrun.ssh as ssh
 from meadowrun.instance_selection import ResourcesInternal
@@ -539,13 +539,6 @@ class MeadowrunException(Exception):
         self.process_state = process_state
 
 
-class _GetResultsUnordered(Protocol):
-    def __call__(
-        self, *, workers_done: Optional[asyncio.Event]
-    ) -> AsyncIterable[Tuple[int, ProcessState]]:
-        ...
-
-
 class TaskException(Exception):
     """Represents an exception that occurred in a task."""
 
@@ -566,12 +559,15 @@ class TaskResult(Generic[_T]):
             `result_or_raise`
         exception: If `not is_success`, a Tuple describing the exception that the task
             raised. Otherwise, None. See also `result_or_raise`.
+        attempt: 1-based number indicating which attempt of the task this is. 1 means
+            first attempt, 2 means second attempt, etc.
     """
 
     task_id: int
     is_success: bool
     result: Optional[_T] = None
     exception: Optional[Tuple[str, str, str]] = None
+    attempt: int = 1
 
     def result_or_raise(self) -> _T:
         """Returns a successful task result, or raises a TaskException.
@@ -598,18 +594,32 @@ _EXCEPTION_STATES = (
 )
 
 
-@dataclasses.dataclass(frozen=True)
-class RunMapHelper:
+# mypy bug/issue, see https://github.com/python/mypy/issues/5374
+@dataclasses.dataclass(frozen=True)  # type: ignore[misc]
+class GridJobDriver(abc.ABC, Generic[_T, _U]):
     """See run_map. This allows run_map to use EC2 or Azure VMs"""
 
     region_name: str
     allocated_hosts: Dict[str, List[str]]
-    # public_address, worker_id -> None
-    worker_function: Callable[[str, int], None]
     ssh_username: str
     ssh_private_key: asyncssh.SSHKey
     num_tasks: int
-    process_state_futures: _GetResultsUnordered
+    function: Callable[[_T], _U]
+
+    # would love to make this worker_function(self, public_address, worker_id) -> None,
+    # but worker_function is cloudpickled to the remote and self shouldn't be in the
+    # closure.
+    @abc.abstractmethod
+    def worker_function(self) -> Callable[[str, int], None]:
+        ...
+
+    @abc.abstractmethod
+    def process_state_futures(
+        self,
+        *,
+        workers_done: Optional[asyncio.Event],
+    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+        ...
 
     async def get_results_as_completed(
         self, workers_done: Optional[asyncio.Event]
@@ -625,6 +635,7 @@ class RunMapHelper:
             workers_done=workers_done
         ):
             if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+                # TODO try/catch on pickle.loads?
                 yield TaskResult(
                     task_id, is_success=True, result=pickle.loads(result.pickled_result)
                 )
@@ -646,14 +657,12 @@ class RunMapHelper:
 
         See also get_results_as_completed.
         """
-        task_results: List[Optional[ProcessState]] = [
-            None for _ in range(self.num_tasks)
-        ]
-        async for task_id, process_state in self.process_state_futures(
-            workers_done=workers_done
-        ):
+        task_results: List[Optional[TaskResult]] = [None] * self.num_tasks
+
+        async for task_result in self.get_results_as_completed(workers_done):
+            task_id = task_result.task_id
             if task_results[task_id] is None:
-                task_results[task_id] = process_state
+                task_results[task_id] = task_result
             else:
                 raise Exception(
                     f"Unexpected run_map results - the task id {task_id} had its "
@@ -665,18 +674,13 @@ class RunMapHelper:
             raise Exception(f"Did not receive results for {missing_count} tasks.")
 
         # if tasks were None, we'd have throw already
-        task_results = cast(List[ProcessState], task_results)
-        failed_tasks = [
-            result
-            for result in task_results
-            if result.state != ProcessState.ProcessStateEnum.SUCCEEDED
-        ]
+        task_results = cast(List[TaskResult], task_results)
+        failed_tasks = [result for result in task_results if not result.is_success]
         if failed_tasks:
             # TODO better error message
             raise Exception(f"Some tasks failed: {failed_tasks}")
 
-        # TODO try/catch on pickle.loads?
-        return [pickle.loads(result.pickled_result) for result in task_results]
+        return [result.result for result in task_results]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -717,7 +721,7 @@ class AllocVM(Host, abc.ABC):
                 "AllocEC2Instance and AllocAzureVM"
             )
 
-        helper = await self._create_run_map_helper(
+        helper = await self._create_grid_job_driver(
             function,
             args,
             resources_required_per_task,
@@ -779,7 +783,7 @@ class AllocVM(Host, abc.ABC):
                 "AllocEC2Instance and AllocAzureVM"
             )
 
-        helper = await self._create_run_map_helper(
+        driver = await self._create_grid_job_driver(
             function,
             args,
             resources_required_per_task,
@@ -788,7 +792,7 @@ class AllocVM(Host, abc.ABC):
         )
 
         worker_tasks, ssh_hosts = await self._run_worker_loops(
-            helper,
+            driver,
             pickle_protocol,
             job_fields,
             resources_required_per_task,
@@ -808,7 +812,7 @@ class AllocVM(Host, abc.ABC):
                 gather_workers_and_set(workers_done, worker_tasks)
             )
 
-            async for result in helper.get_results_as_completed(workers_done):
+            async for result in driver.get_results_as_completed(workers_done):
                 yield result
 
             worker_results = await workers_done_future
@@ -822,14 +826,14 @@ class AllocVM(Host, abc.ABC):
             )
 
     @abc.abstractmethod
-    async def _create_run_map_helper(
+    async def _create_grid_job_driver(
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
         resources_required_per_task: ResourcesInternal,
         ports: Sequence[str],
         num_concurrent_tasks: int,
-    ) -> RunMapHelper:
+    ) -> GridJobDriver:
         pass
 
     @abc.abstractmethod
@@ -838,7 +842,7 @@ class AllocVM(Host, abc.ABC):
 
     async def _run_worker_loops(
         self,
-        helper: RunMapHelper,
+        driver: GridJobDriver,
         pickle_protocol: int,
         job_fields: Dict[str, Any],
         resources_required_per_task: Optional[ResourcesInternal],
@@ -847,20 +851,20 @@ class AllocVM(Host, abc.ABC):
         # Now we will run worker_loop jobs on the hosts we got:
 
         pickled_worker_function = cloudpickle.dumps(
-            helper.worker_function, protocol=pickle_protocol
+            driver.worker_function(), protocol=pickle_protocol
         )
 
         worker_tasks = []
         worker_id = 0
         address_to_ssh_host: Dict[str, SshHost] = {}
-        for public_address, worker_job_ids in helper.allocated_hosts.items():
+        for public_address, worker_job_ids in driver.allocated_hosts.items():
             ssh_host = address_to_ssh_host.get(public_address)
             if ssh_host is None:
                 ssh_host = SshHost(
                     public_address,
-                    helper.ssh_username,
-                    helper.ssh_private_key,
-                    (self.get_cloud_provider(), helper.region_name),
+                    driver.ssh_username,
+                    driver.ssh_private_key,
+                    (self.get_cloud_provider(), driver.region_name),
                 )
                 address_to_ssh_host[public_address] = ssh_host
             for worker_job_id in worker_job_ids:

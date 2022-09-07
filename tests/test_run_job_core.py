@@ -1,12 +1,13 @@
 import asyncio
+from dataclasses import dataclass
 import pickle
-from typing import AsyncIterable, Optional, Tuple
+from typing import AsyncIterable, Callable, Optional, Tuple
 
 import asyncssh
 import pytest
 from meadowrun import TaskResult
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import RunMapHelper, TaskException
+from meadowrun.run_job_core import GridJobDriver, TaskException
 from meadowrun.shared import pickle_exception
 
 
@@ -29,9 +30,14 @@ def test_task_result() -> None:
         task_result.result_or_raise()
 
 
-@pytest.mark.asyncio
-async def test_run_map_helper() -> None:
-    async def test_results_generator(
+@dataclass(frozen=True)
+class TestGridJobDriver(GridJobDriver):
+    def worker_function(self) -> Callable[[str, int], None]:
+        return lambda p, w: None
+
+    async def process_state_futures(
+        self,
+        *,
         workers_done: Optional[asyncio.Event],
     ) -> AsyncIterable[Tuple[int, ProcessState]]:
         yield (
@@ -58,14 +64,19 @@ async def test_run_map_helper() -> None:
             ),
         )
 
-    helper = RunMapHelper(
+
+@pytest.mark.asyncio
+async def test_run_map_helper() -> None:
+    def f(i: str) -> str:
+        ...
+
+    helper = TestGridJobDriver(
         "test_region",
         {"host1": ["worker1", "worker2"], "host2": ["worker3"]},
-        lambda address, id: None,
         "sshname",
         asyncssh.SSHKey(),
         4,
-        test_results_generator,
+        f,
     )
 
     results = []

@@ -7,6 +7,7 @@ import functools
 import json
 from typing import (
     Any,
+    AsyncIterable,
     Callable,
     Iterable,
     List,
@@ -26,6 +27,7 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.azure_integration.blob_storage import AzureBlobStorage
 from meadowrun.azure_integration.grid_tasks_queue import (
+    Queue,
     create_queues_and_add_tasks,
     get_results_unordered,
     worker_loop,
@@ -65,7 +67,7 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     JobCompletion,
     ObjectStorage,
-    RunMapHelper,
+    GridJobDriver,
     SshHost,
     WaitOption,
 )
@@ -73,7 +75,8 @@ from meadowrun.run_job_core import (
 if TYPE_CHECKING:
     from typing_extensions import Literal
     from types import TracebackType
-    from meadowrun.meadowrun_pb2 import Job
+    from meadowrun.meadowrun_pb2 import Job, ProcessState
+
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -487,14 +490,14 @@ class AllocAzureVM(AllocVM):
             job, resources_required, self, wait_for_result
         )
 
-    async def _create_run_map_helper(
+    async def _create_grid_job_driver(
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
         resources_required_per_task: ResourcesInternal,
         ports: Sequence[str],
         num_concurrent_tasks: int,
-    ) -> RunMapHelper:
+    ) -> GridJobDriver:
         return await prepare_azure_vm_run_map(
             function,
             args,
@@ -554,7 +557,7 @@ async def prepare_azure_vm_run_map(
     resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     ports: Optional[Sequence[str]],
-) -> RunMapHelper:
+) -> GridJobDriver:
     """
     This code is tightly coupled with run_map. This code belongs in grid_tasks_queue.py,
     but it has to be here because of circular import issues
@@ -585,16 +588,45 @@ async def prepare_azure_vm_run_map(
     private_key, public_key = await key_pair_future
     request_queue, result_queue = await queues_future
 
-    return RunMapHelper(
+    return AzureVMGridJobDriver(
         location,
         allocated_hosts,
-        worker_function=functools.partial(
-            worker_loop, function, request_queue, result_queue
-        ),
+        # worker_function=functools.partial(
+        #     worker_loop, function, request_queue, result_queue
+        # ),
         ssh_username="meadowrunuser",
         ssh_private_key=private_key,
         num_tasks=len(tasks),
-        process_state_futures=functools.partial(
-            get_results_unordered, result_queue, len(tasks), location
-        ),
+        # process_state_futures=functools.partial(
+        #     get_results_unordered, result_queue, len(tasks), location
+        # ),
+        function=function,
+        request_queue=request_queue,
+        result_queue=result_queue,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class AzureVMGridJobDriver(GridJobDriver):
+    request_queue: Queue
+    result_queue: Queue
+
+    def worker_function(self) -> Callable[[str, int], None]:
+        return functools.partial(
+            worker_loop,
+            self.function,
+            self.request_queue,
+            self.result_queue,
+        )
+
+    def process_state_futures(
+        self,
+        *,
+        workers_done: Optional[asyncio.Event],
+    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+        return get_results_unordered(
+            self.result_queue,
+            self.num_tasks,
+            self.region_name,
+            workers_done=workers_done,
+        )

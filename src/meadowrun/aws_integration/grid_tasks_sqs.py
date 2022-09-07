@@ -64,7 +64,7 @@ async def create_queues_and_add_tasks(
     ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
         request_queue_url = await _create_request_queue(job_id, sqs)
         await _add_tasks(job_id, request_queue_url, s3c, sqs, run_map_args)
-        await _add_end_of_job_messages(job_id, request_queue_url, sqs, num_workers)
+        await _add_end_of_job_messages(request_queue_url, sqs, num_workers)
     return request_queue_url, job_id
 
 
@@ -149,12 +149,10 @@ async def _add_tasks(
 
 
 async def _add_end_of_job_messages(
-    job_id: str,
     request_queue_url: str,
     sqs: SQSClient,
     num_workers: int,
 ) -> None:
-    # done_message: Dict[str, Any] = dict(worker_done=True)
     batch: List[str] = [
         json.dumps(dict(worker_id=i, worker_done=True)) for i in range(num_workers)
     ]

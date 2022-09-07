@@ -9,7 +9,6 @@ money!). Either `meadowrun-manage install` needs to be set up, or `meadowrun-man
 clean` needs to be run periodically
 """
 import datetime
-import functools
 import pickle
 import pprint
 import threading
@@ -38,6 +37,7 @@ from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
     AllocEC2Instance,
     EC2InstanceRegistrar,
+    EC2GridJobDriver,
     SSH_USER,
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
@@ -47,7 +47,6 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     _get_task,
     create_queues_and_add_tasks,
     get_results_unordered,
-    worker_loop,
 )
 from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar
@@ -56,7 +55,6 @@ from meadowrun.instance_selection import (
     choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import RunMapHelper
 
 if TYPE_CHECKING:
     from meadowrun.run_job_core import Host, JobCompletion
@@ -308,23 +306,20 @@ class TestGridTaskQueue:
             region_name, task_arguments, 1
         )
 
-        helper = RunMapHelper(
+        helper = EC2GridJobDriver[int, int](
             region_name,
             {},
-            functools.partial(
-                worker_loop, lambda x: x**x, request_queue_url, job_id, region_name
-            ),
             "",
             asyncssh.SSHKey(),
             len(task_arguments),
-            lambda workers_done: get_results_unordered(
-                job_id, region_name, len(task_arguments), workers_done=workers_done
-            ),
+            lambda x: x**x,
+            request_queue_url,
+            job_id,
         )
 
         # start a worker_loop which will get tasks and complete them
         worker_thread = threading.Thread(
-            target=lambda: helper.worker_function(
+            target=lambda: helper.worker_function()(
                 public_address,
                 worker_id,
             )
@@ -343,18 +338,15 @@ class TestGridTaskQueue:
             region_name, task_arguments, 1
         )
 
-        helper = RunMapHelper(
+        helper = EC2GridJobDriver[int, int](
             region_name,
             {},
-            functools.partial(
-                worker_loop, lambda x: x**x, request_queue_url, job_id, region_name
-            ),
             "",
             asyncssh.SSHKey(),
             len(task_arguments),
-            lambda workers_done: get_results_unordered(
-                job_id, region_name, len(task_arguments), workers_done=workers_done
-            ),
+            lambda x: x**x,
+            request_queue_url,
+            job_id,
         )
 
         event = asyncio.Event()

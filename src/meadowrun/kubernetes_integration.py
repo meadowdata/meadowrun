@@ -999,6 +999,7 @@ class Kubernetes(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
+        wait_for_result: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError(
             "run_map_as_completed is not implemented for Kubernetes"

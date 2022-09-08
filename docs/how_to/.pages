@@ -7,6 +7,8 @@ nav:
 - private_git_repo_azure.md
 - custom_ami.md
 - ssh_to_instance.md
+- read_logs.md
 - machine_cache.md
 - kubernetes.md
+- read_logs_kubernetes.md
 - private_container_kubernetes.md

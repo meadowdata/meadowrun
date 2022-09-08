@@ -1,8 +1,9 @@
 ARG PYTHON_VERSION
 FROM python:$PYTHON_VERSION-slim-buster
 
-WORKDIR /meadowrun
+WORKDIR /var/meadowrun
 
+RUN mkdir -p /var/meadowrun/machine_cache
 
 RUN apt update && \
     apt install -y git && \

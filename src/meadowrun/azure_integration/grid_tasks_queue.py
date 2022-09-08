@@ -217,7 +217,7 @@ async def get_results_unordered(
     num_tasks: int,
     location: str,
     workers_done: Optional[asyncio.Event] = None,
-) -> AsyncIterable[Tuple[int, ProcessState]]:
+) -> AsyncIterable[Tuple[int, int, ProcessState]]:
 
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
@@ -257,7 +257,7 @@ async def get_results_unordered(
             else:
                 num_tasks_running -= 1
                 num_tasks_completed += 1
-                yield task_result.task_id, task_result.process_state
+                yield task_result.task_id, 1, task_result.process_state
 
             await queue_delete_message(
                 result_queue.storage_account,

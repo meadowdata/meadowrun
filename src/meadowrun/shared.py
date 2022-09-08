@@ -4,7 +4,7 @@ import asyncio
 import pickle
 import shutil
 import traceback
-from typing import Optional, TypeVar
+from typing import Optional, Tuple, TypeVar
 
 from meadowrun.meadowrun_pb2 import ProcessState
 
@@ -19,6 +19,10 @@ def pickle_exception(e: Exception, pickle_protocol: int) -> bytes:
         (str(type(e)), str(e), tb),
         protocol=pickle_protocol,
     )
+
+
+def unpickle_exception(bs: bytes) -> Tuple[str, str, str]:
+    return pickle.loads(bs)
 
 
 COMPLETED_PROCESS_STATES = {

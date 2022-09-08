@@ -43,7 +43,7 @@ _U = TypeVar("_U")
 
 
 async def create_queues_and_add_tasks(
-    region_name: str, run_map_args: Iterable[Any], num_workers: int
+    region_name: str, run_map_args: Iterable[Any]
 ) -> Tuple[str, str]:
     """
     Creates the queues necessary to run a grid job. Returns (request_queue_url,
@@ -64,7 +64,6 @@ async def create_queues_and_add_tasks(
     ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
         request_queue_url = await _create_request_queue(job_id, sqs)
         await _add_tasks(job_id, request_queue_url, s3c, sqs, run_map_args)
-        await _add_end_of_job_messages(request_queue_url, sqs, num_workers)
     return request_queue_url, job_id
 
 
@@ -129,7 +128,9 @@ async def _add_tasks(
         pickles.extend(arg_pkl)
         range_to = len(pickles) - 1
         grid_tasks.append(
-            json.dumps(dict(task_id=i, range_from=range_from, range_end=range_to))
+            json.dumps(
+                dict(task_id=i, attempt=1, range_from=range_from, range_end=range_to)
+            )
         )
         range_from = range_to + 1
 
@@ -178,8 +179,8 @@ async def _send_or_upload_message_batch(
             {
                 "Id": str(i),
                 "MessageBody": task,
-                # TODO replace 0 with a retry count
-                "MessageDeduplicationId": f"{message_id_prefix}-{i}:0",
+                # 1 at the end because this is the first attempt of each task.
+                "MessageDeduplicationId": f"{message_id_prefix}-{i}:1",
                 "MessageGroupId": "_",
             }
         )
@@ -193,7 +194,7 @@ def _get_task(
     job_id: str,
     region_name: str,
     receive_message_wait_seconds: int,
-) -> Optional[Tuple[int, bytes]]:
+) -> Optional[Tuple[int, int, bytes]]:
     """
     Gets the next task from the specified request_queue, downloads the task argument
     from S3, and then deletes the message from the request_queue.
@@ -219,8 +220,9 @@ def _get_task(
     # parse the task request
     task = json.loads(messages[0]["Body"])
     if "task_id" in task:
-        task_id, range_from, range_end = (
+        task_id, attempt, range_from, range_end = (
             task["task_id"],
+            task["attempt"],
             task["range_from"],
             task["range_end"],
         )
@@ -235,7 +237,7 @@ def _get_task(
             QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
         )
 
-        return task_id, arg
+        return task_id, attempt, arg
 
     # it's a worker exit message, so return None to exit
     sqs.delete_message(
@@ -248,25 +250,33 @@ def _s3_results_prefix(job_id: str) -> str:
     return f"task-results/{job_id}/"
 
 
-def _s3_results_key(job_id: str, task_id: int) -> str:
-    # A million tasks should be enough for everybody. Formatting the task is important
-    # because when we task download results from S3, we use the StartFrom argument to
-    # S3's ListObjects to exclude most tasks we've already downloaded.
-    return f"{_s3_results_prefix(job_id)}{task_id:06d}"
+def _s3_results_key(job_id: str, task_id: int, attempt: int) -> str:
+    # A million tasks and 1000 attempts should be enough for everybody. Formatting the
+    # task is important because when we task download results from S3, we use the
+    # StartFrom argument to S3's ListObjects to exclude most tasks we've already
+    # downloaded.
+    return f"{_s3_results_prefix(job_id)}{task_id:06d}/{attempt:03d}"
 
 
-def _s3_result_key_to_task_id(key: str, results_prefix: str) -> int:
-    return int(key.replace(results_prefix, ""))
+def _s3_result_key_to_task_id_attempt(key: str, results_prefix: str) -> Tuple[int, int]:
+    [task_id, attempt] = key.replace(results_prefix, "").split("/")
+    return int(task_id), int(attempt)
 
 
 def _complete_task(
-    job_id: str, region_name: str, task_id: int, process_state: ProcessState
+    job_id: str,
+    region_name: str,
+    task_id: int,
+    attempt: int,
+    process_state: ProcessState,
 ) -> None:
     """
     Uploads the result of the task to S3.
     """
     process_state_bytes = process_state.SerializeToString()
-    s3.upload(_s3_results_key(job_id, task_id), process_state_bytes, region_name)
+    s3.upload(
+        _s3_results_key(job_id, task_id, attempt), process_state_bytes, region_name
+    )
 
 
 def worker_loop(
@@ -306,7 +316,7 @@ def worker_loop(
         if not task:
             break
 
-        task_id, arg = task
+        task_id, attempt, arg = task
         try:
             result = function(pickle.loads(arg))
         except Exception as e:
@@ -330,6 +340,7 @@ def worker_loop(
             job_id,
             region_name,
             task_id,
+            attempt,
             process_state,
         )
 
@@ -338,9 +349,11 @@ async def get_results_unordered(
     job_id: str,
     region_name: str,
     num_tasks: int,
+    num_workers: int,
+    request_queue_url: str,
+    all_workers_exited: Optional[asyncio.Event],
     receive_message_wait_seconds: int = 20,
-    workers_done: Optional[asyncio.Event] = None,
-) -> AsyncIterable[Tuple[int, ProcessState]]:
+) -> AsyncIterable[Tuple[int, int, ProcessState]]:
     """
     Listens to a result queue until we have results for num_tasks. Returns the unpickled
     results of those tasks.
@@ -355,8 +368,8 @@ async def get_results_unordered(
     # downloads.
 
     # TODO monitor workers and react appropriately if a worker crashes.
-    if workers_done is None:
-        workers_done = asyncio.Event()
+    if all_workers_exited is None:
+        all_workers_exited = asyncio.Event()
 
     num_tasks_completed = 0
     results_prefix = _s3_results_prefix(job_id)
@@ -367,7 +380,7 @@ async def get_results_unordered(
     async with session.create_client("s3", region_name=region_name) as s3c:
         while num_tasks_completed < num_tasks and workers_done_wait_count < 3:
 
-            if workers_done.is_set():
+            if all_workers_exited.is_set():
                 print(
                     "All workers exited, waiting for task results. "
                     f"Requested: {num_tasks}, received: {num_tasks_completed}"
@@ -382,9 +395,9 @@ async def get_results_unordered(
             if wait:
                 try:
                     await asyncio.wait_for(
-                        workers_done.wait(),
+                        all_workers_exited.wait(),
                         timeout=1.0  # poll more frequently if workers are done.
-                        if workers_done.is_set()
+                        if all_workers_exited.is_set()
                         else receive_message_wait_seconds,
                     )
                 except asyncio.TimeoutError:
@@ -409,13 +422,20 @@ async def get_results_unordered(
                     key, process_state_bytes = await task_result_future
                     process_state = ProcessState()
                     process_state.ParseFromString(process_state_bytes)
-                    yield _s3_result_key_to_task_id(key, results_prefix), process_state
+                    task_id, attempt = _s3_result_key_to_task_id_attempt(
+                        key, results_prefix
+                    )
+                    yield task_id, attempt, process_state
                     num_tasks_completed += 1
 
-        if num_tasks_completed < num_tasks:
-            print(
-                "Gave up retrieving task results. "
-                f"Received {num_tasks_completed}/{num_tasks} task results."
-            )
-        else:
-            print(f"Received all {num_tasks} task results.")
+    # TODO shut workers donwn incrementally
+    async with session.create_client("sqs", region_name=region_name) as sqs:
+        await _add_end_of_job_messages(request_queue_url, sqs, num_workers)
+
+    if num_tasks_completed < num_tasks:
+        print(
+            "Gave up retrieving task results. "
+            f"Received {num_tasks_completed}/{num_tasks} task results."
+        )
+    else:
+        print(f"Received all {num_tasks} task results.")

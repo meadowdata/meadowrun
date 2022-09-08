@@ -39,8 +39,9 @@ class TestGridJobDriver(GridJobDriver):
         self,
         *,
         workers_done: Optional[asyncio.Event],
-    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         yield (
+            1,
             1,
             ProcessState(
                 state=ProcessState.ProcessStateEnum.SUCCEEDED,
@@ -49,6 +50,7 @@ class TestGridJobDriver(GridJobDriver):
         )
         yield (
             2,
+            1,
             ProcessState(
                 state=ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
                 pickled_result=pickle_exception(
@@ -58,6 +60,7 @@ class TestGridJobDriver(GridJobDriver):
         )
         yield (
             3,
+            1,
             ProcessState(
                 state=ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
                 return_code=2,
@@ -66,7 +69,7 @@ class TestGridJobDriver(GridJobDriver):
 
 
 @pytest.mark.asyncio
-async def test_run_map_helper() -> None:
+async def test_grid_job_driver() -> None:
     def f(i: str) -> str:
         ...
 
@@ -76,11 +79,12 @@ async def test_run_map_helper() -> None:
         "sshname",
         asyncssh.SSHKey(),
         4,
+        4,
         f,
     )
 
     results = []
-    async for res in helper.get_results_as_completed(None):
+    async for res in helper.get_results_as_completed(None, 1):
         results.append(res)
 
     assert results[0] == TaskResult(1, is_success=True, result="good result")

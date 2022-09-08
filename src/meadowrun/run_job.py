@@ -512,6 +512,7 @@ async def run_map(
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
     wait_for_result: bool = True,
+    max_num_task_attempts: int = 1,
 ) -> Optional[Sequence[_U]]:
     """
     Equivalent to `map(function, args)`, but runs distributed and in parallel.
@@ -610,6 +611,7 @@ async def run_map(
         num_concurrent_tasks,
         pickle_protocol,
         wait_option,
+        max_num_task_attempts,
     )
 
 
@@ -624,6 +626,7 @@ async def run_map_as_completed(
         Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
+    max_num_task_attempts: int = 1,
 ) -> AsyncIterable[TaskResult[_U]]:
     """
     Equivalent to [run_map][meadowrun.run_map], but returns results from tasks as they
@@ -723,6 +726,7 @@ async def run_map_as_completed(
         num_concurrent_tasks,
         pickle_protocol,
         wait_for_result=True,
+        max_num_task_attempts=max_num_task_attempts,
     )
 
 

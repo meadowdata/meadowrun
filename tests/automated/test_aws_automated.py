@@ -243,7 +243,7 @@ class TestGridTaskQueue:
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
         (request_queue_url, job_id) = await create_queues_and_add_tasks(
-            region_name, task_arguments, 1
+            region_name, task_arguments
         )
 
         def complete_tasks() -> None:
@@ -251,32 +251,40 @@ class TestGridTaskQueue:
 
             def assert_task(index: int) -> None:
                 assert tasks[index] is not None
-                assert pickle.loads(tasks[index][1]) == task_arguments[index]
+                assert tasks[index][1] == 1  # attempt
+                assert pickle.loads(tasks[index][2]) == task_arguments[index]
 
             def complete_task(index: int) -> None:
                 _complete_task(
                     job_id,
                     region_name,
                     tasks[index][0],
+                    tasks[index][1],
                     ProcessState(
                         state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                        pickled_result=tasks[index][1],
+                        pickled_result=tasks[index][2],
                     ),
                 )
 
             # get some tasks and complete them
             tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
             assert_task(0)
+
             tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
             assert_task(1)
+
             complete_task(0)
 
             tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
             assert_task(2)
+
             tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
             assert_task(3)
+
             # there should be no more tasks to get
-            assert _get_task(request_queue_url, job_id, region_name, 0) is None
+            # worker now checks forever - put in timeout after enabling worker restarts
+            # assert _get_task(request_queue_url, job_id, region_name, 0) is None
+
             complete_task(1)
             complete_task(2)
             complete_task(3)
@@ -285,9 +293,15 @@ class TestGridTaskQueue:
         results_thread.start()
 
         results: List = [None] * len(task_arguments)
-        async for task_id, process_state in get_results_unordered(
-            job_id, region_name, len(task_arguments)
+        async for task_id, attempt, process_state in get_results_unordered(
+            job_id,
+            region_name,
+            len(task_arguments),
+            1,
+            request_queue_url,
+            all_workers_exited=None,
         ):
+            assert attempt == 1
             results[task_id] = pickle.loads(process_state.pickled_result)
 
         results_thread.join()
@@ -303,7 +317,7 @@ class TestGridTaskQueue:
         worker_id = 1
 
         request_queue_url, job_id = await create_queues_and_add_tasks(
-            region_name, task_arguments, 1
+            region_name, task_arguments
         )
 
         driver = EC2GridJobDriver[int, int](
@@ -312,6 +326,7 @@ class TestGridTaskQueue:
             "",
             asyncssh.SSHKey(),
             len(task_arguments),
+            1,
             lambda x: x**x,
             request_queue_url,
             job_id,
@@ -326,7 +341,7 @@ class TestGridTaskQueue:
         )
         worker_thread.start()
         results = []
-        async for result in driver.get_results_as_completed(None):
+        async for result in driver.get_results_as_completed(None, 1):
             results.append(result.result_or_raise())
         worker_thread.join()
         assert set(results) == {1, 4, 27, 256}
@@ -337,7 +352,7 @@ class TestGridTaskQueue:
         task_arguments = [1, 2, 3, 4]
 
         request_queue_url, job_id = await create_queues_and_add_tasks(
-            region_name, task_arguments, 1
+            region_name, task_arguments
         )
 
         driver = EC2GridJobDriver[int, int](
@@ -346,6 +361,7 @@ class TestGridTaskQueue:
             "",
             asyncssh.SSHKey(),
             len(task_arguments),
+            1,
             lambda x: x**x,
             request_queue_url,
             job_id,
@@ -361,9 +377,10 @@ class TestGridTaskQueue:
                 job_id,
                 region_name,
                 task[0],
+                task[1],
                 ProcessState(
                     state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                    pickled_result=task[1],
+                    pickled_result=task[2],
                 ),
             )
 
@@ -372,6 +389,6 @@ class TestGridTaskQueue:
         event.set()
 
         num_results = 0
-        async for _ in driver.get_results_as_completed(event):
+        async for _ in driver.get_results_as_completed(event, 1):
             num_results += 1
         assert num_results == 1

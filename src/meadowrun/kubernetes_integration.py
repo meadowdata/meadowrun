@@ -902,12 +902,15 @@ class Kubernetes(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
+        max_num_task_attempts: int,
     ) -> Optional[Sequence[_U]]:
         # TODO add support for this feature
         if job_fields["sidecar_containers"]:
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
             )
+        if max_num_task_attempts != 1:
+            raise NotImplementedError("max_num_task_attempts must be 1 on Kubernetes")
 
         storage_client = await self._get_storage_client()
         # extra storage_bucket check is for mypy
@@ -1000,6 +1003,7 @@ class Kubernetes(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: bool,
+        max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError(
             "run_map_as_completed is not implemented for Kubernetes"

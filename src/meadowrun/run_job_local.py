@@ -1230,6 +1230,7 @@ class LocalHost(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
+        max_num_tasks_attempts: int,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map on LocalHost is not implemented")
 
@@ -1242,6 +1243,7 @@ class LocalHost(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: bool,
+        max_num_tasks_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError(
             "run_map_as_completed is not implemented for LocalHost"

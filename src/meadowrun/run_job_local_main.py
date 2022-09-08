@@ -44,7 +44,7 @@ Some details about point 2:
   async coroutine. On a KeyboardInterrupt, we need those tasks to run so the
   asyncssh.Process can be sent a SIGINT in turn. Luckily, if you run your event loop
   through asyncio.run, this takes care of cancelling outstanding tasks and waiting for
-  them automatically, so we can react to CancelledError and propragte the SIGINT. See
+  them automatically, so we can react to CancelledError and propagate the SIGINT. See
   ssh.py::run_and_print.
 
 - Also, the asyncio coroutines should not swallow CancelledError (as some used to in
@@ -109,7 +109,7 @@ async def main_async(
         job = Job()
         job.ParseFromString(bytes_job_to_run)
         first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, working_folder, cloud, True
+            job, working_folder, cloud, True, True
         )
         with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:
             f.write(first_state.SerializeToString())

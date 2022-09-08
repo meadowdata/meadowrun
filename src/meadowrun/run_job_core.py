@@ -418,7 +418,10 @@ class SshHost(Host):
                 f"--working-folder {remote_working_folder}" + " ".join(command_suffixes)
             )
 
-            print(f"Running {command}")
+            print(
+                f"Running job on {self.address} "
+                f"/var/meadowrun/job_logs/{job.job_friendly_name}.{job.job_id}.log"
+            )
 
             cmd_result = await ssh.run_and_print(connection, command, check=False)
 

@@ -15,6 +15,7 @@ import sys
 import urllib.parse
 import zipfile
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterable,
     Awaitable,
@@ -25,7 +26,6 @@ from typing import (
     List,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
     Type,
     TypeVar,
@@ -40,6 +40,7 @@ from typing_extensions import Literal
 import meadowrun.ssh as ssh
 from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import Job, ProcessState, PyFunctionJob
+from meadowrun.shared import unpickle_exception
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
@@ -278,6 +279,7 @@ class Host(abc.ABC):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
+        max_num_task_attempts: int,
     ) -> Optional[Sequence[_U]]:
         # Note for implementors: job_fields will be populated with everything other than
         # job_id and py_function, so the implementation should construct
@@ -294,6 +296,7 @@ class Host(abc.ABC):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: bool,
+        max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         pass
 
@@ -501,6 +504,7 @@ class SshHost(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
+        max_num_task_attempts: int,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map is not implemented for SshHost")
 
@@ -513,6 +517,7 @@ class SshHost(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: bool,
+        max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError("run_map_as_completed is not implemented for SshHost")
 
@@ -604,6 +609,7 @@ class GridJobDriver(abc.ABC, Generic[_T, _U]):
     ssh_username: str
     ssh_private_key: asyncssh.SSHKey
     num_tasks: int
+    num_workers: int
     function: Callable[[_T], _U]
 
     # would love to make this worker_function(self, public_address, worker_id) -> None,
@@ -618,35 +624,40 @@ class GridJobDriver(abc.ABC, Generic[_T, _U]):
         self,
         *,
         workers_done: Optional[asyncio.Event],
-    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         ...
 
     async def get_results_as_completed(
-        self, workers_done: Optional[asyncio.Event]
+        self,
+        workers_done: Optional[asyncio.Event],
+        max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult]:
         """Generates TaskResult objects for each task as tasks are completed. Useful for
         overlapping async work with getting task results, or getting the results from
         jobs with partially unsuccesful tasks.
-
-        See also get_all_results.
         """
-
-        async for task_id, result in self.process_state_futures(
+        async for task_id, attempt, result in self.process_state_futures(
             workers_done=workers_done
         ):
             if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
                 # TODO try/catch on pickle.loads?
                 yield TaskResult(
-                    task_id, is_success=True, result=pickle.loads(result.pickled_result)
+                    task_id,
+                    is_success=True,
+                    result=pickle.loads(result.pickled_result),
+                    attempt=attempt,
                 )
             elif result.state in _EXCEPTION_STATES:
+                exception = unpickle_exception(result.pickled_result)
+                # if attempt < max_num_task_attempts:
+                #     # retry
+                #     pass
+                # else:
                 yield TaskResult(
-                    task_id,
-                    is_success=False,
-                    exception=pickle.loads(result.pickled_result),
+                    task_id, is_success=False, exception=exception, attempt=attempt
                 )
             else:
-                yield TaskResult(task_id, is_success=False)
+                yield TaskResult(task_id, is_success=False, attempt=attempt)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -669,8 +680,6 @@ class AllocVM(Host, abc.ABC):
     [AllocAzureVM][meadowrun.AllocAzureVM]
     """
 
-    cloud_provider: CloudProviderType
-
     async def run_map(
         self,
         function: Callable[[_T], _U],
@@ -680,6 +689,7 @@ class AllocVM(Host, abc.ABC):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
+        max_num_task_attempts: int,
     ) -> Optional[Sequence[_U]]:
         if resources_required_per_task is None:
             raise ValueError(
@@ -695,6 +705,7 @@ class AllocVM(Host, abc.ABC):
             num_concurrent_tasks,
             pickle_protocol,
             wait_for_result,
+            max_num_task_attempts,
         )
 
         if wait_for_result == WaitOption.DO_NOT_WAIT:
@@ -729,7 +740,13 @@ class AllocVM(Host, abc.ABC):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: bool,
+        max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
+        if self.get_cloud_provider() == "AzureVM" and max_num_task_attempts != 1:
+            raise NotImplementedError(
+                "max_num_task_attempts must be 1 for AzureVM. "
+                "Task retries are not implemented yet."
+            )
         if resources_required_per_task is None:
             raise ValueError(
                 "Resources.logical_cpu and memory_gb must be specified for "
@@ -766,7 +783,9 @@ class AllocVM(Host, abc.ABC):
             )
 
             if wait_for_result:
-                async for result in driver.get_results_as_completed(workers_done):
+                async for result in driver.get_results_as_completed(
+                    workers_done, max_num_task_attempts
+                ):
                     yield result
 
             worker_results = await workers_done_future

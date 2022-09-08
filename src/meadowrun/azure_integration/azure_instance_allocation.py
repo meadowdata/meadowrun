@@ -498,7 +498,7 @@ class AllocAzureVM(AllocVM):
         ports: Sequence[str],
         num_concurrent_tasks: int,
     ) -> GridJobDriver:
-        return await prepare_azure_vm_run_map(
+        return await create_azure_vm_grid_job_driver(
             function,
             args,
             self,
@@ -550,14 +550,14 @@ async def run_job_azure_vm_instance_registrar(
     )
 
 
-async def prepare_azure_vm_run_map(
+async def create_azure_vm_grid_job_driver(
     function: Callable[[_T], _U],
     tasks: Sequence[_T],
     alloc_cloud_instance: AllocAzureVM,
     resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     ports: Optional[Sequence[str]],
-) -> GridJobDriver:
+) -> AzureVMGridJobDriver:
     """
     This code is tightly coupled with run_map. This code belongs in grid_tasks_queue.py,
     but it has to be here because of circular import issues
@@ -591,15 +591,10 @@ async def prepare_azure_vm_run_map(
     return AzureVMGridJobDriver(
         location,
         allocated_hosts,
-        # worker_function=functools.partial(
-        #     worker_loop, function, request_queue, result_queue
-        # ),
         ssh_username="meadowrunuser",
         ssh_private_key=private_key,
         num_tasks=len(tasks),
-        # process_state_futures=functools.partial(
-        #     get_results_unordered, result_queue, len(tasks), location
-        # ),
+        num_workers=num_concurrent_tasks,
         function=function,
         request_queue=request_queue,
         result_queue=result_queue,
@@ -623,7 +618,7 @@ class AzureVMGridJobDriver(GridJobDriver):
         self,
         *,
         workers_done: Optional[asyncio.Event],
-    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         return get_results_unordered(
             self.result_queue,
             self.num_tasks,

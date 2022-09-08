@@ -159,9 +159,6 @@ async def list_objects_async(
 ) -> List[str]:
     """Returns the keys in the meadowrun bucket."""
     bucket_name = _get_bucket_name(region_name)
-    # response = await s3_client.list_objects_v2(
-    #     Bucket=bucket_name, Prefix=prefix, StartAfter=start_after
-    # )
 
     paginator = s3_client.get_paginator("list_objects_v2")
     results = []
@@ -171,13 +168,6 @@ async def list_objects_async(
         for c in result.get("Contents", []):
             results.append(c["Key"])
     return results
-
-    # if response["KeyCount"] == 0:
-    #     return tuple(), False
-    # return (
-    #     tuple(content["Key"] for content in response["Contents"]),
-    #     response["IsTruncated"],
-    # )
 
 
 def download(

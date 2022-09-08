@@ -90,7 +90,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-006426834f282c3d7",
+        "us-east-2": "ami-09b3c527b9cfad9dd",
         "us-east-1": "ami-0a4540d3f3b17083b",
         "us-west-1": "ami-0a6d423b268bd06f9",
         "us-west-2": "ami-05b88ca63237af1c3",
@@ -658,7 +658,7 @@ class AllocEC2Instance(AllocVM):
         ports: Sequence[str],
         num_concurrent_tasks: int,
     ) -> GridJobDriver:
-        return await prepare_ec2_run_map(
+        return await create_ec2_grid_job_driver(
             function,
             args,
             self,
@@ -705,14 +705,14 @@ async def run_job_ec2_instance_registrar(
     )
 
 
-async def prepare_ec2_run_map(
+async def create_ec2_grid_job_driver(
     function: Callable[[_T], _U],
     tasks: Sequence[_T],
     alloc_cloud_instance: AllocEC2Instance,
     resources_required_per_task: ResourcesInternal,
     num_concurrent_tasks: int,
     ports: Optional[Sequence[str]],
-) -> GridJobDriver:
+) -> EC2GridJobDriver:
     """
     This code is tightly coupled with run_map. This code belongs in grid_tasks_sqs.py,
     but it has to be here because of circular import issues
@@ -727,9 +727,7 @@ async def prepare_ec2_run_map(
     pkey = get_meadowrun_ssh_key(region_name)
 
     # create SQS queues and add tasks to the request queue
-    queues_future = asyncio.create_task(
-        create_queues_and_add_tasks(region_name, tasks, num_concurrent_tasks)
-    )
+    queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, tasks))
 
     # get hosts
     async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
@@ -749,6 +747,7 @@ async def prepare_ec2_run_map(
         ssh_username=SSH_USER,
         ssh_private_key=pkey,
         num_tasks=len(tasks),
+        num_workers=num_concurrent_tasks,
         function=function,
         request_queue=request_queue,
         job_id=job_id,
@@ -773,7 +772,12 @@ class EC2GridJobDriver(GridJobDriver, Generic[_U, _T]):
         self,
         *,
         workers_done: Optional[asyncio.Event],
-    ) -> AsyncIterable[Tuple[int, ProcessState]]:
+    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         return get_results_unordered(
-            self.job_id, self.region_name, self.num_tasks, workers_done=workers_done
+            self.job_id,
+            self.region_name,
+            self.num_tasks,
+            self.num_workers,
+            self.request_queue,
+            all_workers_exited=workers_done,
         )

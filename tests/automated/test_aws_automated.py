@@ -306,7 +306,7 @@ class TestGridTaskQueue:
             region_name, task_arguments, 1
         )
 
-        helper = EC2GridJobDriver[int, int](
+        driver = EC2GridJobDriver[int, int](
             region_name,
             {},
             "",
@@ -319,15 +319,17 @@ class TestGridTaskQueue:
 
         # start a worker_loop which will get tasks and complete them
         worker_thread = threading.Thread(
-            target=lambda: helper.worker_function()(
+            target=lambda: driver.worker_function()(
                 public_address,
                 worker_id,
             )
         )
         worker_thread.start()
-        results = await helper.get_all_results()
+        results = []
+        async for result in driver.get_results_as_completed(None):
+            results.append(result.result_or_raise())
         worker_thread.join()
-        assert results == [1, 4, 27, 256]
+        assert set(results) == {1, 4, 27, 256}
 
     @pytest.mark.asyncio
     async def test_worker_loop_unfinished(self) -> None:
@@ -338,7 +340,7 @@ class TestGridTaskQueue:
             region_name, task_arguments, 1
         )
 
-        helper = EC2GridJobDriver[int, int](
+        driver = EC2GridJobDriver[int, int](
             region_name,
             {},
             "",
@@ -350,7 +352,6 @@ class TestGridTaskQueue:
         )
 
         event = asyncio.Event()
-        results_future = asyncio.create_task(helper.get_all_results(event))
 
         # only complete one task - get_results should still exit.
         def complete_tasks() -> None:
@@ -370,5 +371,7 @@ class TestGridTaskQueue:
         await asyncio.get_running_loop().run_in_executor(e, complete_tasks)
         event.set()
 
-        with pytest.raises(Exception, match="Did not receive results for 3 tasks") as e:
-            await results_future
+        num_results = 0
+        async for _ in driver.get_results_as_completed(event):
+            num_results += 1
+        assert num_results == 1

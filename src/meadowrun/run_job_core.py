@@ -12,7 +12,6 @@ import os.path
 import pickle
 import shutil
 import sys
-import traceback
 import urllib.parse
 import zipfile
 from typing import (
@@ -31,7 +30,6 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    cast,
 )
 
 import asyncssh
@@ -295,6 +293,7 @@ class Host(abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
+        wait_for_result: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
         pass
 
@@ -513,6 +512,7 @@ class SshHost(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
+        wait_for_result: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError("run_map_as_completed is not implemented for SshHost")
 
@@ -648,40 +648,6 @@ class GridJobDriver(abc.ABC, Generic[_T, _U]):
             else:
                 yield TaskResult(task_id, is_success=False)
 
-    async def get_all_results(
-        self, workers_done: Optional[asyncio.Event] = None
-    ) -> List[Any]:
-        """Waits until all results for all tasks are received, and returns their results
-        if they are all successful. An exception is thrown if not all results are
-        received, or if some tasks failed.
-
-        See also get_results_as_completed.
-        """
-        task_results: List[Optional[TaskResult]] = [None] * self.num_tasks
-
-        async for task_result in self.get_results_as_completed(workers_done):
-            task_id = task_result.task_id
-            if task_results[task_id] is None:
-                task_results[task_id] = task_result
-            else:
-                raise Exception(
-                    f"Unexpected run_map results - the task id {task_id} had its "
-                    "results returned more than once."
-                )
-
-        missing_count = task_results.count(None)
-        if missing_count > 0:
-            raise Exception(f"Did not receive results for {missing_count} tasks.")
-
-        # if tasks were None, we'd have throw already
-        task_results = cast(List[TaskResult], task_results)
-        failed_tasks = [result for result in task_results if not result.is_success]
-        if failed_tasks:
-            # TODO better error message
-            raise Exception(f"Some tasks failed: {failed_tasks}")
-
-        return [result.result for result in task_results]
-
 
 @dataclasses.dataclass(frozen=True)
 class ContainerRegistryHelper:
@@ -721,52 +687,38 @@ class AllocVM(Host, abc.ABC):
                 "AllocEC2Instance and AllocAzureVM"
             )
 
-        helper = await self._create_grid_job_driver(
+        async_iterator = self.run_map_as_completed(
             function,
             args,
             resources_required_per_task,
-            job_fields["ports"],
-            num_concurrent_tasks,
-        )
-
-        worker_tasks, ssh_hosts = await self._run_worker_loops(
-            helper,
-            pickle_protocol,
             job_fields,
-            resources_required_per_task,
+            num_concurrent_tasks,
+            pickle_protocol,
             wait_for_result,
         )
 
-        try:
-            if wait_for_result == WaitOption.DO_NOT_WAIT:
-                await asyncio.gather(*worker_tasks, return_exceptions=True)
-                return None
-            else:
-                workers_done = asyncio.Event()
-                results_future = asyncio.create_task(
-                    helper.get_all_results(workers_done)
-                )
-                worker_results = await asyncio.gather(
-                    *worker_tasks, return_exceptions=True
-                )
-                workers_done.set()
-                results = await results_future
-                for worker_id, result in enumerate(worker_results):
-                    if isinstance(result, Exception):
-                        print(
-                            f"Worker {worker_id} exited with error: "
-                            + "".join(
-                                traceback.format_exception(
-                                    None, result, result.__traceback__
-                                )
-                            )
-                        )
-                return results
-        finally:
-            await asyncio.gather(
-                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
-                return_exceptions=True,
-            )
+        if wait_for_result == WaitOption.DO_NOT_WAIT:
+            # we still need to iterate, even though no values are returned, to execute
+            # the rest of the code in the iterator.
+            async for _ in async_iterator:
+                pass
+            return None
+        else:
+            task_results: List[TaskResult] = []
+
+            # TODO - this will wait forever if any tasks are missing
+            async for task_result in async_iterator:
+                task_results.append(task_result)
+
+            task_results.sort(key=lambda tr: tr.task_id)
+
+            # if tasks were None, we'd have throw already
+            failed_tasks = [result for result in task_results if not result.is_success]
+            if failed_tasks:
+                # TODO better error message
+                raise Exception(f"Some tasks failed: {failed_tasks}")
+
+            return [result.result for result in task_results]  # type: ignore[misc]
 
     async def run_map_as_completed(
         self,
@@ -776,6 +728,7 @@ class AllocVM(Host, abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
+        wait_for_result: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
         if resources_required_per_task is None:
             raise ValueError(
@@ -812,8 +765,9 @@ class AllocVM(Host, abc.ABC):
                 gather_workers_and_set(workers_done, worker_tasks)
             )
 
-            async for result in driver.get_results_as_completed(workers_done):
-                yield result
+            if wait_for_result:
+                async for result in driver.get_results_as_completed(workers_done):
+                    yield result
 
             worker_results = await workers_done_future
             for worker_id, result in enumerate(worker_results):

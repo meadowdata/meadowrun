@@ -722,6 +722,7 @@ async def run_map_as_completed(
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,
+        wait_for_result=True,
     )
 
 

@@ -71,6 +71,7 @@ from meadowrun.run_job_core import (
     ObjectStorage,
     RunMapHelper,
     SshHost,
+    WaitOption,
 )
 
 if TYPE_CHECKING:
@@ -635,7 +636,7 @@ class AllocEC2Instance(AllocVM):
         self,
         resources_required: Optional[ResourcesInternal],
         job: Job,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
         if resources_required is None:
             raise ValueError(
@@ -672,7 +673,7 @@ async def run_job_ec2_instance_registrar(
     job: Job,
     resources_required: ResourcesInternal,
     alloc_ec2_instance: AllocEC2Instance,
-    wait_for_result: bool,
+    wait_for_result: WaitOption,
 ) -> JobCompletion[Any]:
     """Runs the specified job on EC2. Creates an EC2InstanceRegistrar"""
     region_name = alloc_ec2_instance._get_region_name()

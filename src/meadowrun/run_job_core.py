@@ -6,6 +6,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import dataclasses
+import enum
 import os
 import os.path
 import pickle
@@ -243,6 +244,12 @@ class S3CompatibleObjectStorage(ObjectStorage, abc.ABC):
         return extracted_folder
 
 
+class WaitOption(enum.Enum):
+    WAIT_AND_TAIL_STDOUT = 1
+    WAIT_SILENTLY = 2
+    DO_NOT_WAIT = 3
+
+
 class Host(abc.ABC):
     """
     Host is an abstract class for specifying where to run a job. See implementations
@@ -259,7 +266,7 @@ class Host(abc.ABC):
         self,
         resources_required: Optional[ResourcesInternal],
         job: Job,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
         pass
 
@@ -272,7 +279,7 @@ class Host(abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> Optional[Sequence[_U]]:
         # Note for implementors: job_fields will be populated with everything other than
         # job_id and py_function, so the implementation should construct
@@ -340,7 +347,7 @@ class SshHost(Host):
         self,
         resources_required: Optional[ResourcesInternal],
         job: Job,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
 
         connection = await self._connection_future()
@@ -383,7 +390,7 @@ class SshHost(Host):
             command_prefixes = []
             command_suffixes = []
 
-            if not wait_for_result:
+            if wait_for_result == WaitOption.DO_NOT_WAIT:
                 # reference on nohup: https://github.com/ronf/asyncssh/issues/137
                 command_prefixes.append("/usr/bin/nohup")
             if self.cloud_provider is not None:
@@ -391,8 +398,10 @@ class SshHost(Host):
                     f"--cloud {self.cloud_provider[0]} "
                     f"--cloud-region-name {self.cloud_provider[1]}"
                 )
-            if not wait_for_result:
-                command_suffixes.append("< /dev/null > /dev/null 2>&1 &")
+            if wait_for_result in (WaitOption.DO_NOT_WAIT, WaitOption.WAIT_SILENTLY):
+                command_suffixes.append("< /dev/null > /dev/null 2>&1")
+                if wait_for_result == WaitOption.DO_NOT_WAIT:
+                    command_suffixes.append("&")
 
             if command_prefixes:
                 command_prefixes.append(" ")
@@ -419,7 +428,7 @@ class SshHost(Host):
             if cmd_result.exit_status != 0:
                 raise ValueError(f"Process exited {cmd_result.returncode}")
 
-            if not wait_for_result:
+            if wait_for_result == WaitOption.DO_NOT_WAIT:
                 return JobCompletion(
                     None, ProcessState.ProcessStateEnum.RUNNING, "", 0, self.address
                 )
@@ -449,8 +458,8 @@ class SshHost(Host):
 
         finally:
             # TODO also clean up log files?
-            # TODO clean up files for jobs where wait_for_result=False
-            if job_io_prefix and wait_for_result:
+            # TODO clean up files for jobs where wait_for_result is DO_NOT_WAIT
+            if job_io_prefix and wait_for_result != WaitOption.DO_NOT_WAIT:
                 remote_paths = " ".join(
                     [
                         f"{job_io_prefix}.job_to_run",
@@ -489,7 +498,7 @@ class SshHost(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map is not implemented for SshHost")
 
@@ -697,7 +706,7 @@ class AllocVM(Host, abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> Optional[Sequence[_U]]:
         if resources_required_per_task is None:
             raise ValueError(
@@ -722,7 +731,10 @@ class AllocVM(Host, abc.ABC):
         )
 
         try:
-            if wait_for_result:
+            if wait_for_result == WaitOption.DO_NOT_WAIT:
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+                return None
+            else:
                 workers_done = asyncio.Event()
                 results_future = asyncio.create_task(
                     helper.get_all_results(workers_done)
@@ -743,9 +755,6 @@ class AllocVM(Host, abc.ABC):
                             )
                         )
                 return results
-            else:
-                await asyncio.gather(*worker_tasks, return_exceptions=True)
-                return None
         finally:
             await asyncio.gather(
                 *[ssh_host.close_connection() for ssh_host in ssh_hosts],
@@ -780,7 +789,7 @@ class AllocVM(Host, abc.ABC):
             pickle_protocol,
             job_fields,
             resources_required_per_task,
-            wait_for_result=True,
+            wait_for_result=WaitOption.WAIT_SILENTLY,
         )
 
         async def gather_workers_and_set(
@@ -830,7 +839,7 @@ class AllocVM(Host, abc.ABC):
         pickle_protocol: int,
         job_fields: Dict[str, Any],
         resources_required_per_task: Optional[ResourcesInternal],
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> Tuple[List[asyncio.Task[JobCompletion]], Iterable[SshHost]]:
         # Now we will run worker_loop jobs on the hosts we got:
 

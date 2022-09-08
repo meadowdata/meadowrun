@@ -67,6 +67,7 @@ from meadowrun.run_job_core import (
     ObjectStorage,
     RunMapHelper,
     SshHost,
+    WaitOption,
 )
 
 if TYPE_CHECKING:
@@ -474,7 +475,7 @@ class AllocAzureVM(AllocVM):
         self,
         resources_required: Optional[ResourcesInternal],
         job: Job,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
         if resources_required is None:
             raise ValueError(
@@ -511,7 +512,7 @@ async def run_job_azure_vm_instance_registrar(
     job: Job,
     resources_required: ResourcesInternal,
     alloc_azure_vm: AllocAzureVM,
-    wait_for_result: bool,
+    wait_for_result: WaitOption,
 ) -> JobCompletion[Any]:
     location = alloc_azure_vm._get_location()
 

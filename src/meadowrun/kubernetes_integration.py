@@ -6,6 +6,7 @@ import dataclasses
 import math
 import os
 import pickle
+import time
 import traceback
 import uuid
 from typing import (
@@ -54,6 +55,7 @@ from meadowrun.run_job_core import (
     JobCompletion,
     MeadowrunException,
     ObjectStorage,
+    WaitOption,
 )
 from meadowrun.run_job_local import (
     _get_credentials_for_docker,
@@ -523,20 +525,20 @@ class Kubernetes(Host):
         self,
         resources_required: Optional[ResourcesInternal],
         job: Job,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
-        # TODO add support for all of these features
-        if not wait_for_result:
-            raise NotImplementedError(
-                "wait_for_result=False is not supported for Kubernetes yet"
-            )
+        # TODO add support for this feature
         if job.sidecar_containers:
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
             )
 
         job_completions = await self._run_job_helper(
-            await self._get_storage_client(), job, resources_required, None
+            await self._get_storage_client(),
+            job,
+            resources_required,
+            None,
+            wait_for_result,
         )
         if len(job_completions) != 1:
             raise ValueError(
@@ -553,6 +555,7 @@ class Kubernetes(Host):
         indexed_completions: Optional[int],
         interpreter_deployment_type: str,
         file_prefix: str,
+        wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
         # This function is for jobs where job.interpreter_deployment is a user-specified
         # container (i.e. not something we need to build ourselves). For these kinds of
@@ -661,6 +664,7 @@ class Kubernetes(Host):
                     indexed_completions,
                     [int(p) for p in expand_ports(job.ports)],
                     resources_required,
+                    wait_for_result,
                 )
             except asyncio.CancelledError:
                 raise
@@ -717,6 +721,7 @@ class Kubernetes(Host):
         indexed_completions: Optional[int],
         interpreter_deployment_type: str,
         file_prefix: str,
+        wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
         # This function is for jobs where job.interpreter_deployment is an "environment
         # spec" of some sort that requires us to build an environment. For these kinds
@@ -783,7 +788,7 @@ class Kubernetes(Host):
             # version in environment_spec
             image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
             # uncomment this for development
-            # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
+            image_name = f"meadowrun/meadowrun-dev:py{python_version}"
 
             try:
                 return_codes = await _run_kubernetes_job(
@@ -797,6 +802,7 @@ class Kubernetes(Host):
                     indexed_completions,
                     [int(p) for p in expand_ports(job.ports)],
                     resources_required,
+                    wait_for_result,
                 )
             except asyncio.CancelledError:
                 raise
@@ -847,6 +853,7 @@ class Kubernetes(Host):
         job: Job,
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
+        wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
         file_prefix = f"{self.storage_file_prefix}{job.job_id}"
 
@@ -864,6 +871,7 @@ class Kubernetes(Host):
                 indexed_completions,
                 interpreter_deployment_type,
                 file_prefix,
+                wait_for_result,
             )
         elif interpreter_deployment_type in (
             "environment_spec_in_code",
@@ -877,6 +885,7 @@ class Kubernetes(Host):
                 indexed_completions,
                 interpreter_deployment_type,
                 file_prefix,
+                wait_for_result,
             )
         else:
             raise NotImplementedError(
@@ -892,13 +901,9 @@ class Kubernetes(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> Optional[Sequence[_U]]:
-        # TODO add support for all of these features
-        if not wait_for_result:
-            raise NotImplementedError(
-                "wait_for_result=False is not supported on Kubernetes yet"
-            )
+        # TODO add support for this feature
         if job_fields["sidecar_containers"]:
             raise NotImplementedError(
                 "Sidecar containers are not yet supported for Kubernetes"
@@ -953,6 +958,7 @@ class Kubernetes(Host):
             ),
             resources_required_per_task,
             num_concurrent_tasks,
+            wait_for_result,
         )
 
         results = []
@@ -1122,17 +1128,12 @@ def _get_main_container_state(
     return main_container_state, latest_condition_reason
 
 
-async def _stream_pod_logs_and_get_exit_code(
+async def _wait_for_pod_running(
     core_api: kubernetes_client.CoreV1Api,
     job_id: str,
     kubernetes_namespace: str,
     pod: kubernetes_client.V1Pod,
-) -> int:
-    """
-    This function waits for the specified pod to start running, streams the logs from
-    that pod into our local stdout, and then waits for the pod to terminate. Then we
-    return the exit code of the pod.
-    """
+) -> None:
     pod_name = pod.metadata.name
 
     # The first step is to wait for the pod to start running, because we can't stream
@@ -1202,6 +1203,10 @@ async def _stream_pod_logs_and_get_exit_code(
             pod, job_id, pod_name
         )
 
+
+async def _stream_pod_logs(
+    core_api: kubernetes_client.CoreV1Api, kubernetes_namespace: str, pod_name: str
+) -> None:
     # Now our pod is running, so we can stream the logs
 
     async with kubernetes_watch.Watch() as w:
@@ -1212,27 +1217,78 @@ async def _stream_pod_logs_and_get_exit_code(
         ):
             print(line, end="")
 
+
+async def _wait_for_pod_exit(
+    core_api: kubernetes_client.CoreV1Api,
+    job_id: str,
+    kubernetes_namespace: str,
+    pod_name: str,
+    timeout_seconds: int,
+    streamed_logs: bool,
+) -> int:
     # Once this stream ends, we know the pod is completed, but sometimes it takes some
     # time for Kubernetes to report that the pod has completed. So we poll until the pod
     # is reported as terminated.
 
-    i = 0
     pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
     main_container_state, _ = _get_main_container_state(pod, job_id, pod_name)
+    t0 = time.time()
     while main_container_state is None or main_container_state.running is not None:
-        print("Waiting for the pod to stop running")
         await asyncio.sleep(1.0)
-        i += 1
-        if i > 15:
-            raise TimeoutError(
-                f"Unexpected. The job {job_id} has a pod {pod_name}, and there "
-                "are no more logs for this pod, but the pod still seems to be "
-                "running"
-            )
+        if time.time() > t0 + timeout_seconds:
+            if streamed_logs:
+                raise TimeoutError(
+                    f"Unexpected. The job {job_id} has a pod {pod_name}, and the pod "
+                    f"still seems to be running {timeout_seconds} seconds after the log"
+                    " stream ended"
+                )
+            else:
+                raise TimeoutError(
+                    f"The job {job_id} timed out, the pod {pod_name} as been running "
+                    f"for {timeout_seconds} seconds"
+                )
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
         main_container_state, _ = _get_main_container_state(pod, job_id, pod_name)
 
     return main_container_state.terminated.exit_code
+
+
+async def _wait_for_pod(
+    core_api: kubernetes_client.CoreV1Api,
+    job_id: str,
+    kubernetes_namespace: str,
+    pod: kubernetes_client.V1Pod,
+    wait_for_result: WaitOption,
+) -> int:
+    """
+    This function waits for the specified pod to start running, streams the logs from
+    that pod into our local stdout, and then waits for the pod to terminate. Then we
+    return the exit code of the pod.
+    """
+    await _wait_for_pod_running(core_api, job_id, kubernetes_namespace, pod)
+    if wait_for_result == WaitOption.DO_NOT_WAIT:
+        # TODO maybe return None instead? Currently this code path is not used, requires
+        # support in the caller
+        return 0
+
+    if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
+        await _stream_pod_logs(core_api, kubernetes_namespace, pod.metadata.name)
+
+        return await _wait_for_pod_exit(
+            core_api, job_id, kubernetes_namespace, pod.metadata.name, 15, True
+        )
+    else:
+        # TODO this timeout should be configurable and the default should be smaller
+        # than 2 days
+        wait_for_pod_exit_timeout_seconds = 60 * 60 * 24 * 2
+        return await _wait_for_pod_exit(
+            core_api,
+            job_id,
+            kubernetes_namespace,
+            pod.metadata.name,
+            wait_for_pod_exit_timeout_seconds,
+            False,
+        )
 
 
 async def _get_kubernetes_secret(
@@ -1285,11 +1341,18 @@ async def _run_kubernetes_job(
     indexed_completions: Optional[int],
     ports: List[int],
     resources: Optional[ResourcesInternal],
+    wait_for_result: WaitOption,
 ) -> Sequence[int]:
     """
     Runs the specified job on Kubernetes, waits for it to complete, and returns the exit
     code
     """
+
+    # TODO add support for DO_NOT_WAIT
+    if wait_for_result == WaitOption.DO_NOT_WAIT:
+        raise NotImplementedError(
+            f"{wait_for_result} is not supported for Kubernetes yet"
+        )
 
     # create the job
 
@@ -1432,14 +1495,14 @@ async def _run_kubernetes_job(
             pod_names = [pod.metadata.name for pod in pods]
             print(f"Created pod(s) {', '.join(pod_names)} for job {job_id}")
 
-            # Now that the pods ahve been created, stream their logs and get their exit
+            # Now that the pods have been created, stream their logs and get their exit
             # codes
 
             return await asyncio.gather(
                 *[
                     asyncio.create_task(
-                        _stream_pod_logs_and_get_exit_code(
-                            core_api, job_id, kubernetes_namespace, pod
+                        _wait_for_pod(
+                            core_api, job_id, kubernetes_namespace, pod, wait_for_result
                         )
                     )
                     for pod in pods

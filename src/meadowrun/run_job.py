@@ -60,6 +60,7 @@ from meadowrun.run_job_core import (
     JobCompletion,
     Resources,
     TaskResult,
+    WaitOption,
 )
 
 if TYPE_CHECKING:
@@ -386,7 +387,11 @@ async def run_function(
         },
     )
 
-    job_completion = await host.run_job(resources.to_internal(), job, wait_for_result)
+    job_completion = await host.run_job(
+        resources.to_internal(),
+        job,
+        WaitOption.WAIT_AND_TAIL_STDOUT if wait_for_result else WaitOption.DO_NOT_WAIT,
+    )
     return job_completion.result
 
 
@@ -488,7 +493,11 @@ async def run_command(
         },
     )
 
-    return await host.run_job(resources.to_internal(), job, wait_for_result)
+    return await host.run_job(
+        resources.to_internal(),
+        job,
+        WaitOption.WAIT_AND_TAIL_STDOUT if wait_for_result else WaitOption.DO_NOT_WAIT,
+    )
 
 
 async def run_map(
@@ -586,6 +595,13 @@ async def run_map(
         _job_field_for_interpreter_deployment(interpreter): interpreter,
     }
 
+    if not wait_for_result:
+        wait_option = WaitOption.DO_NOT_WAIT
+    elif num_concurrent_tasks == 1:
+        wait_option = WaitOption.WAIT_AND_TAIL_STDOUT
+    else:
+        wait_option = WaitOption.WAIT_SILENTLY
+
     return await host.run_map(
         function,
         args,
@@ -593,7 +609,7 @@ async def run_map(
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,
-        wait_for_result,
+        wait_option,
     )
 
 

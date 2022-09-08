@@ -75,6 +75,7 @@ from meadowrun.run_job_core import (
     MeadowrunException,
     ObjectStorage,
     TaskResult,
+    WaitOption,
 )
 from meadowrun.shared import pickle_exception
 
@@ -1176,11 +1177,11 @@ class LocalHost(Host):
         self,
         resources_required: Optional[ResourcesInternal],
         job: Job,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
-        if not wait_for_result:
+        if wait_for_result != WaitOption.WAIT_SILENTLY:
             raise NotImplementedError(
-                "wait_for_result=False is not supported for LocalHost yet"
+                f"{wait_for_result} is not supported for LocalHost yet"
             )
 
         if resources_required is not None:
@@ -1222,7 +1223,7 @@ class LocalHost(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map on LocalHost is not implemented")
 

@@ -29,5 +29,8 @@ COPY pyproject.toml ./
 COPY poetry.lock ./
 
 RUN /root/.local/bin/poetry install --no-root
+# make sure setuptools and wheel are installed. Poetry does not install these by default
+# for --no-root
+RUN /tmp/.venv/bin/python -m pip install setuptools wheel
 
 ENV PATH /tmp/.venv/bin:$PATH

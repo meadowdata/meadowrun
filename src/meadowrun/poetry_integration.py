@@ -115,7 +115,25 @@ async def create_poetry_environment(
     # PoetryAptDockerfile
     return_code = await (
         await asyncio.create_subprocess_exec(
-            "/root/.local/bin/poetry", "install", cwd=new_environment_path
+            "/root/.local/bin/poetry", "install", "--no-root", cwd=new_environment_path
+        )
+    ).wait()
+    if return_code != 0:
+        raise ValueError(
+            f"poetry environment creation in {new_environment_path} failed with return "
+            f"code {return_code}"
+        )
+
+    # with --no-root, poetry doesn't install wheel or setuptools
+    return_code = await (
+        await asyncio.create_subprocess_exec(
+            ".venv/bin/python",
+            "-m",
+            "pip",
+            "install",
+            "setuptools",
+            "wheel",
+            cwd=new_environment_path,
         )
     ).wait()
     if return_code != 0:

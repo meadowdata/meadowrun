@@ -620,26 +620,38 @@ class GridJobDriver(abc.ABC, Generic[_T, _U]):
         ...
 
     @abc.abstractmethod
-    def process_state_futures(
-        self,
-        *,
-        workers_done: Optional[asyncio.Event],
+    def receive_task_results(
+        self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+        ...
+
+    @abc.abstractmethod
+    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
         ...
 
     async def get_results_as_completed(
         self,
-        workers_done: Optional[asyncio.Event],
+        workers_done: asyncio.Event,
         max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult]:
         """Generates TaskResult objects for each task as tasks are completed. Useful for
         overlapping async work with getting task results, or getting the results from
         jobs with partially unsuccesful tasks.
         """
-        async for task_id, attempt, result in self.process_state_futures(
-            workers_done=workers_done
+        # done = successful or exhausted retries
+        num_tasks_done = 0
+        stop_receiving = asyncio.Event()
+        if self.num_tasks == num_tasks_done:
+            stop_receiving.set()
+        async for task_id, attempt, result in self.receive_task_results(
+            stop_receiving=stop_receiving, workers_done=workers_done
         ):
+            print(
+                f"Waiting for task results. Requested: {self.num_tasks}, "
+                f"received: {num_tasks_done}"
+            )
             if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+                num_tasks_done += 1
                 # TODO try/catch on pickle.loads?
                 yield TaskResult(
                     task_id,
@@ -647,17 +659,38 @@ class GridJobDriver(abc.ABC, Generic[_T, _U]):
                     result=pickle.loads(result.pickled_result),
                     attempt=attempt,
                 )
-            elif result.state in _EXCEPTION_STATES:
-                exception = unpickle_exception(result.pickled_result)
-                # if attempt < max_num_task_attempts:
-                #     # retry
-                #     pass
-                # else:
-                yield TaskResult(
-                    task_id, is_success=False, exception=exception, attempt=attempt
-                )
             else:
-                yield TaskResult(task_id, is_success=False, attempt=attempt)
+                if result.state in _EXCEPTION_STATES:
+                    exception = unpickle_exception(result.pickled_result)
+                    task_result: TaskResult = TaskResult(
+                        task_id, is_success=False, exception=exception, attempt=attempt
+                    )
+                else:
+                    task_result = TaskResult(task_id, is_success=False, attempt=attempt)
+
+                if attempt < max_num_task_attempts:
+                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
+                    await self.retry_task(task_id, attempt)
+                else:
+                    print(
+                        f"Task {task_id} failed at attempt {attempt}, "
+                        f"max attempts is {max_num_task_attempts}, not retrying."
+                    )
+                    num_tasks_done += 1
+                    yield task_result
+
+            if num_tasks_done >= self.num_tasks:
+                stop_receiving.set()
+            # else:
+            #     num_tasks_done += 1
+            #     yield TaskResult(task_id, is_success=False, attempt=attempt)
+        if num_tasks_done < self.num_tasks:
+            print(
+                "Gave up retrieving task results. "
+                f"Received {num_tasks_done}/{self.num_tasks} task results."
+            )
+        else:
+            print(f"Received all {self.num_tasks} task results.")
 
 
 @dataclasses.dataclass(frozen=True)

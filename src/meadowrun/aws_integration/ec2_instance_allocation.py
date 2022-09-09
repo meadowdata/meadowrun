@@ -40,8 +40,9 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
 )
 from meadowrun.aws_integration.grid_tasks_sqs import (
     create_queues_and_add_tasks,
-    get_results_unordered,
+    receive_results,
     worker_loop,
+    retry_task,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
@@ -739,7 +740,7 @@ async def create_ec2_grid_job_driver(
             ports,
         )
 
-    request_queue, job_id = await queues_future
+    request_queue, job_id, task_argument_ranges = await queues_future
 
     return EC2GridJobDriver(
         region_name,
@@ -751,6 +752,7 @@ async def create_ec2_grid_job_driver(
         function=function,
         request_queue=request_queue,
         job_id=job_id,
+        task_argument_ranges=task_argument_ranges,
     )
 
 
@@ -758,6 +760,7 @@ async def create_ec2_grid_job_driver(
 class EC2GridJobDriver(GridJobDriver, Generic[_U, _T]):
     request_queue: str
     job_id: str
+    task_argument_ranges: List[Tuple[int, int]]
 
     def worker_function(self) -> Callable[[str, int], None]:
         return functools.partial(
@@ -768,16 +771,23 @@ class EC2GridJobDriver(GridJobDriver, Generic[_U, _T]):
             self.region_name,
         )
 
-    def process_state_futures(
-        self,
-        *,
-        workers_done: Optional[asyncio.Event],
+    def receive_task_results(
+        self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
-        return get_results_unordered(
+        return receive_results(
             self.job_id,
             self.region_name,
-            self.num_tasks,
             self.num_workers,
             self.request_queue,
+            stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
+        )
+
+    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
+        await retry_task(
+            self.request_queue,
+            task_id,
+            attempts_so_far + 1,
+            self.task_argument_ranges[task_id],
+            self.region_name,
         )

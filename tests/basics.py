@@ -3,11 +3,10 @@ from __future__ import annotations
 import abc
 import os
 import sys
-from typing import TYPE_CHECKING, Union, Callable, Tuple
-
-import pytest
+from typing import TYPE_CHECKING, Callable, List, Tuple, Union
 
 import meadowrun.docker_controller
+import pytest
 from meadowrun import (
     CondaEnvironmentYmlFile,
     ContainerInterpreter,
@@ -16,12 +15,13 @@ from meadowrun import (
     LocalPipInterpreter,
     PipRequirementsFile,
     PoetryProjectPath,
+    TaskResult,
     run_command,
     run_function,
     run_map,
+    run_map_as_completed,
 )
 from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.run_job import run_map_as_completed
 
 if TYPE_CHECKING:
     from meadowrun.deployment_internal_types import (
@@ -30,21 +30,17 @@ if TYPE_CHECKING:
         VersionedCodeDeployment,
         VersionedInterpreterDeployment,
     )
+
 from meadowrun.meadowrun_pb2 import (
     ContainerAtDigest,
     ContainerAtTag,
     GitRepoBranch,
     GitRepoCommit,
-    ServerAvailableInterpreter,
-    ServerAvailableContainer,
     ProcessState,
+    ServerAvailableContainer,
+    ServerAvailableInterpreter,
 )
-from meadowrun.run_job_core import (
-    Host,
-    JobCompletion,
-    MeadowrunException,
-    Resources,
-)
+from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException, Resources
 
 
 class HostProvider(abc.ABC):
@@ -618,3 +614,27 @@ class MapSuite(HostProvider, abc.ABC):
             actual.append(result.result_or_raise())
 
         assert set(actual) == set([1, 4, 27, 256])
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_run_map_as_completed_with_retries(self) -> None:
+        actual: List[TaskResult[None]] = []
+
+        def fail(input: int) -> None:
+            raise Exception("intentional failure")
+
+        async for result in await run_map_as_completed(
+            fail,
+            [1, 2, 3, 4],
+            self.get_host(),
+            self.get_resources_required(),
+            num_concurrent_tasks=2,
+            max_num_task_attempts=3,
+        ):
+            actual.append(result)
+
+        assert len(actual) == 4
+        for result in actual:
+            assert not result.is_success
+            assert result.exception is not None
+            assert result.attempt == 3

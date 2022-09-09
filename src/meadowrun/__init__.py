@@ -70,7 +70,13 @@ from meadowrun.run_job import (
     run_map_as_completed,
 )
 from meadowrun.alloc_cloud_instance import AllocCloudInstance
-from meadowrun.run_job_core import AllocVM, Resources, SshHost, TaskException
+from meadowrun.run_job_core import (
+    AllocVM,
+    Resources,
+    RunMapTasksFailedException,
+    SshHost,
+    TaskException,
+)
 from meadowrun.run_job_local import Host, LocalHost, MACHINE_CACHE_FOLDER
 from meadowrun.version import __version__
 
@@ -105,6 +111,7 @@ __all__ = [
     "Resources",
     "SshHost",
     "Kubernetes",
+    "RunMapTasksFailedException",
     "TaskResult",
     "TaskException",
 ]

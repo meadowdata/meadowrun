@@ -427,11 +427,8 @@ async def _non_container_job_continuation(
         # wait for the process to finish
         # TODO add an optional timeout
 
-        if log_file_name:
-            with open(log_file_name, "wb") as log_file:
-                async for line in process.stdout:  # type: ignore
-                    log_file.write(line)
-                    sys.stdout.buffer.write(line)
+        async for line in process.stdout:  # type: ignore
+            sys.stdout.buffer.write(line)
         returncode = await process.wait()
         return _completed_job_state(
             job_spec_type,
@@ -622,11 +619,8 @@ async def _container_job_continuation(
         # that in a hacky way here.
         # TODO figure out overall strategy for logging, maybe eventually implement our
         #  own plain text/whatever log driver for docker.
-        if log_file_name:
-            with open(log_file_name, "w", encoding="utf-8") as f:
-                async for line in container.log(stdout=True, stderr=True, follow=True):
-                    print(line, end="")
-                    f.write(line)
+        async for line in container.log(stdout=True, stderr=True, follow=True):
+            print(line, end="")
 
         wait_result = await container.wait()
         # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
@@ -920,7 +914,6 @@ async def run_local(
     working_folder: Optional[str] = None,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
     compile_environment_in_container: bool = True,
-    write_local_log_file: bool = True,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """
     Runs a job locally using the specified working_folder (or uses the default). Meant
@@ -1047,13 +1040,12 @@ async def run_local(
         job_spec_transformed.environment_variables.update(
             **_string_pairs_to_dict(job.environment_variables)
         )
-        if write_local_log_file:
-            log_file_name = os.path.join(
-                job_logs_folder,
-                f"{job.job_friendly_name}.{job.job_id}.log",
-            )
-        else:
-            log_file_name = ""
+        # the logging actually happens via stdout redirection in the run_job_local_main
+        # caller
+        log_file_name = os.path.join(
+            job_logs_folder,
+            f"{job.job_friendly_name}.{job.job_id}.log",
+        )
 
         # next we need to launch the job depending on how we've specified the
         # interpreter

@@ -400,8 +400,14 @@ class SshHost(Host):
                     f"--cloud {self.cloud_provider[0]} "
                     f"--cloud-region-name {self.cloud_provider[1]}"
                 )
-            if wait_for_result in (WaitOption.DO_NOT_WAIT, WaitOption.WAIT_SILENTLY):
-                command_suffixes.append("< /dev/null > /dev/null 2>&1")
+
+            log_file_name = (
+                f"/var/meadowrun/job_logs/{job.job_friendly_name}.{job.job_id}.log"
+            )
+            if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
+                command_suffixes.append(f"2>&1 | tee {log_file_name}")
+            else:
+                command_suffixes.append(f"2>&1 > {log_file_name}")
                 if wait_for_result == WaitOption.DO_NOT_WAIT:
                     command_suffixes.append("&")
 
@@ -420,10 +426,7 @@ class SshHost(Host):
                 f"--working-folder {remote_working_folder}" + " ".join(command_suffixes)
             )
 
-            print(
-                f"Running job on {self.address} "
-                f"/var/meadowrun/job_logs/{job.job_friendly_name}.{job.job_id}.log"
-            )
+            print(f"Running job on {self.address} {log_file_name}")
 
             cmd_result = await ssh.run_and_print(connection, command, check=False)
 
@@ -817,7 +820,7 @@ class AllocVM(Host, abc.ABC):
             pickle_protocol,
             job_fields,
             resources_required_per_task,
-            wait_for_result=WaitOption.WAIT_SILENTLY,
+            wait_for_result=wait_for_result,
         )
 
         async def gather_workers_and_set(

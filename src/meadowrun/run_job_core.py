@@ -681,9 +681,7 @@ class GridJobDriver(abc.ABC, Generic[_T, _U]):
 
             if num_tasks_done >= self.num_tasks:
                 stop_receiving.set()
-            # else:
-            #     num_tasks_done += 1
-            #     yield TaskResult(task_id, is_success=False, attempt=attempt)
+
         if num_tasks_done < self.num_tasks:
             print(
                 "Gave up retrieving task results. "

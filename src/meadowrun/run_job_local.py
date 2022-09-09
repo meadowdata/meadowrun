@@ -1242,7 +1242,7 @@ class LocalHost(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
         max_num_tasks_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError(

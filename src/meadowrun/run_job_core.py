@@ -295,7 +295,7 @@ class Host(abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
         max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         pass
@@ -516,7 +516,7 @@ class SshHost(Host):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
         max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError("run_map_as_completed is not implemented for SshHost")
@@ -772,7 +772,7 @@ class AllocVM(Host, abc.ABC):
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
-        wait_for_result: bool,
+        wait_for_result: WaitOption,
         max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
         if self.get_cloud_provider() == "AzureVM" and max_num_task_attempts != 1:
@@ -815,7 +815,7 @@ class AllocVM(Host, abc.ABC):
                 gather_workers_and_set(workers_done, worker_tasks)
             )
 
-            if wait_for_result:
+            if wait_for_result != WaitOption.DO_NOT_WAIT:
                 async for result in driver.get_results_as_completed(
                     workers_done, max_num_task_attempts
                 ):

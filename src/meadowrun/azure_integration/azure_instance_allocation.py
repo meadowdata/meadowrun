@@ -614,14 +614,14 @@ class AzureVMGridJobDriver(GridJobDriver):
             self.result_queue,
         )
 
-    def process_state_futures(
-        self,
-        *,
-        workers_done: Optional[asyncio.Event],
+    def receive_task_results(
+        self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         return get_results_unordered(
             self.result_queue,
             self.num_tasks,
             self.region_name,
-            workers_done=workers_done,
         )
+
+    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
+        raise NotImplementedError("Retrying tasks is not implemented for Azure VMs")

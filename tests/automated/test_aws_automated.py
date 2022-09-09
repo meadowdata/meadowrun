@@ -46,7 +46,7 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     _complete_task,
     _get_task,
     create_queues_and_add_tasks,
-    get_results_unordered,
+    receive_results,
 )
 from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar
@@ -242,7 +242,7 @@ class TestGridTaskQueue:
         region_name = await _get_default_region_name()
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
-        (request_queue_url, job_id) = await create_queues_and_add_tasks(
+        request_queue_url, job_id, ranges = await create_queues_and_add_tasks(
             region_name, task_arguments
         )
 
@@ -292,31 +292,29 @@ class TestGridTaskQueue:
         results_thread = threading.Thread(target=complete_tasks)
         results_thread.start()
 
+        stop_receiving = asyncio.Event()
         results: List = [None] * len(task_arguments)
-        async for task_id, attempt, process_state in get_results_unordered(
+        async for task_id, attempt, process_state in receive_results(
             job_id,
             region_name,
-            len(task_arguments),
             1,
             request_queue_url,
-            all_workers_exited=None,
+            stop_receiving=stop_receiving,
+            all_workers_exited=asyncio.Event(),
         ):
             assert attempt == 1
             results[task_id] = pickle.loads(process_state.pickled_result)
+            if len(results) == 4:
+                stop_receiving.set()
 
         results_thread.join()
         assert results == task_arguments
 
-    @pytest.mark.asyncio
-    async def test_worker_loop(self) -> None:
+    async def _create_driver(self) -> Tuple[EC2GridJobDriver, str, str, str]:
         region_name = await _get_default_region_name()
         task_arguments = [1, 2, 3, 4]
 
-        # dummy variables
-        public_address = "foo"
-        worker_id = 1
-
-        request_queue_url, job_id = await create_queues_and_add_tasks(
+        request_queue_url, job_id, ranges = await create_queues_and_add_tasks(
             region_name, task_arguments
         )
 
@@ -330,9 +328,18 @@ class TestGridTaskQueue:
             lambda x: x**x,
             request_queue_url,
             job_id,
+            ranges,
         )
+        return driver, request_queue_url, job_id, region_name
+
+    @pytest.mark.asyncio
+    async def test_worker_loop(self) -> None:
+
+        driver, _, _, _ = await self._create_driver()
 
         # start a worker_loop which will get tasks and complete them
+        public_address = "foo"
+        worker_id = 1
         worker_thread = threading.Thread(
             target=lambda: driver.worker_function()(
                 public_address,
@@ -341,35 +348,56 @@ class TestGridTaskQueue:
         )
         worker_thread.start()
         results = []
-        async for result in driver.get_results_as_completed(None, 1):
+        async for result in driver.get_results_as_completed(asyncio.Event(), 1):
             results.append(result.result_or_raise())
         worker_thread.join()
         assert set(results) == {1, 4, 27, 256}
 
     @pytest.mark.asyncio
-    async def test_worker_loop_unfinished(self) -> None:
-        region_name = await _get_default_region_name()
-        task_arguments = [1, 2, 3, 4]
-
-        request_queue_url, job_id = await create_queues_and_add_tasks(
-            region_name, task_arguments
-        )
-
-        driver = EC2GridJobDriver[int, int](
-            region_name,
-            {},
-            "",
-            asyncssh.SSHKey(),
-            len(task_arguments),
-            1,
-            lambda x: x**x,
-            request_queue_url,
-            job_id,
-        )
-
-        event = asyncio.Event()
+    async def test_worker_loop_with_retries(self) -> None:
+        driver, request_queue_url, job_id, region_name = await self._create_driver()
 
         # only complete one task - get_results should still exit.
+        def complete_tasks() -> None:
+            def complete_task(task: Tuple[int, int, bytes], fail: bool = False) -> None:
+                _complete_task(
+                    job_id,
+                    region_name,
+                    task[0],
+                    task[1],
+                    ProcessState(
+                        state=ProcessState.ProcessStateEnum.SUCCEEDED
+                        if not fail
+                        else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+                        pickled_result=task[2],
+                    ),
+                )
+
+            for i in range(8):
+                task = _get_task(request_queue_url, job_id, region_name, 0)
+                assert task is not None
+                complete_task(task, fail=True)
+            for i in range(4):
+                task = _get_task(request_queue_url, job_id, region_name, 0)
+                assert task is not None
+                complete_task(task, fail=False)
+
+        with ThreadPoolExecutor() as e:
+            complete_future = asyncio.get_running_loop().run_in_executor(
+                e, complete_tasks
+            )
+
+            results = []
+            async for result in driver.get_results_as_completed(asyncio.Event(), 3):
+                results.append(result.result_or_raise())
+            await complete_future
+        assert set(results) == {1, 2, 3, 4}
+
+    @pytest.mark.asyncio
+    async def test_worker_loop_unfinished(self) -> None:
+
+        driver, request_queue_url, job_id, region_name = await self._create_driver()
+
         def complete_tasks() -> None:
             task = _get_task(request_queue_url, job_id, region_name, 0)
             assert task is not None
@@ -386,9 +414,10 @@ class TestGridTaskQueue:
 
         e = ThreadPoolExecutor()
         await asyncio.get_running_loop().run_in_executor(e, complete_tasks)
-        event.set()
 
+        event = asyncio.Event()
+        event.set()
         num_results = 0
-        async for _ in driver.get_results_as_completed(event, 1):
+        async for _ in driver.get_results_as_completed(event, 3):
             num_results += 1
         assert num_results == 1

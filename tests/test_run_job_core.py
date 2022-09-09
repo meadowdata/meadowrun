@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 import pickle
-from typing import AsyncIterable, Callable, Optional, Tuple
+from typing import AsyncIterable, Callable, Tuple
 
 import asyncssh
 import pytest
@@ -35,10 +35,11 @@ class TestGridJobDriver(GridJobDriver):
     def worker_function(self) -> Callable[[str, int], None]:
         return lambda p, w: None
 
-    async def process_state_futures(
+    async def receive_task_results(
         self,
         *,
-        workers_done: Optional[asyncio.Event],
+        stop_receiving: asyncio.Event,
+        workers_done: asyncio.Event,
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         yield (
             1,
@@ -67,6 +68,9 @@ class TestGridJobDriver(GridJobDriver):
             ),
         )
 
+    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
+        raise NotImplementedError()
+
 
 @pytest.mark.asyncio
 async def test_grid_job_driver() -> None:
@@ -84,7 +88,7 @@ async def test_grid_job_driver() -> None:
     )
 
     results = []
-    async for res in helper.get_results_as_completed(None, 1):
+    async for res in helper.get_results_as_completed(asyncio.Event(), 1):
         results.append(res)
 
     assert results[0] == TaskResult(1, is_success=True, result="good result")

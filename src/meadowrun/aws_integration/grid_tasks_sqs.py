@@ -44,7 +44,7 @@ _U = TypeVar("_U")
 
 async def create_queues_and_add_tasks(
     region_name: str, run_map_args: Iterable[Any]
-) -> Tuple[str, str]:
+) -> Tuple[str, str, List[Tuple[int, int]]]:
     """
     Creates the queues necessary to run a grid job. Returns (request_queue_url,
     run_map_id). The request queue contains messages that represent tasks that need to
@@ -63,8 +63,8 @@ async def create_queues_and_add_tasks(
         "sqs", region_name=region_name
     ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
         request_queue_url = await _create_request_queue(job_id, sqs)
-        await _add_tasks(job_id, request_queue_url, s3c, sqs, run_map_args)
-    return request_queue_url, job_id
+        ranges = await _add_tasks(job_id, request_queue_url, s3c, sqs, run_map_args)
+    return request_queue_url, job_id, ranges
 
 
 async def _create_request_queue(job_id: str, sqs: SQSClient) -> str:
@@ -105,13 +105,17 @@ def _s3_args_key(job_id: str) -> str:
     return f"task-args/{job_id}"
 
 
+MESSAGE_PREFIX_TASK = "task"
+MESSAGE_PREFIX_WORKER_DONE = "worker-done"
+
+
 async def _add_tasks(
     job_id: str,
     request_queue_url: str,
     s3c: S3Client,
     sqs: SQSClient,
     run_map_args: Iterable[Any],
-) -> None:
+) -> List[Tuple[int, int]]:
     """
     See create_queues_and_add_tasks
 
@@ -123,6 +127,7 @@ async def _add_tasks(
     pickles = bytearray()
     grid_tasks: List[str] = []
     range_from = 0
+    ranges = []
     for i, arg in enumerate(run_map_args):
         arg_pkl = pickle.dumps(arg)
         pickles.extend(arg_pkl)
@@ -132,6 +137,7 @@ async def _add_tasks(
                 dict(task_id=i, attempt=1, range_from=range_from, range_end=range_to)
             )
         )
+        ranges.append((range_from, range_to))
         range_from = range_to + 1
 
     await s3.upload_async(
@@ -143,10 +149,47 @@ async def _add_tasks(
         # batches of 10
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
         result = await _send_or_upload_message_batch(
-            sqs, request_queue_url, "task", tasks_chunk
+            sqs, request_queue_url, MESSAGE_PREFIX_TASK, tasks_chunk
         )
         if "Failed" in result:
             raise ValueError(f"Some grid tasks could not be queued: {result['Failed']}")
+
+    return ranges
+
+
+async def retry_task(
+    request_queue_url: str,
+    task_id: int,
+    attempt: int,
+    range: Tuple[int, int],
+    region_name: str,
+) -> None:
+    """
+    See create_queues_and_add_tasks
+
+    This can only be called once per request_queue_url. If we wanted to support calling
+    add_tasks more than once for the same job, we would need the caller to manage the
+    task_ids
+    """
+
+    session = aiobotocore.session.get_session()
+    async with session.create_client("sqs", region_name=region_name) as sqs:
+        task = json.dumps(
+            dict(
+                task_id=task_id,
+                attempt=attempt,
+                range_from=range[0],
+                range_end=range[1],
+            )
+        )
+
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
+        await sqs.send_message(
+            QueueUrl=request_queue_url,
+            MessageBody=task,
+            MessageDeduplicationId=f"{MESSAGE_PREFIX_TASK}-{task_id}:{attempt}",
+            MessageGroupId="-",
+        )
 
 
 async def _add_end_of_job_messages(
@@ -159,7 +202,7 @@ async def _add_end_of_job_messages(
     ]
     for msg_chunk in _chunker(enumerate(batch), 10):
         result = await _send_or_upload_message_batch(
-            sqs, request_queue_url, "worker-done", msg_chunk
+            sqs, request_queue_url, MESSAGE_PREFIX_WORKER_DONE, msg_chunk
         )
         if "Failed" in result:
             raise ValueError(
@@ -345,13 +388,13 @@ def worker_loop(
         )
 
 
-async def get_results_unordered(
+async def receive_results(
     job_id: str,
     region_name: str,
-    num_tasks: int,
     num_workers: int,
     request_queue_url: str,
-    all_workers_exited: Optional[asyncio.Event],
+    stop_receiving: asyncio.Event,
+    all_workers_exited: asyncio.Event,
     receive_message_wait_seconds: int = 20,
 ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
     """
@@ -367,41 +410,31 @@ async def get_results_unordered(
     # implementation only relies on S3 instead, which allows faster and more concurrent
     # downloads.
 
-    # TODO monitor workers and react appropriately if a worker crashes.
-    if all_workers_exited is None:
-        all_workers_exited = asyncio.Event()
-
-    num_tasks_completed = 0
+    # num_tasks_completed = 0
     results_prefix = _s3_results_prefix(job_id)
     download_keys_received: Set[str] = set()
     wait = True
-    workers_done_wait_count = 0
+    workers_exited_wait_count = 0
     session = aiobotocore.session.get_session()
     async with session.create_client("s3", region_name=region_name) as s3c:
-        while num_tasks_completed < num_tasks and workers_done_wait_count < 3:
+        while not stop_receiving.is_set() and workers_exited_wait_count < 3:
 
             if all_workers_exited.is_set():
-                print(
-                    "All workers exited, waiting for task results. "
-                    f"Requested: {num_tasks}, received: {num_tasks_completed}"
-                )
-                workers_done_wait_count += 1
-            else:
-                print(
-                    f"Waiting for task results. Requested: {num_tasks}, "
-                    f"received: {num_tasks_completed}"
-                )
+                workers_exited_wait_count += 1
 
             if wait:
-                try:
-                    await asyncio.wait_for(
-                        all_workers_exited.wait(),
-                        timeout=1.0  # poll more frequently if workers are done.
-                        if all_workers_exited.is_set()
-                        else receive_message_wait_seconds,
-                    )
-                except asyncio.TimeoutError:
-                    pass
+                # poll more frequently if workers are done.
+                timeout = (
+                    1.0 if all_workers_exited.is_set() else receive_message_wait_seconds
+                )
+                done, pending = await asyncio.wait(
+                    [stop_receiving.wait(), all_workers_exited.wait()],
+                    timeout=timeout,
+                )
+                for p in pending:
+                    p.cancel()
+                if stop_receiving.is_set():
+                    break
 
             keys = await s3.list_objects_async(results_prefix, "", region_name, s3c)
 
@@ -426,16 +459,7 @@ async def get_results_unordered(
                         key, results_prefix
                     )
                     yield task_id, attempt, process_state
-                    num_tasks_completed += 1
 
     # TODO shut workers donwn incrementally
     async with session.create_client("sqs", region_name=region_name) as sqs:
         await _add_end_of_job_messages(request_queue_url, sqs, num_workers)
-
-    if num_tasks_completed < num_tasks:
-        print(
-            "Gave up retrieving task results. "
-            f"Received {num_tasks_completed}/{num_tasks} task results."
-        )
-    else:
-        print(f"Received all {num_tasks} task results.")

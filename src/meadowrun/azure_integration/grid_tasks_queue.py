@@ -216,7 +216,6 @@ async def get_results_unordered(
     result_queue: Queue,
     num_tasks: int,
     location: str,
-    workers_done: Optional[asyncio.Event] = None,
 ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
 
     # TODO currently, we get back messages saying that a task is running on a particular

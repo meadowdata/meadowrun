@@ -704,6 +704,25 @@ class ContainerRegistryHelper:
     does_image_exist: bool
 
 
+class RunMapTasksFailedException(Exception):
+    def __init__(self, failed_tasks: List[TaskResult], failed_task_args: List[Any]):
+        failed_task_message = [f"{len(failed_tasks)} tasks failed:\n"]
+        for task, arg in zip(failed_tasks, failed_task_args):
+            failed_task_message.append(
+                f"Task #{task.task_id} with arg ({arg}) on "
+                f"attempt {task.attempt} failed with exception:\n"
+            )
+            if task.exception is not None:
+                failed_task_message.append(task.exception[2])
+            else:
+                failed_task_message.append("Exception traceback not available\n")
+
+        super().__init__("".join(failed_task_message))
+
+        self.failed_tasks = failed_tasks
+        self.failed_task_args = failed_task_args
+
+
 class AllocVM(Host, abc.ABC):
     """
     An abstract class that provides shared implementation for
@@ -757,8 +776,9 @@ class AllocVM(Host, abc.ABC):
             # if tasks were None, we'd have throw already
             failed_tasks = [result for result in task_results if not result.is_success]
             if failed_tasks:
-                # TODO better error message
-                raise Exception(f"Some tasks failed: {failed_tasks}")
+                raise RunMapTasksFailedException(
+                    failed_tasks, [args[task.task_id] for task in failed_tasks]
+                )
 
             return [result.result for result in task_results]  # type: ignore[misc]
 

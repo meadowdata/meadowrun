@@ -138,5 +138,6 @@ async def upload_and_configure_meadowrun(
 
     # TODO move this into the base image at some point
     await run_and_print(connection, f"mkdir -p {MACHINE_CACHE_FOLDER}")
+    await run_and_print(connection, "mkdir -p /var/meadowrun/job_logs")
 
     return image_name

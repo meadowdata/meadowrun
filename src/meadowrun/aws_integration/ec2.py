@@ -4,7 +4,6 @@ import abc
 import asyncio
 import dataclasses
 import ipaddress
-import threading
 from typing import (
     Any,
     Awaitable,
@@ -15,8 +14,10 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
+    cast,
 )
 
+import aiobotocore.session
 import boto3
 
 from meadowrun.aws_integration.aws_core import (
@@ -30,6 +31,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
     ignore_boto3_error_code,
+    ignore_boto3_error_code_async,
 )
 from meadowrun.aws_integration.quotas import (
     get_quota_for_instance_type,
@@ -390,104 +392,136 @@ async def launch_ec2_instance(
     else:
         raise ValueError(f"Unexpected value for on_demand_or_spot {on_demand_or_spot}")
 
-    ec2_resource = boto3.resource("ec2", region_name=region_name)
-    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
-    success, instances, error_code = ignore_boto3_error_code(
-        lambda: ec2_resource.create_instances(
-            ImageId=launch_settings.ami_id,
-            MinCount=1,
-            MaxCount=1,
-            InstanceType=instance_type,
-            **optional_args,
-        ),
-        {
-            "InsufficientInstanceCapacity",
-            "MaxSpotInstanceCountExceeded",
-            "VcpuLimitExceeded",
-        },
-        True,
-    )
-    if not success:
-        if error_code == "InsufficientInstanceCapacity":
-            return LaunchEC2InstanceAwsCapacity(
-                f"AWS does not have enough capacity in region {region_name} to create a"
-                f" {on_demand_or_spot} instance of type {instance_type}",
-                instance_type,
-                on_demand_or_spot,
-            )
-        elif error_code in ("MaxSpotInstanceCountExceeded", "VcpuLimitExceeded"):
-            # I believe these error codes have the same meaning for spot/on-demand
-            # instances
-            return LaunchEC2InstanceQuota(
-                *get_quota_for_instance_type(
-                    instance_type, on_demand_or_spot, region_name
+    async with aiobotocore.session.get_session().create_client(
+        "ec2", region_name=region_name
+    ) as ec2_client:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.run_instances
+        success, instances, error_code = await ignore_boto3_error_code_async(
+            ec2_client.run_instances(
+                ImageId=launch_settings.ami_id,
+                MinCount=1,
+                MaxCount=1,
+                InstanceType=instance_type,  # type: ignore
+                **optional_args,
+            ),
+            {
+                "InsufficientInstanceCapacity",
+                "MaxSpotInstanceCountExceeded",
+                "VcpuLimitExceeded",
+            },
+            True,
+        )
+        if not success:
+            if error_code == "InsufficientInstanceCapacity":
+                return LaunchEC2InstanceAwsCapacity(
+                    f"AWS does not have enough capacity in region {region_name} to "
+                    f"create a {on_demand_or_spot} instance of type {instance_type}",
+                    instance_type,
+                    on_demand_or_spot,
                 )
-            )
-        else:
-            raise ValueError(f"Unexpected boto3 error code {error_code}")
+            elif error_code in ("MaxSpotInstanceCountExceeded", "VcpuLimitExceeded"):
+                # I believe these error codes have the same meaning for spot/on-demand
+                # instances
+                return LaunchEC2InstanceQuota(
+                    *get_quota_for_instance_type(
+                        instance_type, on_demand_or_spot, region_name
+                    )
+                )
+            else:
+                raise ValueError(f"Unexpected boto3 error code {error_code}")
 
-    assert instances is not None  # just for mypy
+    instances = cast(Any, instances)  # I think types_aiobotocore gets this wrong
+    if len(instances["Instances"]) != 1:
+        raise ValueError(
+            f"run_instances succeeded but returned {len(instances['Instances'])} "
+            "instances"
+        )
+    instance_id = instances["Instances"][0]["InstanceId"]
     return LaunchEC2InstanceSuccess(
-        _launch_instance_continuation(instances[0]), instances[0].id
+        _launch_instance_continuation(instance_id, region_name), instance_id
     )
 
 
-async def _launch_instance_continuation(instance: Any) -> str:
+async def describe_single_instance(ec2_client: Any, instance_id: str) -> Dict:
+    response = await ec2_client.describe_instances(InstanceIds=[instance_id])
+    reservations = response["Reservations"]
+    if len(reservations) != 1:
+        raise ValueError(f"Unexpected number of reservations: {len(reservations)}")
+    instances = reservations[0]["Instances"]
+    if len(instances) != 1:
+        raise ValueError(f"Unexpected number of instances: {len(instances)}")
+    return instances[0]
+
+
+async def _launch_instance_continuation(instance_id: str, region_name: str) -> str:
     """
     instance should be a boto3 EC2 instance, waits for the instance to be running and
     then returns its public DNS name
     """
 
-    # boto3 doesn't have any async APIs, which means that in order to run more than one
-    # launch_ec2_instance at the same time, we need to have a thread that waits. We use
-    # an asyncio.Future here to make the API async, so from the user perspective, it
-    # feels like this function is async
-
-    # boto3 should be threadsafe:
-    # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html#multithreading-or-multiprocessing-with-clients
-    instance_running_future: asyncio.Future = asyncio.Future()
-    event_loop = asyncio.get_running_loop()
-
-    def wait_until_running() -> None:
+    # ideally we would reuse the ec2_client from the caller, but this is much simpler
+    i = 0
+    async with aiobotocore.session.get_session().create_client(
+        "ec2", region_name=region_name
+    ) as ec2_client:
         try:
-            instance.wait_until_running()
-            event_loop.call_soon_threadsafe(
-                lambda: instance_running_future.set_result(None)
-            )
-        except asyncio.CancelledError:
+            # this is a reimplementation of
+            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Instance.wait_until_running
+            # main difference is that we check every 7 seconds rather than every 15
+            # seconds
+            while True:
+                await asyncio.sleep(7)
+
+                instance = await describe_single_instance(ec2_client, instance_id)
+                if instance["State"]["Name"] == "running":
+                    break
+                elif instance["State"]["Name"] == "pending":
+                    pass
+                else:
+                    print(
+                        f"Unexpected instance state while waiting for {instance_id} to "
+                        f"start up: {instance['State']}. This instance may never start "
+                        "up."
+                    )
+
+                i += 1
+                if i >= 60:
+                    raise TimeoutError(
+                        "Checked 60 times, waiting 7 seconds between each check and "
+                        f"instance {instance_id} is still not running"
+                    )
+
+            if instance["PublicDnsName"]:
+                dns_name = instance["PublicDnsName"]
+            else:
+                # try one more time after waiting 1 seconds
+                await asyncio.sleep(1.0)
+                instance = await describe_single_instance(ec2_client, instance_id)
+                if instance["PublicDnsName"]:
+                    dns_name = instance["PublicDnsName"]
+                elif instance["PrivateDnsName"]:
+                    print(
+                        "Warning, no public DNS name available for instance "
+                        f"{instance_id}. Will try to use the private DNS name, but this"
+                        " will only work if the current machine is in the same VPC as "
+                        "the new instance. If this message is unexpected, please try "
+                        "setting your subnet to automatically assign public IPv4 "
+                        "addresses"
+                    )
+                    dns_name = instance["PrivateDnsName"]
+                else:
+                    raise ValueError(
+                        f"Instance {instance_id} is running, but does not have a public"
+                        " DNS name or a private DNS name."
+                    )
+        except BaseException:
+            # This is a best effort at terminating the instance. If we don't manage to
+            # terminate, it will get cleaned up by the management lambda as the instance
+            # will exist but not be registered. There's code before and after this that
+            # we should also wrap in a similar try/except block, but this is by far the
+            # most likely place where there will be an issue.
+            await ec2_client.terminate_instances(InstanceIds=[instance_id])
             raise
-        except Exception as e:
-            exception = e
-            event_loop.call_soon_threadsafe(
-                lambda: instance_running_future.set_exception(exception)
-            )
-
-    threading.Thread(target=wait_until_running).start()
-    await instance_running_future
-
-    instance.load()
-    if instance.public_dns_name:
-        dns_name = instance.public_dns_name
-    else:
-        # try one more time after waiting 1 seconds
-        await asyncio.sleep(1.0)
-        instance.load()
-        if instance.public_dns_name:
-            dns_name = instance.public_dns_name
-        elif instance.private_dns_name:
-            print(
-                f"Warning, no public DNS name available for instance {instance.id}. "
-                "Will try to use the private DNS name, but this will only work if the "
-                "current machine is in the same VPC as the new instance. If this "
-                "message is unexpected, please try setting your subnet to automatically"
-                " assign public IPv4 addresses"
-            )
-            dns_name = instance.private_dns_name
-        else:
-            raise ValueError(
-                f"Instance {instance.id} is running, but does not have a public DNS "
-                "name or a private DNS name."
-            )
     return dns_name
 
 

@@ -214,13 +214,16 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def allocate_jobs(
         self, resources: ResourcesInternal, num_concurrent_jobs: int
     ) -> Tuple[List[Tuple[str, str]], List[str]]:
-        instances_job_ids = await allocate_jobs_to_instances(
+        instances_job_ids = {}
+        async for allocated_jobs in allocate_jobs_to_instances(
             self,
             resources,
             num_concurrent_jobs,
             AllocEC2Instance("test_region"),
             None,
-        )
+        ):
+            instances_job_ids.update(allocated_jobs)
+
         all_job_ids = []
         instances = []
         for public_address, instance_job_ids in sorted(instances_job_ids.items()):

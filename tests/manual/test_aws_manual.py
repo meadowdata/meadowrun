@@ -6,7 +6,6 @@ the test has passed
 import time
 
 from automated.test_aws_automated import EC2InstanceRegistrarProvider
-from meadowrun.run_job_core import Resources
 from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     ensure_clean_up_lambda,
     ensure_ec2_alloc_lambda,
@@ -15,9 +14,12 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
     AllocEC2Instance,
     EC2InstanceRegistrar,
 )
-from meadowrun.instance_allocation import allocate_jobs_to_instances
+from meadowrun.instance_allocation import (
+    allocate_single_job_to_instance,
+)
 from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.run_job import run_function
+from meadowrun.run_job_core import Resources
 
 
 async def manual_test_deallocate_after_running() -> None:
@@ -49,10 +51,9 @@ async def manual_test_deallocate_before_running() -> None:
     # run this after another test when we still have an instance lying around
 
     async with EC2InstanceRegistrar(None, "create") as instance_registrar:
-        result = await allocate_jobs_to_instances(
+        result = await allocate_single_job_to_instance(
             instance_registrar,
             ResourcesInternal.from_cpu_and_memory(1, 0.5, 100),
-            1,
             AllocEC2Instance(),
             None,
         )

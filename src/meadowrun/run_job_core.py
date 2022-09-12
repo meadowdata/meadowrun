@@ -7,11 +7,13 @@ import abc
 import asyncio
 import dataclasses
 import enum
+import itertools
 import os
 import os.path
 import pickle
 import shutil
 import sys
+import traceback
 import urllib.parse
 import zipfile
 from typing import (
@@ -30,6 +32,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
 )
 
 import asyncssh
@@ -38,6 +41,7 @@ import filelock
 from typing_extensions import Literal
 
 import meadowrun.ssh as ssh
+from meadowrun.instance_allocation import allocate_jobs_to_instances, InstanceRegistrar
 from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import Job, ProcessState, PyFunctionJob
 from meadowrun.shared import unpickle_exception
@@ -602,98 +606,6 @@ _EXCEPTION_STATES = (
 )
 
 
-# mypy bug/issue, see https://github.com/python/mypy/issues/5374
-@dataclasses.dataclass(frozen=True)  # type: ignore[misc]
-class GridJobDriver(abc.ABC, Generic[_T, _U]):
-    """See run_map. This allows run_map to use EC2 or Azure VMs"""
-
-    region_name: str
-    allocated_hosts: Dict[str, List[str]]
-    ssh_username: str
-    ssh_private_key: asyncssh.SSHKey
-    num_tasks: int
-    num_workers: int
-    function: Callable[[_T], _U]
-
-    # would love to make this worker_function(self, public_address, worker_id) -> None,
-    # but worker_function is cloudpickled to the remote and self shouldn't be in the
-    # closure.
-    @abc.abstractmethod
-    def worker_function(self) -> Callable[[str, int], None]:
-        ...
-
-    @abc.abstractmethod
-    def receive_task_results(
-        self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
-        ...
-
-    @abc.abstractmethod
-    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
-        ...
-
-    async def get_results_as_completed(
-        self,
-        workers_done: asyncio.Event,
-        max_num_task_attempts: int,
-    ) -> AsyncIterable[TaskResult]:
-        """Generates TaskResult objects for each task as tasks are completed. Useful for
-        overlapping async work with getting task results, or getting the results from
-        jobs with partially unsuccesful tasks.
-        """
-        # done = successful or exhausted retries
-        num_tasks_done = 0
-        stop_receiving = asyncio.Event()
-        if self.num_tasks == num_tasks_done:
-            stop_receiving.set()
-        async for task_id, attempt, result in self.receive_task_results(
-            stop_receiving=stop_receiving, workers_done=workers_done
-        ):
-            print(
-                f"Waiting for task results. Requested: {self.num_tasks}, "
-                f"received: {num_tasks_done}"
-            )
-            if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-                num_tasks_done += 1
-                # TODO try/catch on pickle.loads?
-                yield TaskResult(
-                    task_id,
-                    is_success=True,
-                    result=pickle.loads(result.pickled_result),
-                    attempt=attempt,
-                )
-            else:
-                if result.state in _EXCEPTION_STATES:
-                    exception = unpickle_exception(result.pickled_result)
-                    task_result: TaskResult = TaskResult(
-                        task_id, is_success=False, exception=exception, attempt=attempt
-                    )
-                else:
-                    task_result = TaskResult(task_id, is_success=False, attempt=attempt)
-
-                if attempt < max_num_task_attempts:
-                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
-                    await self.retry_task(task_id, attempt)
-                else:
-                    print(
-                        f"Task {task_id} failed at attempt {attempt}, "
-                        f"max attempts is {max_num_task_attempts}, not retrying."
-                    )
-                    num_tasks_done += 1
-                    yield task_result
-
-            if num_tasks_done >= self.num_tasks:
-                stop_receiving.set()
-
-        if num_tasks_done < self.num_tasks:
-            print(
-                "Gave up retrieving task results. "
-                f"Received {num_tasks_done}/{self.num_tasks} task results."
-            )
-        else:
-            print(f"Received all {self.num_tasks} task results.")
-
-
 @dataclasses.dataclass(frozen=True)
 class ContainerRegistryHelper:
     """
@@ -796,127 +708,40 @@ class AllocVM(Host, abc.ABC):
         wait_for_result: WaitOption,
         max_num_task_attempts: int,
     ) -> AsyncIterable[TaskResult[_U]]:
-        if self.get_cloud_provider() == "AzureVM" and max_num_task_attempts != 1:
-            raise NotImplementedError(
-                "max_num_task_attempts must be 1 for AzureVM. "
-                "Task retries are not implemented yet."
-            )
         if resources_required_per_task is None:
             raise ValueError(
                 "Resources.logical_cpu and memory_gb must be specified for "
                 "AllocEC2Instance and AllocAzureVM"
             )
 
-        driver = await self._create_grid_job_driver(
-            function,
-            args,
-            resources_required_per_task,
-            job_fields["ports"],
-            num_concurrent_tasks,
+        driver = GridJobDriver(
+            self._create_grid_job_cloud_interface(), num_concurrent_tasks
         )
 
-        worker_tasks, ssh_hosts = await self._run_worker_loops(
-            driver,
-            pickle_protocol,
-            job_fields,
-            resources_required_per_task,
-            wait_for_result=wait_for_result,
+        run_worker_loops = asyncio.create_task(
+            driver.run_worker_functions(
+                self,
+                function,
+                pickle_protocol,
+                job_fields,
+                resources_required_per_task,
+                wait_for_result,
+            )
         )
+        async for result in driver.add_tasks_and_get_results(
+            args, max_num_task_attempts
+        ):
+            yield result
 
-        async def gather_workers_and_set(
-            event: asyncio.Event, worker_tasks: List[asyncio.Task[JobCompletion]]
-        ) -> List:
-            worker_results = await asyncio.gather(*worker_tasks, return_exceptions=True)
-            event.set()
-            return worker_results
-
-        try:
-            workers_done = asyncio.Event()
-            workers_done_future = asyncio.create_task(
-                gather_workers_and_set(workers_done, worker_tasks)
-            )
-
-            if wait_for_result != WaitOption.DO_NOT_WAIT:
-                async for result in driver.get_results_as_completed(
-                    workers_done, max_num_task_attempts
-                ):
-                    yield result
-
-            worker_results = await workers_done_future
-            for worker_id, result in enumerate(worker_results):
-                if isinstance(result, Exception):
-                    print(f"Worker {worker_id} exited with error: {result}")
-        finally:
-            await asyncio.gather(
-                *[ssh_host.close_connection() for ssh_host in ssh_hosts],
-                return_exceptions=True,
-            )
+        await run_worker_loops
 
     @abc.abstractmethod
-    async def _create_grid_job_driver(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
-        ports: Sequence[str],
-        num_concurrent_tasks: int,
-    ) -> GridJobDriver:
+    def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         pass
 
     @abc.abstractmethod
     def get_cloud_provider(self) -> CloudProviderType:
         pass
-
-    async def _run_worker_loops(
-        self,
-        driver: GridJobDriver,
-        pickle_protocol: int,
-        job_fields: Dict[str, Any],
-        resources_required_per_task: Optional[ResourcesInternal],
-        wait_for_result: WaitOption,
-    ) -> Tuple[List[asyncio.Task[JobCompletion]], Iterable[SshHost]]:
-        # Now we will run worker_loop jobs on the hosts we got:
-
-        pickled_worker_function = cloudpickle.dumps(
-            driver.worker_function(), protocol=pickle_protocol
-        )
-
-        worker_tasks = []
-        worker_id = 0
-        address_to_ssh_host: Dict[str, SshHost] = {}
-        for public_address, worker_job_ids in driver.allocated_hosts.items():
-            ssh_host = address_to_ssh_host.get(public_address)
-            if ssh_host is None:
-                ssh_host = SshHost(
-                    public_address,
-                    driver.ssh_username,
-                    driver.ssh_private_key,
-                    (self.get_cloud_provider(), driver.region_name),
-                )
-                address_to_ssh_host[public_address] = ssh_host
-            for worker_job_id in worker_job_ids:
-                job = Job(
-                    job_id=worker_job_id,
-                    py_function=PyFunctionJob(
-                        pickled_function=pickled_worker_function,
-                        pickled_function_arguments=pickle.dumps(
-                            ([public_address, worker_id], {}), protocol=pickle_protocol
-                        ),
-                    ),
-                    **job_fields,
-                )
-
-                worker_tasks.append(
-                    asyncio.create_task(
-                        ssh_host.run_job(
-                            resources_required_per_task, job, wait_for_result
-                        )
-                    )
-                )
-
-                worker_id += 1
-
-        return worker_tasks, address_to_ssh_host.values()
 
     @abc.abstractmethod
     def get_runtime_resources(self) -> ResourcesInternal:
@@ -926,3 +751,334 @@ class AllocVM(Host, abc.ABC):
         # be considered when choosing an instance type, but need to be considered when
         # deciding whether an existing instance can run a new job.
         pass
+
+
+class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
+    """
+    See also GridJobDriver. The GridJobDriver is a concrete class that handles the
+    cloud-independent logic for running a grid job, e.g. replacing workers that exit
+    unexpectedly (not implemented yet), retrying vs giving up on tasks. The
+    GridJobCloudInterface is an interface that we can implement for different cloud
+    providers. The GridJobDriver always has a single GridJobCloudInterface
+    implementation that it uses to actually "do things" in the real world like launch
+    instances and start workers.
+    """
+
+    @abc.abstractmethod
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        ...
+
+    @abc.abstractmethod
+    async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
+        """
+        GridJobDriver will always call this exactly once before any other functions on
+        this class are called.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def ssh_host_from_address(self, address: str) -> SshHost:
+        ...
+
+    @abc.abstractmethod
+    async def shutdown_workers(self, num_workers: int) -> None:
+        ...
+
+    @abc.abstractmethod
+    async def get_worker_function(
+        self, user_function: Callable[[_T], _U]
+    ) -> Callable[[str, int], None]:
+        """
+        Returns a function that will poll/wait for tasks, call user_function on each
+        task, and return results. The returned function will also exit in response to
+        shutdown_workers.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def receive_task_results(
+        self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
+    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+        ...
+
+    @abc.abstractmethod
+    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
+        ...
+
+
+class GridJobDriver:
+    """
+    See GridJobCloudInterface. This class handles the cloud-independent logic for
+    running a grid job, e.g. replacing workers that exit unexpectedly (not implemented
+    yet), retrying vs giving up on tasks.
+
+    The basic design is that there are two "loops" run_worker_functions and
+    add_tasks_and_get_results that run "in parallel" via asyncio. They interact using
+    shared asyncio.Event objects.
+    """
+
+    def __init__(
+        self, cloud_interface: GridJobCloudInterface, num_concurrent_tasks: int
+    ):
+        """This constructor must be called on an EventLoop"""
+        self._cloud_interface: GridJobCloudInterface = cloud_interface
+
+        # run_worker_functions will set this to indicate to add_tasks_and_get_results
+        # that there all of our workers have either exited unexpectedly (and we have
+        # given up trying to restore them), or have been told to shutdown normally
+        self._no_workers_available = asyncio.Event()
+
+        # add_tasks_and_get_results will manipulate these variables to tell the
+        # run_worker_functions function to decrease the number of running workers
+        self._workers_needed = num_concurrent_tasks
+        self._workers_needed_changed = asyncio.Event()
+
+    async def run_worker_functions(
+        self,
+        alloc_cloud_instance: AllocVM,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        resources_required_per_task: ResourcesInternal,
+        wait_for_result: WaitOption,
+    ) -> None:
+        """
+        Allocates cloud instances, runs a worker function on them, sends worker shutdown
+        messages when requested by add_tasks_and_get_results, and generally manages
+        workers (e.g. replacing workers when they exit unexpectedly, not implemented
+        yet).
+        """
+
+        if (
+            job_fields["ports"]
+            and alloc_cloud_instance.get_cloud_provider() == "AzureVM"
+        ):
+            raise NotImplementedError(
+                "Opening ports on Azure is not implemented, please comment on "
+                "https://github.com/meadowdata/meadowrun/issues/126"
+            )
+
+        # we create an asyncio.task for this because it requires waiting for
+        # _cloud_interface.setup_and_add_tasks to complete. We don't want to just run
+        # this sequentially, though, because we want to start launching instances before
+        # setup_and_add_tasks is complete.
+        async def _get_pickled_worker_function() -> bytes:
+            return cloudpickle.dumps(
+                await self._cloud_interface.get_worker_function(user_function),
+                protocol=pickle_protocol,
+            )
+
+        pickled_worker_function_task = asyncio.create_task(
+            _get_pickled_worker_function()
+        )
+
+        # "inner_" on the parameter names is just to avoid name collision with outer
+        # scope
+        async def launch_worker_function(
+            inner_ssh_host: SshHost, inner_worker_job_id: str, worker_id: int
+        ) -> JobCompletion:
+            job = Job(
+                job_id=inner_worker_job_id,
+                py_function=PyFunctionJob(
+                    pickled_function=await pickled_worker_function_task,
+                    # workers_launched is functioning as worker_id
+                    pickled_function_arguments=pickle.dumps(
+                        ([inner_ssh_host.address, worker_id], {}),
+                        protocol=pickle_protocol,
+                    ),
+                ),
+                **job_fields,
+            )
+
+            return await inner_ssh_host.run_job(
+                resources_required_per_task, job, wait_for_result
+            )
+
+        address_to_ssh_host: Dict[str, SshHost] = {}
+        workers_launched = 0
+        worker_shutdown_messages_sent = 0
+        workers_exited_unexpectedly = 0
+        worker_tasks: List[asyncio.Task[JobCompletion]] = []
+        workers_needed_changed_wait_task = asyncio.create_task(
+            self._workers_needed_changed.wait()
+        )
+        try:
+            async with self._cloud_interface.create_instance_registrar() as instance_registrar:  # noqa: E501
+                while True:
+                    # TODO we should subtract workers_exited_unexpectedly from
+                    # workers_launched, this would mean we replace workers that exited
+                    # unexpectedly. Implementing this properly means we should add more
+                    # code that will tell us why workers exited unexpectedly (e.g.
+                    # segfault in user code, spot instance eviction, vs an issue
+                    # creating the environment). The main concern is ending up in an
+                    # infinite loop where we're constantly launching workers that fail.
+                    new_workers_to_launch = self._workers_needed - (
+                        workers_launched - worker_shutdown_messages_sent
+                    )
+
+                    # launch new workers if they're needed
+                    if new_workers_to_launch > 0:
+                        # TODO pass in an event for if workers_needed goes to 0, cancel
+                        # any remaining allocate_jobs_to_instances
+                        async for allocated_hosts in allocate_jobs_to_instances(
+                            instance_registrar,
+                            resources_required_per_task,
+                            new_workers_to_launch,
+                            alloc_cloud_instance,
+                            job_fields["ports"],
+                        ):
+                            for (
+                                public_address,
+                                worker_job_ids,
+                            ) in allocated_hosts.items():
+                                ssh_host = address_to_ssh_host.get(public_address)
+                                if ssh_host is None:
+                                    ssh_host = await self._cloud_interface.ssh_host_from_address(  # noqa: E501
+                                        public_address
+                                    )
+                                    address_to_ssh_host[public_address] = ssh_host
+                                for worker_job_id in worker_job_ids:
+                                    worker_tasks.append(
+                                        asyncio.create_task(
+                                            launch_worker_function(
+                                                ssh_host,
+                                                worker_job_id,
+                                                workers_launched,
+                                            )
+                                        )
+                                    )
+                                    workers_launched += 1
+
+                    # shutdown workers if they're no longer needed
+                    if new_workers_to_launch < 0:
+                        workers_to_shutdown = -new_workers_to_launch
+                        await self._cloud_interface.shutdown_workers(
+                            workers_to_shutdown
+                        )
+                        worker_shutdown_messages_sent += workers_to_shutdown
+
+                    # now we wait until either add_tasks_and_get_results tells us to
+                    # shutdown some workers, or workers exit
+                    await asyncio.wait(
+                        itertools.chain(
+                            cast(Iterable[asyncio.Task], worker_tasks),
+                            (workers_needed_changed_wait_task,),
+                        ),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    new_worker_tasks = []
+                    for worker_task in worker_tasks:
+                        if worker_task.done():
+                            exception = worker_task.exception()
+                            if exception is not None:
+                                print(
+                                    "Error running worker:\n"
+                                    + "".join(
+                                        traceback.format_exception(
+                                            type(exception),
+                                            exception,
+                                            exception.__traceback__,
+                                        )
+                                    )
+                                )
+                                workers_exited_unexpectedly += 1
+                                # TODO ideally we would tell the receive_results loop to
+                                # reschedule whatever task the worker was working on
+                            #  TODO do something with worker_task.result()
+                        else:
+                            new_worker_tasks.append(worker_task)
+                    worker_tasks = new_worker_tasks
+
+                    # this means all workers are either done or shutting down
+                    if (
+                        workers_launched
+                        - worker_shutdown_messages_sent
+                        - workers_exited_unexpectedly
+                        <= 0
+                    ):
+                        break
+
+                # wait for any remaining workers to finish
+                self._no_workers_available.set()
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+        finally:
+            await asyncio.gather(
+                *[
+                    ssh_host.close_connection()
+                    for ssh_host in address_to_ssh_host.values()
+                ],
+                return_exceptions=True,
+            )
+
+    async def add_tasks_and_get_results(
+        self,
+        args: Sequence[_T],
+        max_num_task_attempts: int,
+    ) -> AsyncIterable[TaskResult]:
+        """
+        Adds the specified tasks to the "queue", and retries tasks as needed. Yields
+        TaskResult objects as soon as tasks complete.
+        """
+
+        await self._cloud_interface.setup_and_add_tasks(args)
+
+        # done = successful or exhausted retries
+        num_tasks_done = 0
+        # stop_receiving tells _cloud_interface.receive_task_results that there are no
+        # more results to get
+        stop_receiving = asyncio.Event()
+        if len(args) == num_tasks_done:
+            stop_receiving.set()
+        async for task_id, attempt, result in await self._cloud_interface.receive_task_results(  # noqa: E501
+            stop_receiving=stop_receiving, workers_done=self._no_workers_available
+        ):
+            print(
+                f"Waiting for task results. Requested: {len(args)}, "
+                f"Done: {num_tasks_done}"
+            )
+            if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+                num_tasks_done += 1
+                # TODO try/catch on pickle.loads?
+                yield TaskResult(
+                    task_id,
+                    is_success=True,
+                    result=pickle.loads(result.pickled_result),
+                    attempt=attempt,
+                )
+            else:
+                if result.state in _EXCEPTION_STATES:
+                    exception = unpickle_exception(result.pickled_result)
+                    task_result: TaskResult = TaskResult(
+                        task_id, is_success=False, exception=exception, attempt=attempt
+                    )
+                else:
+                    task_result = TaskResult(task_id, is_success=False, attempt=attempt)
+
+                if attempt < max_num_task_attempts:
+                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
+                    await self._cloud_interface.retry_task(task_id, attempt)
+                else:
+                    print(
+                        f"Task {task_id} failed at attempt {attempt}, "
+                        f"max attempts is {max_num_task_attempts}, not retrying."
+                    )
+                    num_tasks_done += 1
+                    yield task_result
+
+            if num_tasks_done >= len(args):
+                stop_receiving.set()
+
+            # reduce the number of workers needed if we have more workers than
+            # outstanding tasks
+            num_workers_needed = max(len(args) - num_tasks_done, 0)
+            if num_workers_needed < self._workers_needed:
+                self._workers_needed = num_workers_needed
+                self._workers_needed_changed.set()
+
+        if num_tasks_done < len(args):
+            print(
+                "Gave up retrieving task results, most likely due to worker failures. "
+                f"Received {num_tasks_done}/{len(args)} task results."
+            )
+        else:
+            print(f"Received all {len(args)} task results.")

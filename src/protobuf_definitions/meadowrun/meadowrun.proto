@@ -173,6 +173,7 @@ message PyFunctionJob {
 
 message GridTask {
     int32 task_id = 1;
+    int32 attempt = 3;
     bytes pickled_function_arguments = 2;
 }
 
@@ -311,6 +312,7 @@ message JobStateUpdate {
 // For getting the state of a grid task
 message GridTaskStateResponse {
     int32 task_id = 1;
+    int32 attempt = 3;
     ProcessState process_state = 2;
 }
 

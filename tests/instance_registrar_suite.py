@@ -8,13 +8,13 @@ import datetime
 
 import pytest
 
-from meadowrun import run_function
+from meadowrun import run_function, AllocEC2Instance
 from meadowrun.config import LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
     _choose_existing_instances,
-    allocate_jobs_to_instances,
+    allocate_single_job_to_instance,
 )
 from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.run_job_core import Resources, Host
@@ -401,26 +401,21 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert len(await instance_registrar.get_registered_instances()) == 0
 
             # now, launch two instances (which should get registered automatically)
-            instances1 = await allocate_jobs_to_instances(
+            public_address1, job1 = await allocate_single_job_to_instance(
                 instance_registrar,
                 ResourcesInternal.from_cpu_and_memory(1, 0.5, 15),
-                1,
-                instance_registrar.get_region_name(),
+                # won't actually create an EC2 instance given instance_registrar
+                AllocEC2Instance(instance_registrar.get_region_name()),
                 None,
             )
-            assert len(instances1) == 1
-            public_address1 = list(instances1.keys())[0]
 
-            instances2 = await allocate_jobs_to_instances(
+            public_address2, job2 = await allocate_single_job_to_instance(
                 instance_registrar,
                 ResourcesInternal.from_cpu_and_memory(1, 0.5, 15),
-                1,
-                instance_registrar.get_region_name(),
+                # won't actually create an EC2 instance given instance_registrar
+                AllocEC2Instance(instance_registrar.get_region_name()),
                 None,
             )
-            assert len(instances2) == 1
-            public_address2 = list(instances2.keys())[0]
-            job2 = list(instances2.values())[0][0]
 
             assert len(await instance_registrar.get_registered_instances()) == 2
 

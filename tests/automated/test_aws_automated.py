@@ -1,24 +1,24 @@
-from __future__ import annotations
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-
 """
 These tests require an AWS account to be set up, but don't require any manual
 intervention beyond some initial setup. Also, these tests create instances (which cost
 money!). Either `meadowrun-manage install` needs to be set up, or `meadowrun-manage
 clean` needs to be run periodically
 """
+
+from __future__ import annotations
+
+import asyncio
 import datetime
 import pickle
 import pprint
 import threading
 from typing import TYPE_CHECKING, List, Tuple
 
-import asyncssh
 import boto3
+import pytest
+
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
-import pytest
 from basics import BasicsSuite, ErrorsSuite, HostProvider, MapSuite
 from instance_registrar_suite import (
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
@@ -37,7 +37,6 @@ from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
     AllocEC2Instance,
     EC2InstanceRegistrar,
-    EC2GridJobDriver,
     SSH_USER,
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
@@ -297,8 +296,6 @@ class TestGridTaskQueue:
         async for task_id, attempt, process_state in receive_results(
             job_id,
             region_name,
-            1,
-            request_queue_url,
             stop_receiving=stop_receiving,
             all_workers_exited=asyncio.Event(),
         ):
@@ -309,115 +306,3 @@ class TestGridTaskQueue:
 
         results_thread.join()
         assert results == task_arguments
-
-    async def _create_driver(self) -> Tuple[EC2GridJobDriver, str, str, str]:
-        region_name = await _get_default_region_name()
-        task_arguments = [1, 2, 3, 4]
-
-        request_queue_url, job_id, ranges = await create_queues_and_add_tasks(
-            region_name, task_arguments
-        )
-
-        driver = EC2GridJobDriver[int, int](
-            region_name,
-            {},
-            "",
-            asyncssh.SSHKey(),
-            len(task_arguments),
-            1,
-            lambda x: x**x,
-            request_queue_url,
-            job_id,
-            ranges,
-        )
-        return driver, request_queue_url, job_id, region_name
-
-    @pytest.mark.asyncio
-    async def test_worker_loop(self) -> None:
-
-        driver, _, _, _ = await self._create_driver()
-
-        # start a worker_loop which will get tasks and complete them
-        public_address = "foo"
-        worker_id = 1
-        worker_thread = threading.Thread(
-            target=lambda: driver.worker_function()(
-                public_address,
-                worker_id,
-            )
-        )
-        worker_thread.start()
-        results = []
-        async for result in driver.get_results_as_completed(asyncio.Event(), 1):
-            results.append(result.result_or_raise())
-        worker_thread.join()
-        assert set(results) == {1, 4, 27, 256}
-
-    @pytest.mark.asyncio
-    async def test_worker_loop_with_retries(self) -> None:
-        driver, request_queue_url, job_id, region_name = await self._create_driver()
-
-        # only complete one task - get_results should still exit.
-        def complete_tasks() -> None:
-            def complete_task(task: Tuple[int, int, bytes], fail: bool = False) -> None:
-                _complete_task(
-                    job_id,
-                    region_name,
-                    task[0],
-                    task[1],
-                    ProcessState(
-                        state=ProcessState.ProcessStateEnum.SUCCEEDED
-                        if not fail
-                        else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-                        pickled_result=task[2],
-                    ),
-                )
-
-            for i in range(8):
-                task = _get_task(request_queue_url, job_id, region_name, 0)
-                assert task is not None
-                complete_task(task, fail=True)
-            for i in range(4):
-                task = _get_task(request_queue_url, job_id, region_name, 0)
-                assert task is not None
-                complete_task(task, fail=False)
-
-        with ThreadPoolExecutor() as e:
-            complete_future = asyncio.get_running_loop().run_in_executor(
-                e, complete_tasks
-            )
-
-            results = []
-            async for result in driver.get_results_as_completed(asyncio.Event(), 3):
-                results.append(result.result_or_raise())
-            await complete_future
-        assert set(results) == {1, 2, 3, 4}
-
-    @pytest.mark.asyncio
-    async def test_worker_loop_unfinished(self) -> None:
-
-        driver, request_queue_url, job_id, region_name = await self._create_driver()
-
-        def complete_tasks() -> None:
-            task = _get_task(request_queue_url, job_id, region_name, 0)
-            assert task is not None
-            _complete_task(
-                job_id,
-                region_name,
-                task[0],
-                task[1],
-                ProcessState(
-                    state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                    pickled_result=task[2],
-                ),
-            )
-
-        e = ThreadPoolExecutor()
-        await asyncio.get_running_loop().run_in_executor(e, complete_tasks)
-
-        event = asyncio.Event()
-        event.set()
-        num_results = 0
-        async for _ in driver.get_results_as_completed(event, 3):
-            num_results += 1
-        assert num_results == 1

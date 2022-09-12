@@ -8,15 +8,16 @@ import os
 import pickle
 import time
 import traceback
-import uuid
 from typing import (
     Any,
     AsyncIterable,
     Callable,
     Iterable,
+    List,
     Optional,
     Tuple,
     TypeVar,
+    cast,
 )
 
 from meadowrun.azure_integration.azure_meadowrun_core import (
@@ -54,16 +55,6 @@ class Queue:
     storage_account: StorageAccount
 
 
-async def create_queues_and_add_tasks(
-    location: str, tasks: Iterable[Any]
-) -> Tuple[Queue, Queue]:
-    job_id = str(uuid.uuid4())
-    print(f"The current run_map's id is {job_id}")
-    request_queue, result_queue = await _create_queues_for_job(job_id, location)
-    await _add_tasks(request_queue, tasks)
-    return request_queue, result_queue
-
-
 async def _create_queues_for_job(job_id: str, location: str) -> Tuple[Queue, Queue]:
     storage_account = await ensure_meadowrun_storage_account(location, "create")
     now = datetime.datetime.utcnow().strftime(QUEUE_NAME_TIMESTAMP_FORMAT)
@@ -88,6 +79,9 @@ async def _create_queues_for_job(job_id: str, location: str) -> Tuple[Queue, Que
     )
 
 
+_WORKER_SHUTDOWN_MESSAGE = b"worker-shutdown"
+
+
 async def _add_tasks(request_queue: Queue, tasks: Iterable[Any]) -> None:
     await asyncio.wait(
         [
@@ -95,7 +89,7 @@ async def _add_tasks(request_queue: Queue, tasks: Iterable[Any]) -> None:
                 request_queue.storage_account,
                 request_queue.queue_name,
                 GridTask(
-                    task_id=i, pickled_function_arguments=pickle.dumps(task)
+                    task_id=i, attempt=1, pickled_function_arguments=pickle.dumps(task)
                 ).SerializeToString(),
             )
             for i, task in enumerate(tasks)
@@ -103,21 +97,53 @@ async def _add_tasks(request_queue: Queue, tasks: Iterable[Any]) -> None:
     )
 
 
-async def _get_task(request_queue: Queue, result_queue: Queue) -> Optional[GridTask]:
-    messages = await queue_receive_messages(
+async def _retry_task(
+    request_queue: Queue, task_id: int, attempt: int, task: Any
+) -> None:
+    await queue_send_message(
         request_queue.storage_account,
         request_queue.queue_name,
-        visibility_timeout_secs=5,
+        GridTask(
+            task_id=task_id,
+            attempt=attempt,
+            pickled_function_arguments=pickle.dumps(task),
+        ).SerializeToString(),
     )
 
-    # there was nothing in the queue
-    if len(messages) == 0:
-        return None
+
+async def _add_worker_shutdown_message(request_queue: Queue, num_workers: int) -> None:
+    # TODO I think these could be sent in a single API call
+    await asyncio.wait(
+        [
+            queue_send_message(
+                request_queue.storage_account,
+                request_queue.queue_name,
+                _WORKER_SHUTDOWN_MESSAGE,
+            )
+            for _ in range(num_workers)
+        ]
+    )
+
+
+async def _get_task(request_queue: Queue, result_queue: Queue) -> Optional[GridTask]:
+    while True:
+        messages = await queue_receive_messages(
+            request_queue.storage_account,
+            request_queue.queue_name,
+            visibility_timeout_secs=5,
+        )
+
+        if len(messages) > 0:
+            break
 
     if len(messages) > 1:
         raise ValueError(
             "queue_receive_messages returned more than 1 message unexpectedly"
         )
+
+    # if we got a worker done message, return None
+    if messages[0].message_content == _WORKER_SHUTDOWN_MESSAGE:
+        return None
 
     task = GridTask()
     task.ParseFromString(messages[0].message_content)
@@ -155,12 +181,12 @@ async def _complete_task(
         result_queue.storage_account,
         result_queue.queue_name,
         GridTaskStateResponse(
-            task_id=task.task_id, process_state=process_state
+            task_id=task.task_id, attempt=task.attempt, process_state=process_state
         ).SerializeToString(),
     )
 
 
-async def worker_loop_async(
+async def worker_function_async(
     function: Callable[[Any], Any],
     request_queue: Queue,
     result_queue: Queue,
@@ -198,7 +224,7 @@ async def worker_loop_async(
         )
 
 
-def worker_loop(
+def worker_function(
     function: Callable[[Any], Any],
     request_queue: Queue,
     result_queue: Queue,
@@ -206,7 +232,7 @@ def worker_loop(
     worker_id: int,
 ) -> None:
     asyncio.run(
-        worker_loop_async(
+        worker_function_async(
             function, request_queue, result_queue, public_address, worker_id
         )
     )
@@ -214,8 +240,9 @@ def worker_loop(
 
 async def get_results_unordered(
     result_queue: Queue,
-    num_tasks: int,
     location: str,
+    stop_receiving: asyncio.Event,
+    all_workers_exited: asyncio.Event,
 ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
 
     # TODO currently, we get back messages saying that a task is running on a particular
@@ -225,42 +252,59 @@ async def get_results_unordered(
     num_tasks_running, num_tasks_completed = 0, 0
     t0 = None
     updated = True
-    while num_tasks_completed < num_tasks:
+    stop_receiving_wait_task = asyncio.create_task(stop_receiving.wait())
+    all_workers_exited_task = asyncio.create_task(all_workers_exited.wait())
+    while not stop_receiving.is_set():
         if updated or t0 is None or time.time() - t0 > 20:
-            # log this message every 20 seconds, or whenever there's an update
             t0 = time.time()
             updated = False
-            print(
-                f"Waiting for grid tasks. Requested: {num_tasks}, "
-                f"running: {num_tasks_running}, "
-                f"completed: {num_tasks_completed}"
-            )
             await record_last_used(GRID_TASK_QUEUE, result_queue.queue_job_id, location)
 
-        for message in await queue_receive_messages(
-            result_queue.storage_account,
-            result_queue.queue_name,
-            visibility_timeout_secs=10,
-            num_messages=32,  # the max number of messages to get at once
-        ):
-            updated = True
-
-            task_result = GridTaskStateResponse()
-            task_result.ParseFromString(message.message_content)
-
-            if (
-                task_result.process_state.state
-                == ProcessState.ProcessStateEnum.RUN_REQUESTED
-            ):
-                num_tasks_running += 1
-            else:
-                num_tasks_running -= 1
-                num_tasks_completed += 1
-                yield task_result.task_id, 1, task_result.process_state
-
-            await queue_delete_message(
+        receive_messages_task = asyncio.create_task(
+            queue_receive_messages(
                 result_queue.storage_account,
                 result_queue.queue_name,
-                message.message_id,
-                message.pop_receipt,
+                visibility_timeout_secs=10,
+                num_messages=32,  # the max number of messages to get at once
             )
+        )
+        await asyncio.wait(
+            cast(
+                List[asyncio.Task],
+                [
+                    receive_messages_task,
+                    stop_receiving_wait_task,
+                    all_workers_exited_task,
+                ],
+            ),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if stop_receiving_wait_task.done() or all_workers_exited_task.done():
+            return
+        else:
+            for message in receive_messages_task.result():
+                updated = True
+
+                task_result = GridTaskStateResponse()
+                task_result.ParseFromString(message.message_content)
+
+                if (
+                    task_result.process_state.state
+                    == ProcessState.ProcessStateEnum.RUN_REQUESTED
+                ):
+                    num_tasks_running += 1
+                else:
+                    num_tasks_running -= 1
+                    num_tasks_completed += 1
+                    yield (
+                        task_result.task_id,
+                        task_result.attempt,
+                        task_result.process_state,
+                    )
+
+                await queue_delete_message(
+                    result_queue.storage_account,
+                    result_queue.queue_name,
+                    message.message_id,
+                    message.pop_receipt,
+                )

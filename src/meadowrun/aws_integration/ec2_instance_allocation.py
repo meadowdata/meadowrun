@@ -6,12 +6,12 @@ import datetime
 import decimal
 import functools
 import itertools
+import uuid
 from typing import (
     Any,
     AsyncIterable,
     Callable,
     Dict,
-    Generic,
     Iterable,
     List,
     Optional,
@@ -24,6 +24,7 @@ from typing import (
 )
 
 import boto3
+import aiobotocore.session
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
@@ -39,10 +40,12 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     get_meadowrun_ssh_key,
 )
 from meadowrun.aws_integration.grid_tasks_sqs import (
-    create_queues_and_add_tasks,
+    _add_worker_shutdown_messages,
+    _add_tasks,
+    _create_request_queue,
     receive_results,
-    worker_loop,
     retry_task,
+    worker_function,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
@@ -63,16 +66,16 @@ from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
     _TInstanceState,
-    allocate_jobs_to_instances,
+    allocate_single_job_to_instance,
 )
 from meadowrun.instance_selection import ResourcesInternal, CloudInstance
 from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.run_job_core import (
     AllocVM,
     CloudProviderType,
+    GridJobCloudInterface,
     JobCompletion,
     ObjectStorage,
-    GridJobDriver,
     SshHost,
     WaitOption,
 )
@@ -651,22 +654,8 @@ class AllocEC2Instance(AllocVM):
             job, resources_required, self, wait_for_result
         )
 
-    async def _create_grid_job_driver(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
-        ports: Sequence[str],
-        num_concurrent_tasks: int,
-    ) -> GridJobDriver:
-        return await create_ec2_grid_job_driver(
-            function,
-            args,
-            self,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            ports,
-        )
+    def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
+        return EC2GridJobInterface(self)
 
     async def get_object_storage(self) -> ObjectStorage:
         return S3ObjectStorage(self._get_region_name())
@@ -683,111 +672,110 @@ async def run_job_ec2_instance_registrar(
     pkey = get_meadowrun_ssh_key(region_name)
 
     async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
-        hosts = await allocate_jobs_to_instances(
+        host, job_id = await allocate_single_job_to_instance(
             instance_registrar,
             resources_required,
-            1,
             alloc_ec2_instance,
             job.ports,
         )
 
-    if len(hosts) != 1:
-        raise ValueError(f"Asked for one host, but got back {len(hosts)}")
-    host, job_ids = list(hosts.items())[0]
-    if len(job_ids) != 1:
-        raise ValueError(f"Asked for one job allocation but got {len(job_ids)}")
-
     # Kind of weird that we're changing the job_id here, but okay as long as job_id
     # remains mostly an internal concept
-    job.job_id = job_ids[0]
+    job.job_id = job_id
 
     return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_job(
         resources_required, job, wait_for_result
     )
 
 
-async def create_ec2_grid_job_driver(
-    function: Callable[[_T], _U],
-    tasks: Sequence[_T],
-    alloc_cloud_instance: AllocEC2Instance,
-    resources_required_per_task: ResourcesInternal,
-    num_concurrent_tasks: int,
-    ports: Optional[Sequence[str]],
-) -> EC2GridJobDriver:
+class EC2GridJobInterface(GridJobCloudInterface):
     """
-    This code is tightly coupled with run_map. This code belongs in grid_tasks_sqs.py,
-    but it has to be here because of circular import issues
+    This is a relatively thin wrapper around some functionality in grid_tasks_sqs. This
+    class should be in grid_tasks_sqs, but it's here because of circular import issues.
     """
 
-    if not alloc_cloud_instance.region_name:
-        alloc_cloud_instance = dataclasses.replace(
-            alloc_cloud_instance, region_name=await _get_default_region_name()
+    def __init__(self, alloc_cloud_instance: AllocEC2Instance):
+        self._cloud_provider = alloc_cloud_instance.get_cloud_provider()
+        self._region_name = alloc_cloud_instance._get_region_name()
+
+        self._ssh_private_key = get_meadowrun_ssh_key(self._region_name)
+
+        self._request_queue_url: Optional[asyncio.Task[str]] = None
+        self._task_argument_ranges: Optional[asyncio.Task[List[Tuple[int, int]]]] = None
+
+        # this id is just used for creating the job's queues. It has no relationship to
+        # any Job.job_ids
+        self._job_id = str(uuid.uuid4())
+
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        return EC2InstanceRegistrar(self._region_name, "create")
+
+    async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
+        # create SQS queues and add tasks to the request queue
+        print(f"The current run_map's id is {self._job_id}")
+        session = aiobotocore.session.get_session()
+        async with session.create_client(
+            "sqs", region_name=self._region_name
+        ) as sqs, session.create_client("s3", region_name=self._region_name) as s3c:
+            self._request_queue_url = asyncio.create_task(
+                _create_request_queue(self._job_id, sqs)
+            )
+            self._task_argument_ranges = asyncio.create_task(
+                _add_tasks(self._job_id, await self._request_queue_url, s3c, sqs, tasks)
+            )
+            await self._task_argument_ranges
+
+    async def ssh_host_from_address(self, address: str) -> SshHost:
+        return SshHost(
+            address,
+            SSH_USER,
+            self._ssh_private_key,
+            (self._cloud_provider, self._region_name),
         )
-    region_name = alloc_cloud_instance._get_region_name()
 
-    pkey = get_meadowrun_ssh_key(region_name)
-
-    # create SQS queues and add tasks to the request queue
-    queues_future = asyncio.create_task(create_queues_and_add_tasks(region_name, tasks))
-
-    # get hosts
-    async with EC2InstanceRegistrar(region_name, "create") as instance_registrar:
-        allocated_hosts = await allocate_jobs_to_instances(
-            instance_registrar,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            alloc_cloud_instance,
-            ports,
+    async def shutdown_workers(self, num_workers: int) -> None:
+        if self._request_queue_url is None:
+            raise ValueError(
+                "setup_and_add_tasks must be called before send_worker_done_messages"
+            )
+        await _add_worker_shutdown_messages(
+            await self._request_queue_url, num_workers, self._region_name
         )
 
-    request_queue, job_id, task_argument_ranges = await queues_future
+    async def get_worker_function(
+        self, user_function: Callable[[_T], _U]
+    ) -> Callable[[str, int], None]:
+        if self._request_queue_url is None:
+            raise ValueError(
+                "setup_and_add_tasks must be called before get_worker_function"
+            )
 
-    return EC2GridJobDriver(
-        region_name,
-        allocated_hosts,
-        ssh_username=SSH_USER,
-        ssh_private_key=pkey,
-        num_tasks=len(tasks),
-        num_workers=num_concurrent_tasks,
-        function=function,
-        request_queue=request_queue,
-        job_id=job_id,
-        task_argument_ranges=task_argument_ranges,
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class EC2GridJobDriver(GridJobDriver, Generic[_U, _T]):
-    request_queue: str
-    job_id: str
-    task_argument_ranges: List[Tuple[int, int]]
-
-    def worker_function(self) -> Callable[[str, int], None]:
         return functools.partial(
-            worker_loop,
-            self.function,
-            self.request_queue,
-            self.job_id,
-            self.region_name,
+            worker_function,
+            user_function,
+            await self._request_queue_url,
+            self._job_id,
+            self._region_name,
         )
 
-    def receive_task_results(
+    async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
         return receive_results(
-            self.job_id,
-            self.region_name,
-            self.num_workers,
-            self.request_queue,
+            self._job_id,
+            self._region_name,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
         )
 
     async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
+        if self._request_queue_url is None or self._task_argument_ranges is None:
+            raise ValueError("setup_and_add_tasks must be called before retry_task")
+
         await retry_task(
-            self.request_queue,
+            await self._request_queue_url,
             task_id,
             attempts_so_far + 1,
-            self.task_argument_ranges[task_id],
-            self.region_name,
+            (await self._task_argument_ranges)[task_id],
+            self._region_name,
         )

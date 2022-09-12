@@ -106,7 +106,7 @@ def _s3_args_key(job_id: str) -> str:
 
 
 MESSAGE_PREFIX_TASK = "task"
-MESSAGE_PREFIX_WORKER_DONE = "worker-done"
+MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
 
 
 async def _add_tasks(
@@ -192,22 +192,26 @@ async def retry_task(
         )
 
 
-async def _add_end_of_job_messages(
+async def _add_worker_shutdown_messages(
     request_queue_url: str,
-    sqs: SQSClient,
     num_workers: int,
+    region_name: str,
 ) -> None:
-    batch: List[str] = [
-        json.dumps(dict(worker_id=i, worker_done=True)) for i in range(num_workers)
-    ]
-    for msg_chunk in _chunker(enumerate(batch), 10):
-        result = await _send_or_upload_message_batch(
-            sqs, request_queue_url, MESSAGE_PREFIX_WORKER_DONE, msg_chunk
-        )
-        if "Failed" in result:
-            raise ValueError(
-                f"Some worker done messages could not be queued: {result['Failed']}"
+    session = aiobotocore.session.get_session()
+    async with session.create_client("sqs", region_name=region_name) as sqs:
+        batch: List[str] = [
+            json.dumps(dict(worker_id=i, worker_shutdown=True))
+            for i in range(num_workers)
+        ]
+        for msg_chunk in _chunker(enumerate(batch), 10):
+            result = await _send_or_upload_message_batch(
+                sqs, request_queue_url, MESSAGE_PREFIX_WORKER_SHUTDOWN, msg_chunk
             )
+            if "Failed" in result:
+                raise ValueError(
+                    "Some worker shutdown messages could not be queued: "
+                    f"{result['Failed']}"
+                )
 
 
 async def _send_or_upload_message_batch(
@@ -322,7 +326,7 @@ def _complete_task(
     )
 
 
-def worker_loop(
+def worker_function(
     function: Callable[[Any], Any],
     request_queue_url: str,
     job_id: str,
@@ -336,16 +340,6 @@ def worker_loop(
 
     public_address is the public address of the current (worker) machine and worker_id
     is a unique identifier for this worker within this grid job.
-
-    TODO right now we have no way of knowing whether the grid job is done (i.e. there
-    are no more tasks to run) or there's just nothing left in the task queue. So we are
-    careful to make sure to launch workers after we populate the task queue, but there
-    are other potentially problematic cases. E.g. there is one task left and two
-    workers. Worker 1 receives the last task, Worker 2 sees that there are no tasks on
-    the queue and exits. Worker 1 crashes before deleting the message on the request
-    queue, so after the VisibilityTimeout it goes back on the queue but now there are no
-    more workers. We should have the client send a special message on the "request
-    queue" to tell workers they are done.
     """
     pid = os.getpid()
 
@@ -391,8 +385,6 @@ def worker_loop(
 async def receive_results(
     job_id: str,
     region_name: str,
-    num_workers: int,
-    request_queue_url: str,
     stop_receiving: asyncio.Event,
     all_workers_exited: asyncio.Event,
     receive_message_wait_seconds: int = 20,
@@ -410,7 +402,6 @@ async def receive_results(
     # implementation only relies on S3 instead, which allows faster and more concurrent
     # downloads.
 
-    # num_tasks_completed = 0
     results_prefix = _s3_results_prefix(job_id)
     download_keys_received: Set[str] = set()
     wait = True
@@ -459,7 +450,3 @@ async def receive_results(
                         key, results_prefix
                     )
                     yield task_id, attempt, process_state
-
-    # TODO shut workers donwn incrementally
-    async with session.create_client("sqs", region_name=region_name) as sqs:
-        await _add_end_of_job_messages(request_queue_url, sqs, num_workers)

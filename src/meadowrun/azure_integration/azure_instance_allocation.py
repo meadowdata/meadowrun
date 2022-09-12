@@ -5,10 +5,12 @@ import dataclasses
 import datetime
 import functools
 import json
+import uuid
 from typing import (
     Any,
     AsyncIterable,
     Callable,
+    Generic,
     Iterable,
     List,
     Optional,
@@ -28,9 +30,12 @@ from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.azure_integration.blob_storage import AzureBlobStorage
 from meadowrun.azure_integration.grid_tasks_queue import (
     Queue,
-    create_queues_and_add_tasks,
+    _add_tasks,
+    _add_worker_shutdown_message,
+    _create_queues_for_job,
+    _retry_task,
     get_results_unordered,
-    worker_loop,
+    worker_function,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
@@ -59,20 +64,21 @@ from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
     _TInstanceState,
-    allocate_jobs_to_instances,
+    allocate_single_job_to_instance,
 )
 from meadowrun.instance_selection import CloudInstance, ResourcesInternal
 from meadowrun.run_job_core import (
     AllocVM,
     CloudProviderType,
+    GridJobCloudInterface,
     JobCompletion,
     ObjectStorage,
-    GridJobDriver,
     SshHost,
     WaitOption,
 )
 
 if TYPE_CHECKING:
+    import asyncssh
     from typing_extensions import Literal
     from types import TracebackType
     from meadowrun.meadowrun_pb2 import Job, ProcessState
@@ -433,8 +439,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
     ) -> None:
         if ports:
             raise NotImplementedError(
-                "Opening ports on Azure is not implemented, please create an issue at "
-                "https://github.com/meadowdata/meadowrun/issues"
+                "Opening ports on Azure is not implemented, please comment on "
+                "https://github.com/meadowdata/meadowrun/issues/126"
             )
 
 
@@ -490,22 +496,8 @@ class AllocAzureVM(AllocVM):
             job, resources_required, self, wait_for_result
         )
 
-    async def _create_grid_job_driver(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: ResourcesInternal,
-        ports: Sequence[str],
-        num_concurrent_tasks: int,
-    ) -> GridJobDriver:
-        return await create_azure_vm_grid_job_driver(
-            function,
-            args,
-            self,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            ports,
-        )
+    def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
+        return AzureVMGridJobInterface(self)
 
     async def get_object_storage(self) -> ObjectStorage:
         return AzureBlobStorage()
@@ -524,104 +516,124 @@ async def run_job_azure_vm_instance_registrar(
     async with AzureInstanceRegistrar(location, "create") as instance_registrar:
         if job.ports:
             raise NotImplementedError(
-                "Support for opening ports on Azure is not yet implemented, please "
-                "create an issue at https://github.com/meadowdata/meadowrun/issues"
+                "Opening ports on Azure is not implemented, please comment on "
+                "https://github.com/meadowdata/meadowrun/issues/126"
             )
-        hosts = await allocate_jobs_to_instances(
+        host, job_id = await allocate_single_job_to_instance(
             instance_registrar,
             resources_required,
-            1,
             alloc_azure_vm,
             job.ports,
         )
 
-    if len(hosts) != 1:
-        raise ValueError(f"Asked for one host, but got back {len(hosts)}")
-    host, job_ids = list(hosts.items())[0]
-    if len(job_ids) != 1:
-        raise ValueError(f"Asked for one job allocation but got {len(job_ids)}")
-
     # Kind of weird that we're changing the job_id here, but okay as long as job_id
     # remains mostly an internal concept
-    job.job_id = job_ids[0]
+    job.job_id = job_id
 
     return await SshHost(host, "meadowrunuser", pkey, ("AzureVM", location)).run_job(
         resources_required, job, wait_for_result
     )
 
 
-async def create_azure_vm_grid_job_driver(
-    function: Callable[[_T], _U],
-    tasks: Sequence[_T],
-    alloc_cloud_instance: AllocAzureVM,
-    resources_required_per_task: ResourcesInternal,
-    num_concurrent_tasks: int,
-    ports: Optional[Sequence[str]],
-) -> AzureVMGridJobDriver:
+class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
     """
-    This code is tightly coupled with run_map. This code belongs in grid_tasks_queue.py,
-    but it has to be here because of circular import issues
+    This is a relatively thin wrapper around some functionality in grid_tasks_queue.
+    This class should be in grid_tasks_queue, but it's here because of circular import
+    issues.
     """
-    if not alloc_cloud_instance.location:
-        alloc_cloud_instance = dataclasses.replace(
-            alloc_cloud_instance, location=get_default_location()
+
+    def __init__(self, alloc_cloud_instance: AllocAzureVM):
+        self._cloud_provider = alloc_cloud_instance.get_cloud_provider()
+        self._location = alloc_cloud_instance._get_location()
+
+        self._ssh_private_key: Optional[
+            asyncio.Task[Tuple[asyncssh.SSHKey, str]]
+        ] = None
+
+        self._request_result_queues: Optional[asyncio.Task[Tuple[Queue, Queue]]] = None
+
+        self._tasks: Optional[Sequence[_T]] = None
+
+        # this id is just used for creating the job's queues. It has no relationship to
+        # any Job.job_ids
+        self._job_id = str(uuid.uuid4())
+
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        return AzureInstanceRegistrar(self._location, "create")
+
+    async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
+        print(f"The current run_map's id is {self._job_id}")
+        self._ssh_private_key = asyncio.create_task(
+            ensure_meadowrun_key_pair(self._location)
         )
-    location = alloc_cloud_instance._get_location()
+        self._request_result_queues = asyncio.create_task(
+            _create_queues_for_job(self._job_id, self._location)
+        )
+        self._tasks = tasks
+        await _add_tasks((await self._request_result_queues)[0], tasks)
 
-    key_pair_future = asyncio.create_task(ensure_meadowrun_key_pair(location))
-    queues_future = asyncio.create_task(create_queues_and_add_tasks(location, tasks))
-
-    async with AzureInstanceRegistrar(location, "create") as instance_registrar:
-        if ports:
-            raise NotImplementedError(
-                "Support for opening ports on Azure is not yet implemented, please "
-                "create an issue at https://github.com/meadowdata/meadowrun/issues"
+    async def ssh_host_from_address(self, address: str) -> SshHost:
+        if self._ssh_private_key is None:
+            raise ValueError(
+                "Must call setup_and_add_tasks before calling ssh_host_from_address"
             )
-        allocated_hosts = await allocate_jobs_to_instances(
-            instance_registrar,
-            resources_required_per_task,
-            num_concurrent_tasks,
-            alloc_cloud_instance,
-            ports,
+
+        return SshHost(
+            address,
+            "meadowrunuser",
+            (await self._ssh_private_key)[0],
+            (self._cloud_provider, self._location),
         )
 
-    private_key, public_key = await key_pair_future
-    request_queue, result_queue = await queues_future
+    async def shutdown_workers(self, num_workers: int) -> None:
+        if self._request_result_queues is None:
+            raise ValueError(
+                "Must call setup_and_add_tasks before calling shutdown_workers"
+            )
 
-    return AzureVMGridJobDriver(
-        location,
-        allocated_hosts,
-        ssh_username="meadowrunuser",
-        ssh_private_key=private_key,
-        num_tasks=len(tasks),
-        num_workers=num_concurrent_tasks,
-        function=function,
-        request_queue=request_queue,
-        result_queue=result_queue,
-    )
+        await _add_worker_shutdown_message(
+            (await self._request_result_queues)[0], num_workers
+        )
 
+    async def get_worker_function(
+        self, user_function: Callable[[_T], _U]
+    ) -> Callable[[str, int], None]:
+        if self._request_result_queues is None:
+            raise ValueError(
+                "Must call setup_and_add_tasks before calling get_worker_function"
+            )
 
-@dataclasses.dataclass(frozen=True)
-class AzureVMGridJobDriver(GridJobDriver):
-    request_queue: Queue
-    result_queue: Queue
+        request_queue, result_queue = await self._request_result_queues
 
-    def worker_function(self) -> Callable[[str, int], None]:
         return functools.partial(
-            worker_loop,
-            self.function,
-            self.request_queue,
-            self.result_queue,
+            worker_function,
+            user_function,
+            request_queue,
+            result_queue,
         )
 
-    def receive_task_results(
+    async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+        if self._request_result_queues is None:
+            raise ValueError(
+                "Must call setup_and_add_tasks before calling receive_task_results"
+            )
+
         return get_results_unordered(
-            self.result_queue,
-            self.num_tasks,
-            self.region_name,
+            (await self._request_result_queues)[1],
+            self._location,
+            stop_receiving,
+            workers_done,
         )
 
     async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
-        raise NotImplementedError("Retrying tasks is not implemented for Azure VMs")
+        if self._tasks is None or self._request_result_queues is None:
+            raise ValueError("Must call setup_and_add_tasks before calling retry_task")
+
+        await _retry_task(
+            (await self._request_result_queues)[0],
+            task_id,
+            attempts_so_far + 1,
+            self._tasks[task_id],
+        )

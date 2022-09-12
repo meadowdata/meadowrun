@@ -8,6 +8,7 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncIterable,
     Dict,
     Generic,
     Iterable,
@@ -459,7 +460,7 @@ async def allocate_jobs_to_instances(
     num_concurrent_tasks: int,
     alloc_cloud_instance: AllocVM,
     ports: Optional[Sequence[str]],
-) -> Dict[str, List[str]]:
+) -> AsyncIterable[Dict[str, List[str]]]:
     """
     This function first tries to re-use existing instances, and if necessary launches
     the cheapest possible new instances that have the requested resources.
@@ -471,7 +472,10 @@ async def allocate_jobs_to_instances(
         instance_registrar.authorize_current_ip()
     )
 
-    allocated_jobs, allocated_existing_instances = await _choose_existing_instances(
+    (
+        existing_instances_allocated_jobs,
+        allocated_existing_instances,
+    ) = await _choose_existing_instances(
         instance_registrar,
         resources_required_per_task.combine(
             alloc_cloud_instance.get_runtime_resources()
@@ -479,24 +483,71 @@ async def allocate_jobs_to_instances(
         num_concurrent_tasks,
     )
 
+    if len(existing_instances_allocated_jobs) > 0:
+        await instance_registrar.open_ports(
+            ports, allocated_existing_instances.values(), ()
+        )
+        await authorize_current_ip_task  # this should almost always be complete by now
+        yield existing_instances_allocated_jobs
+
     num_concurrent_tasks_remaining = num_concurrent_tasks - sum(
-        len(jobs) for jobs in allocated_jobs.values()
+        len(jobs) for jobs in existing_instances_allocated_jobs.values()
     )
 
-    allocated_new_instances: Dict[str, CloudInstance] = {}
     if num_concurrent_tasks_remaining > 0:
-        allocated_new_jobs, allocated_new_instances = await _launch_new_instances(
+        (
+            new_instances_allocated_jobs,
+            allocated_new_instances,
+        ) = await _launch_new_instances(
             instance_registrar,
             resources_required_per_task,
             num_concurrent_tasks_remaining,
             alloc_cloud_instance,
             num_concurrent_tasks,
         )
-        allocated_jobs.update(allocated_new_jobs)
+        # TODO if this fails and we have existing instances, we should just carry on
+        # with those
 
-    await instance_registrar.open_ports(
-        ports, allocated_existing_instances.values(), allocated_new_instances.values()
-    )
-    await authorize_current_ip_task
+        await instance_registrar.open_ports(ports, (), allocated_new_instances.values())
+        if len(existing_instances_allocated_jobs) == 0:
+            # we need to await this if and only if we didn't await it before
+            await authorize_current_ip_task
 
-    return allocated_jobs
+        yield new_instances_allocated_jobs
+
+
+async def allocate_single_job_to_instance(
+    instance_registrar: InstanceRegistrar,
+    resources_required: ResourcesInternal,
+    alloc_cloud_instance: AllocVM,
+    ports: Optional[Sequence[str]],
+) -> Tuple[str, str]:
+    """
+    A thin wrapper around allocate_jobs_to_instances with a simpler return type for when
+    you only need one job.
+    """
+
+    result = None
+
+    async for allocated_hosts in allocate_jobs_to_instances(
+        instance_registrar, resources_required, 1, alloc_cloud_instance, ports
+    ):
+        if len(allocated_hosts) == 0:
+            pass
+        elif len(allocated_hosts) > 1:
+            raise ValueError(f"Requested 1 host, but got back {len(allocated_hosts)}")
+        else:
+            if result is None:
+                host, job_ids = list(allocated_hosts.items())[0]
+                if len(job_ids) != 1:
+                    raise ValueError(
+                        f"Requested 1 job allocation but got back {len(job_ids)}"
+                    )
+                result = host, job_ids[0]
+            else:
+                raise ValueError("Requested 1 host, but got back more than one")
+
+    if result is None:
+        raise ValueError("Requested 1 host, but did not get any back")
+
+    return result

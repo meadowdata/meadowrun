@@ -299,8 +299,8 @@ async def run_function(
 
     Returns:
         If wait_for_result is True (which is the default), the return value will be the
-        result of calling `function`. If wait_for_result is False, the return value will
-        always be None.
+            result of calling `function`. If wait_for_result is False, the return value
+            will always be None.
     """
 
     if resources is None:
@@ -542,6 +542,9 @@ async def run_map(
             on the same machine at the same time!
         wait_for_result: If this is set to False, we will run in "fire and forget" mode,
             which kicks off the command and doesn't wait for it to return.
+        max_num_task_attempts: If this is set to more than 1, tasks that fail will be
+            retried. If this parameter is e.g. 3, a task that fails will be attempted a
+            total of 3 times.
 
     Returns:
         If wait_for_result is True (which is the default), the return value will be the
@@ -666,6 +669,9 @@ async def run_map_as_completed(
             tasks for this job. E.g. 8000, "8080-8089" (inclusive). Ports will be opened
             just for the duration of this job. Be careful as other jobs could be running
             on the same machine at the same time!
+        max_num_task_attempts: If this is set to more than 1, tasks that fail will be
+            retried. If this parameter is e.g. 3, a task that fails will be attempted a
+            total of 3 times.
 
     Returns:
         An async iterable returning [TaskResult][meadowrun.TaskResult] objects.

@@ -173,7 +173,7 @@ class PreinstalledInterpreter:
 
     Attributes:
         path_to_interpreter: The path to the python executable, e.g.
-        /var/myenv/bin/python
+            `/var/myenv/bin/python`
     """
 
     path_to_interpreter: str

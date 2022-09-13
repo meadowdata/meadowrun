@@ -59,6 +59,7 @@ from meadowrun.deployment_spec import (
     LocalPipInterpreter,
     PipRequirementsFile,
     PoetryProjectPath,
+    PreinstalledInterpreter,
     Secret,
 )
 from meadowrun.kubernetes_integration import Kubernetes
@@ -104,6 +105,7 @@ __all__ = [
     "LocalPipInterpreter",
     "PipRequirementsFile",
     "PoetryProjectPath",
+    "PreinstalledInterpreter",
     "Secret",
     "Host",
     "LocalHost",

@@ -66,6 +66,10 @@
 
 ::: meadowrun.ContainerAtDigestInterpreter
 
+---
+
+::: meadowrun.PreinstalledInterpreter
+
 
 ## Specifying secrets
 

@@ -13,6 +13,7 @@ import os.path
 import pickle
 import shutil
 import sys
+import time
 import traceback
 import urllib.parse
 import zipfile
@@ -411,7 +412,7 @@ class SshHost(Host):
             if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
                 command_suffixes.append(f"2>&1 | tee {log_file_name}")
             else:
-                command_suffixes.append(f"2>&1 > {log_file_name}")
+                command_suffixes.append(f"> {log_file_name} 2>&1")
                 if wait_for_result == WaitOption.DO_NOT_WAIT:
                     command_suffixes.append("&")
 
@@ -580,6 +581,7 @@ class TaskResult(Generic[_T]):
     result: Optional[_T] = None
     exception: Optional[Tuple[str, str, str]] = None
     attempt: int = 1
+    log_file_name: str = ""
 
     def result_or_raise(self) -> _T:
         """Returns a successful task result, or raises a TaskException.
@@ -625,7 +627,8 @@ class RunMapTasksFailedException(Exception):
         for task, arg in zip(failed_tasks, failed_task_args):
             failed_task_message.append(
                 f"Task #{task.task_id} with arg ({arg}) on "
-                f"attempt {task.attempt} failed with exception:\n"
+                f"attempt {task.attempt} failed, log file is {task.log_file_name}, "
+                f"exception was:\n"
             )
             if task.exception is not None:
                 failed_task_message.append(task.exception[2])
@@ -787,7 +790,7 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     @abc.abstractmethod
     async def get_worker_function(
         self, user_function: Callable[[_T], _U]
-    ) -> Callable[[str, int], None]:
+    ) -> Callable[[str, str], None]:
         """
         Returns a function that will poll/wait for tasks, call user_function on each
         task, and return results. The returned function will also exit in response to
@@ -804,6 +807,9 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     @abc.abstractmethod
     async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
         ...
+
+
+_PRINT_RECEIVED_TASKS_SECONDS = 10
 
 
 class GridJobDriver:
@@ -875,15 +881,16 @@ class GridJobDriver:
         # "inner_" on the parameter names is just to avoid name collision with outer
         # scope
         async def launch_worker_function(
-            inner_ssh_host: SshHost, inner_worker_job_id: str, worker_id: int
+            inner_ssh_host: SshHost,
+            inner_worker_job_id: str,
+            log_file_name: str,
         ) -> JobCompletion:
             job = Job(
                 job_id=inner_worker_job_id,
                 py_function=PyFunctionJob(
                     pickled_function=await pickled_worker_function_task,
-                    # workers_launched is functioning as worker_id
                     pickled_function_arguments=pickle.dumps(
-                        ([inner_ssh_host.address, worker_id], {}),
+                        ([inner_ssh_host.address, log_file_name], {}),
                         protocol=pickle_protocol,
                     ),
                 ),
@@ -898,7 +905,7 @@ class GridJobDriver:
         workers_launched = 0
         worker_shutdown_messages_sent = 0
         workers_exited_unexpectedly = 0
-        worker_tasks: List[asyncio.Task[JobCompletion]] = []
+        worker_tasks: List[Tuple[str, asyncio.Task[JobCompletion]]] = []
         workers_needed_changed_wait_task = asyncio.create_task(
             self._workers_needed_changed.wait()
         )
@@ -938,13 +945,21 @@ class GridJobDriver:
                                     )
                                     address_to_ssh_host[public_address] = ssh_host
                                 for worker_job_id in worker_job_ids:
+                                    log_file_name = (
+                                        "/var/meadowrun/job_logs/"
+                                        f"{job_fields['job_friendly_name']}."
+                                        f"{worker_job_id}.log"
+                                    )
                                     worker_tasks.append(
-                                        asyncio.create_task(
-                                            launch_worker_function(
-                                                ssh_host,
-                                                worker_job_id,
-                                                workers_launched,
-                                            )
+                                        (
+                                            f"{public_address} {log_file_name}",
+                                            asyncio.create_task(
+                                                launch_worker_function(
+                                                    ssh_host,
+                                                    worker_job_id,
+                                                    log_file_name,
+                                                )
+                                            ),
                                         )
                                     )
                                     workers_launched += 1
@@ -961,18 +976,21 @@ class GridJobDriver:
                     # shutdown some workers, or workers exit
                     await asyncio.wait(
                         itertools.chain(
-                            cast(Iterable[asyncio.Task], worker_tasks),
+                            cast(
+                                Iterable[asyncio.Task],
+                                (task[1] for task in worker_tasks),
+                            ),
                             (workers_needed_changed_wait_task,),
                         ),
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     new_worker_tasks = []
                     for worker_task in worker_tasks:
-                        if worker_task.done():
-                            exception = worker_task.exception()
+                        if worker_task[1].done():
+                            exception = worker_task[1].exception()
                             if exception is not None:
                                 print(
-                                    "Error running worker:\n"
+                                    f"Error running worker {worker_task[0]}:\n"
                                     + "".join(
                                         traceback.format_exception(
                                             type(exception),
@@ -1000,7 +1018,14 @@ class GridJobDriver:
 
                 # wait for any remaining workers to finish
                 self._no_workers_available.set()
-                await asyncio.gather(*worker_tasks, return_exceptions=True)
+                for worker_task in worker_tasks:
+                    worker_task[1].cancel()
+                # we still want the tasks to complete their except/finally blocks, after
+                # which they should raise asyncio.CancelledError, which we can safely
+                # ignore
+                await asyncio.gather(
+                    *(task[1] for task in worker_tasks), return_exceptions=True
+                )
         finally:
             await asyncio.gather(
                 *[
@@ -1029,13 +1054,21 @@ class GridJobDriver:
         stop_receiving = asyncio.Event()
         if len(args) == num_tasks_done:
             stop_receiving.set()
+        last_printed_update = time.time()
+        print(
+            f"Waiting for task results. Requested: {len(args)}, "
+            f"Done: {num_tasks_done}"
+        )
         async for task_id, attempt, result in await self._cloud_interface.receive_task_results(  # noqa: E501
             stop_receiving=stop_receiving, workers_done=self._no_workers_available
         ):
-            print(
-                f"Waiting for task results. Requested: {len(args)}, "
-                f"Done: {num_tasks_done}"
-            )
+            t0 = time.time()
+            if t0 - last_printed_update > _PRINT_RECEIVED_TASKS_SECONDS:
+                print(
+                    f"Waiting for task results. Requested: {len(args)}, "
+                    f"Done: {num_tasks_done}"
+                )
+                last_printed_update = t0
             if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
                 num_tasks_done += 1
                 # TODO try/catch on pickle.loads?
@@ -1044,15 +1077,25 @@ class GridJobDriver:
                     is_success=True,
                     result=pickle.loads(result.pickled_result),
                     attempt=attempt,
+                    log_file_name=result.log_file_name,
                 )
             else:
                 if result.state in _EXCEPTION_STATES:
                     exception = unpickle_exception(result.pickled_result)
                     task_result: TaskResult = TaskResult(
-                        task_id, is_success=False, exception=exception, attempt=attempt
+                        task_id,
+                        is_success=False,
+                        exception=exception,
+                        attempt=attempt,
+                        log_file_name=result.log_file_name,
                     )
                 else:
-                    task_result = TaskResult(task_id, is_success=False, attempt=attempt)
+                    task_result = TaskResult(
+                        task_id,
+                        is_success=False,
+                        attempt=attempt,
+                        log_file_name=result.log_file_name,
+                    )
 
                 if attempt < max_num_task_attempts:
                     print(f"Task {task_id} failed at attempt {attempt}, retrying.")

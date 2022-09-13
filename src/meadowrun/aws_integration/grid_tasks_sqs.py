@@ -332,16 +332,14 @@ def worker_function(
     job_id: str,
     region_name: str,
     public_address: str,
-    worker_id: int,
+    log_file_name: str,
 ) -> None:
     """
     Runs a loop that gets tasks off of the request_queue, calls function on the
     arguments of the task, and uploads the results to S3.
-
-    public_address is the public address of the current (worker) machine and worker_id
-    is a unique identifier for this worker within this grid job.
     """
     pid = os.getpid()
+    log_file_name = f"{public_address}:{log_file_name}"
 
     while True:
         task = _get_task(
@@ -354,6 +352,7 @@ def worker_function(
             break
 
         task_id, attempt, arg = task
+        print(f"Meadowrun agent: About to execute task #{task_id}, attempt #{attempt}")
         try:
             result = function(pickle.loads(arg))
         except Exception as e:
@@ -364,6 +363,7 @@ def worker_function(
                 pid=pid,
                 pickled_result=pickle_exception(e, pickle.HIGHEST_PROTOCOL),
                 return_code=0,
+                log_file_name=log_file_name,
             )
         else:
             process_state = ProcessState(
@@ -371,7 +371,13 @@ def worker_function(
                 pid=pid,
                 pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
                 return_code=0,
+                log_file_name=log_file_name,
             )
+
+        print(
+            f"Meadowrun agent: Completed task #{task_id}, attempt #{attempt}, "
+            f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
+        )
 
         _complete_task(
             job_id,

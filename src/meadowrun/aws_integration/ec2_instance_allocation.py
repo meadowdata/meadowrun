@@ -744,7 +744,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
     async def get_worker_function(
         self, user_function: Callable[[_T], _U]
-    ) -> Callable[[str, int], None]:
+    ) -> Callable[[str, str], None]:
         if self._request_queue_url is None:
             raise ValueError(
                 "setup_and_add_tasks must be called before get_worker_function"

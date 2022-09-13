@@ -356,11 +356,22 @@ class SshHost(Host):
         job: Job,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
+        # TODO we should probably make SshHost not a Host, and if we want to expose
+        # SshHost-as-a-Host functionality, create a separate, more pure SshHost class.
+        # This SshHost class is fairly tightly coupled to the EC2/AzureVM code.
+        return await self.run_cloud_job(job, wait_for_result, None)
 
-        connection = await self._connection_future()
+    async def run_cloud_job(
+        self,
+        job: Job,
+        wait_for_result: WaitOption,
+        deallocator: Optional[Callable[[], Awaitable[None]]],
+    ) -> JobCompletion[Any]:
+        job_io_prefix = ""
+        deallocation_ran = False
 
         try:
-            job_io_prefix = ""
+            connection = await self._connection_future()
 
             # assumes that meadowrun is installed in /var/meadowrun/env as per
             # build_meadowrun_amis.md. Also uses the default working_folder, which
@@ -433,6 +444,9 @@ class SshHost(Host):
 
             print(f"Running job on {self.address} {log_file_name}")
 
+            # very shortly after this point, we can rely on the deallocation command
+            # running on the remote machine
+            deallocation_ran = True
             cmd_result = await ssh.run_and_print(connection, command, check=False)
 
             # TODO consider using result.tail, result.stdout
@@ -470,6 +484,9 @@ class SshHost(Host):
                 raise MeadowrunException(process_state)
 
         finally:
+            if not deallocation_ran and deallocator:
+                await deallocator()
+
             # TODO also clean up log files?
             # TODO clean up files for jobs where wait_for_result is DO_NOT_WAIT
             if job_io_prefix and wait_for_result != WaitOption.DO_NOT_WAIT:
@@ -839,6 +856,8 @@ class GridJobDriver:
         self._workers_needed = num_concurrent_tasks
         self._workers_needed_changed = asyncio.Event()
 
+        self._abort_launching_new_workers = asyncio.Event()
+
     async def run_worker_functions(
         self,
         alloc_cloud_instance: AllocVM,
@@ -884,6 +903,7 @@ class GridJobDriver:
             inner_ssh_host: SshHost,
             inner_worker_job_id: str,
             log_file_name: str,
+            inner_instance_registrar: InstanceRegistrar,
         ) -> JobCompletion:
             job = Job(
                 job_id=inner_worker_job_id,
@@ -897,9 +917,15 @@ class GridJobDriver:
                 **job_fields,
             )
 
-            return await inner_ssh_host.run_job(
-                resources_required_per_task, job, wait_for_result
-            )
+            async def deallocator() -> None:
+                await inner_instance_registrar.deallocate_job_from_instance(
+                    await inner_instance_registrar.get_registered_instance(
+                        inner_ssh_host.address
+                    ),
+                    inner_worker_job_id,
+                )
+
+            return await inner_ssh_host.run_cloud_job(job, wait_for_result, deallocator)
 
         address_to_ssh_host: Dict[str, SshHost] = {}
         workers_launched = 0
@@ -933,6 +959,7 @@ class GridJobDriver:
                             new_workers_to_launch,
                             alloc_cloud_instance,
                             job_fields["ports"],
+                            self._abort_launching_new_workers,
                         ):
                             for (
                                 public_address,
@@ -958,6 +985,7 @@ class GridJobDriver:
                                                     ssh_host,
                                                     worker_job_id,
                                                     log_file_name,
+                                                    instance_registrar,
                                                 )
                                             ),
                                         )
@@ -1117,6 +1145,11 @@ class GridJobDriver:
             if num_workers_needed < self._workers_needed:
                 self._workers_needed = num_workers_needed
                 self._workers_needed_changed.set()
+
+        # We could be more finegrained about aborting launching workers. This is the
+        # easiest to implement, but ideally every time num_workers_needed changes we
+        # would consider cancelling launching new workers
+        self._abort_launching_new_workers.set()
 
         if num_tasks_done < len(args):
             print(

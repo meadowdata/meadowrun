@@ -126,6 +126,8 @@ async def main_async(
             # this .process_state file
             with open(f"{job_io_prefix}.process_state", mode="wb") as f:
                 f.write(final_process_state.SerializeToString())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("Job was killed by SIGINT")
     except:  # noqa: E722
         # so we know what's wrong
         traceback.print_exc()
@@ -154,7 +156,10 @@ def main(
     working_folder: str,
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
-    asyncio.run(main_async(job_id, working_folder, cloud))
+    try:
+        asyncio.run(main_async(job_id, working_folder, cloud))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("Job was killed by SIGINT")
 
 
 def command_line_main() -> None:

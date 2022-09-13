@@ -409,7 +409,6 @@ async def launch_ec2_instance(
                 "MaxSpotInstanceCountExceeded",
                 "VcpuLimitExceeded",
             },
-            True,
         )
         if not success:
             if error_code == "InsufficientInstanceCapacity":
@@ -430,13 +429,14 @@ async def launch_ec2_instance(
             else:
                 raise ValueError(f"Unexpected boto3 error code {error_code}")
 
-    instances = cast(Any, instances)  # I think types_aiobotocore gets this wrong
-    if len(instances["Instances"]) != 1:
+    # types_aiobotocore seems to have the wrong types for instances
+    instances_untyped = cast(Any, instances)
+    if len(instances_untyped["Instances"]) != 1:
         raise ValueError(
-            f"run_instances succeeded but returned {len(instances['Instances'])} "
-            "instances"
+            "run_instances succeeded but returned "
+            f"{len(instances_untyped['Instances'])} instances"
         )
-    instance_id = instances["Instances"][0]["InstanceId"]
+    instance_id = instances_untyped["Instances"][0]["InstanceId"]
     return LaunchEC2InstanceSuccess(
         _launch_instance_continuation(instance_id, region_name), instance_id
     )

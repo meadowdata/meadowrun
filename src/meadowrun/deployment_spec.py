@@ -38,18 +38,19 @@ if TYPE_CHECKING:
     )
 from meadowrun.docker_controller import get_registry_domain
 from meadowrun.meadowrun_pb2 import (
-    Credentials,
     AwsSecretProto,
     AzureSecretProto,
-    KubernetesSecretProto,
-    ContainerAtTag,
-    ContainerAtDigest,
-    EnvironmentSpec,
-    EnvironmentType,
     CodeZipFile,
+    ContainerAtDigest,
+    ContainerAtTag,
+    Credentials,
+    EnvironmentSpec,
+    EnvironmentSpecInCode,
+    EnvironmentType,
     GitRepoBranch,
     GitRepoCommit,
-    EnvironmentSpecInCode,
+    KubernetesSecretProto,
+    ServerAvailableContainer,
     ServerAvailableFolder,
 )
 from meadowrun.pip_integration import (
@@ -193,16 +194,26 @@ class ContainerInterpreter(ContainerInterpreterBase):
         username_password_secret: An AWS or Azure secret that has a username and
             password for connecting to the container registry (as specified or implied
             in image_name). Only needed if the image/container registry is private.
+        always_use_local: If this is True, only looks for the image on the EC2 instance
+            and does not try to download the image from a container registry. This will
+            only work if you've preloaded the image into the AMI via [Use a custom AMI
+            on AWS](../../how_to/custom_ami)
     """
 
     repository_name: str
     tag: str = "latest"
     username_password_secret: Optional[Secret] = None
+    always_use_local: bool = False
 
     def get_interpreter_spec(
         self,
     ) -> Union[InterpreterDeployment, VersionedInterpreterDeployment]:
-        return ContainerAtTag(repository=self.repository_name, tag=self.tag)
+        if self.always_use_local:
+            return ServerAvailableContainer(
+                image_name=f"{self.repository_name}:{self.tag}"
+            )
+        else:
+            return ContainerAtTag(repository=self.repository_name, tag=self.tag)
 
     def _get_repository_name(self) -> str:
         return self.repository_name
@@ -224,16 +235,28 @@ class ContainerAtDigestInterpreter(ContainerInterpreterBase):
         username_password_secret: An AWS or Azure secret that has a username and
             password for connecting to the container registry (as specified or implied
             in image_name). Only needed if the image/container registry is private.
+        always_use_local: If this is True, only looks for the image on the EC2 instance
+            and does not try to download the image from a container registry. This will
+            only work if you've preloaded the image into the AMI via [Use a custom AMI
+            on AWS](../../how_to/custom_ami)
     """
 
     repository_name: str
     digest: str
     username_password_secret: Optional[Secret] = None
+    always_use_local: bool = False
 
     def get_interpreter_spec(
         self,
     ) -> Union[InterpreterDeployment, VersionedInterpreterDeployment]:
-        return ContainerAtDigest(repository=self.repository_name, digest=self.digest)
+        if self.always_use_local:
+            return ServerAvailableContainer(
+                image_name=f"{self.repository_name}@{self.digest}"
+            )
+        else:
+            return ContainerAtDigest(
+                repository=self.repository_name, digest=self.digest
+            )
 
     def _get_repository_name(self) -> str:
         return self.repository_name

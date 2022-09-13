@@ -411,6 +411,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         alloc_cloud_instances: AllocVM,
+        abort: Optional[asyncio.Event],
     ) -> Sequence[CloudInstance]:
         if not isinstance(alloc_cloud_instances, AllocAzureVM):
             # TODO do this in the type checker somehow

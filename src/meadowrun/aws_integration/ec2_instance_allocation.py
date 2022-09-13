@@ -94,7 +94,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-09b3c527b9cfad9dd",
+        "us-east-2": "ami-0ead29d71535c58f5",
         "us-east-1": "ami-0a4540d3f3b17083b",
         "us-west-1": "ami-0a6d423b268bd06f9",
         "us-west-2": "ami-05b88ca63237af1c3",
@@ -441,6 +441,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         instance_type_resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         alloc_cloud_instances: AllocVM,
+        abort: Optional[asyncio.Event],
     ) -> Sequence[CloudInstance]:
         if not isinstance(alloc_cloud_instances, AllocEC2Instance):
             # TODO do this in the type checker somehow
@@ -501,6 +502,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             # assumes that we've already called ensure_meadowrun_key_pair!
             key_name=MEADOWRUN_KEY_PAIR_NAME,
             tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
+            abort=abort,
         )
 
     async def authorize_current_ip(self) -> None:

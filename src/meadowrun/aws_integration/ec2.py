@@ -251,10 +251,20 @@ class LaunchEC2InstanceSuccess(LaunchEC2InstanceResult):
     """
     Indicates that launch_ec2_instance succeeded. public_address_continuation can be
     awaited to get the public address of the launched instance.
+    public_address_continuation can be None which indicates that the launch of the
+    instance was cancelled. If the instance was mid-launch, then the instance was
+    terminated before it could fully launch.
     """
 
-    public_address_continuation: Awaitable[str]
+    public_address_continuation: Awaitable[Optional[str]]
     instance_id: str
+
+
+@dataclasses.dataclass(frozen=True)
+class LaunchEC2InstanceAborted(LaunchEC2InstanceResult):
+    """Indicates that launch_ec2_instance was aborted"""
+
+    pass
 
 
 class LaunchEC2InstanceTypeUnavailable(LaunchEC2InstanceResult):
@@ -344,6 +354,7 @@ async def launch_ec2_instance(
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
     volume_size_gb: int = 100,
+    abort: Optional[asyncio.Event] = None,
 ) -> LaunchEC2InstanceResult:
     """
     Launches the specified EC2 instance. See derived classes of LaunchEC2InstanceResult
@@ -392,6 +403,9 @@ async def launch_ec2_instance(
     else:
         raise ValueError(f"Unexpected value for on_demand_or_spot {on_demand_or_spot}")
 
+    if abort is not None and abort.is_set():
+        return LaunchEC2InstanceAborted()
+
     async with aiobotocore.session.get_session().create_client(
         "ec2", region_name=region_name
     ) as ec2_client:
@@ -438,7 +452,7 @@ async def launch_ec2_instance(
         )
     instance_id = instances_untyped["Instances"][0]["InstanceId"]
     return LaunchEC2InstanceSuccess(
-        _launch_instance_continuation(instance_id, region_name), instance_id
+        _launch_instance_continuation(instance_id, region_name, abort), instance_id
     )
 
 
@@ -453,7 +467,9 @@ async def describe_single_instance(ec2_client: Any, instance_id: str) -> Dict:
     return instances[0]
 
 
-async def _launch_instance_continuation(instance_id: str, region_name: str) -> str:
+async def _launch_instance_continuation(
+    instance_id: str, region_name: str, abort: Optional[asyncio.Event]
+) -> Optional[str]:
     """
     instance should be a boto3 EC2 instance, waits for the instance to be running and
     then returns its public DNS name
@@ -471,6 +487,10 @@ async def _launch_instance_continuation(instance_id: str, region_name: str) -> s
             # seconds
             while True:
                 await asyncio.sleep(7)
+                # ideally we would interrupt the above sleep if cancel becomes set
+                if abort is not None and abort.is_set():
+                    await ec2_client.terminate_instances(InstanceIds=[instance_id])
+                    return None
 
                 instance = await describe_single_instance(ec2_client, instance_id)
                 if instance["State"]["Name"] == "running":
@@ -533,6 +553,7 @@ async def launch_ec2_instances(
     user_data: Optional[str] = None,
     key_name: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
+    abort: Optional[asyncio.Event] = None,
 ) -> Sequence[CloudInstance]:
     """
     Launches enough EC2 instances to run num_jobs jobs that each require the specified
@@ -578,6 +599,9 @@ async def launch_ec2_instances(
         at_least_one_chosen_instance_type = False
         num_jobs_left_to_allocate = 0
         for instance_type in chosen_instance_types:
+            if abort is not None and abort.is_set():
+                break
+
             at_least_one_chosen_instance_type = True
             for _ in range(instance_type.num_instances):
                 launch_ec2_result = await launch_ec2_instance(
@@ -588,6 +612,7 @@ async def launch_ec2_instances(
                     user_data=user_data,
                     key_name=key_name,
                     tags=tags,
+                    abort=abort,
                 )
                 if isinstance(launch_ec2_result, LaunchEC2InstanceSuccess):
                     public_dns_name_tasks.append(
@@ -595,6 +620,8 @@ async def launch_ec2_instances(
                     )
                     instance_ids.append(launch_ec2_result.instance_id)
                     launched_instance_types_repeated.append(instance_type)
+                elif isinstance(launch_ec2_result, LaunchEC2InstanceAborted):
+                    break
                 elif isinstance(launch_ec2_result, LaunchEC2InstanceTypeUnavailable):
                     print(launch_ec2_result.get_message())
 
@@ -624,6 +651,8 @@ async def launch_ec2_instances(
         for public_dns_name, instance_id, instance_type in zip(
             public_dns_names, instance_ids, launched_instance_types_repeated
         )
+        # None indicates that the instance launch was cancelled
+        if public_dns_name is not None
     ]
 
 

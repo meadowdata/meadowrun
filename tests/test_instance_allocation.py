@@ -1,6 +1,7 @@
 """Tests allocate_jobs_to_instances using fake data"""
 from __future__ import annotations
 
+import asyncio
 import datetime
 from typing import (
     TYPE_CHECKING,
@@ -137,6 +138,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         alloc_cloud_instances: AllocVM,
+        abort: Optional[asyncio.Event],
     ) -> Sequence[CloudInstance]:
         result = []
         for chosen_instance_type in choose_instance_types_for_job(
@@ -220,6 +222,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
             resources,
             num_concurrent_jobs,
             AllocEC2Instance("test_region"),
+            None,
             None,
         ):
             instances_job_ids.update(allocated_jobs)

@@ -187,6 +187,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         resources_required_per_task: ResourcesInternal,
         num_concurrent_tasks: int,
         alloc_cloud_instances: AllocVM,
+        abort: Optional[asyncio.Event],
     ) -> Sequence[CloudInstance]:
         """
         This isn't per se part of the "instance registration" process, but it's helpful
@@ -372,6 +373,7 @@ async def _launch_new_instances(
     num_concurrent_tasks: int,
     alloc_cloud_instance: AllocVM,
     original_num_concurrent_tasks: int,
+    abort: Optional[asyncio.Event],
 ) -> Tuple[Dict[str, List[str]], Dict[str, CloudInstance]]:
     """
     Chooses the cheapest instances to launch that can run the specified jobs, launches
@@ -393,6 +395,7 @@ async def _launch_new_instances(
         instance_type_resources_required_per_task,
         num_concurrent_tasks,
         alloc_cloud_instance,
+        abort,
     )
 
     description_strings = []
@@ -460,6 +463,7 @@ async def allocate_jobs_to_instances(
     num_concurrent_tasks: int,
     alloc_cloud_instance: AllocVM,
     ports: Optional[Sequence[str]],
+    abort: Optional[asyncio.Event],
 ) -> AsyncIterable[Dict[str, List[str]]]:
     """
     This function first tries to re-use existing instances, and if necessary launches
@@ -504,6 +508,7 @@ async def allocate_jobs_to_instances(
             num_concurrent_tasks_remaining,
             alloc_cloud_instance,
             num_concurrent_tasks,
+            abort,
         )
         # TODO if this fails and we have existing instances, we should just carry on
         # with those
@@ -530,7 +535,7 @@ async def allocate_single_job_to_instance(
     result = None
 
     async for allocated_hosts in allocate_jobs_to_instances(
-        instance_registrar, resources_required, 1, alloc_cloud_instance, ports
+        instance_registrar, resources_required, 1, alloc_cloud_instance, ports, None
     ):
         if len(allocated_hosts) == 0:
             pass

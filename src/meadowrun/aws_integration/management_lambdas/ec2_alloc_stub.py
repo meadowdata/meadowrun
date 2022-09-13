@@ -113,30 +113,18 @@ def ignore_boto3_error_code(
 async def ignore_boto3_error_code_async(
     func: Awaitable[_T],
     error_codes: Union[str, Set[str]],
-    return_error_code: bool = False,
-) -> Union[
-    Tuple[Literal[True], _T],
-    Tuple[Literal[False], None],
-    Tuple[Literal[True], _T, None],
-    Tuple[Literal[False], None, str],
-]:
+) -> Union[Tuple[Literal[True], _T, None], Tuple[Literal[False], None, str]]:
     """Same semantics as ignore_boto3_error_code"""
     if isinstance(error_codes, str):
         error_codes = {error_codes}
 
     try:
         result = await func
-        if return_error_code:
-            return True, result, None
-        else:
-            return True, result
+        return True, result, None
     except botocore.exceptions.ClientError as e:
         if "Error" in e.response:
             error = e.response["Error"]
             if "Code" in error and error["Code"] in error_codes:
-                if return_error_code:
-                    return False, None, error["Code"]
-                else:
-                    return False, None
+                return False, None, error["Code"]
 
         raise

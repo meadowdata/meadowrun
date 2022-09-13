@@ -421,7 +421,9 @@ class SshHost(Host):
                 f"/var/meadowrun/job_logs/{job.job_friendly_name}.{job.job_id}.log"
             )
             if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
-                command_suffixes.append(f"2>&1 | tee {log_file_name}")
+                command_suffixes.append(
+                    f"2>&1 | tee --ignore-interrupts {log_file_name}"
+                )
             else:
                 command_suffixes.append(f"> {log_file_name} 2>&1")
                 if wait_for_result == WaitOption.DO_NOT_WAIT:
@@ -481,14 +483,16 @@ class SshHost(Host):
                     self.address,
                 )
             else:
-                raise MeadowrunException(process_state)
+                raise MeadowrunException(process_state, self.address)
 
         finally:
             if not deallocation_ran and deallocator:
                 await deallocator()
 
             # TODO also clean up log files?
-            # TODO clean up files for jobs where wait_for_result is DO_NOT_WAIT
+            # TODO this logic should be moved into the remote machine, a la
+            # deallocate_jobs.py. That will also take care of cleaning up these files
+            # during DO_NOT_WAIT
             if job_io_prefix and wait_for_result != WaitOption.DO_NOT_WAIT:
                 remote_paths = " ".join(
                     [
@@ -564,8 +568,35 @@ class JobCompletion(Generic[_T]):
 
 
 class MeadowrunException(Exception):
-    def __init__(self, process_state: ProcessState) -> None:
-        super().__init__("Failure while running a meadowrun job: " + str(process_state))
+    def __init__(
+        self, process_state: ProcessState, address: Optional[str] = None
+    ) -> None:
+        if process_state.state == ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE:
+            return_code = f": {process_state.return_code}"
+        else:
+            return_code = ""
+
+        message = [
+            "Failure while running a Meadowrun job: "
+            f"{ProcessState.ProcessStateEnum.Name(process_state.state)}{return_code}"
+        ]
+
+        if process_state.log_file_name:
+            if address is not None:
+                message.append(f"Log file: {address} {process_state.log_file_name}")
+            else:
+                message.append(f"Log file: {process_state.log_file_name}")
+        elif address is not None:
+            message.append(f"On host: {address}")
+
+        if process_state.state in (
+            ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
+            ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+        ):
+            remote_exception = unpickle_exception(process_state.pickled_result)
+            message.append(remote_exception[2])
+
+        super().__init__("\n".join(message))
         self.process_state = process_state
 
 
@@ -1048,13 +1079,15 @@ class GridJobDriver:
                 self._no_workers_available.set()
                 for worker_task in worker_tasks:
                     worker_task[1].cancel()
-                # we still want the tasks to complete their except/finally blocks, after
-                # which they should raise asyncio.CancelledError, which we can safely
-                # ignore
-                await asyncio.gather(
-                    *(task[1] for task in worker_tasks), return_exceptions=True
-                )
         finally:
+            print("Shutting down workers")
+            # we still want the tasks to complete their except/finally blocks, after
+            # which they should reraise asyncio.CancelledError, which we can safely
+            # ignore
+            await asyncio.gather(
+                *(task[1] for task in worker_tasks), return_exceptions=True
+            )
+
             await asyncio.gather(
                 *[
                     ssh_host.close_connection()

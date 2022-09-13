@@ -597,7 +597,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
 
     async def get_worker_function(
         self, user_function: Callable[[_T], _U]
-    ) -> Callable[[str, int], None]:
+    ) -> Callable[[str, str], None]:
         if self._request_result_queues is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling get_worker_function"

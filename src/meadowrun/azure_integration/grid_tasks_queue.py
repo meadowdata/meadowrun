@@ -174,8 +174,6 @@ async def _complete_task(
     result_queue: Queue,
     task: GridTask,
     process_state: ProcessState,
-    public_address: str,
-    worker_id: int,
 ) -> None:
     await queue_send_message(
         result_queue.storage_account,
@@ -191,14 +189,20 @@ async def worker_function_async(
     request_queue: Queue,
     result_queue: Queue,
     public_address: str,
-    worker_id: int,
+    log_file_name: str,
 ) -> None:
     pid = os.getpid()
+    log_file_name = f"{public_address}:{log_file_name}"
 
     while True:
         task = await _get_task(request_queue, result_queue)
         if not task:
             break
+
+        print(
+            f"Meadowrun agent: About to execute task #{task.task_id}, attempt "
+            f"#{task.attempt}"
+        )
 
         try:
             result = function(pickle.loads(task.pickled_function_arguments))
@@ -210,6 +214,7 @@ async def worker_function_async(
                 pid=pid,
                 pickled_result=pickle_exception(e, pickle.HIGHEST_PROTOCOL),
                 return_code=0,
+                log_file_name=log_file_name,
             )
         else:
             process_state = ProcessState(
@@ -217,11 +222,14 @@ async def worker_function_async(
                 pid=pid,
                 pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
                 return_code=0,
+                log_file_name=log_file_name,
             )
 
-        await _complete_task(
-            result_queue, task, process_state, public_address, worker_id
+        print(
+            f"Meadowrun agent: Completed task #{task.task_id}, attempt {task.attempt}, "
+            f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
         )
+        await _complete_task(result_queue, task, process_state)
 
 
 def worker_function(
@@ -229,11 +237,11 @@ def worker_function(
     request_queue: Queue,
     result_queue: Queue,
     public_address: str,
-    worker_id: int,
+    log_file_name: str,
 ) -> None:
     asyncio.run(
         worker_function_async(
-            function, request_queue, result_queue, public_address, worker_id
+            function, request_queue, result_queue, public_address, log_file_name
         )
     )
 

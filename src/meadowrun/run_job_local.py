@@ -947,14 +947,21 @@ async def run_local(
         misc_folder,
     ) = _set_up_working_folder(working_folder)
 
-    # unpickle credentials if necessary
-    (
-        code_deployment_credentials,
-        interpreter_deployment_credentials,
-        all_sidecar_container_credentials,
-    ) = await _get_credentials_for_job(job, cloud)
+    # the logging actually happens via stdout redirection in the run_job_local_main
+    # caller
+    log_file_name = os.path.join(
+        job_logs_folder,
+        f"{job.job_friendly_name}.{job.job_id}.log",
+    )
 
     try:
+        # unpickle credentials if necessary
+        (
+            code_deployment_credentials,
+            interpreter_deployment_credentials,
+            all_sidecar_container_credentials,
+        ) = await _get_credentials_for_job(job, cloud)
+
         # first, get the code paths
         code_paths, interpreter_spec_path, cwd_path = await get_code_paths(
             git_repos_folder, local_copies_folder, job, code_deployment_credentials
@@ -1039,12 +1046,6 @@ async def run_local(
         # TODO consider warning if we're overwriting any variables that already exist
         job_spec_transformed.environment_variables.update(
             **_string_pairs_to_dict(job.environment_variables)
-        )
-        # the logging actually happens via stdout redirection in the run_job_local_main
-        # caller
-        log_file_name = os.path.join(
-            job_logs_folder,
-            f"{job.job_friendly_name}.{job.job_id}.log",
         )
 
         # next we need to launch the job depending on how we've specified the
@@ -1159,11 +1160,14 @@ async def run_local(
     except asyncio.CancelledError:
         raise
     except Exception as e:
+        traceback.print_exc()
+
         # we failed to launch the process
         return (
             ProcessState(
                 state=ProcessStateEnum.RUN_REQUEST_FAILED,
                 pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
+                log_file_name=log_file_name,
             ),
             None,
         )

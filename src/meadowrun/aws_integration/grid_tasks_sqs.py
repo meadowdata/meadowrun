@@ -414,11 +414,19 @@ async def receive_results(
 
     # Note: download here is all via S3. It's important that downloads are fast enough -
     # in some cases (many workers, small-ish tasks) the rate of downloading the results
-    # to the client can be a limiting factor. In the original implementation results
-    # were put on an SQS queue, which only allows 10 messages to be downloaded at a
-    # time, some of which may be too big so need an additional S3 download. The current
-    # implementation only relies on S3 instead, which allows faster and more concurrent
-    # downloads.
+    # to the client can be a limiting factor. Other alternatives that were considered:
+    # - SQS queues. Limitations are 1. Only 10 messages can be downloaded at a time,
+    #   which slows us down when we have hundreds of tasks completing quickly. 2. SQS
+    #   message limit is 256KB which means we need to use S3 to transfer the actual data
+    #   in the case of large results.
+    # - Sending data via SSH/SCP. This seems like it should be faster especially in the
+    #   same VPC/subnet, but even in that case, uploading to S3 first seems to be
+    #   faster. It's possible this would make sense in cases where we e.g. overwhelm the
+    #   S3 bucket.
+
+    # Behavior is that if stop_receiving is set, we want to return immediately. If
+    # all_workers_exited is set, then keep trying for about 3 seconds (just in case some
+    # results are still coming in), and then return
 
     results_prefix = _s3_results_prefix(job_id)
     download_keys_received: Set[str] = set()
@@ -432,13 +440,18 @@ async def receive_results(
                 workers_exited_wait_count += 1
 
             if wait:
-                # poll more frequently if workers are done.
-                timeout = (
-                    1.0 if all_workers_exited.is_set() else receive_message_wait_seconds
-                )
+                events_to_wait_for = [stop_receiving.wait()]
+                if workers_exited_wait_count == 0:
+                    events_to_wait_for.append(all_workers_exited.wait())
+                    timeout = receive_message_wait_seconds
+                else:
+                    # poll more frequently if workers are done, but still wait 1 second
+                    # (unless stop_receiving is set)
+                    timeout = 1
                 done, pending = await asyncio.wait(
-                    [stop_receiving.wait(), all_workers_exited.wait()],
+                    events_to_wait_for,
                     timeout=timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
                 for p in pending:
                     p.cancel()

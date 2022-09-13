@@ -5,6 +5,7 @@ import itertools
 import json
 import os
 import pickle
+import time
 import traceback
 import uuid
 from typing import (
@@ -236,6 +237,9 @@ async def _send_or_upload_message_batch(
     return await client.send_message_batch(QueueUrl=queue, Entries=entries)
 
 
+_GET_TASK_TIMEOUT_SECONDS = 60 * 2  # 2 minutes
+
+
 def _get_task(
     request_queue_url: str,
     job_id: str,
@@ -252,7 +256,15 @@ def _get_task(
     sqs = boto3.client("sqs", region_name=region_name)
 
     # get the task message
+    t0 = time.time()
     while True:
+        if time.time() - t0 > _GET_TASK_TIMEOUT_SECONDS:
+            raise TimeoutError(
+                f"Waited more than {_GET_TASK_TIMEOUT_SECONDS} for the next task but no"
+                " task was available. This is unexpected--the GridJobDriver should have"
+                " sent a shutdown message or a SIGINT explicitly"
+            )
+
         result = sqs.receive_message(
             QueueUrl=request_queue_url, WaitTimeSeconds=receive_message_wait_seconds
         )

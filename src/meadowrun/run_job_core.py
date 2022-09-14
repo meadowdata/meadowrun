@@ -49,6 +49,7 @@ from meadowrun.shared import unpickle_exception
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
+    from types import TracebackType
 
 
 _T = TypeVar("_T")
@@ -765,28 +766,26 @@ class AllocVM(Host, abc.ABC):
                 "AllocEC2Instance and AllocAzureVM"
             )
 
-        driver = GridJobDriver(
-            self._create_grid_job_cloud_interface(), num_concurrent_tasks
-        )
-
-        run_worker_loops = asyncio.create_task(
-            driver.run_worker_functions(
-                self,
-                function,
-                pickle_protocol,
-                job_fields,
-                resources_required_per_task,
-                wait_for_result,
+        async with self._create_grid_job_cloud_interface() as cloud_interface:
+            driver = GridJobDriver(cloud_interface, num_concurrent_tasks)
+            run_worker_loops = asyncio.create_task(
+                driver.run_worker_functions(
+                    self,
+                    function,
+                    pickle_protocol,
+                    job_fields,
+                    resources_required_per_task,
+                    wait_for_result,
+                )
             )
-        )
-        num_tasks_done = 0
-        async for result in driver.add_tasks_and_get_results(
-            args, max_num_task_attempts
-        ):
-            yield result
-            num_tasks_done += 1
+            num_tasks_done = 0
+            async for result in driver.add_tasks_and_get_results(
+                args, max_num_task_attempts
+            ):
+                yield result
+                num_tasks_done += 1
 
-        await run_worker_loops
+            await run_worker_loops
 
         # this is for extra safety--the only case where we don't get all of our results
         # back should be if run_worker_loops throws an exception because there were
@@ -825,6 +824,17 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     implementation that it uses to actually "do things" in the real world like launch
     instances and start workers.
     """
+
+    async def __aenter__(self) -> GridJobCloudInterface:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_typ: Type[BaseException],
+        exc_val: BaseException,
+        exc_tb: TracebackType,
+    ) -> None:
+        pass
 
     @abc.abstractmethod
     def create_instance_registrar(self) -> InstanceRegistrar:

@@ -12,8 +12,10 @@ import datetime
 import pickle
 import pprint
 import threading
+import uuid
 from typing import TYPE_CHECKING, List, Tuple
 
+import aiobotocore.session
 import boto3
 import pytest
 
@@ -42,9 +44,10 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.grid_tasks_sqs import (
+    _add_tasks,
     _complete_task,
+    _create_request_queue,
     _get_task,
-    create_queues_and_add_tasks,
     receive_results,
 )
 from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
@@ -241,68 +244,82 @@ class TestGridTaskQueue:
         region_name = await _get_default_region_name()
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
-        request_queue_url, job_id, ranges = await create_queues_and_add_tasks(
-            region_name, task_arguments
-        )
+        session = aiobotocore.session.get_session()
+        async with session.create_client(
+            "sqs", region_name=region_name
+        ) as sqs_client, session.create_client(
+            "s3", region_name=region_name
+        ) as s3_client:
+            job_id = str(uuid.uuid4())
+            request_queue_url = await _create_request_queue(job_id, sqs_client)
+            await _add_tasks(
+                job_id,
+                request_queue_url,
+                s3_client,
+                sqs_client,
+                task_arguments,
+            )
 
-        def complete_tasks() -> None:
-            tasks: List = []
+            def complete_tasks() -> None:
+                tasks: List = []
 
-            def assert_task(index: int) -> None:
-                assert tasks[index] is not None
-                assert tasks[index][1] == 1  # attempt
-                assert pickle.loads(tasks[index][2]) == task_arguments[index]
+                def assert_task(index: int) -> None:
+                    assert tasks[index] is not None
+                    assert tasks[index][1] == 1  # attempt
+                    assert pickle.loads(tasks[index][2]) == task_arguments[index]
 
-            def complete_task(index: int) -> None:
-                _complete_task(
-                    job_id,
-                    region_name,
-                    tasks[index][0],
-                    tasks[index][1],
-                    ProcessState(
-                        state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                        pickled_result=tasks[index][2],
-                    ),
-                )
+                def complete_task(index: int) -> None:
+                    _complete_task(
+                        job_id,
+                        region_name,
+                        tasks[index][0],
+                        tasks[index][1],
+                        ProcessState(
+                            state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                            pickled_result=tasks[index][2],
+                        ),
+                    )
 
-            # get some tasks and complete them
-            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
-            assert_task(0)
+                # get some tasks and complete them
+                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                assert_task(0)
 
-            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
-            assert_task(1)
+                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                assert_task(1)
 
-            complete_task(0)
+                complete_task(0)
 
-            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
-            assert_task(2)
+                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                assert_task(2)
 
-            tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
-            assert_task(3)
+                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                assert_task(3)
 
-            # there should be no more tasks to get
-            # worker now checks forever - put in timeout after enabling worker restarts
-            # assert _get_task(request_queue_url, job_id, region_name, 0) is None
+                # there should be no more tasks to get
+                # worker now checks forever - put in timeout after enabling worker
+                # restarts assert _get_task(request_queue_url, job_id, region_name, 0)
+                # is None
 
-            complete_task(1)
-            complete_task(2)
-            complete_task(3)
+                complete_task(1)
+                complete_task(2)
+                complete_task(3)
 
-        results_thread = threading.Thread(target=complete_tasks)
-        results_thread.start()
+            results_thread = threading.Thread(target=complete_tasks)
+            results_thread.start()
 
-        stop_receiving = asyncio.Event()
-        results: List = [None] * len(task_arguments)
-        async for task_id, attempt, process_state in receive_results(
-            job_id,
-            region_name,
-            stop_receiving=stop_receiving,
-            all_workers_exited=asyncio.Event(),
-        ):
-            assert attempt == 1
-            results[task_id] = pickle.loads(process_state.pickled_result)
-            if len(results) == 4:
-                stop_receiving.set()
+            stop_receiving = asyncio.Event()
+            results: List = [None] * len(task_arguments)
+            async for task_id, attempt, process_state in receive_results(
+                job_id,
+                region_name,
+                s3_client,
+                stop_receiving=stop_receiving,
+                all_workers_exited=asyncio.Event(),
+            ):
+                assert attempt == 1
+                results[task_id] = pickle.loads(process_state.pickled_result)
+                if len(results) == 4:
+                    stop_receiving.set()
 
-        results_thread.join()
-        assert results == task_arguments
+            results_thread.join()
+            assert results == task_arguments

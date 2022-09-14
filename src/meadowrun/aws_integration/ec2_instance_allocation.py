@@ -84,6 +84,8 @@ if TYPE_CHECKING:
     from types import TracebackType
     from typing_extensions import Literal
     from meadowrun.meadowrun_pb2 import Job, ProcessState
+    from types_aiobotocore_s3 import S3Client
+    from types_aiobotocore_sqs import SQSClient
 
 # SEE ALSO ec2_alloc_stub.py
 
@@ -709,23 +711,52 @@ class EC2GridJobInterface(GridJobCloudInterface):
         # any Job.job_ids
         self._job_id = str(uuid.uuid4())
 
+        self._sqs_client: Optional[SQSClient] = None
+        self._s3_client: Optional[S3Client] = None
+
+    async def __aenter__(self) -> EC2GridJobInterface:
+        session = aiobotocore.session.get_session()
+        self._sqs_client = await session.create_client(
+            "sqs", region_name=self._region_name
+        ).__aenter__()
+        self._s3_client = await session.create_client(
+            "s3", region_name=self._region_name
+        ).__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_typ: Type[BaseException],
+        exc_val: BaseException,
+        exc_tb: TracebackType,
+    ) -> None:
+        if self._sqs_client is not None:
+            await self._sqs_client.__aexit__(exc_typ, exc_val, exc_tb)
+        if self._s3_client is not None:
+            await self._s3_client.__aexit__(exc_typ, exc_val, exc_tb)
+
     def create_instance_registrar(self) -> InstanceRegistrar:
         return EC2InstanceRegistrar(self._region_name, "create")
 
     async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
+        if self._sqs_client is None or self._s3_client is None:
+            raise ValueError("EC2GridJobInterface must be created with `async with`")
+
         # create SQS queues and add tasks to the request queue
         print(f"The current run_map's id is {self._job_id}")
-        session = aiobotocore.session.get_session()
-        async with session.create_client(
-            "sqs", region_name=self._region_name
-        ) as sqs, session.create_client("s3", region_name=self._region_name) as s3c:
-            self._request_queue_url = asyncio.create_task(
-                _create_request_queue(self._job_id, sqs)
+        self._request_queue_url = asyncio.create_task(
+            _create_request_queue(self._job_id, self._sqs_client)
+        )
+        self._task_argument_ranges = asyncio.create_task(
+            _add_tasks(
+                self._job_id,
+                await self._request_queue_url,
+                self._s3_client,
+                self._sqs_client,
+                tasks,
             )
-            self._task_argument_ranges = asyncio.create_task(
-                _add_tasks(self._job_id, await self._request_queue_url, s3c, sqs, tasks)
-            )
-            await self._task_argument_ranges
+        )
+        await self._task_argument_ranges
 
     async def ssh_host_from_address(self, address: str) -> SshHost:
         return SshHost(
@@ -740,8 +771,10 @@ class EC2GridJobInterface(GridJobCloudInterface):
             raise ValueError(
                 "setup_and_add_tasks must be called before send_worker_done_messages"
             )
+        if self._sqs_client is None:
+            raise ValueError("EC2GridJobInterface must be created with `async with`")
         await _add_worker_shutdown_messages(
-            await self._request_queue_url, num_workers, self._region_name
+            await self._request_queue_url, num_workers, self._sqs_client
         )
 
     async def get_worker_function(
@@ -763,9 +796,13 @@ class EC2GridJobInterface(GridJobCloudInterface):
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+        if self._s3_client is None:
+            raise ValueError("EC2GridJobInterface must be created with `async with`")
+
         return receive_results(
             self._job_id,
             self._region_name,
+            self._s3_client,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
         )
@@ -773,11 +810,13 @@ class EC2GridJobInterface(GridJobCloudInterface):
     async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
         if self._request_queue_url is None or self._task_argument_ranges is None:
             raise ValueError("setup_and_add_tasks must be called before retry_task")
+        if self._sqs_client is None:
+            raise ValueError("EC2GridJobInterface must be created with `async with`")
 
         await retry_task(
             await self._request_queue_url,
             task_id,
             attempts_so_far + 1,
             (await self._task_argument_ranges)[task_id],
-            self._region_name,
+            self._sqs_client,
         )

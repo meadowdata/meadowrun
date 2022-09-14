@@ -44,6 +44,7 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
     choose_instance_types_for_job,
 )
+from meadowrun.version import __version__
 
 
 _T = TypeVar("_T")
@@ -333,6 +334,11 @@ class LaunchEC2InstanceQuota(LaunchEC2InstanceTypeUnavailable):
 
 
 @dataclasses.dataclass(frozen=True)
+class LaunchEC2InstanceAmiNotAvailable(LaunchEC2InstanceResult):
+    ami_id: str
+
+
+@dataclasses.dataclass(frozen=True)
 class LaunchEC2InstanceSettings:
     """
     This class contains the settings that come from AllocEC2Instance. See that class for
@@ -422,6 +428,7 @@ async def launch_ec2_instance(
                 "InsufficientInstanceCapacity",
                 "MaxSpotInstanceCountExceeded",
                 "VcpuLimitExceeded",
+                "InvalidAMIID.NotFound",
             },
         )
         if not success:
@@ -440,6 +447,8 @@ async def launch_ec2_instance(
                         instance_type, on_demand_or_spot, region_name
                     )
                 )
+            elif error_code == "InvalidAMIID.NotFound":
+                return LaunchEC2InstanceAmiNotAvailable(launch_settings.ami_id)
             else:
                 raise ValueError(f"Unexpected boto3 error code {error_code}")
 
@@ -631,6 +640,16 @@ async def launch_ec2_instances(
                     num_jobs_left_to_allocate += instance_type.workers_per_instance_full
                     unusable_instance_types.update(
                         launch_ec2_result.unusable_instance_types(instance_types)
+                    )
+                elif isinstance(launch_ec2_result, LaunchEC2InstanceAmiNotAvailable):
+                    raise ValueError(
+                        "Launching an EC2 instance failed because the AMI ID "
+                        f"{launch_ec2_result.ami_id} was not found. You may need to "
+                        "update Meadowrun, as we regularly remove the AMIs for old "
+                        "versions. Please contact us (contact@meadowdata.io) if you "
+                        "need support for old versions. You are on version "
+                        f"{__version__}. (This message does not apply if you are "
+                        "providing a custom ami_id.)"
                     )
                 else:
                     raise ValueError(

@@ -779,12 +779,23 @@ class AllocVM(Host, abc.ABC):
                 wait_for_result,
             )
         )
+        num_tasks_done = 0
         async for result in driver.add_tasks_and_get_results(
             args, max_num_task_attempts
         ):
             yield result
+            num_tasks_done += 1
 
         await run_worker_loops
+
+        # this is for extra safety--the only case where we don't get all of our results
+        # back should be if run_worker_loops throws an exception because there were
+        # worker failures
+        if num_tasks_done < len(args):
+            raise ValueError(
+                "Gave up retrieving task results, most likely due to worker failures. "
+                f"Received {num_tasks_done}/{len(args)} task results."
+            )
 
     @abc.abstractmethod
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
@@ -905,68 +916,72 @@ class GridJobDriver:
         yet).
         """
 
-        if (
-            job_fields["ports"]
-            and alloc_cloud_instance.get_cloud_provider() == "AzureVM"
-        ):
-            raise NotImplementedError(
-                "Opening ports on Azure is not implemented, please comment on "
-                "https://github.com/meadowdata/meadowrun/issues/126"
-            )
+        address_to_ssh_host: Dict[str, SshHost] = {}
+        worker_tasks: List[Tuple[str, asyncio.Task[JobCompletion]]] = []
 
-        # we create an asyncio.task for this because it requires waiting for
-        # _cloud_interface.setup_and_add_tasks to complete. We don't want to just run
-        # this sequentially, though, because we want to start launching instances before
-        # setup_and_add_tasks is complete.
-        async def _get_pickled_worker_function() -> bytes:
-            return cloudpickle.dumps(
-                await self._cloud_interface.get_worker_function(user_function),
-                protocol=pickle_protocol,
-            )
-
-        pickled_worker_function_task = asyncio.create_task(
-            _get_pickled_worker_function()
-        )
-
-        # "inner_" on the parameter names is just to avoid name collision with outer
-        # scope
-        async def launch_worker_function(
-            inner_ssh_host: SshHost,
-            inner_worker_job_id: str,
-            log_file_name: str,
-            inner_instance_registrar: InstanceRegistrar,
-        ) -> JobCompletion:
-            job = Job(
-                job_id=inner_worker_job_id,
-                py_function=PyFunctionJob(
-                    pickled_function=await pickled_worker_function_task,
-                    pickled_function_arguments=pickle.dumps(
-                        ([inner_ssh_host.address, log_file_name], {}),
-                        protocol=pickle_protocol,
-                    ),
-                ),
-                **job_fields,
-            )
-
-            async def deallocator() -> None:
-                await inner_instance_registrar.deallocate_job_from_instance(
-                    await inner_instance_registrar.get_registered_instance(
-                        inner_ssh_host.address
-                    ),
-                    inner_worker_job_id,
+        try:
+            if (
+                job_fields["ports"]
+                and alloc_cloud_instance.get_cloud_provider() == "AzureVM"
+            ):
+                raise NotImplementedError(
+                    "Opening ports on Azure is not implemented, please comment on "
+                    "https://github.com/meadowdata/meadowrun/issues/126"
                 )
 
-            return await inner_ssh_host.run_cloud_job(job, wait_for_result, deallocator)
+            # we create an asyncio.task for this because it requires waiting for
+            # _cloud_interface.setup_and_add_tasks to complete. We don't want to just
+            # run this sequentially, though, because we want to start launching
+            # instances before setup_and_add_tasks is complete.
+            async def _get_pickled_worker_function() -> bytes:
+                return cloudpickle.dumps(
+                    await self._cloud_interface.get_worker_function(user_function),
+                    protocol=pickle_protocol,
+                )
 
-        address_to_ssh_host: Dict[str, SshHost] = {}
-        workers_launched = 0
-        worker_shutdown_messages_sent = 0
-        workers_exited_unexpectedly = 0
-        worker_tasks: List[Tuple[str, asyncio.Task[JobCompletion]]] = []
-        workers_needed_changed_wait_task = asyncio.create_task(
-            self._workers_needed_changed.wait()
-        )
-        try:
+            pickled_worker_function_task = asyncio.create_task(
+                _get_pickled_worker_function()
+            )
+
+            # "inner_" on the parameter names is just to avoid name collision with outer
+            # scope
+            async def launch_worker_function(
+                inner_ssh_host: SshHost,
+                inner_worker_job_id: str,
+                log_file_name: str,
+                inner_instance_registrar: InstanceRegistrar,
+            ) -> JobCompletion:
+                job = Job(
+                    job_id=inner_worker_job_id,
+                    py_function=PyFunctionJob(
+                        pickled_function=await pickled_worker_function_task,
+                        pickled_function_arguments=pickle.dumps(
+                            ([inner_ssh_host.address, log_file_name], {}),
+                            protocol=pickle_protocol,
+                        ),
+                    ),
+                    **job_fields,
+                )
+
+                async def deallocator() -> None:
+                    await inner_instance_registrar.deallocate_job_from_instance(
+                        await inner_instance_registrar.get_registered_instance(
+                            inner_ssh_host.address
+                        ),
+                        inner_worker_job_id,
+                    )
+
+                return await inner_ssh_host.run_cloud_job(
+                    job, wait_for_result, deallocator
+                )
+
+            workers_launched = 0
+            worker_shutdown_messages_sent = 0
+            workers_exited_unexpectedly = 0
+            workers_needed_changed_wait_task = asyncio.create_task(
+                self._workers_needed_changed.wait()
+            )
+
             async with self._cloud_interface.create_instance_registrar() as instance_registrar:  # noqa: E501
                 while True:
                     # TODO we should subtract workers_exited_unexpectedly from
@@ -1075,12 +1090,24 @@ class GridJobDriver:
                     ):
                         break
 
-                # wait for any remaining workers to finish
-                self._no_workers_available.set()
-                for worker_task in worker_tasks:
-                    worker_task[1].cancel()
+        except asyncio.CancelledError:
+            # if we're being cancelled, then most likely the worker_tasks are being
+            # cancelled as well (because someone pressed Ctrl+C), which means it's
+            # unhelpful to cancel them again, we want them to finish running their
+            # except/finally clauses
+            raise
+        except BaseException:
+            # cancel any outstanding workers
+            for worker_task in worker_tasks:
+                worker_task[1].cancel()
+
+            raise
         finally:
             print("Shutting down workers")
+            # setting this is very critical--otherwise, add_tasks_and_get_results will
+            # hang forever, not knowing that it has no hope of workers working on any of
+            # its tasks
+            self._no_workers_available.set()
             # we still want the tasks to complete their except/finally blocks, after
             # which they should reraise asyncio.CancelledError, which we can safely
             # ignore
@@ -1185,6 +1212,10 @@ class GridJobDriver:
         self._abort_launching_new_workers.set()
 
         if num_tasks_done < len(args):
+            # It would make sense for this to raise an exception, but it's more helpful
+            # to see the actual worker failures, and run_worker_functions should always
+            # raise an exception in that case. The caller should still check though that
+            # we returned all of the task results we were expecting.
             print(
                 "Gave up retrieving task results, most likely due to worker failures. "
                 f"Received {num_tasks_done}/{len(args)} task results."

@@ -1,6 +1,6 @@
 """
 This is very similar to run_job_local_main.py but instead of communicating with the
-client via the local file system, it communicates via an
+client via the local file system, it communicates via an S3 compatible storage bucket.
 """
 
 import argparse

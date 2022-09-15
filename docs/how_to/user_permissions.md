@@ -6,16 +6,43 @@ Meadowrun jobs](../access_resources).
 
 ## AWS
 
-When you run `meadowrun-manage-ec2 install`, Meadowrun creates a user group called
-`meadowrun_user_group` (see [Installing Meadowrun](../../tutorial/install)). Any account
-that has a superset of the permissions granted by `meadowrun_user_group` will be able to
-use Meadowrun. For example, a root/administrator account will be able to use Meadowrun
+### For users
+
+Meadowrun will usually be used from a developer machine where a developer or data
+scientist has logged into the AWS CLI via `aws configure` (see [Installing
+Meadowrun](../../tutorial/install)).
+
+In this case, the logged in user must have at least the permissions granted by the
+`meadowrun_user_group`. This group is created when you run `meadowrun-manage-ec2
+install`. For example, a root/administrator account will be able to use Meadowrun
 without any further configuration. For non-administrators, you can add them to the
 Meadowrun user group to give them permissions to use Meadowrun:
 
 ```shell
 aws iam add-user-to-group --group-name meadowrun_user_group --user-name <username>
 ```
+
+### For automated users
+
+If you're running an automated job or service that is calling Meadowrun, you probably
+won't have logged into the AWS CLI. In that case, you'll need to grant sufficient
+permissions to the IAM role that your automated job/service is running as. The easiest
+way to do this is to attach the `meadowrun_user_policy` policy to the IAM role you want
+to use.
+
+### Security groups
+
+Finally, the user will need to be able to SSH into the EC2 instances that Meadowrun
+creates. Meadowrun-managed EC2 instances will always be in the
+`meadowrun_ssh_security_group`.
+
+- If you run `meadowrun-manage-ec2 install` with the `--allow-authorize-ips` parameter,
+  Meadowrun users will be allowed to modify the `meadowrun_ssh_security_group`, and
+  Meadowrun will automatically add a rule to the security group to allow SSH (port 22)
+  access from their current IP address.
+- If `--allow-authorize-ips` is not set, which is the default, you (the administrator)
+  will need to manually modify the `meadowrun_ssh_security_group` to allow traffic from
+  the IPs that your users will be using.
 
 
 ## Azure

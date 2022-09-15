@@ -7,6 +7,7 @@ import os
 import pickle
 import time
 import traceback
+import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -81,6 +82,7 @@ def _s3_args_key(job_id: str) -> str:
 
 MESSAGE_PREFIX_TASK = "task"
 MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
+MESSAGE_GROUP_ID = "_"
 
 
 async def _add_tasks(
@@ -122,8 +124,20 @@ async def _add_tasks(
         # this function can only take 10 messages at a time, so we chunk into
         # batches of 10
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
-        result = await _send_or_upload_message_batch(
-            sqs, request_queue_url, MESSAGE_PREFIX_TASK, tasks_chunk
+
+        entries = [
+            {
+                "Id": str(i),
+                "MessageBody": task,
+                # 1 at the end because this is the first attempt of each task.
+                "MessageDeduplicationId": f"{MESSAGE_PREFIX_TASK}-{i}:1",
+                "MessageGroupId": MESSAGE_GROUP_ID,
+            }
+            for i, task in tasks_chunk
+        ]
+
+        result = await sqs.send_message_batch(
+            QueueUrl=request_queue_url, Entries=entries  # type: ignore
         )
         if "Failed" in result:
             raise ValueError(f"Some grid tasks could not be queued: {result['Failed']}")
@@ -160,21 +174,36 @@ async def retry_task(
         QueueUrl=request_queue_url,
         MessageBody=task,
         MessageDeduplicationId=f"{MESSAGE_PREFIX_TASK}-{task_id}:{attempt}",
-        MessageGroupId="-",
+        MessageGroupId=MESSAGE_GROUP_ID,
     )
 
 
 async def _add_worker_shutdown_messages(
     request_queue_url: str,
-    num_workers: int,
+    num_messages_to_send: int,
     sqs_client: SQSClient,
 ) -> None:
-    batch: List[str] = [
-        json.dumps(dict(worker_id=i, worker_shutdown=True)) for i in range(num_workers)
-    ]
-    for msg_chunk in _chunker(enumerate(batch), 10):
-        result = await _send_or_upload_message_batch(
-            sqs_client, request_queue_url, MESSAGE_PREFIX_WORKER_SHUTDOWN, msg_chunk
+    messages_sent = 0
+    while messages_sent < num_messages_to_send:
+        num_messages_to_send_batch = min(10, num_messages_to_send - messages_sent)
+        entries = [
+            {
+                # the id only needs to be unique within a single request
+                "Id": str(i),
+                "MessageBody": "{}",
+                # add a uuid as we never want this message being deduplicated with
+                # another
+                "MessageDeduplicationId": (
+                    f"{MESSAGE_PREFIX_WORKER_SHUTDOWN}-{uuid.uuid4()}"
+                ),
+                "MessageGroupId": MESSAGE_GROUP_ID,
+            }
+            for i in range(num_messages_to_send_batch)
+        ]
+
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
+        result = await sqs_client.send_message_batch(
+            QueueUrl=request_queue_url, Entries=entries  # type: ignore
         )
         if "Failed" in result:
             raise ValueError(
@@ -182,27 +211,7 @@ async def _add_worker_shutdown_messages(
                 f"{result['Failed']}"
             )
 
-
-async def _send_or_upload_message_batch(
-    client: Any,
-    queue: str,
-    message_id_prefix: str,
-    tasks_chunk: Iterable[Tuple[int, str]],
-) -> Any:
-    entries = []
-    for i, task in tasks_chunk:
-        entries.append(
-            {
-                "Id": str(i),
-                "MessageBody": task,
-                # 1 at the end because this is the first attempt of each task.
-                "MessageDeduplicationId": f"{message_id_prefix}-{i}:1",
-                "MessageGroupId": "_",
-            }
-        )
-
-    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
-    return await client.send_message_batch(QueueUrl=queue, Entries=entries)
+        messages_sent += num_messages_to_send_batch
 
 
 _GET_TASK_TIMEOUT_SECONDS = 60 * 2  # 2 minutes

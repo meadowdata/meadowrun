@@ -7,7 +7,6 @@ import os
 import pickle
 import time
 import traceback
-import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -35,8 +34,7 @@ if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_sqs.client import SQSClient
 
-_REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-request-"
-_QUEUE_NAME_SUFFIX = ".fifo"
+_REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-"
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -56,10 +54,16 @@ async def _create_request_queue(job_id: str, sqs: SQSClient) -> str:
     # TODO try to detect job id collisions?
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.create_queue
     request_queue_response = await sqs.create_queue(
-        QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}{_QUEUE_NAME_SUFFIX}",
-        Attributes={"FifoQueue": "true"},
+        QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}",
         tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
     )
+
+    # FIFO SQS queues would be nice because they give an "at most once" message delivery
+    # guarantee, but we don't need the ordering guarantee, and the performance penalty
+    # introduced by the ordering guarantee is unacceptable. It's possible we'll end up
+    # executing a task more than once, but according to the docs this should be very
+    # rare. If it does happen, then we'll overwrite the result, which is fine.
+    # TODO We should put in a check to notify the user that a task ran more than once
 
     request_queue_url = request_queue_response["QueueUrl"]
 
@@ -82,7 +86,6 @@ def _s3_args_key(job_id: str) -> str:
 
 MESSAGE_PREFIX_TASK = "task"
 MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
-MESSAGE_GROUP_ID = "_"
 
 
 async def _add_tasks(
@@ -125,16 +128,7 @@ async def _add_tasks(
         # batches of 10
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
 
-        entries = [
-            {
-                "Id": str(i),
-                "MessageBody": task,
-                # 1 at the end because this is the first attempt of each task.
-                "MessageDeduplicationId": f"{MESSAGE_PREFIX_TASK}-{i}:1",
-                "MessageGroupId": MESSAGE_GROUP_ID,
-            }
-            for i, task in tasks_chunk
-        ]
+        entries = [{"Id": str(i), "MessageBody": task} for i, task in tasks_chunk]
 
         result = await sqs.send_message_batch(
             QueueUrl=request_queue_url, Entries=entries  # type: ignore
@@ -170,12 +164,7 @@ async def retry_task(
     )
 
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message
-    await sqs_client.send_message(
-        QueueUrl=request_queue_url,
-        MessageBody=task,
-        MessageDeduplicationId=f"{MESSAGE_PREFIX_TASK}-{task_id}:{attempt}",
-        MessageGroupId=MESSAGE_GROUP_ID,
-    )
+    await sqs_client.send_message(QueueUrl=request_queue_url, MessageBody=task)
 
 
 async def _add_worker_shutdown_messages(
@@ -186,18 +175,9 @@ async def _add_worker_shutdown_messages(
     messages_sent = 0
     while messages_sent < num_messages_to_send:
         num_messages_to_send_batch = min(10, num_messages_to_send - messages_sent)
+        # the id only needs to be unique within a single request
         entries = [
-            {
-                # the id only needs to be unique within a single request
-                "Id": str(i),
-                "MessageBody": "{}",
-                # add a uuid as we never want this message being deduplicated with
-                # another
-                "MessageDeduplicationId": (
-                    f"{MESSAGE_PREFIX_WORKER_SHUTDOWN}-{uuid.uuid4()}"
-                ),
-                "MessageGroupId": MESSAGE_GROUP_ID,
-            }
+            {"Id": str(i), "MessageBody": "{}"}
             for i in range(num_messages_to_send_batch)
         ]
 
@@ -306,9 +286,8 @@ def _complete_task(
     attempt: int,
     process_state: ProcessState,
 ) -> None:
-    """
-    Uploads the result of the task to S3.
-    """
+    """Uploads the result of the task to S3."""
+
     process_state_bytes = process_state.SerializeToString()
     s3.upload(
         _s3_results_key(job_id, task_id, attempt), process_state_bytes, region_name
@@ -408,9 +387,9 @@ async def receive_results(
 
     results_prefix = _s3_results_prefix(job_id)
     download_keys_received: Set[str] = set()
-    wait = True
+    wait = 4  # it's rare for any results to be ready in <4 seconds
     workers_exited_wait_count = 0
-    while not stop_receiving.is_set() and workers_exited_wait_count < 3:
+    while not stop_receiving.is_set() and (workers_exited_wait_count < 3 or wait == 0):
 
         if all_workers_exited.is_set():
             workers_exited_wait_count += 1
@@ -419,14 +398,14 @@ async def receive_results(
             events_to_wait_for = [stop_receiving.wait()]
             if workers_exited_wait_count == 0:
                 events_to_wait_for.append(all_workers_exited.wait())
-                timeout = receive_message_wait_seconds
             else:
                 # poll more frequently if workers are done, but still wait 1 second
                 # (unless stop_receiving is set)
-                timeout = 1
+                wait = 1
+
             done, pending = await asyncio.wait(
                 events_to_wait_for,
-                timeout=timeout,
+                timeout=wait,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for p in pending:
@@ -446,9 +425,12 @@ async def receive_results(
         download_keys_received.update(keys)
 
         if len(download_tasks) == 0:
-            wait = True
+            if wait == 0:
+                wait = 1
+            else:
+                wait = min(wait * 2, receive_message_wait_seconds)
         else:
-            wait = False
+            wait = 0
             results = []
             for task_result_future in asyncio.as_completed(download_tasks):
                 key, process_state_bytes = await task_result_future

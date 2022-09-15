@@ -929,6 +929,12 @@ class GridJobDriver:
         address_to_ssh_host: Dict[str, SshHost] = {}
         worker_tasks: List[Tuple[str, asyncio.Task[JobCompletion]]] = []
 
+        workers_needed_changed_wait_task = asyncio.create_task(
+            self._workers_needed_changed.wait()
+        )
+        pickled_worker_function_task: Optional[asyncio.Task[bytes]] = None
+        async_cancel_exception = False
+
         try:
             if (
                 job_fields["ports"]
@@ -961,6 +967,8 @@ class GridJobDriver:
                 log_file_name: str,
                 inner_instance_registrar: InstanceRegistrar,
             ) -> JobCompletion:
+                assert pickled_worker_function_task is not None  # just for mypy
+
                 job = Job(
                     job_id=inner_worker_job_id,
                     py_function=PyFunctionJob(
@@ -988,9 +996,6 @@ class GridJobDriver:
             workers_launched = 0
             worker_shutdown_messages_sent = 0
             workers_exited_unexpectedly = 0
-            workers_needed_changed_wait_task = asyncio.create_task(
-                self._workers_needed_changed.wait()
-            )
 
             async with self._cloud_interface.create_instance_registrar() as instance_registrar:  # noqa: E501
                 while True:
@@ -1049,8 +1054,14 @@ class GridJobDriver:
                                     workers_launched += 1
 
                     # shutdown workers if they're no longer needed
-                    if new_workers_to_launch < 0:
-                        workers_to_shutdown = -new_workers_to_launch
+                    # once we have the lost worker replacement logic this should just be
+                    # -workers_to_launch
+                    workers_to_shutdown = (
+                        workers_launched
+                        - worker_shutdown_messages_sent
+                        - workers_exited_unexpectedly
+                    ) - (self._workers_needed)
+                    if workers_to_shutdown > 0:
                         await self._cloud_interface.shutdown_workers(
                             workers_to_shutdown
                         )
@@ -1105,12 +1116,7 @@ class GridJobDriver:
             # cancelled as well (because someone pressed Ctrl+C), which means it's
             # unhelpful to cancel them again, we want them to finish running their
             # except/finally clauses
-            raise
-        except BaseException:
-            # cancel any outstanding workers
-            for worker_task in worker_tasks:
-                worker_task[1].cancel()
-
+            async_cancel_exception = True
             raise
         finally:
             print("Shutting down workers")
@@ -1118,6 +1124,15 @@ class GridJobDriver:
             # hang forever, not knowing that it has no hope of workers working on any of
             # its tasks
             self._no_workers_available.set()
+
+            if not async_cancel_exception:
+                # cancel any outstanding workers. Even if there haven't been any
+                # exception and we've sent worker shutdown messages for all the workers,
+                # a worker might be in the middle of building/pulling an environment and
+                # we don't want to wait for that to complete
+                for worker_task in worker_tasks:
+                    worker_task[1].cancel()
+
             # we still want the tasks to complete their except/finally blocks, after
             # which they should reraise asyncio.CancelledError, which we can safely
             # ignore
@@ -1132,6 +1147,9 @@ class GridJobDriver:
                 ],
                 return_exceptions=True,
             )
+            workers_needed_changed_wait_task.cancel()
+            if pickled_worker_function_task is not None:
+                pickled_worker_function_task.cancel()
 
     async def add_tasks_and_get_results(
         self,

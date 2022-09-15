@@ -309,17 +309,18 @@ class TestGridTaskQueue:
 
             stop_receiving = asyncio.Event()
             results: List = [None] * len(task_arguments)
-            async for task_id, attempt, process_state in receive_results(
+            async for batch in receive_results(
                 job_id,
                 region_name,
                 s3_client,
                 stop_receiving=stop_receiving,
                 all_workers_exited=asyncio.Event(),
             ):
-                assert attempt == 1
-                results[task_id] = pickle.loads(process_state.pickled_result)
-                if len(results) == 4:
-                    stop_receiving.set()
+                for task_id, attempt, process_state in batch:
+                    assert attempt == 1
+                    results[task_id] = pickle.loads(process_state.pickled_result)
+                    if len(results) == 4:
+                        stop_receiving.set()
 
             results_thread.join()
             assert results == task_arguments

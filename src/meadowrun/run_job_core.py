@@ -870,7 +870,7 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     @abc.abstractmethod
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
         ...
 
     @abc.abstractmethod
@@ -1157,57 +1157,59 @@ class GridJobDriver:
             f"Waiting for task results. Requested: {len(args)}, "
             f"Done: {num_tasks_done}"
         )
-        async for task_id, attempt, result in await self._cloud_interface.receive_task_results(  # noqa: E501
+        async for batch in await self._cloud_interface.receive_task_results(  # noqa: E501
             stop_receiving=stop_receiving, workers_done=self._no_workers_available
         ):
-            t0 = time.time()
-            if t0 - last_printed_update > _PRINT_RECEIVED_TASKS_SECONDS:
-                print(
-                    f"Waiting for task results. Requested: {len(args)}, "
-                    f"Done: {num_tasks_done}"
-                )
-                last_printed_update = t0
-            if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-                num_tasks_done += 1
-                # TODO try/catch on pickle.loads?
-                yield TaskResult(
-                    task_id,
-                    is_success=True,
-                    result=pickle.loads(result.pickled_result),
-                    attempt=attempt,
-                    log_file_name=result.log_file_name,
-                )
-            else:
-                if result.state in _EXCEPTION_STATES:
-                    exception = unpickle_exception(result.pickled_result)
-                    task_result: TaskResult = TaskResult(
-                        task_id,
-                        is_success=False,
-                        exception=exception,
-                        attempt=attempt,
-                        log_file_name=result.log_file_name,
-                    )
-                else:
-                    task_result = TaskResult(
-                        task_id,
-                        is_success=False,
-                        attempt=attempt,
-                        log_file_name=result.log_file_name,
-                    )
-
-                if attempt < max_num_task_attempts:
-                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
-                    await self._cloud_interface.retry_task(task_id, attempt)
-                else:
-                    print(
-                        f"Task {task_id} failed at attempt {attempt}, "
-                        f"max attempts is {max_num_task_attempts}, not retrying."
-                    )
+            for task_id, attempt, result in batch:
+                if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
                     num_tasks_done += 1
-                    yield task_result
+                    # TODO try/catch on pickle.loads?
+                    yield TaskResult(
+                        task_id,
+                        is_success=True,
+                        result=pickle.loads(result.pickled_result),
+                        attempt=attempt,
+                        log_file_name=result.log_file_name,
+                    )
+                else:
+                    if result.state in _EXCEPTION_STATES:
+                        exception = unpickle_exception(result.pickled_result)
+                        task_result: TaskResult = TaskResult(
+                            task_id,
+                            is_success=False,
+                            exception=exception,
+                            attempt=attempt,
+                            log_file_name=result.log_file_name,
+                        )
+                    else:
+                        task_result = TaskResult(
+                            task_id,
+                            is_success=False,
+                            attempt=attempt,
+                            log_file_name=result.log_file_name,
+                        )
+
+                    if attempt < max_num_task_attempts:
+                        print(f"Task {task_id} failed at attempt {attempt}, retrying.")
+                        await self._cloud_interface.retry_task(task_id, attempt)
+                    else:
+                        print(
+                            f"Task {task_id} failed at attempt {attempt}, "
+                            f"max attempts is {max_num_task_attempts}, not retrying."
+                        )
+                        num_tasks_done += 1
+                        yield task_result
 
             if num_tasks_done >= len(args):
                 stop_receiving.set()
+            else:
+                t0 = time.time()
+                if t0 - last_printed_update > _PRINT_RECEIVED_TASKS_SECONDS:
+                    print(
+                        f"Waiting for task results. Requested: {len(args)}, "
+                        f"Done: {num_tasks_done}"
+                    )
+                    last_printed_update = t0
 
             # reduce the number of workers needed if we have more workers than
             # outstanding tasks

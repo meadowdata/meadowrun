@@ -251,7 +251,7 @@ async def get_results_unordered(
     location: str,
     stop_receiving: asyncio.Event,
     all_workers_exited: asyncio.Event,
-) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
 
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
@@ -290,6 +290,8 @@ async def get_results_unordered(
         if stop_receiving_wait_task.done() or all_workers_exited_task.done():
             return
         else:
+            results = []
+
             for message in receive_messages_task.result():
                 updated = True
 
@@ -304,15 +306,18 @@ async def get_results_unordered(
                 else:
                     num_tasks_running -= 1
                     num_tasks_completed += 1
-                    yield (
-                        task_result.task_id,
-                        task_result.attempt,
-                        task_result.process_state,
+                    results.append(
+                        (
+                            task_result.task_id,
+                            task_result.attempt,
+                            task_result.process_state,
+                        )
                     )
-
                 await queue_delete_message(
                     result_queue.storage_account,
                     result_queue.queue_name,
                     message.message_id,
                     message.pop_receipt,
                 )
+
+            yield results

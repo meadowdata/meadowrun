@@ -615,7 +615,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
 
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
         if self._request_result_queues is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling receive_task_results"

@@ -384,7 +384,7 @@ async def receive_results(
     stop_receiving: asyncio.Event,
     all_workers_exited: asyncio.Event,
     receive_message_wait_seconds: int = 20,
-) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
     """
     Listens to a result queue until we have results for num_tasks. Returns the unpickled
     results of those tasks.
@@ -449,6 +449,7 @@ async def receive_results(
             wait = True
         else:
             wait = False
+            results = []
             for task_result_future in asyncio.as_completed(download_tasks):
                 key, process_state_bytes = await task_result_future
                 process_state = ProcessState()
@@ -456,4 +457,5 @@ async def receive_results(
                 task_id, attempt = _s3_result_key_to_task_id_attempt(
                     key, results_prefix
                 )
-                yield task_id, attempt, process_state
+                results.append((task_id, attempt, process_state))
+            yield results

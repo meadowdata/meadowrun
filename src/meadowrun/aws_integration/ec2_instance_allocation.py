@@ -795,7 +795,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[Tuple[int, int, ProcessState]]:
+    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
         if self._s3_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 

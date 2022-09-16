@@ -139,12 +139,15 @@ async def upload_and_configure_meadowrun(
     )
 
     if machine_agent_module:
+        user = run_and_capture(connection, "whoami")
         await write_text_to_file(
             connection,
             "[Unit]\n"
             "Description=The machine agent for Meadowrun\n"
             "StartLimitIntervalSec=0\n"
             "[Service]\n"
+            f"User={user}\n"
+            f"Group={user}\n"
             f"ExecStart=/var/meadowrun/env/bin/python -m {machine_agent_module}\n"
             "StandardOutput=append:/var/meadowrun/machine_agent.log\n"
             "StandardError=append:/var/meadowrun/machine_agent.log\n"

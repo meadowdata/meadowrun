@@ -223,7 +223,12 @@ async def _kill_jobs(
             if process is not None:
                 if process.poll() is None:  # i.e. process is still running
                     if sys.platform != "win32":
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        # TODO the subprocess is always run_job_local_main so we're
+                        # assuming that it will always handle a SIGINT immediately and
+                        # exit. We should send a TERM or KILL at some point, but it
+                        # won't be very helpful if run_job_local_main has started a
+                        # container.
+                        os.killpg(os.getpgid(process.pid), signal.SIGINT)
                     else:
                         # this is just for mypy
                         raise ValueError(

@@ -202,7 +202,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         pass
 
     @abc.abstractmethod
-    async def authorize_current_ip(self) -> None:
+    async def authorize_current_ip(self, alloc_cloud_instances: AllocVM) -> None:
         pass
 
     @abc.abstractmethod
@@ -473,7 +473,7 @@ async def allocate_jobs_to_instances(
     """
 
     authorize_current_ip_task = asyncio.create_task(
-        instance_registrar.authorize_current_ip()
+        instance_registrar.authorize_current_ip(alloc_cloud_instance)
     )
 
     (

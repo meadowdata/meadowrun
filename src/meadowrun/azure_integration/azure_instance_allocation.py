@@ -428,7 +428,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             region_name,
         )
 
-    async def authorize_current_ip(self) -> None:
+    async def authorize_current_ip(self, alloc_cloud_instances: AllocVM) -> None:
         # TODO currently Azure instances are open to everyone
         pass
 

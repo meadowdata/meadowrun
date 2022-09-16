@@ -1,5 +1,4 @@
-from typing import Any
-
+from typing import Any, Optional
 import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
@@ -51,12 +50,12 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 from meadowrun.aws_integration.s3 import ensure_bucket
 
 
-async def install(region_name: str, allow_authorize_ips: bool) -> None:
+async def install(
+    region_name: str, allow_authorize_ips: bool, vpc_id: Optional[str]
+) -> None:
     """Installs resources needed to run Meadowrun jobs"""
 
-    security_group_id = ensure_security_group(
-        _MEADOWRUN_SSH_SECURITY_GROUP, region_name
-    )
+    ensure_security_group(_MEADOWRUN_SSH_SECURITY_GROUP, region_name, vpc_id)
 
     if not allow_authorize_ips:
         print(
@@ -69,9 +68,9 @@ async def install(region_name: str, allow_authorize_ips: bool) -> None:
         )
 
     iam_client = boto3.client("iam", region_name=region_name)
-    ensure_meadowrun_user_group(iam_client, security_group_id, allow_authorize_ips)
-    ensure_meadowrun_ec2_role(iam_client, security_group_id)
-    ensure_management_lambda_role(iam_client, security_group_id)
+    ensure_meadowrun_user_group(iam_client, allow_authorize_ips)
+    ensure_meadowrun_ec2_role(iam_client)
+    ensure_management_lambda_role(iam_client)
 
     ensure_ec2_alloc_table(region_name)
 

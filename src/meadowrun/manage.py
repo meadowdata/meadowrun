@@ -118,6 +118,14 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             "manually edit the Meadowrun security group to grant access for users."
         ),
     )
+    install_parser.add_argument(
+        "--vpc-id",
+        type=str,
+        help=(
+            "An optional argument to specify which VPC to set up the "
+            "meadowrun_ssh_security_group in"
+        ),
+    )
 
     subparsers.add_parser(
         "uninstall",
@@ -181,7 +189,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     if args.command == "install":
         print("Creating resources for running meadowrun")
         if cloud_provider == "EC2":
-            await aws.install(region_name, args.allow_authorize_ips)
+            await aws.install(region_name, args.allow_authorize_ips, args.vpc_id)
         elif cloud_provider == "AzureVM":
             await azure.install(region_name)
         else:

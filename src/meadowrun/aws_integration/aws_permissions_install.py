@@ -129,7 +129,7 @@ _MEADOWRUN_POLICY_TEMPLATE = """{
             ],
             "Resource": [
                 "arn:aws:ec2:*:%ACCOUNT_NUMBER%:spot-instances-request/*",
-                "arn:aws:ec2:*:%ACCOUNT_NUMBER%:security-group/%SECURITY_GROUP_ID%",
+                "arn:aws:ec2:*:%ACCOUNT_NUMBER%:security-group/*",
                 "arn:aws:ec2:*:%ACCOUNT_NUMBER%:network-interface/*",
                 "arn:aws:ec2:*:%ACCOUNT_NUMBER%:instance/*",
                 "arn:aws:ec2:*:%ACCOUNT_NUMBER%:volume/*",
@@ -181,11 +181,16 @@ _MEADOWRUN_POLICY_TEMPLATE = """{
             }
         },
 
-        # Get the security group id for the meadowrun ssh group
+        # Get the security group id for the meadowrun ssh group, translate subnets to
+        # VPCs and vice versa
         {
             "Sid": "securitygroups",
             "Effect": "Allow",
-            "Action": "ec2:DescribeSecurityGroups",
+            "Action": [
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeVPCs"
+            ],
             "Resource": "*"
         },
 
@@ -339,7 +344,7 @@ def _policy_arn_from_name(policy_name: str) -> str:
 
 
 def _materialize_meadowrun_policy(
-    security_group_id: str, allow_authorize_ips: bool, include_comments: bool
+    allow_authorize_ips: bool, include_comments: bool
 ) -> str:
     policy = _MEADOWRUN_POLICY_TEMPLATE
     if allow_authorize_ips:
@@ -348,8 +353,7 @@ def _materialize_meadowrun_policy(
         policy = policy.replace("%AUTHORIZE_IPS%", "")
 
     policy = (
-        policy.replace("%SECURITY_GROUP_ID%", security_group_id)
-        .replace("%MEADOWRUN_KEY_PAIR_NAME%", MEADOWRUN_KEY_PAIR_NAME)
+        policy.replace("%MEADOWRUN_KEY_PAIR_NAME%", MEADOWRUN_KEY_PAIR_NAME)
         .replace("%MEADOWRUN_SSH_KEY_SECRET%", _MEADOWRUN_KEY_PAIR_SECRET_NAME)
         .replace("%ACCOUNT_NUMBER%", _get_account_number())
         .replace("%MEADOWRUN_ROLE%", _EC2_ROLE_NAME)
@@ -394,9 +398,7 @@ def _create_or_update_policy(
         )
 
 
-def ensure_meadowrun_user_group(
-    iam_client: Any, security_group_id: str, allow_authorize_ips: bool
-) -> None:
+def ensure_meadowrun_user_group(iam_client: Any, allow_authorize_ips: bool) -> None:
     """
     Creates the meadowrun user group if it doesn't exist. If it does already exist, does
     not modify it, other than making sure the meadowrun user policy is attached to it.
@@ -406,7 +408,7 @@ def ensure_meadowrun_user_group(
     _create_or_update_policy(
         iam_client,
         _MEADOWRUN_USER_POLICY_NAME,
-        _materialize_meadowrun_policy(security_group_id, allow_authorize_ips, False),
+        _materialize_meadowrun_policy(allow_authorize_ips, False),
     )
 
     # create/update the role
@@ -426,7 +428,7 @@ def ensure_meadowrun_user_group(
     )
 
 
-def ensure_meadowrun_ec2_role(iam_client: Any, security_group_id: str) -> None:
+def ensure_meadowrun_ec2_role(iam_client: Any) -> None:
     """
     Creates the meadowrun IAM role if it doesn't exist. If it does exist, does not
     modify it, other than making sure the meadowrun user policy is attached to it.
@@ -444,7 +446,7 @@ def ensure_meadowrun_ec2_role(iam_client: Any, security_group_id: str) -> None:
     _create_or_update_policy(
         iam_client,
         _EC2_ROLE_POLICY_NAME,
-        _materialize_meadowrun_policy(security_group_id, False, False),
+        _materialize_meadowrun_policy(False, False),
     )
 
     # create/update the role
@@ -481,7 +483,7 @@ def ensure_meadowrun_ec2_role(iam_client: Any, security_group_id: str) -> None:
     )
 
 
-def ensure_management_lambda_role(iam_client: Any, security_group_id: str) -> None:
+def ensure_management_lambda_role(iam_client: Any) -> None:
     """
     Creates the role for the meadowrun management lambdas to run as. If it already
     exists, does not modify it, other than making sure the management lambda policy is
@@ -494,7 +496,7 @@ def ensure_management_lambda_role(iam_client: Any, security_group_id: str) -> No
     _create_or_update_policy(
         iam_client,
         _MANAGEMENT_LAMBDA_POLICY_NAME,
-        _materialize_meadowrun_policy(security_group_id, False, False),
+        _materialize_meadowrun_policy(False, False),
     )
 
     # create/update the role

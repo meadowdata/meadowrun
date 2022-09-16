@@ -484,7 +484,15 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             else:
                 security_group_ids = alloc_cloud_instances.security_group_ids
         else:
-            security_group_ids = [get_ssh_security_group_id(region_name)]
+            if subnet_id is not None:
+                subnet = boto3.client("ec2", region_name=region_name).describe_subnets(
+                    SubnetIds=[subnet_id]
+                )["Subnets"][0]
+                vpc_id = subnet["VpcId"]
+            else:
+                vpc_id = None
+
+            security_group_ids = [get_ssh_security_group_id(region_name, vpc_id)]
 
         if alloc_cloud_instances.iam_role_instance_profile:
             iam_role_instance_profile = alloc_cloud_instances.iam_role_instance_profile
@@ -507,8 +515,17 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             abort=abort,
         )
 
-    async def authorize_current_ip(self) -> None:
-        await authorize_current_ip_for_meadowrun_ssh(self.get_region_name())
+    async def authorize_current_ip(self, alloc_cloud_instances: AllocVM) -> None:
+        if not isinstance(alloc_cloud_instances, AllocEC2Instance):
+            # TODO do this in the type checker somehow
+            raise ValueError(
+                "Programming error: EC2InstanceRegistrar can only be used with "
+                "AllocEC2Instance"
+            )
+
+        await authorize_current_ip_for_meadowrun_ssh(
+            self.get_region_name(), alloc_cloud_instances.subnet_id
+        )
 
     async def open_ports(
         self,

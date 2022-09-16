@@ -54,14 +54,14 @@ _T = TypeVar("_T")
 _MEADOWRUN_SSH_SECURITY_GROUP = "meadowrun_ssh_security_group"
 
 
-def get_ssh_security_group_id(region_name: str) -> str:
+def get_ssh_security_group_id(region_name: str, vpc_id: Optional[str] = None) -> str:
     """
     Gets the id of the meadowrun SSH security group, which determines which IPs are
     allowed to SSH into the Meadowrun-managed instances.
     """
     ec2_resource = boto3.resource("ec2", region_name=region_name)
     security_group = _get_ec2_security_group(
-        ec2_resource, _MEADOWRUN_SSH_SECURITY_GROUP
+        ec2_resource, _MEADOWRUN_SSH_SECURITY_GROUP, vpc_id
     )
     if security_group is None:
         raise MeadowrunNotInstalledError(
@@ -107,25 +107,37 @@ def _authorize_current_ip_for_security_group(
         )
 
 
-async def authorize_current_ip_for_meadowrun_ssh(region_name: str) -> None:
+async def authorize_current_ip_for_meadowrun_ssh(
+    region_name: str, subnet_id: Optional[str] = None
+) -> None:
     """
     Tries to add the current IP address to the list of IPs allowed to SSH into the
     meadowrun SSH security group (will warn rather than raise on error). Returns the
     security group id of the meadowrun SSH security group.
     """
 
-    ec2_resource = boto3.resource("ec2", region_name=region_name)
-    security_group = _get_ec2_security_group(
-        ec2_resource, _MEADOWRUN_SSH_SECURITY_GROUP
-    )
-    if security_group is None:
-        raise MeadowrunNotInstalledError(
-            f"security group {_MEADOWRUN_SSH_SECURITY_GROUP}"
-        )
-
-    current_ip = await _get_current_ip_for_ssh()
+    current_ip = "<your ip address>"
     try:
+        ec2_resource = boto3.resource("ec2", region_name=region_name)
+
+        if subnet_id is not None:
+            # TODO this code is duplicated in launch_instances
+            vpc_id = ec2_resource.Subnet(subnet_id).vpc_id
+        else:
+            vpc_id = None
+
+        security_group = _get_ec2_security_group(
+            ec2_resource, _MEADOWRUN_SSH_SECURITY_GROUP, vpc_id
+        )
+        if security_group is None:
+            raise MeadowrunNotInstalledError(
+                f"security group {_MEADOWRUN_SSH_SECURITY_GROUP}"
+            )
+
+        current_ip = await _get_current_ip_for_ssh()
         _authorize_current_ip_for_security_group(security_group, 22, 22, current_ip)
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         print(
             "Warning, failed to authorize current IP address for SSH. Connecting to"
@@ -141,7 +153,9 @@ async def authorize_current_ip_for_meadowrun_ssh(region_name: str) -> None:
         )
 
 
-def ensure_security_group(group_name: str, region_name: str) -> str:
+def ensure_security_group(
+    group_name: str, region_name: str, vpc_id: Optional[str] = None
+) -> str:
     """
     Creates the specified security group if it doesn't exist. If it does exist, does not
     modify it (as there may be existing rules that should not be deleted).
@@ -149,8 +163,12 @@ def ensure_security_group(group_name: str, region_name: str) -> str:
     Returns the id of the security group.
     """
     ec2_resource = boto3.resource("ec2", region_name=region_name)
-    security_group = _get_ec2_security_group(ec2_resource, group_name)
+    security_group = _get_ec2_security_group(ec2_resource, group_name, vpc_id)
     if security_group is None:
+        if vpc_id is not None:
+            additional_parameters = {"VpcId": vpc_id}
+        else:
+            additional_parameters = {}
         security_group = ec2_resource.create_security_group(
             Description=group_name,
             GroupName=group_name,
@@ -160,6 +178,7 @@ def ensure_security_group(group_name: str, region_name: str) -> str:
                     "Tags": [{"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}],
                 }
             ],
+            **additional_parameters,
         )
     return security_group.id
 
@@ -675,25 +694,37 @@ async def launch_ec2_instances(
     ]
 
 
-def _get_ec2_security_group(ec2_resource: Any, name: str) -> Any:
+def _get_ec2_security_group(
+    ec2_resource: Any, name: str, vpc_id: Optional[str] = None
+) -> Any:
     """
     Gets the specified security group if it exists. Returns an
     Optional[boto3.resources.factory.ec2.SecurityGroup] (not in the type signature
     because boto3 uses dynamic types).
     """
-    success, groups = ignore_boto3_error_code(
-        lambda: list(ec2_resource.security_groups.filter(GroupNames=[name])),
-        "InvalidGroup.NotFound",
-    )
-    if not success:
-        return None
+    if vpc_id is None:
+        # check the default VPC
+        success, matching_groups = ignore_boto3_error_code(
+            lambda: list(ec2_resource.security_groups.filter(GroupNames=[name])),
+            "InvalidGroup.NotFound",
+        )
+        if not success:
+            return None
+    else:
+        all_groups = list(
+            ec2_resource.security_groups.filter(
+                Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+            )
+        )
+        matching_groups = [group for group in all_groups if group.group_name == name]
 
-    assert groups is not None  # just for mypy
-    if len(groups) == 0:
+    assert matching_groups is not None  # just for mypy
+    if len(matching_groups) == 0:
         return None
-    elif len(groups) > 1:
+    elif len(matching_groups) > 1:
         raise ValueError(
-            "Found multiple security groups with the same name which was unexpected"
+            f"Found multiple security groups with the same name {name} which was "
+            f"unexpected"
         )
     else:
-        return groups[0]
+        return matching_groups[0]

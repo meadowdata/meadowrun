@@ -158,7 +158,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
         return result
 
-    async def authorize_current_ip(self) -> None:
+    async def authorize_current_ip(self, alloc_cloud_instances: AllocVM) -> None:
         pass
 
     async def open_ports(

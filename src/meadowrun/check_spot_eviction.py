@@ -13,7 +13,7 @@ from meadowrun.aws_integration.aws_core import (
 from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 from meadowrun.azure_integration.azure_meadowrun_core import (
-    get_current_ip_address_on_vm,
+    get_current_vm_name,
     get_default_location,
     get_scheduled_events_on_vm,
 )
@@ -35,7 +35,7 @@ async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
             # this means we're not a spot instance that's being interrupted right now
             return
 
-        public_address = await _get_ec2_metadata("public-hostname")
+        instance_name = await _get_ec2_metadata("instance-id")
         if cloud_region_name == "default":
             cloud_region_name = await _get_default_region_name()
         instance_registrar: InstanceRegistrar = EC2InstanceRegistrar(
@@ -51,7 +51,7 @@ async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
         ):
             return
 
-        public_address = await get_current_ip_address_on_vm()
+        instance_name = await get_current_vm_name()
         if cloud_region_name == "default":
             cloud_region_name = get_default_location()
         instance_registrar = AzureInstanceRegistrar(cloud_region_name, "raise")
@@ -59,10 +59,10 @@ async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
         raise ValueError(f"Unexpected value for cloud_provider: {cloud}")
 
     async with instance_registrar:
-        if not public_address:
+        if not instance_name:
             raise ValueError(
                 "Cannot register spot instance eviction because we can't get the "
-                f"public address of the current {cloud} instance (maybe we're not "
+                f"name/id of the current {cloud} instance (maybe we're not "
                 f"running on a {cloud} instance?)"
             )
 
@@ -71,7 +71,7 @@ async def async_main(cloud: CloudProviderType, cloud_region_name: str) -> None:
             "allocating new jobs to this instance"
         )
         while not await instance_registrar.set_prevent_further_allocation(
-            public_address, True
+            instance_name, True
         ):
             # Just keep trying to set set_prevent_further_allocation if it fails. Our
             # instance will get shutdown soon anyways

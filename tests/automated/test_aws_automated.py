@@ -151,11 +151,11 @@ class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar])
     async def deregister_instance(
         self,
         instance_registrar: InstanceRegistrar,
-        public_address: str,
+        name: str,
         require_no_running_jobs: bool,
     ) -> bool:
         return adjust_ec2_instances._deregister_ec2_instance(
-            public_address,
+            name,
             require_no_running_jobs,
             instance_registrar.get_region_name(),
         )

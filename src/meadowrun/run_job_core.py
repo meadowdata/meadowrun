@@ -322,6 +322,7 @@ class SshHost(Host):
         username: str,
         private_key: asyncssh.SSHKey,
         cloud_provider: Optional[Tuple[CloudProviderType, str]] = None,
+        instance_name: Optional[str] = None,
     ) -> None:
         super().__init__()
         self.address = address
@@ -333,6 +334,7 @@ class SshHost(Host):
         # the job via the right InstanceRegistrar when we're done. region name indicates
         # where the InstanceRegistrar that we used to allocate this job is.
         self.cloud_provider = cloud_provider
+        self.instance_name = instance_name
         self._connect_task: Optional[asyncio.Task[asyncssh.SSHClientConnection]] = None
 
     def _connection_future(self) -> asyncio.Task[asyncssh.SSHClientConnection]:
@@ -849,7 +851,7 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
         ...
 
     @abc.abstractmethod
-    async def ssh_host_from_address(self, address: str) -> SshHost:
+    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
         ...
 
     @abc.abstractmethod
@@ -982,12 +984,13 @@ class GridJobDriver:
                 )
 
                 async def deallocator() -> None:
-                    await inner_instance_registrar.deallocate_job_from_instance(
-                        await inner_instance_registrar.get_registered_instance(
-                            inner_ssh_host.address
-                        ),
-                        inner_worker_job_id,
-                    )
+                    if inner_ssh_host.instance_name is not None:
+                        await inner_instance_registrar.deallocate_job_from_instance(
+                            await inner_instance_registrar.get_registered_instance(
+                                inner_ssh_host.instance_name
+                            ),
+                            inner_worker_job_id,
+                        )
 
                 return await inner_ssh_host.run_cloud_job(
                     job, wait_for_result, deallocator
@@ -1023,13 +1026,13 @@ class GridJobDriver:
                             self._abort_launching_new_workers,
                         ):
                             for (
-                                public_address,
+                                (public_address, instance_name),
                                 worker_job_ids,
                             ) in allocated_hosts.items():
                                 ssh_host = address_to_ssh_host.get(public_address)
                                 if ssh_host is None:
                                     ssh_host = await self._cloud_interface.ssh_host_from_address(  # noqa: E501
-                                        public_address
+                                        public_address, instance_name
                                     )
                                     address_to_ssh_host[public_address] = ssh_host
                                 for worker_job_id in worker_job_ids:

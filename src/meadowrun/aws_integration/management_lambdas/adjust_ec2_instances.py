@@ -12,8 +12,8 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
+    _INSTANCE_ID,
     _LAST_UPDATE_TIME,
-    _PUBLIC_ADDRESS,
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
@@ -44,15 +44,13 @@ def _get_registered_ec2_instances(
 ) -> Dict[str, Tuple[datetime.datetime, int]]:
     """
     Similar to _get_ec2_instances in ec2_alloc, but instead of getting the available
-    resources, returns {public_address: (last time a job was allocated or deallocated on
+    resources, returns {instance_id): (last time a job was allocated or deallocated on
     this instance, number of currently running jobs)}
     """
 
     response = _get_ec2_alloc_table(region_name).scan(
         Select="SPECIFIC_ATTRIBUTES",
-        ProjectionExpression=",".join(
-            [_PUBLIC_ADDRESS, _LAST_UPDATE_TIME, _RUNNING_JOBS]
-        ),
+        ProjectionExpression=",".join([_INSTANCE_ID, _LAST_UPDATE_TIME, _RUNNING_JOBS]),
     )
 
     # see comment on ec2_alloc._get_ec2_instances
@@ -62,7 +60,7 @@ def _get_registered_ec2_instances(
         )
 
     return {
-        item[_PUBLIC_ADDRESS]: (
+        item[_INSTANCE_ID]: (
             datetime.datetime.fromisoformat(item[_LAST_UPDATE_TIME]),
             len(item[_RUNNING_JOBS]),
         )
@@ -71,7 +69,7 @@ def _get_registered_ec2_instances(
 
 
 def _deregister_ec2_instance(
-    public_address: str, require_no_running_jobs: bool, region_name: str
+    instance_id: str, require_no_running_jobs: bool, region_name: str
 ) -> bool:
     """
     Deregisters an EC2 instance. If require_no_running_jobs is true, then only
@@ -87,7 +85,7 @@ def _deregister_ec2_instance(
 
     success, result = ignore_boto3_error_code(
         lambda: _get_ec2_alloc_table(region_name).delete_item(
-            Key={_PUBLIC_ADDRESS: public_address}, **optional_args
+            Key={_INSTANCE_ID: instance_id}, **optional_args
         ),
         "ConditionalCheckFailedException",
     )
@@ -142,11 +140,11 @@ def _deregister_and_terminate_instances(
 
     ec2_resource = boto3.resource("ec2", region_name=region_name)
     non_terminated_instances = {
-        instance.public_dns_name: instance
+        instance.instance_id: instance
         for instance in _get_non_terminated_instances(ec2_resource)
     }
     running_instances = {
-        instance.public_dns_name: instance
+        instance.instance_id: instance
         for instance in _get_running_instances(ec2_resource)
     }
 
@@ -155,37 +153,42 @@ def _deregister_and_terminate_instances(
     now = datetime.datetime.utcnow()
     now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
 
-    for public_address, (last_updated, num_jobs) in registered_instances.items():
-        if public_address not in running_instances:
+    for instance_id, (last_updated, num_jobs) in registered_instances.items():
+        if instance_id not in running_instances:
             print(
-                f"{public_address} is registered but does not seem to be running, so we"
-                f" will deregister it"
+                f"{instance_id} is registered but does not seem to be running, so we "
+                "will deregister it"
             )
-            _deregister_ec2_instance(public_address, False, region_name)
-            if public_address in non_terminated_instances:
+            _deregister_ec2_instance(instance_id, False, region_name)
+            if instance_id in non_terminated_instances:
                 # just in case
-                non_terminated_instances[public_address].terminate()
+                non_terminated_instances[instance_id].terminate()
         elif num_jobs == 0 and (now - last_updated) > terminate_instances_if_idle_for:
-            success = _deregister_ec2_instance(public_address, True, region_name)
+            success = _deregister_ec2_instance(instance_id, True, region_name)
             if success:
                 print(
-                    f"{public_address} is not running any jobs and has not run anything"
-                    f" since {last_updated} so we will deregister and terminate it"
+                    f"{instance_id} is not running any jobs and has not run anything "
+                    f"since {last_updated} so we will deregister and terminate it"
                 )
-                non_terminated_instances[public_address].terminate()
+                non_terminated_instances[instance_id].terminate()
         else:
-            print(f"Letting {public_address} continue to run--this instance is active")
+            print(f"Letting {instance_id} continue to run--this instance is active")
 
-    for public_address, instance in non_terminated_instances.items():
+    for instance_id, instance in non_terminated_instances.items():
         if (
-            public_address not in registered_instances
+            instance_id not in registered_instances
             and (now_with_timezone - instance.launch_time) > launch_register_delay
         ):
             print(
-                f"{public_address} is running but is not registered, will terminate. "
+                f"{instance_id} is running but is not registered, will terminate. "
                 f"Was launched at {instance.launch_time}."
             )
             instance.terminate()
+        else:
+            print(
+                f"{instance_id} is running but is not registered, not terminating "
+                f"because it was launched recently at {instance.launch_time}"
+            )
 
     # TOOD terminate stopped instances
 

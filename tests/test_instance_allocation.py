@@ -74,7 +74,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         running_jobs: List[Tuple[str, ResourcesInternal]],
     ) -> None:
         now = datetime.datetime.utcnow().isoformat()
-        self._registered_instances[public_address] = _InstanceState(
+        self._registered_instances[name] = _InstanceState(
             public_address,
             name,
             resources_available,
@@ -91,8 +91,8 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
     async def get_registered_instances(self) -> List[_InstanceState]:
         return list(self._registered_instances.values())
 
-    async def get_registered_instance(self, public_address: str) -> _InstanceState:
-        return self._registered_instances[public_address]
+    async def get_registered_instance(self, name: str) -> _InstanceState:
+        return self._registered_instances[name]
 
     async def allocate_jobs_to_instance(
         self,
@@ -128,9 +128,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         )
         return True
 
-    async def set_prevent_further_allocation(
-        self, public_address: str, value: bool
-    ) -> bool:
+    async def set_prevent_further_allocation(self, name: str, value: bool) -> bool:
         return True
 
     async def launch_instances(
@@ -147,12 +145,10 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
             self._instance_types,
         ):
             for _ in range(chosen_instance_type.num_instances):
-                public_address = f"i{self.i}"
-                result.append(
-                    CloudInstance(public_address, public_address, chosen_instance_type)
-                )
+                name = f"i{self.i}"
+                result.append(CloudInstance(name, name, chosen_instance_type))
                 self._launched_instance_types[
-                    public_address
+                    name
                 ] = chosen_instance_type.instance_type.name
                 self.i += 1
 
@@ -207,8 +203,8 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         for instance in self._registered_instances.values():
             if job_id in instance.get_running_jobs():
                 return (
-                    instance.public_address,
-                    self._launched_instance_types[instance.public_address],
+                    instance.name,
+                    self._launched_instance_types[instance.name],
                 )
 
         return None
@@ -229,7 +225,9 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
         all_job_ids = []
         instances = []
-        for public_address, instance_job_ids in sorted(instances_job_ids.items()):
+        for (public_address, instance_name), instance_job_ids in sorted(
+            instances_job_ids.items()
+        ):
             instance_type = self._launched_instance_types[public_address]
             for job_id in instance_job_ids:
                 all_job_ids.append(job_id)

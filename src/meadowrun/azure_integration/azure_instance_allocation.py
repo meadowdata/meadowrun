@@ -42,11 +42,11 @@ from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     LAST_UPDATE_TIME,
     NON_CONSUMABLE_RESOURCES,
     PREVENT_FURTHER_ALLOCATION,
+    PUBLIC_ADDRESS,
     RESOURCES_ALLOCATED,
     RESOURCES_AVAILABLE,
     RUNNING_JOBS,
     SINGLE_PARTITION_KEY,
-    VM_NAME,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     ResourceExistsError,
@@ -144,8 +144,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                 VM_ALLOC_TABLE_NAME,
                 json_content={
                     "PartitionKey": SINGLE_PARTITION_KEY,
-                    "RowKey": public_address,
-                    VM_NAME: name,
+                    "RowKey": name,
+                    PUBLIC_ADDRESS: public_address,
                     RESOURCES_AVAILABLE: json.dumps(resources_available.consumable),
                     NON_CONSUMABLE_RESOURCES: json.dumps(
                         resources_available.non_consumable
@@ -186,8 +186,8 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
         # https://docs.microsoft.com/en-us/rest/api/storageservices/query-entities
         return [
             AzureVMInstanceState(
+                item[PUBLIC_ADDRESS],
                 item["RowKey"],
-                item[VM_NAME],
                 ResourcesInternal(
                     json.loads(item[RESOURCES_AVAILABLE]),
                     json.loads(item[NON_CONSUMABLE_RESOURCES]),
@@ -207,7 +207,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                             RESOURCES_AVAILABLE,
                             NON_CONSUMABLE_RESOURCES,
                             RUNNING_JOBS,
-                            VM_NAME,
+                            PUBLIC_ADDRESS,
                             PREVENT_FURTHER_ALLOCATION,
                         ]
                     ),
@@ -216,9 +216,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             for item in page["value"]
         ]
 
-    async def get_registered_instance(
-        self, public_address: str
-    ) -> AzureVMInstanceState:
+    async def get_registered_instance(self, name: str) -> AzureVMInstanceState:
         """
         For the AzureInstanceRegistrar, we always populate all the fields on
         AzureVMInstanceState because we will need them in allocate_jobs_to_instance and
@@ -233,9 +231,7 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             item = await azure_table_api(
                 "GET",
                 self._storage_account,
-                table_key_url(
-                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, public_address
-                ),
+                table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, name),
                 query_parameters={
                     "$select": ",".join(
                         [
@@ -243,18 +239,18 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
                             RESOURCES_AVAILABLE,
                             NON_CONSUMABLE_RESOURCES,
                             RUNNING_JOBS,
-                            VM_NAME,
+                            PUBLIC_ADDRESS,
                             PREVENT_FURTHER_ALLOCATION,
                         ]
                     )
                 },
             )
         except ResourceNotFoundError:
-            raise ValueError(f"VM {public_address} was not found")
+            raise ValueError(f"VM {name} was not found")
 
         return AzureVMInstanceState(
+            item[PUBLIC_ADDRESS],
             item["RowKey"],
-            item[VM_NAME],
             ResourcesInternal(
                 json.loads(item[RESOURCES_AVAILABLE]),
                 json.loads(item[NON_CONSUMABLE_RESOURCES]),
@@ -302,11 +298,9 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             await azure_table_api(
                 "PUT",  # replace rather than merge
                 self._storage_account,
-                table_key_url(
-                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.public_address
-                ),
+                table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.name),
                 json_content={
-                    VM_NAME: instance.name,
+                    PUBLIC_ADDRESS: instance.public_address,
                     RESOURCES_AVAILABLE: json.dumps(new_resources_available.consumable),
                     NON_CONSUMABLE_RESOURCES: json.dumps(
                         new_resources_available.non_consumable
@@ -346,11 +340,9 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             await azure_table_api(
                 "PUT",
                 self._storage_account,
-                table_key_url(
-                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.public_address
-                ),
+                table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.name),
                 json_content={
-                    VM_NAME: instance.name,
+                    PUBLIC_ADDRESS: instance.public_address,
                     RESOURCES_AVAILABLE: json.dumps(new_resources_available.consumable),
                     NON_CONSUMABLE_RESOURCES: json.dumps(
                         new_resources_available.non_consumable
@@ -366,15 +358,13 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             # optimistic concurrency check failed
             return False
 
-    async def set_prevent_further_allocation(
-        self, public_address: str, value: bool
-    ) -> bool:
+    async def set_prevent_further_allocation(self, name: str, value: bool) -> bool:
         if self._storage_account is None:
             raise ValueError(
                 "Tried to use AzureInstanceRegistrar without calling __aenter__"
             )
 
-        instance = await self.get_registered_instance(public_address)
+        instance = await self.get_registered_instance(name)
 
         now = datetime.datetime.utcnow().isoformat()
 
@@ -383,11 +373,9 @@ class AzureInstanceRegistrar(InstanceRegistrar[AzureVMInstanceState]):
             await azure_table_api(
                 "PUT",  # replace rather than merge
                 self._storage_account,
-                table_key_url(
-                    VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.public_address
-                ),
+                table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, instance.name),
                 json_content={
-                    VM_NAME: instance.name,
+                    PUBLIC_ADDRESS: instance.public_address,
                     RESOURCES_AVAILABLE: json.dumps(
                         instance.get_available_resources().consumable
                     ),
@@ -573,7 +561,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         self._tasks = tasks
         await _add_tasks((await self._request_result_queues)[0], tasks)
 
-    async def ssh_host_from_address(self, address: str) -> SshHost:
+    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
         if self._ssh_private_key is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling ssh_host_from_address"
@@ -584,6 +572,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             "meadowrunuser",
             (await self._ssh_private_key)[0],
             (self._cloud_provider, self._location),
+            instance_name,
         )
 
     async def shutdown_workers(self, num_workers: int) -> None:

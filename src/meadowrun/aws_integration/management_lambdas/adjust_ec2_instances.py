@@ -175,22 +175,18 @@ def _deregister_and_terminate_instances(
             print(f"Letting {instance_id} continue to run--this instance is active")
 
     for instance_id, instance in non_terminated_instances.items():
-        if (
-            instance_id not in registered_instances
-            and (now_with_timezone - instance.launch_time) > launch_register_delay
-        ):
-            print(
-                f"{instance_id} is running but is not registered, will terminate. "
-                f"Was launched at {instance.launch_time}."
-            )
-            instance.terminate()
-        else:
-            print(
-                f"{instance_id} is running but is not registered, not terminating "
-                f"because it was launched recently at {instance.launch_time}"
-            )
-
-    # TOOD terminate stopped instances
+        if instance_id not in registered_instances:
+            if (now_with_timezone - instance.launch_time) > launch_register_delay:
+                print(
+                    f"{instance_id} is running but is not registered, will terminate. "
+                    f"Was launched at {instance.launch_time}."
+                )
+                instance.terminate()
+            else:
+                print(
+                    f"{instance_id} is running but is not registered, not terminating "
+                    f"because it was launched recently at {instance.launch_time}"
+                )
 
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:

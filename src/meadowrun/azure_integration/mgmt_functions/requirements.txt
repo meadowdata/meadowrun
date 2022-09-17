@@ -5,3 +5,4 @@
 aiohttp
 azure-functions
 requests
+typing_extensions

@@ -82,6 +82,19 @@ async def ensure_meadowrun_resource_group(location: str) -> str:
     return resource_group_path
 
 
+async def get_current_vm_name() -> Optional[str]:
+    async with aiohttp.request(
+        "GET",
+        f"{IMDS_AUTHORITY}/metadata/instance/compute/name"
+        "?api-version=2021-02-01&format=text",
+        headers={"Metadata": "true"},
+    ) as response:
+        if not response.ok:
+            return None
+
+        return await response.text()
+
+
 async def get_current_ip_address_on_vm() -> Optional[str]:
     """
     Assuming we're running on an Azure VM, get our current public ip address. If we're

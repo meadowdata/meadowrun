@@ -31,7 +31,7 @@ RESOURCES_ALLOCATED = "resources_allocated"
 RUNNING_JOBS = "running_jobs"
 PREVENT_FURTHER_ALLOCATION = "prevent_further_allocation"
 SINGLE_PARTITION_KEY = "_"
-VM_NAME = "vm_name"
+PUBLIC_ADDRESS = "public_address"
 
 
 MEADOWRUN_STORAGE_ACCOUNT_VARIABLE = "MEADOWRUN_STORAGE_ACCOUNT"

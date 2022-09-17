@@ -3,6 +3,7 @@
 import asyncio
 import os.path
 import subprocess
+import time
 
 from meadowrun.azure_integration.azure_meadowrun_core import get_default_location
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
@@ -40,6 +41,8 @@ async def build_meadowrun_azure_image() -> None:
         location, "Standard_DS4_v2", "spot", public_key, _BASE_IMAGE, "Regular"
     )
     print(f"Launched VM {ip_address}")
+
+    time.sleep(5)  # a quick and dirty way of letting the machine finish starting
 
     async with connect(
         ip_address,

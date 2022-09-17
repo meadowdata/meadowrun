@@ -17,7 +17,7 @@ from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistr
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
 from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
-    get_current_ip_address_on_vm,
+    get_current_vm_name,
 )
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
 
@@ -76,14 +76,14 @@ async def async_main(
         working_folder = _get_default_working_folder()
 
     if cloud == "EC2":
-        public_address = await _get_ec2_metadata("public-hostname")
+        instance_name = await _get_ec2_metadata("instance-id")
         if cloud_region_name == "default":
             cloud_region_name = await _get_default_region_name()
         instance_registrar: InstanceRegistrar = EC2InstanceRegistrar(
             cloud_region_name, "raise"
         )
     elif cloud == "AzureVM":
-        public_address = await get_current_ip_address_on_vm()
+        instance_name = await get_current_vm_name()
         if cloud_region_name == "default":
             cloud_region_name = get_default_location()
         instance_registrar = AzureInstanceRegistrar(cloud_region_name, "raise")
@@ -91,15 +91,15 @@ async def async_main(
         raise ValueError(f"Unexpected value for cloud_provider: {cloud}")
 
     async with instance_registrar:
-        if not public_address:
+        if not instance_name:
             raise ValueError(
-                "Cannot deallocate jobs because we can't get the public address of the "
+                "Cannot deallocate jobs because we can't get the name/id of the "
                 f"current {cloud} instance (maybe we're not running on a {cloud} "
                 "instance?)"
             )
 
         registered_instance = await instance_registrar.get_registered_instance(
-            public_address
+            instance_name
         )
         if job_id:
             job = registered_instance.get_running_jobs().get(job_id)

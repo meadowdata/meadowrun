@@ -96,7 +96,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-093bc850d42012c90",
+        "us-east-2": "ami-0c2ec58a802340753",
         "us-east-1": "ami-0a519867d2df1d0db",
         "us-west-1": "ami-036f320911e0afa56",
         "us-west-2": "ami-09a6c93dc39a05f37",
@@ -131,13 +131,13 @@ def ensure_ec2_alloc_table(region_name: str) -> None:
             TableName=_EC2_ALLOC_TABLE_NAME,
             AttributeDefinitions=[
                 {
-                    "AttributeName": _PUBLIC_ADDRESS,
+                    "AttributeName": _INSTANCE_ID,
                     "AttributeType": "S",
                 }
             ],
             KeySchema=[
                 {
-                    "AttributeName": _PUBLIC_ADDRESS,
+                    "AttributeName": _INSTANCE_ID,
                     "KeyType": "HASH",
                 }
             ],
@@ -301,19 +301,19 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             for item in response["Items"]
         ]
 
-    async def get_registered_instance(self, public_address: str) -> _InstanceState:
+    async def get_registered_instance(self, name: str) -> _InstanceState:
         result = self._table.get_item(
-            Key={_PUBLIC_ADDRESS: public_address},
+            Key={_INSTANCE_ID: name},
             ProjectionExpression=",".join(
-                [_RUNNING_JOBS, _INSTANCE_ID, _PREVENT_FURTHER_ALLOCATION]
+                [_RUNNING_JOBS, _PUBLIC_ADDRESS, _PREVENT_FURTHER_ALLOCATION]
             ),
         )
         if "Item" not in result:
-            raise ValueError(f"ec2 instance {public_address} was not found")
+            raise ValueError(f"ec2 instance {name} was not found")
 
         return _InstanceState(
-            public_address,
-            result["Item"][_INSTANCE_ID],
+            result["Item"][_PUBLIC_ADDRESS],
+            name,
             # similar to above, also a hack. We know we won't need the
             # available_resources in the context that this function is called
             None,
@@ -369,7 +369,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
         success, result = ignore_boto3_error_code(
             lambda: self._table.update_item(
-                Key={_PUBLIC_ADDRESS: instance.public_address},
+                Key={_INSTANCE_ID: instance.name},
                 # subtract resources that we're allocating
                 UpdateExpression="SET " + ", ".join(set_expressions),
                 # Check to make sure the allocation is still valid
@@ -410,7 +410,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
         success, result = ignore_boto3_error_code(
             lambda: self._table.update_item(
-                Key={_PUBLIC_ADDRESS: instance.public_address},
+                Key={_INSTANCE_ID: instance.name},
                 UpdateExpression=(
                     f"SET {', '.join(set_expressions)} REMOVE {_RUNNING_JOBS}.#job_id"
                 ),
@@ -423,11 +423,9 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         )
         return success
 
-    async def set_prevent_further_allocation(
-        self, public_address: str, value: bool
-    ) -> bool:
+    async def set_prevent_further_allocation(self, name: str, value: bool) -> bool:
         self._table.update_item(
-            Key={_PUBLIC_ADDRESS: public_address},
+            Key={_INSTANCE_ID: name},
             UpdateExpression=(
                 f"SET {_PREVENT_FURTHER_ALLOCATION}=:value, {_LAST_UPDATE_TIME}=:now"
             ),
@@ -775,12 +773,13 @@ class EC2GridJobInterface(GridJobCloudInterface):
         )
         await self._task_argument_ranges
 
-    async def ssh_host_from_address(self, address: str) -> SshHost:
+    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
         return SshHost(
             address,
             SSH_USER,
             self._ssh_private_key,
             (self._cloud_provider, self._region_name),
+            instance_name,
         )
 
     async def shutdown_workers(self, num_workers: int) -> None:

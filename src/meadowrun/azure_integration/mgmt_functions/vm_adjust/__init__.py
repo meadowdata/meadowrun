@@ -27,10 +27,10 @@ from ..azure_core.azure_storage_api import (
 )
 from ..azure_constants import (
     LAST_UPDATE_TIME,
+    PUBLIC_ADDRESS,
     RUNNING_JOBS,
     SINGLE_PARTITION_KEY,
     VM_ALLOC_TABLE_NAME,
-    VM_NAME,
 )
 from ..mgmt_functions_shared import get_resource_group_path, get_storage_account
 
@@ -64,10 +64,10 @@ async def _get_registered_vms(
     """Gets instances registered by AzureInstanceRegistrars"""
     return [
         RegisteredVM(
-            item["RowKey"],
+            item[PUBLIC_ADDRESS],
             datetime.datetime.fromisoformat(item[LAST_UPDATE_TIME]),
             len(json.loads(item[RUNNING_JOBS])),
-            item[VM_NAME],
+            item["RowKey"],
             item["odata.etag"],
         )
         async for page in azure_table_api_paged(
@@ -75,7 +75,9 @@ async def _get_registered_vms(
             storage_account,
             VM_ALLOC_TABLE_NAME,
             query_parameters={
-                "$select": ",".join(["RowKey", RUNNING_JOBS, LAST_UPDATE_TIME, VM_NAME])
+                "$select": ",".join(
+                    ["RowKey", RUNNING_JOBS, LAST_UPDATE_TIME, PUBLIC_ADDRESS]
+                )
             },
         )
         for item in page["value"]
@@ -83,7 +85,7 @@ async def _get_registered_vms(
 
 
 async def _deregister_vm(
-    storage_account: StorageAccount, public_address: str, etag: Optional[str]
+    storage_account: StorageAccount, name: str, etag: Optional[str]
 ) -> bool:
     """
     Deregisters a VM. If etag is None, deregisters unconditionally. If etag is provided,
@@ -99,7 +101,7 @@ async def _deregister_vm(
         await azure_table_api(
             "DELETE",
             storage_account,
-            table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, public_address),
+            table_key_url(VM_ALLOC_TABLE_NAME, SINGLE_PARTITION_KEY, name),
             additional_headers={"If-Match": if_match},
         )
         return True
@@ -200,13 +202,13 @@ async def _deregister_and_terminate_vms(
                 f"{vm.name} ({vm.public_address}) is registered but does not exist, "
                 "deregistering"
             )
-            await _deregister_vm(storage_account, vm.public_address, None)
+            await _deregister_vm(storage_account, vm.name, None)
         elif (
             vm.num_running_jobs == 0
             and (now - vm.last_update_time) > terminate_vms_if_idle_for
         ):
             # deregister and terminate machines that have been idle for a while
-            success = await _deregister_vm(storage_account, vm.public_address, vm.etag)
+            success = await _deregister_vm(storage_account, vm.name, vm.etag)
             if success:
                 logs.append(
                     f"{vm.name} ({vm.public_address}) is not running any jobs and has "
@@ -236,6 +238,11 @@ async def _deregister_and_terminate_vms(
             )
             termination_tasks.append(
                 asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
+            )
+        else:
+            print(
+                f"{vm.name} is running but is not registered, not terminating "
+                f"because it was launched recently at {vm.time_created}"
             )
 
     # TODO terminate stopped VMs

@@ -75,11 +75,11 @@ class AzureVMInstanceRegistrarProvider(
     async def deregister_instance(
         self,
         instance_registrar: AzureInstanceRegistrar,
-        public_address: str,
+        name: str,
         require_no_running_jobs: bool,
     ) -> bool:
         if require_no_running_jobs:
-            vm = await instance_registrar.get_registered_instance(public_address)
+            vm = await instance_registrar.get_registered_instance(name)
             if len(vm.get_running_jobs()) > 0:
                 return False
             etag = vm.etag
@@ -87,9 +87,7 @@ class AzureVMInstanceRegistrarProvider(
             etag = None
 
         assert instance_registrar._storage_account is not None
-        return await _deregister_vm(
-            instance_registrar._storage_account, public_address, etag
-        )
+        return await _deregister_vm(instance_registrar._storage_account, name, etag)
 
     async def num_currently_running_instances(
         self, instance_registrar: AzureInstanceRegistrar

@@ -129,7 +129,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         pass
 
     @abc.abstractmethod
-    async def get_registered_instance(self, public_address: str) -> _TInstanceState:
+    async def get_registered_instance(self, name: str) -> _TInstanceState:
         """
         Gets the InstanceRegistrar's representation of the specified instance.
 
@@ -196,9 +196,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         pass
 
     @abc.abstractmethod
-    async def set_prevent_further_allocation(
-        self, public_address: str, value: bool
-    ) -> bool:
+    async def set_prevent_further_allocation(self, name: str, value: bool) -> bool:
         pass
 
     @abc.abstractmethod
@@ -228,23 +226,23 @@ async def _choose_existing_instances(
     instance_registrar: InstanceRegistrar[_TInstanceState],
     resources_required_per_job: ResourcesInternal,
     num_jobs: int,
-) -> Tuple[Dict[str, List[str]], Dict[str, _TInstanceState]]:
+) -> Tuple[Dict[Tuple[str, str], List[str]], Dict[Tuple[str, str], _TInstanceState]]:
     """
     Chooses existing registered instances to run the specified job(s). The general
     strategy is to pack instances as tightly as possible to allow larger jobs to come
     along later.
 
-    Returns two dictionaries: {public_address: [job_ids]}, {public_address:
-    instance_state}. The keys of the two dictionaries will be the same set of public
-    addresses.
+    Returns two dictionaries: {(public_address, name): [job_ids]}, {(public_address,
+    name): instance_state}. The keys of the two dictionaries will be the same set of
+    public addresses.
     """
 
     # these represent jobs that have been allocated in the InstanceRegistrar
     num_jobs_allocated = 0
     # {public_address: [job_ids]}
-    allocated_jobs: Dict[str, List[str]] = {}
+    allocated_jobs: Dict[Tuple[str, str], List[str]] = {}
     # {public_address: instance_state}
-    allocated_instances: Dict[str, _TInstanceState] = {}
+    allocated_instances: Dict[Tuple[str, str], _TInstanceState] = {}
 
     # try to allocate a maximum of 3 times. We will retry if there's an optimistic
     # concurrency issue (i.e. someone else allocates to an instance at the same time
@@ -336,10 +334,17 @@ async def _choose_existing_instances(
                     )
                     if success:
                         allocated_jobs.setdefault(
-                            instance.orig_instance.public_address, []
+                            (
+                                instance.orig_instance.public_address,
+                                instance.orig_instance.name,
+                            ),
+                            [],
                         ).extend(instance.proposed_jobs)
                         allocated_instances[
-                            instance.orig_instance.public_address
+                            (
+                                instance.orig_instance.public_address,
+                                instance.orig_instance.name,
+                            )
                         ] = instance.orig_instance
                         num_jobs_allocated += len(instance.proposed_jobs)
                     else:
@@ -356,12 +361,18 @@ async def _choose_existing_instances(
         else:
             print(
                 "Job was allocated to an existing instances: "
-                + " ".join(allocated_jobs.keys())
+                + " ".join(
+                    f"{public_address} ({name})"
+                    for public_address, name in allocated_jobs.keys()
+                )
             )
     else:
         print(
             f"{num_jobs_allocated}/{num_jobs} workers allocated to existing instances: "
-            + " ".join(allocated_jobs.keys())
+            + " ".join(
+                f"{public_address} ({name})"
+                for public_address, name in allocated_jobs.keys()
+            )
         )
 
     return allocated_jobs, allocated_instances
@@ -374,13 +385,13 @@ async def _launch_new_instances(
     alloc_cloud_instance: AllocVM,
     original_num_concurrent_tasks: int,
     abort: Optional[asyncio.Event],
-) -> Tuple[Dict[str, List[str]], Dict[str, CloudInstance]]:
+) -> Tuple[Dict[Tuple[str, str], List[str]], Dict[Tuple[str, str], CloudInstance]]:
     """
     Chooses the cheapest instances to launch that can run the specified jobs, launches
     them, adds them to the InstanceRegistrar, and allocates the specified jobs to them.
 
-    Returns two dictionaries, {public_address: [job_ids]}, {public_address:
-    cloud_instance}. The keys of the two dictionaries will be the same.
+    Returns two dictionaries, {(public_address, name): [job_ids]}, {(public_address,
+    name): cloud_instance}. The keys of the two dictionaries will be the same.
 
     The CloudInstance objects returned will have a resources field that includes both
     the instance type resources (like CPU and memory) that were used to select an
@@ -432,8 +443,8 @@ async def _launch_new_instances(
             [(job_id, instance_type_resources_required_per_task) for job_id in job_ids],
         )
 
-        allocated_jobs[instance.public_dns_name] = job_ids
-        allocated_instances[instance.public_dns_name] = instance
+        allocated_jobs[(instance.public_dns_name, instance.name)] = job_ids
+        allocated_instances[(instance.public_dns_name, instance.name)] = instance
         description_strings.append(
             f"{instance.public_dns_name}: {instance_info.name} "
             f"({instance_info.resources.format_cpu_memory_gpu()}), "
@@ -464,12 +475,12 @@ async def allocate_jobs_to_instances(
     alloc_cloud_instance: AllocVM,
     ports: Optional[Sequence[str]],
     abort: Optional[asyncio.Event],
-) -> AsyncIterable[Dict[str, List[str]]]:
+) -> AsyncIterable[Dict[Tuple[str, str], List[str]]]:
     """
     This function first tries to re-use existing instances, and if necessary launches
     the cheapest possible new instances that have the requested resources.
 
-    Returns {public_address: [job_ids]}
+    Returns {(public_address, name): [job_ids]}
     """
 
     authorize_current_ip_task = asyncio.create_task(
@@ -543,12 +554,12 @@ async def allocate_single_job_to_instance(
             raise ValueError(f"Requested 1 host, but got back {len(allocated_hosts)}")
         else:
             if result is None:
-                host, job_ids = list(allocated_hosts.items())[0]
+                (public_address, name), job_ids = list(allocated_hosts.items())[0]
                 if len(job_ids) != 1:
                     raise ValueError(
                         f"Requested 1 job allocation but got back {len(job_ids)}"
                     )
-                result = host, job_ids[0]
+                result = public_address, job_ids[0]
             else:
                 raise ValueError("Requested 1 host, but got back more than one")
 

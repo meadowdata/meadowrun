@@ -227,25 +227,21 @@ async def _deregister_and_terminate_vms(
 
     registered_vms_names = {vm.name for vm in registered_vms}
     for vm in running_vms:
-        if (
-            vm.name not in registered_vms_names
-            and (now - vm.time_created) > launch_register_delay
-        ):
-            # terminate instances that are running but not registered
-            logs.append(
-                f"{vm.name} is running but not registered, will terminate. Was launched"
-                f" at {vm.time_created}"
-            )
-            termination_tasks.append(
-                asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
-            )
-        else:
-            print(
-                f"{vm.name} is running but is not registered, not terminating "
-                f"because it was launched recently at {vm.time_created}"
-            )
-
-    # TODO terminate stopped VMs
+        if vm.name not in registered_vms_names:
+            if (now - vm.time_created) > launch_register_delay:
+                # terminate instances that are running but not registered
+                logs.append(
+                    f"{vm.name} is running but not registered, will terminate. Was "
+                    f"launched at {vm.time_created}"
+                )
+                termination_tasks.append(
+                    asyncio.create_task(_terminate_vm(resource_group_path, vm.name))
+                )
+            else:
+                print(
+                    f"{vm.name} is running but is not registered, not terminating "
+                    f"because it was launched recently at {vm.time_created}"
+                )
 
     if termination_tasks:
         await asyncio.wait(termination_tasks)

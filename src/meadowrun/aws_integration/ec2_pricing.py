@@ -263,6 +263,13 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
                 # instance types have nvidia GPUs except for the g4ad family
                 if instance_type.lower().startswith("g4ad"):
                     non_consumable_resources["amd_gpu"] = 1.0
+                elif instance_type.lower().startswith("p2"):
+                    # TODO p2 instances have a K80 GPU which isn't supported by the
+                    # latest nvidia driver. We should add support for installing an old
+                    # version of nvidia/cuda for use with these instances. Setting the
+                    # "nvidia-old" flag is a bit of a hack and really just functions to
+                    # hide these instance types from Meadowrun's allocation logic.
+                    non_consumable_resources["nvidia-old"] = 1.0
                 else:
                     non_consumable_resources["nvidia"] = 1.0
 

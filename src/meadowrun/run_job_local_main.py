@@ -93,10 +93,9 @@ from meadowrun.run_job_core import CloudProvider, CloudProviderType
 
 async def main_async(
     job_id: str,
-    working_folder: str,
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
-    job_io_prefix = f"{working_folder}/io/{job_id}"
+    job_io_prefix = f"/var/meadowrun/io/{job_id}"
     try:
         # write to a temp file and then rename to make sure deallocate_tasks doesn't see
         # a partial write
@@ -109,7 +108,7 @@ async def main_async(
         job = Job()
         job.ParseFromString(bytes_job_to_run)
         first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, working_folder, cloud, True
+            job, cloud, True
         )
         with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:
             f.write(first_state.SerializeToString())
@@ -144,8 +143,6 @@ async def main_async(
                 cloud[0],  # e.g. EC2 or Azure
                 "--cloud-region-name",
                 cloud[1],
-                "--working-folder",
-                working_folder,
                 "--job-id",
                 job_id,
             )
@@ -153,11 +150,10 @@ async def main_async(
 
 def main(
     job_id: str,
-    working_folder: str,
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
     try:
-        asyncio.run(main_async(job_id, working_folder, cloud))
+        asyncio.run(main_async(job_id, cloud))
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("Job was killed by SIGINT")
 
@@ -167,7 +163,6 @@ def command_line_main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--job-id", required=True)
-    parser.add_argument("--working-folder", required=True)
     parser.add_argument("--cloud", choices=CloudProvider)
     parser.add_argument("--cloud-region-name")
     args = parser.parse_args()
@@ -183,7 +178,7 @@ def command_line_main() -> None:
     else:
         cloud = args.cloud, args.cloud_region_name
 
-    main(args.job_id, args.working_folder, cloud)
+    main(args.job_id, cloud)
 
 
 if __name__ == "__main__":

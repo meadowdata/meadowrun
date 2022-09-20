@@ -23,9 +23,6 @@ from meadowrun.meadowrun_pb2 import ProcessState, Job
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
-    # TODO maybe?
-    working_folder = "/meadowrun"
-
     # parse arguments
 
     parser = argparse.ArgumentParser()
@@ -64,7 +61,7 @@ async def main() -> None:
         # only happens in the non-container job case, in which case the environment
         # variables should just get inherited by the child process that we start.
         first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, working_folder, None, False
+            job, None, False
         )
         # TODO to be analogous to run_job_local_main.py we should write
         # f"{storage_file_prefix}.initial_process_state to the storage bucket here

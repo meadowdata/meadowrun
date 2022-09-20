@@ -376,34 +376,8 @@ class SshHost(Host):
         try:
             connection = await self._connection_future()
 
-            # assumes that meadowrun is installed in /var/meadowrun/env as per
-            # build_meadowrun_amis.md. Also uses the default working_folder, which
-            # should (but doesn't strictly need to) correspond to
-            # agent._set_up_working_folder
-
-            home_result = await ssh.run_and_capture(
-                connection, "echo $HOME", check=False
-            )
-            if not home_result.exit_status == 0:
-                raise ValueError(
-                    "Error getting home directory on remote machine "
-                    + str(home_result.stdout)
-                )
-            home_out = str(home_result.stdout).strip()
-
-            # in_stream is needed otherwise invoke listens to stdin, which
-            # pytest doesn't like
-            remote_working_folder = f"{home_out}/meadowrun"
-            mkdir_result = await ssh.run_and_capture(
-                connection, f"mkdir -p {remote_working_folder}/io", check=False
-            )
-            if not mkdir_result.exit_status == 0:
-                raise ValueError(
-                    "Error creating meadowrun directory " + str(mkdir_result.stdout)
-                )
-
             # serialize job_to_run and send it to the remote machine
-            job_io_prefix = f"{remote_working_folder}/io/{job.job_id}"
+            job_io_prefix = f"/var/meadowrun/io/{job.job_id}"
             await ssh.write_to_file(
                 connection, job.SerializeToString(), f"{job_io_prefix}.job_to_run"
             )
@@ -443,8 +417,7 @@ class SshHost(Host):
                 # "-X importtime "
                 # "-m cProfile -o remote.prof "
                 "-m meadowrun.run_job_local_main "
-                f"--job-id {job.job_id} "
-                f"--working-folder {remote_working_folder}" + " ".join(command_suffixes)
+                f"--job-id {job.job_id}" + " ".join(command_suffixes)
             )
 
             print(f"Running job on {self.address} {log_file_name}")

@@ -15,6 +15,7 @@ from meadowrun import (
     LocalPipInterpreter,
     PipRequirementsFile,
     PoetryProjectPath,
+    RunMapTasksFailedException,
     TaskResult,
     run_command,
     run_function,
@@ -602,6 +603,26 @@ class MapSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_run_map_in_container(self) -> None:
+        """Runs a "real" run_map in a container"""
+        results = await run_map(
+            lambda x: x**x,
+            [1, 2, 3, 4],
+            self.get_host(),
+            self.get_resources_required(),
+            num_concurrent_tasks=4,
+            deployment=Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
+            ),
+        )
+
+        assert results == [1, 4, 27, 256], str(results)
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_run_map_as_completed(self) -> None:
         actual = []
         async for result in await run_map_as_completed(
@@ -638,3 +659,68 @@ class MapSuite(HostProvider, abc.ABC):
             assert not result.is_success
             assert result.exception is not None
             assert result.attempt == 3
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_run_map_as_completed_in_container_with_retries(self) -> None:
+        def fail(input: int) -> None:
+            raise Exception("intentional failure")
+
+        actual: List[TaskResult[None]] = []
+        async for result in await run_map_as_completed(
+            fail,
+            [1, 2, 3, 4],
+            self.get_host(),
+            self.get_resources_required(),
+            num_concurrent_tasks=2,
+            max_num_task_attempts=3,
+            deployment=Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
+            ),
+        ):
+            actual.append(result)
+
+        assert len(actual) == 4
+        for result in actual:
+            assert not result.is_success
+            assert result.exception is not None
+            assert result.attempt == 3
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_run_map_as_completed_unexpected_exit(self) -> None:
+        def unexpected_exit(input: int) -> None:
+            sys.exit(123)
+
+        actual: List[TaskResult[None]] = []
+        async for result in await run_map_as_completed(
+            unexpected_exit,
+            [1, 2, 3, 4],
+            self.get_host(),
+            self.get_resources_required(),
+            num_concurrent_tasks=4,
+        ):
+            actual.append(result)
+
+        assert len(actual) == 4
+        for result in actual:
+            assert not result.is_success
+            assert result.exception is None
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_run_map_unexpected_exit(self) -> None:
+        def unexpected_exit(input: int) -> None:
+            sys.exit(123)
+
+        with pytest.raises(RunMapTasksFailedException):
+            _ = await run_map(
+                unexpected_exit,
+                [1, 2, 3, 4],
+                self.get_host(),
+                self.get_resources_required(),
+                num_concurrent_tasks=4,
+            )

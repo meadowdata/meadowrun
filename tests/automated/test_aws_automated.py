@@ -11,16 +11,15 @@ import asyncio
 import datetime
 import pickle
 import pprint
-import threading
 import uuid
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING, AsyncContextManager, Callable, List, Optional, Tuple
 
+import aiobotocore
 import aiobotocore.session
 import boto3
-import pytest
-
 import meadowrun.aws_integration.aws_install_uninstall
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances as adjust_ec2_instances  # noqa: E501
+import pytest
 from basics import BasicsSuite, ErrorsSuite, HostProvider, MapSuite
 from instance_registrar_suite import (
     TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
@@ -37,17 +36,19 @@ from meadowrun import (
 )
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
-    AllocEC2Instance,
-    EC2InstanceRegistrar,
     SSH_USER,
+    AllocEC2Instance,
+    EC2GridJobInterface,
+    EC2InstanceRegistrar,
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.grid_tasks_sqs import (
-    _add_tasks,
     _complete_task,
-    _create_request_queue,
     _get_task,
+    add_tasks,
+    add_worker_shutdown_messages,
+    create_request_queue,
     receive_results,
 )
 from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
@@ -57,9 +58,15 @@ from meadowrun.instance_selection import (
     choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.run_job_local import TaskResult
 
 if TYPE_CHECKING:
+    from asyncio.subprocess import Process
+    from pathlib import Path
+
     from meadowrun.run_job_core import Host, JobCompletion
+    from meadowrun.run_job_local import AgentTaskWorkerServer
+
 
 # TODO don't always run tests in us-east-2
 REGION = "us-east-2"
@@ -234,9 +241,9 @@ async def test_get_ec2_instance_types() -> None:
     assert len(chosen_instance_types) == 0
 
 
-class TestGridTaskQueue:
+class TestGridSQSQueue:
     @pytest.mark.asyncio
-    async def test_grid_task_queue(self) -> None:
+    async def test_receive_results_happy_path(self) -> None:
         """
         Tests the grid_task_queue functions without actually running any tasks. Uses SQS
         and S3 resources.
@@ -244,32 +251,30 @@ class TestGridTaskQueue:
         region_name = await _get_default_region_name()
         task_arguments = ["hello", ("hey", "there"), {"a": 1}, ["abcdefg"] * 100_000]
 
+        job_id = str(uuid.uuid4())
         session = aiobotocore.session.get_session()
         async with session.create_client(
             "sqs", region_name=region_name
-        ) as sqs_client, session.create_client(
-            "s3", region_name=region_name
-        ) as s3_client:
-            job_id = str(uuid.uuid4())
-            request_queue_url = await _create_request_queue(job_id, sqs_client)
-            await _add_tasks(
-                job_id,
-                request_queue_url,
-                s3_client,
-                sqs_client,
-                task_arguments,
-            )
+        ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
 
-            def complete_tasks() -> None:
+            request_queue_url = await create_request_queue(job_id, sqs)
+            _ = await add_tasks(job_id, request_queue_url, s3c, sqs, task_arguments)
+            print("added tasks ")
+
+            async def complete_tasks() -> None:
                 tasks: List = []
 
                 def assert_task(index: int) -> None:
                     assert tasks[index] is not None
                     assert tasks[index][1] == 1  # attempt
-                    assert pickle.loads(tasks[index][2]) == task_arguments[index]
+                    # can't do this - no longer using FIFO queue
+                    # args, kwargs = pickle.loads(tasks[index][2])
+                    # assert args[0] == task_arguments[index]
+                    # assert len(kwargs) == 0
 
-                def complete_task(index: int) -> None:
-                    _complete_task(
+                async def complete_task(index: int) -> None:
+                    await _complete_task(
+                        s3c,
                         job_id,
                         region_name,
                         tasks[index][0],
@@ -280,47 +285,180 @@ class TestGridTaskQueue:
                         ),
                     )
 
+                async def get_next_task() -> Optional[Tuple[int, int, bytes]]:
+                    return await _get_task(
+                        sqs, s3c, request_queue_url, job_id, region_name, 0
+                    )
+
+                print("completing tasks")
                 # get some tasks and complete them
-                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                tasks.append(await get_next_task())
                 assert_task(0)
+                print("task 0")
 
-                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                tasks.append(await get_next_task())
                 assert_task(1)
+                print("task 1")
 
-                complete_task(0)
+                await complete_task(0)
 
-                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                tasks.append(await get_next_task())
                 assert_task(2)
 
-                tasks.append(_get_task(request_queue_url, job_id, region_name, 0))
+                tasks.append(await get_next_task())
                 assert_task(3)
 
-                # there should be no more tasks to get
-                # worker now checks forever - put in timeout after enabling worker
-                # restarts assert _get_task(request_queue_url, job_id, region_name, 0)
-                # is None
+                await complete_task(1)
+                await complete_task(2)
+                await complete_task(3)
 
-                complete_task(1)
-                complete_task(2)
-                complete_task(3)
+                assert await get_next_task() is None
+                print("Mock worker completed tasks")
 
-            results_thread = threading.Thread(target=complete_tasks)
-            results_thread.start()
+            complete_tasks_future = asyncio.create_task(complete_tasks())
 
             stop_receiving = asyncio.Event()
             results: List = [None] * len(task_arguments)
+            received = 0
             async for batch in receive_results(
                 job_id,
                 region_name,
-                s3_client,
+                s3c,
                 stop_receiving=stop_receiving,
                 all_workers_exited=asyncio.Event(),
+                # receive_message_wait_seconds=2,
             ):
                 for task_id, attempt, process_state in batch:
                     assert attempt == 1
-                    results[task_id] = pickle.loads(process_state.pickled_result)
-                    if len(results) == 4:
+                    (args,), kwargs = pickle.loads(process_state.pickled_result)
+                    results[task_id] = args
+                    received += 1
+                    if received >= 4:
                         stop_receiving.set()
+                        await add_worker_shutdown_messages(request_queue_url, 1, sqs)
 
-            results_thread.join()
+            await complete_tasks_future
             assert results == task_arguments
+
+    async def _create_driver_interface(self) -> EC2GridJobInterface:
+        region_name = await _get_default_region_name()
+        interface = EC2GridJobInterface(AllocEC2Instance(region_name))
+        return interface
+
+    @pytest.mark.asyncio
+    async def test_worker_loop_happy_path(
+        self,
+        agent_server: AgentTaskWorkerServer,
+        task_worker_process: Callable[
+            [str, str], AsyncContextManager[Tuple[Process, Path]]
+        ],
+    ) -> None:
+
+        async with await self._create_driver_interface() as interface:
+            await interface.setup_and_add_tasks([1, 2, 3, 4])
+            worker_function = await interface.get_worker_function()
+            public_address = "foo"
+            log_file_name = "worker_1.log"
+
+            async with task_worker_process("example_package.example", "tetration"):
+                worker_task = asyncio.create_task(
+                    worker_function(public_address, log_file_name, agent_server)
+                )
+
+                results = []
+                stop_receiving, workers_done = asyncio.Event(), asyncio.Event()
+                async for batch in await interface.receive_task_results(
+                    stop_receiving=stop_receiving, workers_done=workers_done
+                ):
+                    for task_id, attempt, result in batch:
+                        task_result = TaskResult.from_process_state(
+                            task_id, attempt, result
+                        )
+                        assert task_result.is_success
+                        results.append(task_result.result)
+                        if len(results) == 4:
+                            stop_receiving.set()
+                            workers_done.set()
+                            await interface.shutdown_workers(1)
+                await worker_task
+                assert set(results) == {1, 4, 27, 256}
+                await agent_server.close()
+
+    @pytest.mark.asyncio
+    async def test_worker_loop_failures(
+        self,
+        agent_server: AgentTaskWorkerServer,
+        task_worker_process: Callable[
+            [str, str], AsyncContextManager[Tuple[Process, Path]]
+        ],
+    ) -> None:
+
+        async with await self._create_driver_interface() as interface:
+            await interface.setup_and_add_tasks([1, 2, 3, 4])
+            worker_function = await interface.get_worker_function()
+            public_address = "foo"
+            log_file_name = "worker_1.log"
+
+            async with task_worker_process(
+                "example_package.example", "example_function_raises"
+            ):
+                worker_task = asyncio.create_task(
+                    worker_function(public_address, log_file_name, agent_server)
+                )
+
+                results = []
+                stop_receiving, workers_done = asyncio.Event(), asyncio.Event()
+                async for batch in await interface.receive_task_results(
+                    stop_receiving=stop_receiving, workers_done=workers_done
+                ):
+                    for task_id, attempt, result in batch:
+                        task_result = TaskResult.from_process_state(
+                            task_id, attempt, result
+                        )
+                        assert not task_result.is_success
+                        results.append(task_result.result)
+                        if len(results) == 8:
+                            stop_receiving.set()
+                            workers_done.set()
+                            await interface.shutdown_workers(1)
+                        else:
+                            await interface.retry_task(task_id, attempt)
+                await worker_task
+                await agent_server.close()
+
+    @pytest.mark.asyncio
+    async def test_worker_loop_crash(
+        self,
+        agent_server: AgentTaskWorkerServer,
+        task_worker_process: Callable[
+            [str, str], AsyncContextManager[Tuple[Process, Path]]
+        ],
+    ) -> None:
+
+        async with await self._create_driver_interface() as interface:
+            await interface.setup_and_add_tasks([1, 2, 3, 4])
+            worker_function = await interface.get_worker_function()
+            public_address = "foo"
+            log_file_name = "worker_1.log"
+
+            async with task_worker_process("example_package.example", "crash"):
+                worker_task = asyncio.create_task(
+                    worker_function(public_address, log_file_name, agent_server)
+                )
+
+                results = []
+                stop_receiving, workers_done = asyncio.Event(), asyncio.Event()
+                async for batch in await interface.receive_task_results(
+                    stop_receiving=stop_receiving, workers_done=workers_done
+                ):
+                    for task_id, attempt, result in batch:
+                        task_result = TaskResult.from_process_state(
+                            task_id, attempt, result
+                        )
+                        assert not task_result.is_success
+                        results.append(task_result.result)
+
+                        stop_receiving.set()
+                        workers_done.set()
+                await worker_task
+                await agent_server.close()

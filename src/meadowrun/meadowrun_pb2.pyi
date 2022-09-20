@@ -561,6 +561,60 @@ class PyFunctionJob(google.protobuf.message.Message):
 
 global___PyFunctionJob = PyFunctionJob
 
+class PyAgentJob(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    QUALIFIED_FUNCTION_NAME_FIELD_NUMBER: builtins.int
+    PICKLED_FUNCTION_FIELD_NUMBER: builtins.int
+    PICKLED_AGENT_FUNCTION_FIELD_NUMBER: builtins.int
+    PICKLED_AGENT_FUNCTION_ARGUMENTS_FIELD_NUMBER: builtins.int
+    @property
+    def qualified_function_name(self) -> global___QualifiedFunctionName: ...
+    pickled_function: builtins.bytes
+    pickled_agent_function: builtins.bytes
+    pickled_agent_function_arguments: builtins.bytes
+    def __init__(
+        self,
+        *,
+        qualified_function_name: global___QualifiedFunctionName | None = ...,
+        pickled_function: builtins.bytes = ...,
+        pickled_agent_function: builtins.bytes = ...,
+        pickled_agent_function_arguments: builtins.bytes = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "function_spec",
+            b"function_spec",
+            "pickled_function",
+            b"pickled_function",
+            "qualified_function_name",
+            b"qualified_function_name",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "function_spec",
+            b"function_spec",
+            "pickled_agent_function",
+            b"pickled_agent_function",
+            "pickled_agent_function_arguments",
+            b"pickled_agent_function_arguments",
+            "pickled_function",
+            b"pickled_function",
+            "qualified_function_name",
+            b"qualified_function_name",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing_extensions.Literal["function_spec", b"function_spec"]
+    ) -> typing_extensions.Literal[
+        "qualified_function_name", "pickled_function"
+    ] | None: ...
+
+global___PyAgentJob = PyAgentJob
+
 class GridTask(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -668,6 +722,7 @@ class Job(google.protobuf.message.Message):
     RESULT_HIGHEST_PICKLE_PROTOCOL_FIELD_NUMBER: builtins.int
     PY_COMMAND_FIELD_NUMBER: builtins.int
     PY_FUNCTION_FIELD_NUMBER: builtins.int
+    PY_AGENT_FIELD_NUMBER: builtins.int
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
     PORTS_FIELD_NUMBER: builtins.int
     USES_GPU_FIELD_NUMBER: builtins.int
@@ -726,6 +781,8 @@ class Job(google.protobuf.message.Message):
     @property
     def py_function(self) -> global___PyFunctionJob: ...
     @property
+    def py_agent(self) -> global___PyAgentJob: ...
+    @property
     def credentials_sources(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
@@ -760,6 +817,7 @@ class Job(google.protobuf.message.Message):
         result_highest_pickle_protocol: builtins.int = ...,
         py_command: global___PyCommandJob | None = ...,
         py_function: global___PyFunctionJob | None = ...,
+        py_agent: global___PyAgentJob | None = ...,
         credentials_sources: collections.abc.Iterable[global___CredentialsSourceMessage]
         | None = ...,
         ports: collections.abc.Iterable[builtins.str] | None = ...,
@@ -788,6 +846,8 @@ class Job(google.protobuf.message.Message):
             b"interpreter_deployment",
             "job_spec",
             b"job_spec",
+            "py_agent",
+            b"py_agent",
             "py_command",
             b"py_command",
             "py_function",
@@ -833,6 +893,8 @@ class Job(google.protobuf.message.Message):
             b"job_spec",
             "ports",
             b"ports",
+            "py_agent",
+            b"py_agent",
             "py_command",
             b"py_command",
             "py_function",
@@ -875,7 +937,7 @@ class Job(google.protobuf.message.Message):
     @typing.overload
     def WhichOneof(
         self, oneof_group: typing_extensions.Literal["job_spec", b"job_spec"]
-    ) -> typing_extensions.Literal["py_command", "py_function"] | None: ...
+    ) -> typing_extensions.Literal["py_command", "py_function", "py_agent"] | None: ...
 
 global___Job = Job
 
@@ -942,6 +1004,10 @@ class ProcessState(google.protobuf.message.Message):
         that the child process somehow silently failed to write its outputs correctly
         or there was a python exception thrown in the meadowrun worker code.
         """
+        UNEXPECTED_WORKER_EXIT: ProcessState._ProcessStateEnum.ValueType  # 10
+        """(run_map only) The task worker process exited unexpectedly. This can mean the
+        task called exit(), or it crashed.
+        """
         UNKNOWN: ProcessState._ProcessStateEnum.ValueType  # 9
         """This state represents a job that is neither "done" nor "in progress"
 
@@ -997,6 +1063,10 @@ class ProcessState(google.protobuf.message.Message):
     """There was an error while reading the outputs of the process. This could mean
     that the child process somehow silently failed to write its outputs correctly
     or there was a python exception thrown in the meadowrun worker code.
+    """
+    UNEXPECTED_WORKER_EXIT: ProcessState.ProcessStateEnum.ValueType  # 10
+    """(run_map only) The task worker process exited unexpectedly. This can mean the
+    task called exit(), or it crashed.
     """
     UNKNOWN: ProcessState.ProcessStateEnum.ValueType  # 9
     """This state represents a job that is neither "done" nor "in progress"

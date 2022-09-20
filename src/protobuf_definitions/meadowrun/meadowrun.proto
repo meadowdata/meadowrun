@@ -170,6 +170,15 @@ message PyFunctionJob {
     bytes pickled_function_arguments = 3;
 }
 
+message PyAgentJob {
+    oneof function_spec {
+        QualifiedFunctionName qualified_function_name = 1;
+        bytes pickled_function = 2;
+    }
+    bytes pickled_agent_function = 3;
+    bytes pickled_agent_function_arguments = 4;
+}
+
 
 message GridTask {
     int32 task_id = 1;
@@ -232,6 +241,7 @@ message Job {
     oneof job_spec {
         PyCommandJob py_command = 15;
         PyFunctionJob py_function = 16;
+        PyAgentJob py_agent = 23;
     }
 
     repeated CredentialsSourceMessage credentials_sources = 17;
@@ -287,6 +297,10 @@ message ProcessState {
         // that the child process somehow silently failed to write its outputs correctly
         // or there was a python exception thrown in the meadowrun worker code.
         ERROR_GETTING_STATE = 8;
+
+        // (run_map only) The task worker process exited unexpectedly. This can mean the
+        // task called exit(), or it crashed.
+        UNEXPECTED_WORKER_EXIT = 10;
 
         // This state represents a job that is neither "done" nor "in progress"
 

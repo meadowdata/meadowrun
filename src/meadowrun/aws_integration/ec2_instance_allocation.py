@@ -8,24 +8,24 @@ import functools
 import itertools
 import uuid
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterable,
     Callable,
+    Coroutine,
     Dict,
     Iterable,
     List,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
     Type,
     TypeVar,
     Union,
 )
 
-import boto3
 import aiobotocore.session
-
+import boto3
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
 from meadowrun.aws_integration.ec2 import (
@@ -40,9 +40,9 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     get_meadowrun_ssh_key,
 )
 from meadowrun.aws_integration.grid_tasks_sqs import (
-    _add_worker_shutdown_messages,
-    _add_tasks,
-    _create_request_queue,
+    add_tasks,
+    add_worker_shutdown_messages,
+    create_request_queue,
     receive_results,
     retry_task,
     worker_function,
@@ -62,14 +62,14 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
+from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
     _TInstanceState,
     allocate_single_job_to_instance,
 )
-from meadowrun.instance_selection import ResourcesInternal, CloudInstance
-from meadowrun.aws_integration.s3 import S3ObjectStorage
+from meadowrun.instance_selection import CloudInstance, ResourcesInternal
 from meadowrun.run_job_core import (
     AllocVM,
     CloudProviderType,
@@ -82,10 +82,12 @@ from meadowrun.run_job_core import (
 
 if TYPE_CHECKING:
     from types import TracebackType
-    from typing_extensions import Literal
+
     from meadowrun.meadowrun_pb2 import Job, ProcessState
+    from meadowrun.run_job_local import AgentTaskWorkerServer
     from types_aiobotocore_s3 import S3Client
     from types_aiobotocore_sqs import SQSClient
+    from typing_extensions import Literal
 
 # SEE ALSO ec2_alloc_stub.py
 
@@ -96,7 +98,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-00abfaac022e063f2",
+        "us-east-2": "ami-0b1b0a1b5de620cd6",
         "us-east-1": "ami-095487ef77cf08c11",
         "us-west-1": "ami-0c361c736028dd007",
         "us-west-2": "ami-0c5e4fa0f0f779f57",
@@ -760,10 +762,10 @@ class EC2GridJobInterface(GridJobCloudInterface):
         # create SQS queues and add tasks to the request queue
         print(f"The current run_map's id is {self._job_id}")
         self._request_queue_url = asyncio.create_task(
-            _create_request_queue(self._job_id, self._sqs_client)
+            create_request_queue(self._job_id, self._sqs_client)
         )
         self._task_argument_ranges = asyncio.create_task(
-            _add_tasks(
+            add_tasks(
                 self._job_id,
                 await self._request_queue_url,
                 self._s3_client,
@@ -789,13 +791,13 @@ class EC2GridJobInterface(GridJobCloudInterface):
             )
         if self._sqs_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
-        await _add_worker_shutdown_messages(
+        await add_worker_shutdown_messages(
             await self._request_queue_url, num_workers, self._sqs_client
         )
 
     async def get_worker_function(
-        self, user_function: Callable[[_T], _U]
-    ) -> Callable[[str, str], None]:
+        self,
+    ) -> Callable[[str, str, AgentTaskWorkerServer], Coroutine[Any, Any, None]]:
         if self._request_queue_url is None:
             raise ValueError(
                 "setup_and_add_tasks must be called before get_worker_function"
@@ -803,7 +805,6 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
         return functools.partial(
             worker_function,
-            user_function,
             await self._request_queue_url,
             self._job_id,
             self._region_name,

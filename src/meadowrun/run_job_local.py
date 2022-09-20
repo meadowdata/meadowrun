@@ -24,6 +24,7 @@ from typing import (
     TYPE_CHECKING,
     Tuple,
     TypeVar,
+    Union,
 )
 
 from meadowrun.aws_integration.ecr import get_ecr_username_password
@@ -31,6 +32,8 @@ from meadowrun.azure_integration.acr import get_acr_username_password
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
+
+    JobSpecType = Literal["py_command", "py_function", "py_agent"]
 
     from meadowrun._vendor import aiodocker
     from meadowrun._vendor.aiodocker import containers as aiodocker_containers
@@ -65,6 +68,7 @@ from meadowrun.meadowrun_pb2 import (
     Job,
     ProcessState,
     PyFunctionJob,
+    PyAgentJob,
     StringPair,
 )
 from meadowrun.run_job_core import (
@@ -120,6 +124,7 @@ class _JobSpecTransformed:
     environment_variables: Dict[str, str] = dataclasses.field(
         default_factory=lambda: {}
     )
+    server: Optional[AgentTaskWorkerServer] = None
 
 
 def _io_file_container_binds(
@@ -200,7 +205,7 @@ _FUNC_WORKER_PATH = str(
 
 
 def _prepare_function(
-    job_id: str, function: PyFunctionJob, io_folder: str
+    job_id: str, function: Union[PyFunctionJob, PyAgentJob], io_folder: str
 ) -> Tuple[Sequence[str], Sequence[str]]:
     """
     Creates files in io_folder for the child process to use and returns (command line
@@ -304,8 +309,62 @@ def _prepare_py_function(
     )
 
 
+_TASK_WORKER_PATH = str(
+    (
+        pathlib.Path(__file__).parent / "func_worker" / "__meadowrun_task_worker.py"
+    ).resolve()
+)
+
+
+async def _prepare_py_agent(
+    job: Job, io_folder: str, is_container: bool
+) -> _JobSpecTransformed:
+    """
+    Creates files in io_folder for the child process to use and returns
+    _JobSpecTransformed. We use __meadowrun_task_worker to start the function in the
+    child process.
+    """
+
+    if not is_container:
+        worker_path = _TASK_WORKER_PATH
+        io_path_container = os.path.join(io_folder, job.job_id)
+    else:
+        worker_path = (
+            f"{MEADOWRUN_CODE_MOUNT_LINUX}{os.path.basename(_TASK_WORKER_PATH)}"
+        )
+        io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}"
+
+    server = await agent_start_serving("0.0.0.0" if is_container else "127.0.0.1")
+    command_line = [
+        "python",
+        worker_path,
+        "--result-highest-pickle-protocol",
+        str(job.result_highest_pickle_protocol),
+        "--io-path",
+        io_path_container,
+        "--host",
+        "host.docker.internal" if is_container else "127.0.0.1",
+        "--port",
+        str(server.port),
+    ]
+
+    command_line_for_function, io_files_for_function = _prepare_function(
+        job.job_id, job.py_agent, io_folder
+    )
+
+    return _JobSpecTransformed(
+        list(itertools.chain(command_line, command_line_for_function)),
+        _io_file_container_binds(
+            io_folder,
+            io_files_for_function,
+        )
+        + [(_TASK_WORKER_PATH, worker_path)],
+        server=server,
+    )
+
+
 async def _launch_non_container_job(
-    job_spec_type: Literal["py_command", "py_function"],
+    job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
     cwd_path: Optional[str],
@@ -402,19 +461,19 @@ async def _launch_non_container_job(
     return process.pid, _non_container_job_continuation(
         process,
         job_spec_type,
-        job.job_id,
+        job_spec_transformed,
+        job,
         io_folder,
-        job.result_highest_pickle_protocol,
         log_file_name,
     )
 
 
 async def _non_container_job_continuation(
     process: asyncio.subprocess.Process,
-    job_spec_type: Literal["py_command", "py_function"],
-    job_id: str,
+    job_spec_type: JobSpecType,
+    job_spec_transformed: _JobSpecTransformed,
+    job: Job,
     io_folder: str,
-    result_highest_pickle_protocol: int,
     log_file_name: str,
 ) -> ProcessState:
     """
@@ -424,15 +483,30 @@ async def _non_container_job_continuation(
     """
 
     try:
-        # wait for the process to finish
-        # TODO add an optional timeout
+        if job_spec_type == "py_agent":
+            # run the agent function. The agent function connects to another
+            # process, the task worker, which runs the actual user function.
+            assert job_spec_transformed.server is not None
+            agent_func = pickle.loads(job.py_agent.pickled_agent_function)
+            agent_func_args, agent_func_kwargs = pickle.loads(
+                job.py_agent.pickled_agent_function_arguments
+            )
+            await agent_func(
+                *agent_func_args,
+                worker_server=job_spec_transformed.server,
+                **agent_func_kwargs,
+            )
+            await job_spec_transformed.server.close()
+            process.terminate()
 
         async for line in process.stdout:  # type: ignore
             sys.stdout.buffer.write(line)
+        # wait for the process to finish
+        # TODO add an optional timeout
         returncode = await process.wait()
         return _completed_job_state(
             job_spec_type,
-            job_id,
+            job.job_id,
             io_folder,
             log_file_name,
             returncode,
@@ -445,12 +519,12 @@ async def _non_container_job_continuation(
         # there was an exception while trying to get the final ProcessState
         return ProcessState(
             state=ProcessStateEnum.ERROR_GETTING_STATE,
-            pickled_result=pickle_exception(e, result_highest_pickle_protocol),
+            pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
         )
 
 
 async def _launch_container_job(
-    job_spec_type: Literal["py_command", "py_function"],
+    job_spec_type: JobSpecType,
     container_image_name: str,
     job_spec_transformed: _JobSpecTransformed,
     code_paths: Sequence[str],
@@ -588,9 +662,11 @@ async def _launch_container_job(
         container,
         docker_client,
         job_spec_type,
-        job.job_id,
+        job_spec_transformed,
+        job,
+        # job.job_id,
         io_folder,
-        job.result_highest_pickle_protocol,
+        # job.result_highest_pickle_protocol,
         log_file_name,
         sidecar_containers,
     )
@@ -599,10 +675,11 @@ async def _launch_container_job(
 async def _container_job_continuation(
     container: aiodocker_containers.DockerContainer,
     docker_client: aiodocker.Docker,
-    job_spec_type: Literal["py_command", "py_function"],
-    job_id: str,
+    job_spec_type: JobSpecType,
+    job_spec_transformed: _JobSpecTransformed,
+    job: Job,
     io_folder: str,
-    result_highest_pickle_protocol: int,
+    # result_highest_pickle_protocol: int,
     log_file_name: str,
     sidecar_containers: List[aiodocker_containers.DockerContainer],
 ) -> ProcessState:
@@ -614,22 +691,45 @@ async def _container_job_continuation(
     docker_client just needs to be closed when the container process has completed.
     """
     try:
-        # Docker appears to have an objection to having a log driver that can produce
-        # plain text files (https://github.com/moby/moby/issues/17020) so we implement
-        # that in a hacky way here.
-        # TODO figure out overall strategy for logging, maybe eventually implement our
-        #  own plain text/whatever log driver for docker.
-        async for line in container.log(stdout=True, stderr=True, follow=True):
-            print(line, end="")
+
+        async def tail_log() -> None:
+            # 1. Docker appears to have an objection to having a log driver that can
+            # produce plain text files (https://github.com/moby/moby/issues/17020) so we
+            # implement that in a hacky way here.
+            # TODO figure out overall strategy for
+            # logging, maybe eventually implement our own plain text/whatever log driver
+            #  for docker.
+            async for line in container.log(stdout=True, stderr=True, follow=True):
+                print(f"Task worker: {line}", end="")
+
+        tail_log_task = asyncio.create_task(tail_log())
+
+        if job_spec_type == "py_agent":
+            # run the agent function. The agent function connects to another
+            # process, the task worker, which runs the actual user function.
+            assert job_spec_transformed.server is not None
+            agent_func = pickle.loads(job.py_agent.pickled_agent_function)
+            agent_func_args, agent_func_kwargs = pickle.loads(
+                job.py_agent.pickled_agent_function_arguments
+            )
+            await agent_func(
+                *agent_func_args,
+                worker_server=job_spec_transformed.server,
+                **agent_func_kwargs,
+            )
+            await job_spec_transformed.server.close()
+            await container.stop()
 
         wait_result = await container.wait()
+        await tail_log_task
+
         # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
         # can get the return code from the result
         return_code = wait_result["StatusCode"]
 
         return _completed_job_state(
             job_spec_type,
-            job_id,
+            job.job_id,
             io_folder,
             log_file_name,
             return_code,
@@ -642,7 +742,7 @@ async def _container_job_continuation(
         # there was an exception while trying to get the final ProcessState
         return ProcessState(
             state=ProcessStateEnum.ERROR_GETTING_STATE,
-            pickled_result=pickle_exception(e, result_highest_pickle_protocol),
+            pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
         )
     finally:
         try:
@@ -656,7 +756,7 @@ async def _container_job_continuation(
 
 
 def _completed_job_state(
-    job_spec_type: Literal["py_command", "py_function"],
+    job_spec_type: JobSpecType,
     job_id: str,
     io_folder: str,
     log_file_name: str,
@@ -682,8 +782,8 @@ def _completed_job_state(
 
     # if we returned normally
 
-    # for py_funcs, get the state
-    if job_spec_type == "py_function":
+    # for py_funcs or py_agents, get the state
+    if job_spec_type in ["py_function", "py_agent"]:
         state_file = os.path.join(io_folder, job_id + ".state")
         with open(state_file, "r", encoding="utf-8") as state_file_text_reader:
             state_string = state_file_text_reader.read()
@@ -889,6 +989,55 @@ async def _get_credentials_for_job(
     )
 
 
+class AgentTaskWorkerServer:
+    def __init__(self) -> None:
+        self.server: Optional[asyncio.Server] = None
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
+        self.have_connection: asyncio.Event = asyncio.Event()
+        self.port: Optional[int] = None
+
+    async def start_serving(
+        self,
+        host: str,
+    ) -> None:
+        server = await asyncio.start_server(self._handle_connection, host, 0)
+        (socket,) = server.sockets
+        self.port = socket.getsockname()[1]
+
+    async def _handle_connection(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        self.reader = reader
+        self.writer = writer
+        self.have_connection.set()
+
+    async def wait_for_task_worker_connection(
+        self, timeout: float = 30
+    ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        await asyncio.wait_for(self.have_connection.wait(), timeout=timeout)
+        assert self.reader is not None
+        assert self.writer is not None
+        return self.reader, self.writer
+
+    async def close(self) -> None:
+        if self.writer:
+            self.writer.close()
+            await self.writer.wait_closed()
+            self.have_connection.clear()
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
+
+
+async def agent_start_serving(
+    host: str,
+) -> AgentTaskWorkerServer:
+    server = AgentTaskWorkerServer()
+    await server.start_serving(host)
+    return server
+
+
 async def run_local(
     job: Job,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
@@ -1005,6 +1154,8 @@ async def run_local(
             job_spec_transformed = _prepare_py_command(job, io_folder, is_container)
         elif job_spec_type == "py_function":
             job_spec_transformed = _prepare_py_function(job, io_folder, is_container)
+        elif job_spec_type == "py_agent":
+            job_spec_transformed = await _prepare_py_agent(job, io_folder, is_container)
         else:
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 

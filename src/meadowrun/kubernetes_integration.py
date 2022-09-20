@@ -282,7 +282,7 @@ def _get_job_completion_from_process_state(
     storage_bucket: str,
     file_prefix: str,
     file_suffix: str,
-    job_spec_type: Literal["py_command", "py_function"],
+    job_spec_type: Literal["py_command", "py_function", "py_agent"],
     return_code: int,
 ) -> JobCompletion[Any]:
     """

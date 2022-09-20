@@ -1,4 +1,6 @@
+import sys
 import time
+from typing import Any
 
 
 def example_runner(arg: str) -> str:
@@ -16,6 +18,14 @@ def example_function(arg1: str, arg2: int, *, kw_arg1: float, kw_arg2: str) -> s
 
 
 def example_function_raises(
-    arg1: str,
-) -> str:
+    arg1: Any,
+) -> Any:
     raise (Exception(arg1))
+
+
+def tetration(x: float) -> float:
+    return x**x
+
+
+def crash(_: Any) -> None:
+    sys.exit(123)

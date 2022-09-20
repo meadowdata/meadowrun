@@ -5,13 +5,13 @@ import itertools
 import json
 import os
 import pickle
+import struct
 import time
 import traceback
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Callable,
     Iterable,
     List,
     Optional,
@@ -20,7 +20,7 @@ from typing import (
     TypeVar,
 )
 
-import boto3
+import aiobotocore.session
 
 from meadowrun.aws_integration import s3
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
@@ -28,19 +28,18 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG_VALUE,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.shared import pickle_exception
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_sqs.client import SQSClient
+    from meadowrun.run_job_local import AgentTaskWorkerServer
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-"
 
 _T = TypeVar("_T")
-_U = TypeVar("_U")
 
 
-async def _create_request_queue(job_id: str, sqs: SQSClient) -> str:
+async def create_request_queue(job_id: str, sqs: SQSClient) -> str:
     """
     See create_queues_and_add_tasks
 
@@ -88,7 +87,7 @@ MESSAGE_PREFIX_TASK = "task"
 MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
 
 
-async def _add_tasks(
+async def add_tasks(
     job_id: str,
     request_queue_url: str,
     s3c: S3Client,
@@ -108,7 +107,7 @@ async def _add_tasks(
     range_from = 0
     ranges = []
     for i, arg in enumerate(run_map_args):
-        arg_pkl = pickle.dumps(arg)
+        arg_pkl = pickle.dumps(((arg,), {}))
         pickles.extend(arg_pkl)
         range_to = len(pickles) - 1
         grid_tasks.append(
@@ -167,7 +166,7 @@ async def retry_task(
     await sqs_client.send_message(QueueUrl=request_queue_url, MessageBody=task)
 
 
-async def _add_worker_shutdown_messages(
+async def add_worker_shutdown_messages(
     request_queue_url: str,
     num_messages_to_send: int,
     sqs_client: SQSClient,
@@ -197,7 +196,9 @@ async def _add_worker_shutdown_messages(
 _GET_TASK_TIMEOUT_SECONDS = 60 * 2  # 2 minutes
 
 
-def _get_task(
+async def _get_task(
+    sqs: SQSClient,
+    s3c: S3Client,
     request_queue_url: str,
     job_id: str,
     region_name: str,
@@ -210,7 +211,7 @@ def _get_task(
     Returns a tuple of task_id and pickled argument if there was a task, otherwise
     returns None. Waits receive_message_wait_seconds for a task.
     """
-    sqs = boto3.client("sqs", region_name=region_name)
+    # sqs = boto3.client("sqs", region_name=region_name)
 
     # get the task message
     t0 = time.time()
@@ -222,7 +223,7 @@ def _get_task(
                 " sent a shutdown message or a SIGINT explicitly"
             )
 
-        result = sqs.receive_message(
+        result = await sqs.receive_message(
             QueueUrl=request_queue_url, WaitTimeSeconds=receive_message_wait_seconds
         )
 
@@ -242,21 +243,23 @@ def _get_task(
             task["range_from"],
             task["range_end"],
         )
-        arg = s3.download(_s3_args_key(job_id), region_name, (range_from, range_end))
+        _, arg = await s3.download_async(
+            _s3_args_key(job_id), region_name, s3c, (range_from, range_end)
+        )
 
         # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
 
         # acknowledge receipt/delete the task request message so we don't have duplicate
         # tasks running
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_message
-        sqs.delete_message(
+        await sqs.delete_message(
             QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
         )
 
         return task_id, attempt, arg
 
     # it's a worker exit message, so return None to exit
-    sqs.delete_message(
+    await sqs.delete_message(
         QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
     )
     return None
@@ -279,7 +282,8 @@ def _s3_result_key_to_task_id_attempt(key: str, results_prefix: str) -> Tuple[in
     return int(task_id), int(attempt)
 
 
-def _complete_task(
+async def _complete_task(
+    s3c: S3Client,
     job_id: str,
     region_name: str,
     task_id: int,
@@ -289,71 +293,127 @@ def _complete_task(
     """Uploads the result of the task to S3."""
 
     process_state_bytes = process_state.SerializeToString()
-    s3.upload(
-        _s3_results_key(job_id, task_id, attempt), process_state_bytes, region_name
+    await s3.upload_async(
+        _s3_results_key(job_id, task_id, attempt), process_state_bytes, region_name, s3c
     )
 
 
-def worker_function(
-    function: Callable[[Any], Any],
+async def _send_message(writer: asyncio.StreamWriter, bs: bytes) -> None:
+    msg_len = struct.pack(">i", len(bs))
+    writer.write(msg_len)
+    writer.write(bs)
+    await writer.drain()
+
+
+async def _receive_message(reader: asyncio.StreamReader) -> Any:
+    (result_len,) = struct.unpack(">i", await reader.read(4))
+    result_bs = await reader.read(result_len)
+    return pickle.loads(result_bs)
+
+
+async def _worker_iteration(
+    sqs: SQSClient,
+    s3c: S3Client,
     request_queue_url: str,
     job_id: str,
     region_name: str,
-    public_address: str,
     log_file_name: str,
-) -> None:
-    """
-    Runs a loop that gets tasks off of the request_queue, calls function on the
-    arguments of the task, and uploads the results to S3.
-    """
-    pid = os.getpid()
-    log_file_name = f"{public_address}:{log_file_name}"
+    pid: int,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+) -> bool:
+    task = await _get_task(
+        sqs,
+        s3c,
+        request_queue_url,
+        job_id,
+        region_name,
+        3,
+    )
+    if not task:
+        print("Meadowrun agent: Received shutdown message. Exiting.")
+        return False
 
-    while True:
-        task = _get_task(
-            request_queue_url,
-            job_id,
-            region_name,
-            3,
+    task_id, attempt, arg = task
+    cont = True
+    print(f"Meadowrun agent: About to execute task #{task_id}, attempt #{attempt}")
+    try:
+        await _send_message(writer, arg)
+
+        state, result = await _receive_message(reader)
+
+        process_state = ProcessState(
+            state=ProcessState.ProcessStateEnum.SUCCEEDED
+            if state == "SUCCEEDED"
+            else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+            pid=pid,
+            pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
+            return_code=0,
+            log_file_name=log_file_name,
         )
-        if not task:
-            break
-
-        task_id, attempt, arg = task
-        print(f"Meadowrun agent: About to execute task #{task_id}, attempt #{attempt}")
-        try:
-            result = function(pickle.loads(arg))
-        except Exception as e:
-            traceback.print_exc()
-
-            process_state = ProcessState(
-                state=ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-                pid=pid,
-                pickled_result=pickle_exception(e, pickle.HIGHEST_PROTOCOL),
-                return_code=0,
-                log_file_name=log_file_name,
-            )
-        else:
-            process_state = ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pid=pid,
-                pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
-                return_code=0,
-                log_file_name=log_file_name,
-            )
 
         print(
             f"Meadowrun agent: Completed task #{task_id}, attempt #{attempt}, "
             f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
         )
+    except Exception:
+        print(
+            f"Meadowrun agent: Unexpected task worker exit #{task_id}, attempt "
+            f"#{attempt}: {traceback.format_exc()}"
+        )
 
-        _complete_task(
+        process_state = ProcessState(
+            state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
+            pid=pid,
+            return_code=0,
+            log_file_name=log_file_name,
+        )
+
+        cont = False
+
+    await _complete_task(
+        s3c,
+        job_id,
+        region_name,
+        task_id,
+        attempt,
+        process_state,
+    )
+
+    return cont
+
+
+async def worker_function(
+    request_queue_url: str,
+    job_id: str,
+    region_name: str,
+    public_address: str,
+    log_file_name: str,
+    worker_server: AgentTaskWorkerServer,
+) -> None:
+    """
+    Runs a loop that gets tasks off of the request_queue, communicates that via reader
+    and writer to the task worker, and uploads the results to S3.
+    """
+    pid = os.getpid()
+    log_file_name = f"{public_address}:{log_file_name}"
+    session = aiobotocore.session.get_session()
+    async with session.create_client(
+        "sqs", region_name=region_name
+    ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
+        reader, writer = await worker_server.wait_for_task_worker_connection()
+        while await _worker_iteration(
+            sqs,
+            s3c,
+            request_queue_url,
             job_id,
             region_name,
-            task_id,
-            attempt,
-            process_state,
-        )
+            log_file_name,
+            pid,
+            reader,
+            writer,
+        ):
+            pass
 
 
 async def receive_results(
@@ -389,15 +449,16 @@ async def receive_results(
     download_keys_received: Set[str] = set()
     wait = 4  # it's rare for any results to be ready in <4 seconds
     workers_exited_wait_count = 0
-    while not stop_receiving.is_set() and (workers_exited_wait_count < 3 or wait == 0):
-
+    while not stop_receiving.is_set() and workers_exited_wait_count < 3:
         if all_workers_exited.is_set():
             workers_exited_wait_count += 1
 
         if wait:
-            events_to_wait_for = [stop_receiving.wait()]
+            events_to_wait_for = [asyncio.create_task(stop_receiving.wait())]
             if workers_exited_wait_count == 0:
-                events_to_wait_for.append(all_workers_exited.wait())
+                events_to_wait_for.append(
+                    asyncio.create_task(all_workers_exited.wait())
+                )
             else:
                 # poll more frequently if workers are done, but still wait 1 second
                 # (unless stop_receiving is set)

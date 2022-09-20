@@ -11,7 +11,6 @@ import traceback
 from typing import (
     Any,
     AsyncIterable,
-    Callable,
     Iterable,
     List,
     Optional,
@@ -185,11 +184,12 @@ async def _complete_task(
 
 
 async def worker_function_async(
-    function: Callable[[Any], Any],
     request_queue: Queue,
     result_queue: Queue,
     public_address: str,
     log_file_name: str,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
 ) -> None:
     pid = os.getpid()
     log_file_name = f"{public_address}:{log_file_name}"
@@ -230,20 +230,6 @@ async def worker_function_async(
             f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
         )
         await _complete_task(result_queue, task, process_state)
-
-
-def worker_function(
-    function: Callable[[Any], Any],
-    request_queue: Queue,
-    result_queue: Queue,
-    public_address: str,
-    log_file_name: str,
-) -> None:
-    asyncio.run(
-        worker_function_async(
-            function, request_queue, result_queue, public_address, log_file_name
-        )
-    )
 
 
 async def get_results_unordered(

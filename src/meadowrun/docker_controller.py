@@ -24,6 +24,7 @@ Normal usage is e.g. `docker pull [repository]:[tag]` or `docker pull
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import hashlib
 import io
 import json
@@ -36,6 +37,8 @@ from meadowrun._vendor import aiodocker
 
 if TYPE_CHECKING:
     from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+    from ipaddress import IPv4Address
+
 from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
 
 import aiohttp
@@ -404,6 +407,13 @@ def expand_ports(ports: Iterable[str]) -> Iterable[str]:
             yield port
 
 
+@dataclasses.dataclass(frozen=True)
+class ContainerPort:
+    host_address: IPv4Address
+    host_port: int
+    container_port: int
+
+
 async def run_container(
     client: Optional[aiodocker.Docker],
     image: str,
@@ -414,6 +424,7 @@ async def run_container(
     ports: List[str],
     extra_hosts: List[Tuple[str, str]],
     all_gpus: bool,
+    worker_port: Optional[ContainerPort] = None,
 ) -> Tuple[aiodocker_containers.DockerContainer, aiodocker.Docker]:
     """
     Runs a docker container. Examples of parameters:
@@ -482,6 +493,17 @@ async def run_container(
             f"{port}/tcp": [{"HostPort": port}] for port in expanded_ports
         }
         config["ExposedPorts"] = {f"{port}/tcp": {} for port in expanded_ports}
+
+    if worker_port is not None:
+        config["HostConfig"].setdefault("PortBindings", {})[
+            f"{worker_port.container_port}/tcp"
+        ] = [
+            {
+                "HostIp": str(worker_port.host_address),
+                "HostPort": str(worker_port.host_port),
+            }
+        ]
+        config.setdefault("ExposedPorts", {})[f"{worker_port.container_port}/tcp"] = {}
 
     if all_gpus:
         # it would be convenient if we could just always set this, but setting this when

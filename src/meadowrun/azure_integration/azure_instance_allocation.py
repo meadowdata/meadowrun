@@ -10,6 +10,7 @@ from typing import (
     Any,
     AsyncIterable,
     Callable,
+    Coroutine,
     Generic,
     Iterable,
     List,
@@ -35,7 +36,7 @@ from meadowrun.azure_integration.grid_tasks_queue import (
     _create_queues_for_job,
     _retry_task,
     get_results_unordered,
-    worker_function,
+    worker_function_async,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
@@ -82,6 +83,7 @@ if TYPE_CHECKING:
     from typing_extensions import Literal
     from types import TracebackType
     from meadowrun.meadowrun_pb2 import Job, ProcessState
+    from meadowrun.run_job_local import AgentTaskWorkerServer
 
 
 _T = TypeVar("_T")
@@ -586,8 +588,8 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         )
 
     async def get_worker_function(
-        self, user_function: Callable[[_T], _U]
-    ) -> Callable[[str, str], None]:
+        self,
+    ) -> Callable[[str, str, AgentTaskWorkerServer], Coroutine[Any, Any, None]]:
         if self._request_result_queues is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling get_worker_function"
@@ -596,8 +598,8 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         request_queue, result_queue = await self._request_result_queues
 
         return functools.partial(
-            worker_function,
-            user_function,
+            worker_function_async,
+            # user_function,
             request_queue,
             result_queue,
         )

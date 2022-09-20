@@ -23,6 +23,7 @@ from typing import (
     AsyncIterable,
     Awaitable,
     Callable,
+    Coroutine,
     Dict,
     Generic,
     Iterable,
@@ -44,11 +45,12 @@ from typing_extensions import Literal
 import meadowrun.ssh as ssh
 from meadowrun.instance_allocation import allocate_jobs_to_instances, InstanceRegistrar
 from meadowrun.instance_selection import ResourcesInternal
-from meadowrun.meadowrun_pb2 import Job, ProcessState, PyFunctionJob
+from meadowrun.meadowrun_pb2 import Job, ProcessState, PyAgentJob
 from meadowrun.shared import unpickle_exception
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
+    from meadowrun.run_job_local import AgentTaskWorkerServer
     from types import TracebackType
 
 
@@ -484,9 +486,10 @@ class SshHost(Host):
                 try:
                     # -f so that we don't throw an error on files that don't
                     # exist
-                    await ssh.run_and_capture(
-                        connection, f"rm -f {remote_paths}", check=True
-                    )
+                    # await ssh.run_and_capture(
+                    #     connection, f"rm -f {remote_paths}", check=True
+                    # )
+                    pass
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -606,6 +609,36 @@ class TaskResult(Generic[_T]):
     exception: Optional[Tuple[str, str, str]] = None
     attempt: int = 1
     log_file_name: str = ""
+
+    @staticmethod
+    def from_process_state(
+        task_id: int, attempt: int, result: ProcessState
+    ) -> TaskResult:
+        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+            # TODO try/catch on pickle.loads?
+            return TaskResult(
+                task_id,
+                is_success=True,
+                result=pickle.loads(result.pickled_result),
+                attempt=attempt,
+                log_file_name=result.log_file_name,
+            )
+        elif result.state in _EXCEPTION_STATES:
+            exception = unpickle_exception(result.pickled_result)
+            return TaskResult(
+                task_id,
+                is_success=False,
+                exception=exception,
+                attempt=attempt,
+                log_file_name=result.log_file_name,
+            )
+        else:
+            return TaskResult(
+                task_id,
+                is_success=False,
+                attempt=attempt,
+                log_file_name=result.log_file_name,
+            )
 
     def result_or_raise(self) -> _T:
         """Returns a successful task result, or raises a TaskException.
@@ -833,12 +866,12 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
 
     @abc.abstractmethod
     async def get_worker_function(
-        self, user_function: Callable[[_T], _U]
-    ) -> Callable[[str, str], None]:
+        self,
+    ) -> Callable[[str, str, AgentTaskWorkerServer], Coroutine[Any, Any, None]]:
         """
-        Returns a function that will poll/wait for tasks, call user_function on each
-        task, and return results. The returned function will also exit in response to
-        shutdown_workers.
+        Returns a function that will poll/wait for tasks, and communicate to task worker
+        via the given streamreader and -writer. The returned function will also exit in
+        response to shutdown_workers.
         """
         ...
 
@@ -926,7 +959,7 @@ class GridJobDriver:
             # instances before setup_and_add_tasks is complete.
             async def _get_pickled_worker_function() -> bytes:
                 return cloudpickle.dumps(
-                    await self._cloud_interface.get_worker_function(user_function),
+                    await self._cloud_interface.get_worker_function(),
                     protocol=pickle_protocol,
                 )
 
@@ -946,9 +979,12 @@ class GridJobDriver:
 
                 job = Job(
                     job_id=inner_worker_job_id,
-                    py_function=PyFunctionJob(
-                        pickled_function=await pickled_worker_function_task,
-                        pickled_function_arguments=pickle.dumps(
+                    py_agent=PyAgentJob(
+                        pickled_function=cloudpickle.dumps(
+                            user_function, protocol=pickle_protocol
+                        ),
+                        pickled_agent_function=await pickled_worker_function_task,
+                        pickled_agent_function_arguments=pickle.dumps(
                             ([inner_ssh_host.address, log_file_name], {}),
                             protocol=pickle_protocol,
                         ),
@@ -1155,44 +1191,20 @@ class GridJobDriver:
             stop_receiving=stop_receiving, workers_done=self._no_workers_available
         ):
             for task_id, attempt, result in batch:
-                if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+                task_result = TaskResult.from_process_state(task_id, attempt, result)
+                if task_result.is_success:
                     num_tasks_done += 1
-                    # TODO try/catch on pickle.loads?
-                    yield TaskResult(
-                        task_id,
-                        is_success=True,
-                        result=pickle.loads(result.pickled_result),
-                        attempt=attempt,
-                        log_file_name=result.log_file_name,
-                    )
+                    yield task_result
+                elif attempt < max_num_task_attempts:
+                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
+                    await self._cloud_interface.retry_task(task_id, attempt)
                 else:
-                    if result.state in _EXCEPTION_STATES:
-                        exception = unpickle_exception(result.pickled_result)
-                        task_result: TaskResult = TaskResult(
-                            task_id,
-                            is_success=False,
-                            exception=exception,
-                            attempt=attempt,
-                            log_file_name=result.log_file_name,
-                        )
-                    else:
-                        task_result = TaskResult(
-                            task_id,
-                            is_success=False,
-                            attempt=attempt,
-                            log_file_name=result.log_file_name,
-                        )
-
-                    if attempt < max_num_task_attempts:
-                        print(f"Task {task_id} failed at attempt {attempt}, retrying.")
-                        await self._cloud_interface.retry_task(task_id, attempt)
-                    else:
-                        print(
-                            f"Task {task_id} failed at attempt {attempt}, "
-                            f"max attempts is {max_num_task_attempts}, not retrying."
-                        )
-                        num_tasks_done += 1
-                        yield task_result
+                    print(
+                        f"Task {task_id} failed at attempt {attempt}, "
+                        f"max attempts is {max_num_task_attempts}, not retrying."
+                    )
+                    num_tasks_done += 1
+                    yield task_result
 
             if num_tasks_done >= len(args):
                 stop_receiving.set()

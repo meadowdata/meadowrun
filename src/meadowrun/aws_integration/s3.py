@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
 import boto3.exceptions
@@ -19,6 +19,9 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 from meadowrun.run_job_core import S3CompatibleObjectStorage
+
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
 
 BUCKET_PREFIX = "meadowrun"
 
@@ -170,28 +173,38 @@ async def list_objects_async(
     return results
 
 
-def download(
-    object_name: str, region_name: str, byte_range: Optional[Tuple[int, int]] = None
-) -> bytes:
-    s3 = boto3.client("s3", region_name=region_name)
+# def download(
+#     object_name: str, region_name: str, byte_range: Optional[Tuple[int, int]] = None
+# ) -> bytes:
+#     s3 = boto3.client("s3", region_name=region_name)
+#     bucket_name = _get_bucket_name(region_name)
+#     if byte_range is None:
+#         response = s3.get_object(Bucket=bucket_name, Key=object_name)
+#     else:
+#         response = s3.get_object(
+#             Bucket=bucket_name,
+#             Key=object_name,
+#             Range=f"bytes={byte_range[0]}-{byte_range[1]}",
+#         )
+#     with response["Body"] as stream:
+#         return stream.read()
+
+
+async def download_async(
+    object_name: str,
+    region_name: str,
+    s3c: S3Client,
+    byte_range: Optional[Tuple[int, int]] = None,
+) -> Tuple[str, bytes]:
     bucket_name = _get_bucket_name(region_name)
     if byte_range is None:
-        response = s3.get_object(Bucket=bucket_name, Key=object_name)
+        response = await s3c.get_object(Bucket=bucket_name, Key=object_name)
     else:
-        response = s3.get_object(
+        response = await s3c.get_object(
             Bucket=bucket_name,
             Key=object_name,
             Range=f"bytes={byte_range[0]}-{byte_range[1]}",
         )
-    with response["Body"] as stream:
-        return stream.read()
-
-
-async def download_async(
-    object_name: str, region_name: str, s3_client: Any
-) -> Tuple[str, bytes]:
-    bucket_name = _get_bucket_name(region_name)
-    response = await s3_client.get_object(Bucket=bucket_name, Key=object_name)
     async with response["Body"] as stream:
         return object_name, await stream.read()
 

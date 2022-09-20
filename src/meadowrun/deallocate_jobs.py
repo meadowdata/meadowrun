@@ -24,21 +24,20 @@ from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceR
 if TYPE_CHECKING:
     from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.run_job_core import CloudProvider, CloudProviderType
-from meadowrun.run_job_local import _get_default_working_folder
 
 # If a job is allocated but we never see a pid file for it, we assume after this amount
 # of time that the client process crashed
 _ALLOCATED_BUT_NOT_RUNNING_TIMEOUT = datetime.timedelta(minutes=7)
 
 
-def _try_read_pid_file(working_folder: str, job_id: str) -> Optional[int]:
+def _try_read_pid_file(job_id: str) -> Optional[int]:
     """
     Tries to get the pid file that run_one_job_main.py will create for a particular
     job_id. If the pid file does not exist or does not contain a valid integer, returns
     None.
     """
     try:
-        f = open(f"{working_folder}/io/{job_id}.pid", "r", encoding="utf-8")
+        f = open(f"/var/meadowrun/io/{job_id}.pid", "r", encoding="utf-8")
     except FileNotFoundError:
         return None
 
@@ -59,7 +58,6 @@ def _try_read_pid_file(working_folder: str, job_id: str) -> Optional[int]:
 async def async_main(
     cloud: CloudProviderType,
     cloud_region_name: str,
-    working_folder: Optional[str],
     job_id: Optional[str],
     allocated_but_not_running_timeout: datetime.timedelta,
 ) -> None:
@@ -71,9 +69,6 @@ async def async_main(
     we only check whether we need to deallocate the specified job.
     """
     now = datetime.datetime.utcnow()
-
-    if not working_folder:
-        working_folder = _get_default_working_folder()
 
     if cloud == "EC2":
         instance_name = await _get_ec2_metadata("instance-id")
@@ -116,7 +111,7 @@ async def async_main(
             jobs_to_deallocate = registered_instance.get_running_jobs().items()
 
         for job_id, job in jobs_to_deallocate:
-            pid = _try_read_pid_file(working_folder, job_id)
+            pid = _try_read_pid_file(job_id)
             if pid is not None:
                 if not psutil.pid_exists(pid):
                     print(
@@ -153,7 +148,6 @@ async def async_main(
 def main(
     cloud: CloudProviderType,
     cloud_region_name: str,
-    working_folder: Optional[str],
     job_id: Optional[str],
     allocated_but_not_running_timeout: datetime.timedelta,
 ) -> None:
@@ -161,7 +155,6 @@ def main(
         async_main(
             cloud,
             cloud_region_name,
-            working_folder,
             job_id,
             allocated_but_not_running_timeout,
         )
@@ -174,7 +167,6 @@ def command_line_main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cloud", required=True, choices=CloudProvider)
     parser.add_argument("--cloud-region-name", required=True)
-    parser.add_argument("--working-folder")
     parser.add_argument("--job-id")
     parser.add_argument("--allocated-but-not-running-timeout-seconds", type=int)
     args = parser.parse_args()
@@ -189,7 +181,6 @@ def command_line_main() -> None:
     main(
         args.cloud,
         args.cloud_region_name,
-        args.working_folder,
         args.job_id,
         allocated_but_not_running_timeout,
     )

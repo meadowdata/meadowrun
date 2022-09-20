@@ -721,28 +721,14 @@ def _completed_job_state(
     )
 
 
-def _get_default_working_folder() -> str:
-    # figure out the default working_folder based on the OS
-    if os.name == "nt":
-        return os.path.join(os.environ["USERPROFILE"], "meadowrun")
-    elif os.name == "posix":
-        return os.path.join(os.environ["HOME"], "meadowrun")
-    else:
-        raise ValueError(f"Unexpected os.name {os.name}")
-
-
-def _set_up_working_folder(
-    working_folder: Optional[str],
-) -> Tuple[str, str, str, str, str]:
+def _set_up_working_folder() -> Tuple[str, str, str, str, str]:
     """
     Sets the working_folder to a default if it's not set, creates the necessary
     subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
     job_logs_folder, git_repos_folder, local_copies_folder
     """
 
-    if not working_folder:
-        working_folder = _get_default_working_folder()
-        os.makedirs(working_folder, exist_ok=True)
+    working_folder = "/var/meadowrun"
 
     # first, create the directories that we need
 
@@ -757,12 +743,6 @@ def _set_up_working_folder(
     local_copies_folder = os.path.join(working_folder, "local_copies")
     # misc folder for e.g. storing environment export files sent from local machine
     misc_folder = os.path.join(working_folder, "misc")
-
-    os.makedirs(io_folder, exist_ok=True)
-    os.makedirs(job_logs_folder, exist_ok=True)
-    os.makedirs(git_repos_folder, exist_ok=True)
-    os.makedirs(local_copies_folder, exist_ok=True)
-    os.makedirs(misc_folder, exist_ok=True)
 
     return (
         io_folder,
@@ -911,7 +891,6 @@ async def _get_credentials_for_job(
 
 async def run_local(
     job: Job,
-    working_folder: Optional[str] = None,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
     compile_environment_in_container: bool = True,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
@@ -945,7 +924,7 @@ async def run_local(
         git_repos_folder,
         local_copies_folder,
         misc_folder,
-    ) = _set_up_working_folder(working_folder)
+    ) = _set_up_working_folder()
 
     # the logging actually happens via stdout redirection in the run_job_local_main
     # caller

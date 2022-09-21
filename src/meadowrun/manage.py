@@ -118,14 +118,16 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             "manually edit the Meadowrun security group to grant access for users."
         ),
     )
-    install_parser.add_argument(
-        "--vpc-id",
-        type=str,
-        help=(
-            "An optional argument to specify which VPC to set up the "
-            "meadowrun_ssh_security_group in"
-        ),
-    )
+    if cloud_provider == "EC2":
+        install_parser.add_argument(
+            "--vpc-id",
+            type=str,
+            help=(
+                "An optional argument to specify which VPC to set up the "
+                "meadowrun_ssh_security_group in"
+            ),
+        )
+        aws.add_management_lambda_override_arguments(install_parser)
 
     subparsers.add_parser(
         "uninstall",
@@ -164,6 +166,17 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             "repo_name", help="The name of the repo to give permissions to"
         )
 
+        edit_management_lambda_config_parser = subparsers.add_parser(
+            "edit-management-lambda-config",
+            help=(
+                "Edits configuration for the management lambdas which are responsible "
+                "for cleaning up resources that are no longer in use"
+            ),
+        )
+        aws.add_management_lambda_override_arguments(
+            edit_management_lambda_config_parser
+        )
+
     get_ssh_key_parser = subparsers.add_parser(
         "get-ssh-key",
         help="Downloads the SSH key used to connect meadowrun-launched "
@@ -189,12 +202,32 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     if args.command == "install":
         print("Creating resources for running meadowrun")
         if cloud_provider == "EC2":
-            await aws.install(region_name, args.allow_authorize_ips, args.vpc_id)
+            await aws.install(
+                region_name,
+                args.allow_authorize_ips,
+                args.vpc_id,
+                aws.get_management_lambda_overrides_from_args(args),
+            )
         elif cloud_provider == "AzureVM":
             await azure.install(region_name)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(f"Created resources in {time.perf_counter() - t0:.2f} seconds")
+    elif args.command == "edit-management-lambda-config":
+        print("Editing management lambda config")
+        if cloud_provider == "EC2":
+            await aws.edit_management_lambda_config(
+                aws.get_management_lambda_overrides_from_args(args)
+            )
+        elif cloud_provider == "AzureVM":
+            raise NotImplementedError(
+                "Editing the management lambda config is not yet supported for Azure"
+            )
+        else:
+            raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
+        print(
+            f"Edited management lambda config in {time.perf_counter() - t0:.2f} seconds"
+        )
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")
         if cloud_provider == "EC2":

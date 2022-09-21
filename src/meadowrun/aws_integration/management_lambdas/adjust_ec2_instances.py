@@ -17,10 +17,15 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
+from meadowrun.aws_integration.management_lambdas.config import (
+    TERMINATE_INSTANCES_IF_IDLE_FOR_SECS,
+)
 
 
-# Terminate instances if they haven't run any jobs in the last 5 minutes
-_TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(minutes=5)
+# Terminate instances if they haven't run any jobs recently
+_TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(
+    seconds=TERMINATE_INSTANCES_IF_IDLE_FOR_SECS
+)
 # If we see instances running that aren't registered, we assume there is something wrong
 # and they need to be terminated. However, it's possible that we happen to query between
 # when an instance is launched and when it's registered. So for the first 30 seconds

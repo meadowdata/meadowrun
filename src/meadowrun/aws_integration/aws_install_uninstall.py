@@ -1,4 +1,5 @@
-from typing import Any, Optional
+import argparse
+from typing import Any, Optional, Dict
 import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
@@ -50,8 +51,25 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 from meadowrun.aws_integration.s3 import ensure_bucket
 
 
+def add_management_lambda_override_arguments(parser: argparse.ArgumentParser) -> None:
+    """Modifies parser in place!"""
+    parser.add_argument("--terminate-instances-if-idle-for-secs")
+
+
+def get_management_lambda_overrides_from_args(args: Any) -> Dict[str, str]:
+    overrides = {}
+    if args.terminate_instances_if_idle_for_secs:
+        overrides[
+            "TERMINATE_INSTANCES_IF_IDLE_FOR_SECS"
+        ] = args.terminate_instances_if_idle_for_secs
+    return overrides
+
+
 async def install(
-    region_name: str, allow_authorize_ips: bool, vpc_id: Optional[str]
+    region_name: str,
+    allow_authorize_ips: bool,
+    vpc_id: Optional[str],
+    management_lambda_overrides: Dict[str, str],
 ) -> None:
     """Installs resources needed to run Meadowrun jobs"""
 
@@ -74,14 +92,19 @@ async def install(
 
     ensure_ec2_alloc_table(region_name)
 
-    await ensure_ec2_alloc_lambda(True)
-    await ensure_clean_up_lambda(True)
+    await ensure_ec2_alloc_lambda(True, management_lambda_overrides)
+    await ensure_clean_up_lambda(True, management_lambda_overrides)
 
     ensure_meadowrun_key_pair(region_name)
 
     ensure_bucket(region_name)
 
     _ensure_repository(_MEADOWRUN_GENERATED_DOCKER_REPO, region_name)
+
+
+async def edit_management_lambda_config(overrides: Dict[str, str]) -> None:
+    await ensure_ec2_alloc_lambda(True, overrides)
+    await ensure_clean_up_lambda(True, overrides)
 
 
 def _delete_user_group(iam: Any, group_name: str) -> None:

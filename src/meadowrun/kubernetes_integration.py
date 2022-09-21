@@ -788,7 +788,7 @@ class Kubernetes(Host):
             # version in environment_spec
             image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
             # uncomment this for development
-            image_name = f"meadowrun/meadowrun-dev:py{python_version}"
+            # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
 
             try:
                 return_codes = await _run_kubernetes_job(

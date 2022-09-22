@@ -242,6 +242,8 @@ async def test_get_ec2_instance_types() -> None:
 
 
 class TestGridSQSQueue:
+    # These tests are a mess as they re-implement aspect of the grid job driver.
+
     @pytest.mark.asyncio
     async def test_receive_results_happy_path(self) -> None:
         """

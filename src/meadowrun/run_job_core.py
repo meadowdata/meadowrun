@@ -486,9 +486,9 @@ class SshHost(Host):
                 try:
                     # -f so that we don't throw an error on files that don't
                     # exist
-                    # await ssh.run_and_capture(
-                    #     connection, f"rm -f {remote_paths}", check=True
-                    # )
+                    await ssh.run_and_capture(
+                        connection, f"rm -f {remote_paths}", check=True
+                    )
                     pass
                 except asyncio.CancelledError:
                     raise
@@ -605,6 +605,7 @@ class TaskResult(Generic[_T]):
 
     task_id: int
     is_success: bool
+    state: str
     result: Optional[_T] = None
     exception: Optional[Tuple[str, str, str]] = None
     attempt: int = 1
@@ -619,6 +620,7 @@ class TaskResult(Generic[_T]):
             return TaskResult(
                 task_id,
                 is_success=True,
+                state=ProcessState.ProcessStateEnum.Name(result.state),
                 result=pickle.loads(result.pickled_result),
                 attempt=attempt,
                 log_file_name=result.log_file_name,
@@ -628,6 +630,7 @@ class TaskResult(Generic[_T]):
             return TaskResult(
                 task_id,
                 is_success=False,
+                state=ProcessState.ProcessStateEnum.Name(result.state),
                 exception=exception,
                 attempt=attempt,
                 log_file_name=result.log_file_name,
@@ -636,6 +639,7 @@ class TaskResult(Generic[_T]):
             return TaskResult(
                 task_id,
                 is_success=False,
+                state=ProcessState.ProcessStateEnum.Name(result.state),
                 attempt=attempt,
                 log_file_name=result.log_file_name,
             )
@@ -656,7 +660,7 @@ class TaskResult(Generic[_T]):
             raise TaskException(*self.exception)
         else:
             # fallback exception
-            raise TaskException("Task was not successful")
+            raise TaskException(f"Task was not successful, state: {self.state}")
 
 
 _EXCEPTION_STATES = (
@@ -685,6 +689,7 @@ class RunMapTasksFailedException(Exception):
             failed_task_message.append(
                 f"Task #{task.task_id} with arg ({arg}) on "
                 f"attempt {task.attempt} failed, log file is {task.log_file_name}, "
+                f"final state: {task.state}, "
                 f"exception was:\n"
             )
             if task.exception is not None:

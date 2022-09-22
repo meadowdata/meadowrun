@@ -22,6 +22,8 @@ from meadowrun.deployment_manager import _get_zip_file_code_paths
 from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
+)
+from meadowrun.s3_grid_job import (
     get_storage_client_from_args,
     read_storage_bytes,
     read_storage_pickle,

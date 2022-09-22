@@ -38,6 +38,8 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
     FuncWorkerClientObjectStorage,
+)
+from meadowrun.s3_grid_job import (
     get_storage_client_from_args,
     read_storage_bytes,
     read_storage_pickle,
@@ -135,9 +137,6 @@ def _indexed_map_worker(
 
     i = current_worker_index
     while i < total_num_tasks:
-        state_filename = f"{file_prefix}.taskstate{i}"
-        result_filename = f"{file_prefix}.taskresult{i}"
-
         arg = read_storage_pickle(
             storage_client, storage_bucket, f"{file_prefix}.taskarg{i}"
         )
@@ -150,35 +149,23 @@ def _indexed_map_worker(
 
             tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
 
-            # now send back result
-            write_storage_bytes(
-                storage_client,
-                storage_bucket,
-                state_filename,
-                "PYTHON_EXCEPTION".encode("utf-8"),
-            )
-            write_storage_pickle(
-                storage_client,
-                storage_bucket,
-                result_filename,
-                (str(type(e)), str(e), tb),
-                result_pickle_protocol,
-            )
+            process_state = ProcessState(
+                state=ProcessState.PYTHON_EXCEPTION,
+                pickled_result=pickle.dumps(
+                    (str(type(e)), str(e), tb), protocol=result_pickle_protocol
+                ),
+            ).SerializeToString()
         else:
-            # send back results
-            write_storage_bytes(
-                storage_client,
-                storage_bucket,
-                state_filename,
-                "SUCCEEDED".encode("utf-8"),
-            )
-            write_storage_pickle(
-                storage_client,
-                storage_bucket,
-                result_filename,
-                result,
-                result_pickle_protocol,
-            )
+            process_state = ProcessState(
+                state=ProcessState.SUCCEEDED,
+                pickled_result=pickle.dumps(result, protocol=result_pickle_protocol),
+            ).SerializeToString()
+
+        # The trailing /1 indicates the attempt number. This will be used when we add
+        # support for retries
+        write_storage_bytes(
+            storage_client, storage_bucket, f"{file_prefix}/{i}/1", process_state
+        )
 
         i += num_workers
 
@@ -971,31 +958,24 @@ class Kubernetes(Host):
 
         results = []
         for i in range(len(args)):
-            state_string = read_storage_bytes(
-                storage_client, self.storage_bucket, f"{file_prefix}.taskstate{i}"
-            ).decode("utf-8")
-            if state_string == "SUCCEEDED":
-                state = ProcessState.ProcessStateEnum.SUCCEEDED
-            elif state_string == "PYTHON_EXCEPTION":
-                state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
-            else:
-                raise ValueError(f"Unknown state string: {state_string}")
-
-            result = read_storage_pickle(
-                storage_client, self.storage_bucket, f"{file_prefix}.taskresult{i}"
+            process_state = ProcessState.FromString(
+                read_storage_bytes(
+                    storage_client, self.storage_bucket, f"{file_prefix}/{i}/1"
+                )
             )
 
-            if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
-                # TODO very weird that we're re-pickling result here. Also, we should
-                # raise all of the exceptions if there are more than 1, not just the
-                # first one we see
+            if process_state.state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
+                # TODO we should raise all of the exceptions if there are more than 1,
+                # not just the first one we see
                 raise MeadowrunException(
                     ProcessState(
-                        state=state, pickled_result=pickle.dumps(result), return_code=0
+                        state=process_state.state,
+                        pickled_result=process_state.pickled_result,
+                        return_code=0,
                     )
                 )
 
-            results.append(result)
+            results.append(pickle.loads(process_state.pickled_result))
 
         return results
 
@@ -1451,6 +1431,9 @@ async def _run_kubernetes_job(
     body = kubernetes_client.V1Job(
         metadata=kubernetes_client.V1ObjectMeta(name=job_id),
         spec=kubernetes_client.V1JobSpec(
+            # we also try to delete manually. This field could be ignored if the TTL
+            # controller is not available
+            ttl_seconds_after_finished=10,
             backoff_limit=0,
             template=kubernetes_client.V1PodTemplateSpec(
                 spec=kubernetes_client.V1PodSpec(

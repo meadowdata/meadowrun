@@ -1006,7 +1006,7 @@ async def _get_credentials_for_job(
 
 class AgentTaskWorkerServer:
     def __init__(self) -> None:
-        self.server: Optional[asyncio.Server] = None
+        self.server: Optional[asyncio.AbstractServer] = None
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self.have_connection: asyncio.Event = asyncio.Event()

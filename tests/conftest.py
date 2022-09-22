@@ -62,7 +62,7 @@ async def task_worker_process(
         io_path = tmp_path / "testagent"
         try:
             proc = await subprocess.create_subprocess_exec(
-                python,
+                str(python),
                 str(PATH_TO_TASK_WORKER),
                 "--io-path",
                 str(io_path),

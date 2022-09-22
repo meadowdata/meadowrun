@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import pickle
-import struct
 import sys
 from typing import TYPE_CHECKING, Any, AsyncContextManager, Callable, Tuple
 
@@ -18,14 +17,6 @@ PATH_TO_TASK_WORKER = "src/meadowrun/func_worker/__meadowrun_task_worker.py"
 
 if sys.platform != "linux":
     pytest.skip("Skipping linux-only tests", allow_module_level=True)
-
-
-async def _send_message(writer: asyncio.StreamWriter, msg: Any) -> None:
-    msg_bs = pickle.dumps(msg)
-    msg_len = struct.pack(">i", len(msg_bs))
-    writer.write(msg_len)
-    writer.write(msg_bs)
-    await writer.drain()
 
 
 async def wait_for_path(path: Path) -> None:
@@ -65,18 +56,17 @@ async def send_receive(agent_server: AgentTaskWorkerServer) -> None:
         ),
         ((("",), {"noarg": 23}), "PYTHON_EXCEPTION", None),
     ]
-    reader, writer = await agent_server.wait_for_task_worker_connection(timeout=2)
+    await agent_server.wait_for_task_worker_connection(timeout=2)
     for msg, expected_state, expected_result in messages:
-        await _send_message(writer, msg)
-        (result_len,) = struct.unpack(">i", await reader.read(4))
-        result_bs = await reader.read(result_len)
-        result = pickle.loads(result_bs)
+
+        await agent_server.send_message(pickle.dumps(msg))
+        result = await agent_server.receive_message()
 
         assert expected_state == result[0]
         if expected_result is not None:
             assert expected_result == result[1]
-    writer.close()
-    await writer.wait_closed()
+
+    await agent_server.close()
 
 
 @pytest.mark.asyncio

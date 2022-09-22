@@ -5,7 +5,6 @@ Listens for arguments, executes the function and returns the result.
 
 import asyncio
 
-# import functools
 import importlib  # available in python 3.1+
 import argparse  # available in python 3.2+
 import pickle

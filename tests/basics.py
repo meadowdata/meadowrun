@@ -692,20 +692,20 @@ class MapSuite(HostProvider, abc.ABC):
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map_as_completed_unexpected_exit(self) -> None:
-        def unexpected_exit(input: int) -> None:
+        def unexpected_exit(_: int) -> None:
             sys.exit(123)
 
         actual: List[TaskResult[None]] = []
         async for result in await run_map_as_completed(
             unexpected_exit,
-            [1, 2, 3, 4],
+            [1, 2],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=4,
+            num_concurrent_tasks=2,
         ):
             actual.append(result)
 
-        assert len(actual) == 4
+        assert len(actual) == 2
         for result in actual:
             assert not result.is_success
             assert result.exception is None
@@ -716,7 +716,7 @@ class MapSuite(HostProvider, abc.ABC):
         def unexpected_exit(input: int) -> None:
             sys.exit(123)
 
-        with pytest.raises(RunMapTasksFailedException):
+        with pytest.raises(RunMapTasksFailedException) as exc:
             _ = await run_map(
                 unexpected_exit,
                 [1, 2, 3, 4],
@@ -724,3 +724,4 @@ class MapSuite(HostProvider, abc.ABC):
                 self.get_resources_required(),
                 num_concurrent_tasks=4,
             )
+        assert "UNEXPECTED_WORKER_EXIT" in str(exc)

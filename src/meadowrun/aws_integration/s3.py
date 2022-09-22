@@ -173,23 +173,6 @@ async def list_objects_async(
     return results
 
 
-# def download(
-#     object_name: str, region_name: str, byte_range: Optional[Tuple[int, int]] = None
-# ) -> bytes:
-#     s3 = boto3.client("s3", region_name=region_name)
-#     bucket_name = _get_bucket_name(region_name)
-#     if byte_range is None:
-#         response = s3.get_object(Bucket=bucket_name, Key=object_name)
-#     else:
-#         response = s3.get_object(
-#             Bucket=bucket_name,
-#             Key=object_name,
-#             Range=f"bytes={byte_range[0]}-{byte_range[1]}",
-#         )
-#     with response["Body"] as stream:
-#         return stream.read()
-
-
 async def download_async(
     object_name: str,
     region_name: str,

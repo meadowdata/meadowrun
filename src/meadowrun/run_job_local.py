@@ -468,6 +468,16 @@ async def _launch_non_container_job(
     )
 
 
+async def ensure_not_running(process: asyncio.subprocess.Process) -> None:
+    """Safe way to terminate and kill a process."""
+    try:
+        process.terminate()
+        process.kill()
+    except ProcessLookupError:
+        # if it's already gone, we're done here
+        pass
+
+
 async def _non_container_job_continuation(
     process: asyncio.subprocess.Process,
     job_spec_type: JobSpecType,
@@ -483,6 +493,13 @@ async def _non_container_job_continuation(
     """
 
     try:
+
+        async def tail_log() -> None:
+            async for line in process.stdout:  # type: ignore
+                print(line)
+
+        tail_log_task = asyncio.create_task(tail_log())
+
         if job_spec_type == "py_agent":
             # run the agent function. The agent function connects to another
             # process, the task worker, which runs the actual user function.
@@ -497,13 +514,10 @@ async def _non_container_job_continuation(
                 **agent_func_kwargs,
             )
             await job_spec_transformed.server.close()
-            process.terminate()
+            await ensure_not_running(process)
 
-        async for line in process.stdout:  # type: ignore
-            sys.stdout.buffer.write(line)
-        # wait for the process to finish
-        # TODO add an optional timeout
         returncode = await process.wait()
+        await tail_log_task
         return _completed_job_state(
             job_spec_type,
             job.job_id,

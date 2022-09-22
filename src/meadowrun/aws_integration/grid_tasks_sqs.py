@@ -5,7 +5,6 @@ import itertools
 import json
 import os
 import pickle
-import struct
 import time
 import traceback
 from typing import (
@@ -298,19 +297,6 @@ async def _complete_task(
     )
 
 
-async def _send_message(writer: asyncio.StreamWriter, bs: bytes) -> None:
-    msg_len = struct.pack(">i", len(bs))
-    writer.write(msg_len)
-    writer.write(bs)
-    await writer.drain()
-
-
-async def _receive_message(reader: asyncio.StreamReader) -> Any:
-    (result_len,) = struct.unpack(">i", await reader.read(4))
-    result_bs = await reader.read(result_len)
-    return pickle.loads(result_bs)
-
-
 async def _worker_iteration(
     sqs: SQSClient,
     s3c: S3Client,
@@ -319,8 +305,7 @@ async def _worker_iteration(
     region_name: str,
     log_file_name: str,
     pid: int,
-    reader: asyncio.StreamReader,
-    writer: asyncio.StreamWriter,
+    worker_server: AgentTaskWorkerServer,
 ) -> bool:
     task = await _get_task(
         sqs,
@@ -338,9 +323,9 @@ async def _worker_iteration(
     cont = True
     print(f"Meadowrun agent: About to execute task #{task_id}, attempt #{attempt}")
     try:
-        await _send_message(writer, arg)
+        await worker_server.send_message(arg)
 
-        state, result = await _receive_message(reader)
+        state, result = await worker_server.receive_message()
 
         process_state = ProcessState(
             state=ProcessState.ProcessStateEnum.SUCCEEDED
@@ -401,7 +386,7 @@ async def worker_function(
     async with session.create_client(
         "sqs", region_name=region_name
     ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
-        reader, writer = await worker_server.wait_for_task_worker_connection()
+        await worker_server.wait_for_task_worker_connection()
         while await _worker_iteration(
             sqs,
             s3c,
@@ -410,8 +395,7 @@ async def worker_function(
             region_name,
             log_file_name,
             pid,
-            reader,
-            writer,
+            worker_server,
         ):
             pass
 

@@ -66,7 +66,7 @@ async def do_tasks(
         writer.close()
 
 
-async def connect(
+async def connect_and_do_tasks(
     host: str, port: int, function: Callable, pickle_protocol: int
 ) -> None:
     reader, writer = await asyncio.open_connection(host, port)
@@ -124,7 +124,7 @@ def main() -> None:
     try:
         function = get_function(args)
         asyncio.run(
-            connect(
+            connect_and_do_tasks(
                 args.host,
                 args.port,
                 function,

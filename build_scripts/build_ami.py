@@ -17,7 +17,10 @@ from build_image_shared import upload_and_configure_meadowrun
 
 
 async def build_meadowrun_ami(
-    regions: Optional[List[str]], ami_type: str, behavior: BEHAVIOR_OPTIONS_TYPE
+    regions: Optional[List[str]],
+    ami_type: str,
+    behavior: BEHAVIOR_OPTIONS_TYPE,
+    prefix: str,
 ) -> None:
     all_region_base_amis = BASE_AMIS[ami_type]
 
@@ -32,7 +35,7 @@ async def build_meadowrun_ami(
     # we assume all of the base amis in the different regions have the same name, so we
     # just take the first one
     base_ami_name = get_name_from_ami(*list(all_region_base_amis.items())[0])
-    new_ami_name = f"meadowrun{version}-{base_ami_name}"
+    new_ami_name = f"{prefix}meadowrun{version}-{base_ami_name}"
     print(f"New AMI ({ami_type}) name is: {new_ami_name}")
 
     if regions is None:
@@ -100,6 +103,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("type", choices=["plain", "cuda"])
     parser.add_argument("regions", type=str)
+    parser.add_argument("--prefix", type=str, default="")
     parser.add_argument(
         "--on-existing-image", type=str, choices=BEHAVIOR_OPTIONS, default="leave"
     )
@@ -111,7 +115,9 @@ def main() -> None:
         regions = args.regions.split(",")
 
     print(f"Creating {args.type} AMIs")
-    asyncio.run(build_meadowrun_ami(regions, args.type, args.on_existing_image))
+    asyncio.run(
+        build_meadowrun_ami(regions, args.type, args.on_existing_image, args.prefix)
+    )
     print(f"Created {args.type} AMIs")
 
 

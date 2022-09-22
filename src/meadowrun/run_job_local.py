@@ -469,7 +469,7 @@ async def _launch_non_container_job(
     )
 
 
-async def ensure_not_running(process: asyncio.subprocess.Process) -> None:
+async def _stop_process(process: asyncio.subprocess.Process) -> None:
     """Safe way to terminate and kill a process."""
     try:
         process.terminate()
@@ -502,20 +502,8 @@ async def _non_container_job_continuation(
         tail_log_task = asyncio.create_task(tail_log())
 
         if job_spec_type == "py_agent":
-            # run the agent function. The agent function connects to another
-            # process, the task worker, which runs the actual user function.
-            assert job_spec_transformed.server is not None
-            agent_func = pickle.loads(job.py_agent.pickled_agent_function)
-            agent_func_args, agent_func_kwargs = pickle.loads(
-                job.py_agent.pickled_agent_function_arguments
-            )
-            await agent_func(
-                *agent_func_args,
-                worker_server=job_spec_transformed.server,
-                **agent_func_kwargs,
-            )
-            await job_spec_transformed.server.close()
-            await ensure_not_running(process)
+            await _run_agent(job_spec_transformed, job)
+            await _stop_process(process)
 
         returncode = await process.wait()
         await tail_log_task
@@ -720,19 +708,7 @@ async def _container_job_continuation(
         tail_log_task = asyncio.create_task(tail_log())
 
         if job_spec_type == "py_agent":
-            # run the agent function. The agent function connects to another
-            # process, the task worker, which runs the actual user function.
-            assert job_spec_transformed.server is not None
-            agent_func = pickle.loads(job.py_agent.pickled_agent_function)
-            agent_func_args, agent_func_kwargs = pickle.loads(
-                job.py_agent.pickled_agent_function_arguments
-            )
-            await agent_func(
-                *agent_func_args,
-                worker_server=job_spec_transformed.server,
-                **agent_func_kwargs,
-            )
-            await job_spec_transformed.server.close()
+            await _run_agent(job_spec_transformed, job)
             await container.stop()
 
         wait_result = await container.wait()
@@ -768,6 +744,22 @@ async def _container_job_continuation(
         except Exception as e:
             print(f"Warning, unable to remove container: {e}")
         await docker_client.__aexit__(None, None, None)
+
+
+async def _run_agent(job_spec_transformed: _JobSpecTransformed, job: Job) -> None:
+    # run the agent function. The agent function connects to another
+    # process, the task worker, which runs the actual user function.
+    assert job_spec_transformed.server is not None
+    agent_func = pickle.loads(job.py_agent.pickled_agent_function)
+    agent_func_args, agent_func_kwargs = pickle.loads(
+        job.py_agent.pickled_agent_function_arguments
+    )
+    await agent_func(
+        *agent_func_args,
+        worker_server=job_spec_transformed.server,
+        **agent_func_kwargs,
+    )
+    await job_spec_transformed.server.close()
 
 
 def _completed_job_state(

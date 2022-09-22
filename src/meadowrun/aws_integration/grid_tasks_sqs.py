@@ -210,8 +210,6 @@ async def _get_task(
     Returns a tuple of task_id and pickled argument if there was a task, otherwise
     returns None. Waits receive_message_wait_seconds for a task.
     """
-    # sqs = boto3.client("sqs", region_name=region_name)
-
     # get the task message
     t0 = time.time()
     while True:
@@ -433,7 +431,7 @@ async def receive_results(
     download_keys_received: Set[str] = set()
     wait = 4  # it's rare for any results to be ready in <4 seconds
     workers_exited_wait_count = 0
-    while not stop_receiving.is_set() and workers_exited_wait_count < 3:
+    while not stop_receiving.is_set() and (workers_exited_wait_count < 3 or wait == 0):
         if all_workers_exited.is_set():
             workers_exited_wait_count += 1
 

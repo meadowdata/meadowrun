@@ -277,7 +277,6 @@ class Host(abc.ABC):
     ) -> JobCompletion[Any]:
         pass
 
-    @abc.abstractmethod
     async def run_map(
         self,
         function: Callable[[_T], _U],
@@ -289,10 +288,40 @@ class Host(abc.ABC):
         wait_for_result: WaitOption,
         max_num_task_attempts: int,
     ) -> Optional[Sequence[_U]]:
-        # Note for implementors: job_fields will be populated with everything other than
-        # job_id and py_function, so the implementation should construct
-        # Job(job_id=job_id, py_function=py_function, **job_fields)
-        pass
+        async_iterator = self.run_map_as_completed(
+            function,
+            args,
+            resources_required_per_task,
+            job_fields,
+            num_concurrent_tasks,
+            pickle_protocol,
+            wait_for_result,
+            max_num_task_attempts,
+        )
+
+        if wait_for_result == WaitOption.DO_NOT_WAIT:
+            # we still need to iterate, even though no values are returned, to execute
+            # the rest of the code in the iterator.
+            async for _ in async_iterator:
+                pass
+            return None
+        else:
+            task_results: List[TaskResult] = []
+
+            # TODO - this will wait forever if any tasks are missing
+            async for task_result in async_iterator:
+                task_results.append(task_result)
+
+            task_results.sort(key=lambda tr: tr.task_id)
+
+            # if tasks were None, we'd have throw already
+            failed_tasks = [result for result in task_results if not result.is_success]
+            if failed_tasks:
+                raise RunMapTasksFailedException(
+                    failed_tasks, [args[task.task_id] for task in failed_tasks]
+                )
+
+            return [result.result for result in task_results]  # type: ignore[misc]
 
     @abc.abstractmethod
     def run_map_as_completed(
@@ -709,58 +738,6 @@ class AllocVM(Host, abc.ABC):
     [AllocEC2Instance][meadowrun.AllocEC2Instance] and
     [AllocAzureVM][meadowrun.AllocAzureVM]
     """
-
-    async def run_map(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
-        job_fields: Dict[str, Any],
-        num_concurrent_tasks: int,
-        pickle_protocol: int,
-        wait_for_result: WaitOption,
-        max_num_task_attempts: int,
-    ) -> Optional[Sequence[_U]]:
-        if resources_required_per_task is None:
-            raise ValueError(
-                "Resources.logical_cpu and memory_gb must be specified for "
-                "AllocEC2Instance and AllocAzureVM"
-            )
-
-        async_iterator = self.run_map_as_completed(
-            function,
-            args,
-            resources_required_per_task,
-            job_fields,
-            num_concurrent_tasks,
-            pickle_protocol,
-            wait_for_result,
-            max_num_task_attempts,
-        )
-
-        if wait_for_result == WaitOption.DO_NOT_WAIT:
-            # we still need to iterate, even though no values are returned, to execute
-            # the rest of the code in the iterator.
-            async for _ in async_iterator:
-                pass
-            return None
-        else:
-            task_results: List[TaskResult] = []
-
-            # TODO - this will wait forever if any tasks are missing
-            async for task_result in async_iterator:
-                task_results.append(task_result)
-
-            task_results.sort(key=lambda tr: tr.task_id)
-
-            # if tasks were None, we'd have throw already
-            failed_tasks = [result for result in task_results if not result.is_success]
-            if failed_tasks:
-                raise RunMapTasksFailedException(
-                    failed_tasks, [args[task.task_id] for task in failed_tasks]
-                )
-
-            return [result.result for result in task_results]  # type: ignore[misc]
 
     async def run_map_as_completed(
         self,

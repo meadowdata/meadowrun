@@ -331,6 +331,30 @@ def _get_job_completion_from_process_state(
         raise MeadowrunException(process_state)
 
 
+def _python_version_from_environment_spec(job: Job) -> str:
+    interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
+
+    if interpreter_deployment_type == "environment_spec_in_code":
+        python_version = job.environment_spec_in_code.python_version
+    elif interpreter_deployment_type == "environment_spec":
+        python_version = job.environment_spec.python_version
+    elif interpreter_deployment_type == "server_available_interpreter":
+        python_version = None
+    else:
+        raise Exception(
+            "Programming error in caller. Called "
+            "_run_job_helper_generic_container with "
+            f"interpreter_deployment_type {interpreter_deployment_type}"
+        )
+
+    if python_version is None:
+        # conda environments and raw server_available_interpreter won't have a
+        # python version
+        return "3.10"
+    else:
+        return python_version
+
+
 @dataclasses.dataclass(frozen=True)
 class Kubernetes(Host):
     """
@@ -719,7 +743,6 @@ class Kubernetes(Host):
         job: Job,
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
-        interpreter_deployment_type: str,
         file_prefix: str,
         wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
@@ -737,23 +760,6 @@ class Kubernetes(Host):
         # with a user-defined container as containers in Kubernetes can't launch other
         # containers.
         try:
-            if interpreter_deployment_type == "environment_spec_in_code":
-                python_version = job.environment_spec_in_code.python_version
-            elif interpreter_deployment_type == "environment_spec":
-                python_version = job.environment_spec.python_version
-            elif interpreter_deployment_type == "server_available_interpreter":
-                python_version = None
-            else:
-                raise Exception(
-                    "Programming error in caller. Called "
-                    "_run_job_helper_generic_container with "
-                    f"interpreter_deployment_type {interpreter_deployment_type}"
-                )
-            if not python_version:
-                # conda environments and raw server_available_interpreter won't have a
-                # python version
-                python_version = "3.10"
-
             if self.storage_bucket is None or self.storage_endpoint_url is None:
                 raise ValueError(
                     "Cannot use an environment_spec without providing a storage_bucket."
@@ -784,8 +790,8 @@ class Kubernetes(Host):
             else:
                 command.extend(["--storage-endpoint-url", self.storage_endpoint_url])
 
-            # TODO use meadowrun-cuda if we need cuda. Also choose based on python
-            # version in environment_spec
+            python_version = _python_version_from_environment_spec(job)
+            # TODO use meadowrun-cuda if we need cuda
             image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
             # uncomment this for development
             # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
@@ -883,7 +889,6 @@ class Kubernetes(Host):
                 job,
                 resources_required,
                 indexed_completions,
-                interpreter_deployment_type,
                 file_prefix,
                 wait_for_result,
             )
@@ -1138,7 +1143,7 @@ async def _wait_for_pod_running(
     job_id: str,
     kubernetes_namespace: str,
     pod: kubernetes_client.V1Pod,
-) -> None:
+) -> kubernetes_client.V1Pod:
     pod_name = pod.metadata.name
 
     # The first step is to wait for the pod to start running, because we can't stream
@@ -1207,6 +1212,8 @@ async def _wait_for_pod_running(
         main_container_state, latest_condition_reason = _get_main_container_state(
             pod, job_id, pod_name
         )
+
+    return pod
 
 
 async def _stream_pod_logs(

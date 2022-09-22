@@ -9,6 +9,7 @@ import pickle
 import time
 import traceback
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterable,
     Iterable,
@@ -24,10 +25,10 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     record_last_used,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
-    GRID_TASK_QUEUE,
-    QUEUE_NAME_TIMESTAMP_FORMAT,
     _REQUEST_QUEUE_NAME_PREFIX,
     _RESULT_QUEUE_NAME_PREFIX,
+    GRID_TASK_QUEUE,
+    QUEUE_NAME_TIMESTAMP_FORMAT,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     azure_rest_api,
@@ -39,7 +40,9 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
     queue_send_message,
 )
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
-from meadowrun.shared import pickle_exception
+
+if TYPE_CHECKING:
+    from meadowrun.run_job_core import AgentTaskWorkerServer
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -183,53 +186,75 @@ async def _complete_task(
     )
 
 
-async def worker_function_async(
+async def _worker_iteration(
     request_queue: Queue,
     result_queue: Queue,
-    public_address: str,
     log_file_name: str,
-    reader: asyncio.StreamReader,
-    writer: asyncio.StreamWriter,
-) -> None:
-    pid = os.getpid()
-    log_file_name = f"{public_address}:{log_file_name}"
+    pid: int,
+    worker_server: AgentTaskWorkerServer,
+) -> bool:
+    task = await _get_task(request_queue, result_queue)
+    if not task:
+        print("Meadowrun agent: Received shutdown message. Exiting.")
+        return False
 
-    while True:
-        task = await _get_task(request_queue, result_queue)
-        if not task:
-            break
+    cont = True
+    print(
+        f"Meadowrun agent: About to execute task #{task.task_id}, attempt "
+        f"#{task.attempt}"
+    )
 
-        print(
-            f"Meadowrun agent: About to execute task #{task.task_id}, attempt "
-            f"#{task.attempt}"
+    try:
+        await worker_server.send_message(task.pickled_function_arguments)
+        state, result = await worker_server.receive_message()
+
+        process_state = ProcessState(
+            state=ProcessState.ProcessStateEnum.SUCCEEDED
+            if state == "SUCCEEDED"
+            else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+            pid=pid,
+            pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
+            return_code=0,
+            log_file_name=log_file_name,
         )
-
-        try:
-            result = function(pickle.loads(task.pickled_function_arguments))
-        except Exception as e:
-            traceback.print_exc()
-
-            process_state = ProcessState(
-                state=ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-                pid=pid,
-                pickled_result=pickle_exception(e, pickle.HIGHEST_PROTOCOL),
-                return_code=0,
-                log_file_name=log_file_name,
-            )
-        else:
-            process_state = ProcessState(
-                state=ProcessState.ProcessStateEnum.SUCCEEDED,
-                pid=pid,
-                pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
-                return_code=0,
-                log_file_name=log_file_name,
-            )
 
         print(
             f"Meadowrun agent: Completed task #{task.task_id}, attempt {task.attempt}, "
             f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
         )
-        await _complete_task(result_queue, task, process_state)
+    except Exception:
+        print(
+            f"Meadowrun agent: Unexpected task worker exit #{task.task_id}, attempt "
+            f"#{task.attempt}: {traceback.format_exc()}"
+        )
+
+        process_state = ProcessState(
+            state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
+            pid=pid,
+            return_code=0,
+            log_file_name=log_file_name,
+        )
+
+        cont = False
+
+    await _complete_task(result_queue, task, process_state)
+    return cont
+
+
+async def worker_function_async(
+    request_queue: Queue,
+    result_queue: Queue,
+    public_address: str,
+    log_file_name: str,
+    worker_server: AgentTaskWorkerServer,
+) -> None:
+    pid = os.getpid()
+    log_file_name = f"{public_address}:{log_file_name}"
+
+    while await _worker_iteration(
+        request_queue, result_queue, log_file_name, pid, worker_server
+    ):
+        pass
 
 
 async def get_results_unordered(

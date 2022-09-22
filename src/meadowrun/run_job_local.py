@@ -9,6 +9,7 @@ import os.path
 import pathlib
 import pickle
 import shutil
+import struct
 import sys
 import traceback
 from typing import (
@@ -1033,6 +1034,23 @@ class AgentTaskWorkerServer:
         assert self.reader is not None
         assert self.writer is not None
         return self.reader, self.writer
+
+    async def send_message(self, bs: bytes) -> None:
+        if not self.have_connection.is_set():
+            await self.wait_for_task_worker_connection()
+        assert self.writer is not None
+        msg_len = struct.pack(">i", len(bs))
+        self.writer.write(msg_len)
+        self.writer.write(bs)
+        await self.writer.drain()
+
+    async def receive_message(self) -> Any:
+        if not self.have_connection.is_set():
+            await self.wait_for_task_worker_connection()
+        assert self.reader is not None
+        (result_len,) = struct.unpack(">i", await self.reader.read(4))
+        result_bs = await self.reader.read(result_len)
+        return pickle.loads(result_bs)
 
     async def close(self) -> None:
         if self.writer:

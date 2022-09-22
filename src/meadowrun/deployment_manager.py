@@ -38,7 +38,6 @@ from meadowrun.docker_controller import (
     pull_image,
     push_image,
 )
-from meadowrun.func_worker_storage_helper import FuncWorkerClientObjectStorage
 from meadowrun.meadowrun_pb2 import (
     CodeZipFile,
     EnvironmentSpec,
@@ -57,10 +56,11 @@ from meadowrun.run_job_core import (
     ContainerRegistryHelper,
     LocalObjectStorage,
 )
-from meadowrun.func_worker_storage_helper import (
+from meadowrun.s3_grid_job import (
     try_get_storage_file,
     write_storage_file,
 )
+from meadowrun.func_worker_storage_helper import FuncWorkerClientObjectStorage
 import meadowrun.func_worker_storage_helper
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]

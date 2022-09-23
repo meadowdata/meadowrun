@@ -1,6 +1,6 @@
 """
 This code belongs in either func_worker_storage.py. Unfortunately, if we put it in
-func_worker_storage.py, then meadowrun.__init__ will import kubernetes_integration which
+func_worker_storage.py, then meadowrun.__init__ will import k8s_integration.k8s which
 will import func_worker_storage, which means that running func_worker_storage will
 produce annoying messages like RuntimeWarning: 'meadowrun.func_worker_storage' found in
 sys.modules after import of package 'meadowrun', but prior to execution of
@@ -34,7 +34,7 @@ FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 
 @dataclasses.dataclass
 class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
-    # this really belongs in kubernetes_integration.py but can't put it there because of
+    # this really belongs in k8s.py but can't put it there because of
     # circular imports
     storage_client: Optional[types_aiobotocore_s3.S3Client] = None
     bucket_name: Optional[str] = None

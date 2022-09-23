@@ -988,6 +988,7 @@ class KubernetesGridJobDriver:
     """
     Similar to GridJobDriver, should potentially be merged with that code at some point
     """
+
     def __init__(
         self,
         kubernetes: Kubernetes,

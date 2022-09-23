@@ -62,7 +62,7 @@ from meadowrun.deployment_spec import (
     PreinstalledInterpreter,
     Secret,
 )
-from meadowrun.kubernetes_integration import Kubernetes
+from meadowrun.k8s_integration.k8s import Kubernetes
 from meadowrun.run_job import (
     TaskResult,
     run_command,

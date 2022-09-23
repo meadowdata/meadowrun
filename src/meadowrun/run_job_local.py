@@ -1,4 +1,5 @@
 from __future__ import annotations
+import abc
 
 import asyncio
 import asyncio.subprocess
@@ -387,6 +388,133 @@ class Stats:
     memory_in_use_gb: float
 
 
+class WorkerMonitor(abc.ABC):
+    """Monitors a func or task worker, and can restart it if needed."""
+
+    @abc.abstractmethod
+    async def restart(self) -> None:
+        ...
+
+
+class WorkerProcessMonitor(WorkerMonitor):
+    def __init__(
+        self,
+        command_line: Iterable[str],
+        working_directory: Optional[str],
+        env_vars: Dict[str, str],
+    ):
+        self.command_line = tuple(command_line)
+        self.working_directory = working_directory
+        self.env_vars = env_vars
+
+    @property
+    def pid(self) -> int:
+        return self.process.pid
+
+    # TODO  - maybe start_and_tail_stdout
+    async def start_and_tail(self) -> None:
+        self.process = await asyncio.subprocess.create_subprocess_exec(
+            *self.command_line,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=self.working_directory,
+            env=self.env_vars,
+        )
+        self.tail_task = asyncio.create_task(self._tail_log())
+
+    def stop(self) -> None:
+        """Safe way to terminate and kill a process."""
+        try:
+            self.process.terminate()
+            self.process.kill()
+        except ProcessLookupError:
+            # if it's already gone, we're done here
+            pass
+
+    async def wait(self) -> int:
+        returncode = await self.process.wait()
+        await self.tail_task
+        return returncode
+
+    async def _tail_log(self) -> None:
+        assert self.process.stdout is not None
+        async for line in self.process.stdout:
+            print(line)
+
+    async def restart(self) -> None:
+        # TODO probably more stuff to make it safe
+        self.stop()
+        await self.wait()
+        await self.start_and_tail()
+
+
+class WorkerContainerMonitor(WorkerMonitor):
+    def __init__(
+        self,
+        client: Optional[aiodocker.Docker],
+        image: str,
+        cmd: Optional[List[str]],
+        environment_variables: Dict[str, str],
+        working_directory: Optional[str],
+        binds: List[Tuple[str, str]],
+        ports: Iterable[str],
+        extra_hosts: List[Tuple[str, str]],
+        uses_gpus: bool,
+    ):
+        self.docker_client = client
+        self.image = image
+        self.command_line = cmd
+        self.env_vars = environment_variables
+        self.working_directory = working_directory
+        self.binds = binds
+        self.ports = list(ports)
+        self.extra_hosts = extra_hosts
+        self.uses_gpus = uses_gpus
+
+    @property
+    def container_id(self) -> str:
+        return self.container.id
+
+    async def start_and_tail(self) -> None:
+        self.container, self.docker_client = await run_container(
+            self.docker_client,
+            self.image,
+            self.command_line,
+            self.env_vars,
+            self.working_directory,
+            self.binds,
+            self.ports,
+            self.extra_hosts,
+            self.uses_gpus,
+        )
+        self.tail_task = asyncio.create_task(self._tail_log())
+
+    async def stop(self) -> None:
+        await self.container.stop()
+
+    async def wait(self) -> int:
+        wait_result = await self.container.wait()
+        await self.tail_task
+        # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
+        # can get the return code from the result
+        return wait_result["StatusCode"]
+
+    async def _tail_log(self) -> None:
+        # 1. Docker appears to have an objection to having a log driver that can
+        # produce plain text files (https://github.com/moby/moby/issues/17020) so we
+        # implement that in a hacky way here.
+        # TODO figure out overall strategy for logging, maybe eventually implement our
+        # own plain text/whatever log driver for docker.
+        async for line in self.container.log(stdout=True, stderr=True, follow=True):
+            print(f"Task worker: {line}", end="")
+
+    async def restart(self) -> None:
+        # TODO catch some exceptions
+        await self.stop()
+        await self.wait()
+        await self.start_and_tail()
+
+
 async def _launch_non_container_job(
     job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
@@ -473,33 +601,20 @@ async def _launch_non_container_job(
         f"code paths={','.join(code_paths)}"
     )
 
-    process = await asyncio.subprocess.create_subprocess_exec(
-        *job_spec_transformed.command_line,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=working_directory,
-        env=env_vars,
+    worker = WorkerProcessMonitor(
+        job_spec_transformed.command_line, working_directory, env_vars
     )
+    await worker.start_and_tail()
 
     # (5) return the pid and continuation
-    return process.pid, _non_container_job_continuation(
-        process,
+    return worker.pid, _non_container_job_continuation(
+        worker,
         job_spec_type,
         job_spec_transformed,
         job,
         io_folder,
         log_file_name,
     )
-
-
-async def _stop_process(process: asyncio.subprocess.Process) -> None:
-    """Safe way to terminate and kill a process."""
-    try:
-        process.terminate()
-        process.kill()
-    except ProcessLookupError:
-        # if it's already gone, we're done here
-        pass
 
 
 async def _get_non_container_stats(pid: int) -> Stats:
@@ -509,7 +624,7 @@ async def _get_non_container_stats(pid: int) -> Stats:
 
 
 async def _non_container_job_continuation(
-    process: asyncio.subprocess.Process,
+    worker: WorkerProcessMonitor,
     job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
     job: Job,
@@ -524,29 +639,22 @@ async def _non_container_job_continuation(
 
     try:
 
-        async def tail_log() -> None:
-            async for line in process.stdout:  # type: ignore
-                print(line)
-
-        tail_log_task = asyncio.create_task(tail_log())
-
         if job_spec_type == "py_agent":
             await _run_agent(
                 job_spec_transformed,
                 job,
-                functools.partial(_get_non_container_stats, process.pid),
+                functools.partial(_get_non_container_stats, worker.pid),
             )
-            await _stop_process(process)
+            worker.stop()
 
-        returncode = await process.wait()
-        await tail_log_task
+        returncode = await worker.wait()
         return _completed_job_state(
             job_spec_type,
             job.job_id,
             io_folder,
             log_file_name,
             returncode,
-            process.pid,
+            worker.pid,
             None,
         )
     except asyncio.CancelledError:
@@ -685,7 +793,7 @@ async def _launch_container_job(
         f"ports={','.join(port for port in job.ports)}"
     )
 
-    container, docker_client = await run_container(
+    worker = WorkerContainerMonitor(
         docker_client,
         container_image_name,
         # json serializer needs a real list, not a protobuf fake list
@@ -697,15 +805,14 @@ async def _launch_container_job(
         [(f"sidecar-container-{i}", ip) for i, ip in enumerate(sidecar_container_ips)],
         job.uses_gpu,
     )
-    return container.id, _container_job_continuation(
-        container,
-        docker_client,
+    await worker.start_and_tail()
+
+    return worker.container_id, _container_job_continuation(
+        worker,
         job_spec_type,
         job_spec_transformed,
         job,
-        # job.job_id,
         io_folder,
-        # job.result_highest_pickle_protocol,
         log_file_name,
         sidecar_containers,
     )
@@ -727,13 +834,11 @@ async def _get_container_stats(
 
 
 async def _container_job_continuation(
-    container: aiodocker_containers.DockerContainer,
-    docker_client: aiodocker.Docker,
+    worker: WorkerContainerMonitor,
     job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
     job: Job,
     io_folder: str,
-    # result_highest_pickle_protocol: int,
     log_file_name: str,
     sidecar_containers: List[aiodocker_containers.DockerContainer],
 ) -> ProcessState:
@@ -746,32 +851,15 @@ async def _container_job_continuation(
     """
     try:
 
-        async def tail_log() -> None:
-            # 1. Docker appears to have an objection to having a log driver that can
-            # produce plain text files (https://github.com/moby/moby/issues/17020) so we
-            # implement that in a hacky way here.
-            # TODO figure out overall strategy for
-            # logging, maybe eventually implement our own plain text/whatever log driver
-            #  for docker.
-            async for line in container.log(stdout=True, stderr=True, follow=True):
-                print(f"Task worker: {line}", end="")
-
-        tail_log_task = asyncio.create_task(tail_log())
-
         if job_spec_type == "py_agent":
             await _run_agent(
                 job_spec_transformed,
                 job,
-                functools.partial(_get_container_stats, container),
+                functools.partial(_get_container_stats, worker.container),
             )
-            await container.stop()
+            await worker.stop()
 
-        wait_result = await container.wait()
-        await tail_log_task
-
-        # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
-        # can get the return code from the result
-        return_code = wait_result["StatusCode"]
+        return_code = await worker.wait()
 
         return _completed_job_state(
             job_spec_type,
@@ -780,7 +868,7 @@ async def _container_job_continuation(
             log_file_name,
             return_code,
             None,
-            container.id,
+            worker.container_id,
         )
     except asyncio.CancelledError:
         raise
@@ -796,12 +884,13 @@ async def _container_job_continuation(
     finally:
         try:
             await asyncio.gather(
-                remove_container(container),
+                remove_container(worker.container),
                 *(remove_container(c) for c in sidecar_containers),
             )
         except Exception as e:
             print(f"Warning, unable to remove container: {e}")
-        await docker_client.__aexit__(None, None, None)
+        assert worker.docker_client is not None
+        await worker.docker_client.__aexit__(None, None, None)
 
 
 async def _run_agent(

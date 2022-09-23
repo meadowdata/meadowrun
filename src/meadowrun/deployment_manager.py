@@ -280,10 +280,10 @@ async def _get_zip_file_code_paths(
     if decoded_url.scheme not in _ALL_OBJECT_STORAGES:
         raise ValueError(f"Unknown URL scheme in {code_zip_file.url}")
 
-    object_storage = _ALL_OBJECT_STORAGES[decoded_url.scheme]()
-    extracted_folder = await object_storage.download_and_unzip(
-        code_zip_file.url, local_copies_folder
-    )
+    async with _ALL_OBJECT_STORAGES[decoded_url.scheme]() as object_storage:
+        extracted_folder = await object_storage.download_and_unzip(
+            code_zip_file.url, local_copies_folder
+        )
 
     return (
         [
@@ -464,7 +464,13 @@ async def compile_environment_spec_locally(
 
     if environment_spec.environment_type == EnvironmentType.CONDA:
         get_cached_or_create: Callable[
-            [str, str, str, Callable[[str, str], bool], Callable[[str, str], None]],
+            [
+                str,
+                str,
+                str,
+                Callable[[str, str], Awaitable[bool]],
+                Callable[[str, str], Awaitable[None]],
+            ],
             Awaitable[str],
         ] = get_cached_or_create_conda_environment
     elif environment_spec.environment_type == EnvironmentType.PIP:

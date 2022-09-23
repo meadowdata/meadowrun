@@ -14,11 +14,7 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
 )
-from meadowrun.s3_grid_job import (
-    get_storage_client_from_args,
-    read_storage_bytes,
-    write_storage_bytes,
-)
+from meadowrun.s3_grid_job import get_storage_client_from_args, read_storage
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 
 
@@ -44,53 +40,52 @@ async def main() -> None:
     # prepare storage client, filenames and pickle protocol for the result
     storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
     storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
-    storage_client = get_storage_client_from_args(
+    async with get_storage_client_from_args(
         args.storage_endpoint_url, storage_username, storage_password
-    )
-    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
-    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
+    ) as storage_client:
+        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
+        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
 
-    # run the job
-    try:
-        job = Job.FromString(
-            read_storage_bytes(
-                storage_client, storage_bucket, f"{storage_file_prefix}.job_to_run"
+        # run the job
+        try:
+            job = Job.FromString(
+                await read_storage(
+                    storage_client, storage_bucket, f"{storage_file_prefix}.job_to_run"
+                )
             )
-        )
-        # hypothetically we should make sure MEADOWRUN_STORAGE_USERNAME and
-        # MEADOWRUN_STORAGE_PASSWORD should get added to the Job object because if we
-        # are running _indexed_map_worker we will need those variables. However, this
-        # only happens in the non-container job case, in which case the environment
-        # variables should just get inherited by the child process that we start.
-        first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, None, False
-        )
-        # TODO to be analogous to run_job_local_main.py we should write
-        # f"{storage_file_prefix}.initial_process_state to the storage bucket here
+            # hypothetically we should make sure MEADOWRUN_STORAGE_USERNAME and
+            # MEADOWRUN_STORAGE_PASSWORD should get added to the Job object because if
+            # we are running _indexed_map_worker we will need those variables. However,
+            # this only happens in the non-container job case, in which case the
+            # environment variables should just get inherited by the child process that
+            # we start.
+            first_state, continuation = await meadowrun.run_job_local.run_local(
+                job, None, False
+            )
+            # TODO to be analogous to run_job_local_main.py we should write
+            # f"{storage_file_prefix}.initial_process_state to the storage bucket here
 
-        if (
-            first_state.state != ProcessState.ProcessStateEnum.RUNNING
-            or continuation is None
-        ):
-            write_storage_bytes(
-                storage_client,
-                storage_bucket,
-                f"{storage_file_prefix}.process_state{suffix}",
-                first_state.SerializeToString(),
-            )
-        else:
-            final_process_state = await continuation
+            if (
+                first_state.state != ProcessState.ProcessStateEnum.RUNNING
+                or continuation is None
+            ):
+                await storage_client.put_object(
+                    Bucket=storage_bucket,
+                    Key=f"{storage_file_prefix}.process_state{suffix}",
+                    Body=first_state.SerializeToString(),
+                )
+            else:
+                final_process_state = await continuation
 
-            write_storage_bytes(
-                storage_client,
-                storage_bucket,
-                f"{storage_file_prefix}.process_state{suffix}",
-                final_process_state.SerializeToString(),
-            )
-    except:  # noqa: E722
-        # so we know what's wrong
-        traceback.print_exc()
-        raise
+                await storage_client.put_object(
+                    Bucket=storage_bucket,
+                    Key=f"{storage_file_prefix}.process_state{suffix}",
+                    Body=final_process_state.SerializeToString(),
+                )
+        except:  # noqa: E722
+            # so we know what's wrong
+            traceback.print_exc()
+            raise
 
 
 if __name__ == "__main__":

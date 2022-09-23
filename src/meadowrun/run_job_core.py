@@ -139,6 +139,17 @@ class Resources:
 class ObjectStorage(abc.ABC):
     """An ObjectStorage is a place where you can upload files and download them"""
 
+    async def __aenter__(self) -> ObjectStorage:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_typ: Type[BaseException],
+        exc_val: BaseException,
+        exc_tb: TracebackType,
+    ) -> None:
+        pass
+
     @classmethod
     @abc.abstractmethod
     def get_url_scheme(cls) -> str:

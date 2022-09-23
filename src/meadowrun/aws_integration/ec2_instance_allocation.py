@@ -43,7 +43,6 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     add_tasks,
     add_worker_shutdown_messages,
     create_request_queue,
-    receive_results,
     retry_task,
     worker_function,
 )
@@ -62,7 +61,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
-from meadowrun.aws_integration.s3 import S3ObjectStorage
+from meadowrun.aws_integration.s3 import S3ObjectStorage, _get_bucket_name
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
@@ -79,6 +78,7 @@ from meadowrun.run_job_core import (
     SshHost,
     WaitOption,
 )
+from meadowrun.s3_grid_job import receive_results
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -816,12 +816,26 @@ class EC2GridJobInterface(GridJobCloudInterface):
         if self._s3_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 
+        # Note: download here is all via S3. It's important that downloads are fast
+        # enough - in some cases (many workers, small-ish tasks) the rate of downloading
+        # the results to the client can be a limiting factor. Other alternatives that
+        # were considered: - SQS queues. Limitations are 1. Only 10 messages can be
+        # downloaded at a time, which slows us down when we have hundreds of tasks
+        # completing quickly. 2. SQS message limit is 256KB which means we need to use
+        # S3 to transfer the actual data in the case of large results. - Sending data
+        # via SSH/SCP. This seems like it should be faster especially in the same
+        # VPC/subnet, but even in that case, uploading to S3 first seems to be faster.
+        # It's possible this would make sense in cases where we e.g. overwhelm the S3
+        # bucket.
+
         return receive_results(
-            self._job_id,
-            self._region_name,
             self._s3_client,
+            _get_bucket_name(self._region_name),
+            self._job_id,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
+            # it's rare for any results to be ready in <4 seconds
+            initial_wait_seconds=4,
         )
 
     async def retry_task(self, task_id: int, attempts_so_far: int) -> None:

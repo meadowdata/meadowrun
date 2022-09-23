@@ -158,11 +158,12 @@ async def upload_async(
 
 
 async def list_objects_async(
-    prefix: str, start_after: str, region_name: str, s3_client: Any
+    s3_client: Any,
+    bucket_name: str,
+    prefix: str,
+    start_after: str,
 ) -> List[str]:
     """Returns the keys in the meadowrun bucket."""
-    bucket_name = _get_bucket_name(region_name)
-
     paginator = s3_client.get_paginator("list_objects_v2")
     results = []
     async for result in paginator.paginate(
@@ -174,12 +175,11 @@ async def list_objects_async(
 
 
 async def download_async(
-    object_name: str,
-    region_name: str,
     s3c: S3Client,
+    bucket_name: str,
+    object_name: str,
     byte_range: Optional[Tuple[int, int]] = None,
 ) -> Tuple[str, bytes]:
-    bucket_name = _get_bucket_name(region_name)
     if byte_range is None:
         response = await s3c.get_object(Bucket=bucket_name, Key=object_name)
     else:

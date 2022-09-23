@@ -44,13 +44,12 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
 from meadowrun.aws_integration.grid_tasks_sqs import (
-    _complete_task,
     _get_task,
     add_tasks,
     add_worker_shutdown_messages,
     create_request_queue,
-    receive_results,
 )
+from meadowrun.aws_integration.s3 import _get_bucket_name
 from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import (
@@ -59,6 +58,7 @@ from meadowrun.instance_selection import (
 )
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_local import TaskResult
+from meadowrun.s3_grid_job import complete_task, receive_results
 
 if TYPE_CHECKING:
     from asyncio.subprocess import Process
@@ -274,11 +274,11 @@ class TestGridSQSQueue:
                     # assert args[0] == task_arguments[index]
                     # assert len(kwargs) == 0
 
-                async def complete_task(index: int) -> None:
-                    await _complete_task(
+                async def complete_task_wrapper(index: int) -> None:
+                    await complete_task(
                         s3c,
+                        _get_bucket_name(region_name),
                         job_id,
-                        region_name,
                         tasks[index][0],
                         tasks[index][1],
                         ProcessState(
@@ -302,7 +302,7 @@ class TestGridSQSQueue:
                 assert_task(1)
                 print("task 1")
 
-                await complete_task(0)
+                await complete_task_wrapper(0)
 
                 tasks.append(await get_next_task())
                 assert_task(2)
@@ -310,9 +310,9 @@ class TestGridSQSQueue:
                 tasks.append(await get_next_task())
                 assert_task(3)
 
-                await complete_task(1)
-                await complete_task(2)
-                await complete_task(3)
+                await complete_task_wrapper(1)
+                await complete_task_wrapper(2)
+                await complete_task_wrapper(3)
 
                 assert await get_next_task() is None
                 print("Mock worker completed tasks")
@@ -323,9 +323,9 @@ class TestGridSQSQueue:
             results: List = [None] * len(task_arguments)
             received = 0
             async for batch in receive_results(
-                job_id,
-                region_name,
                 s3c,
+                _get_bucket_name(region_name),
+                job_id,
                 stop_receiving=stop_receiving,
                 all_workers_exited=asyncio.Event(),
                 # receive_message_wait_seconds=2,

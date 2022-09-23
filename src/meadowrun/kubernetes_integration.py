@@ -41,9 +41,12 @@ from meadowrun.func_worker_storage_helper import (
     FuncWorkerClientObjectStorage,
 )
 from meadowrun.s3_grid_job import (
+    complete_task,
+    download_task_arg,
     get_storage_client_from_args,
     read_storage,
-    write_storage_pickle,
+    receive_results,
+    upload_task_args,
 )
 from meadowrun.meadowrun_pb2 import (
     Job,
@@ -56,7 +59,9 @@ from meadowrun.run_job_core import (
     JobCompletion,
     MeadowrunException,
     ObjectStorage,
+    TaskResult,
     WaitOption,
+    _PRINT_RECEIVED_TASKS_SECONDS,
 )
 from meadowrun.run_job_local import (
     _get_credentials_for_docker,
@@ -71,7 +76,6 @@ if TYPE_CHECKING:
     import types_aiobotocore_s3
 
     from meadowrun.instance_selection import ResourcesInternal
-    from meadowrun.run_job_core import TaskResult
 
 
 _T = TypeVar("_T")
@@ -102,6 +106,7 @@ async def _indexed_map_worker_async(
     num_workers: int,
     function: Callable[[_T], _U],
     storage_bucket: str,
+    job_id: str,
     file_prefix: str,
     storage_endpoint_url: Optional[str],
     result_highest_pickle_protocol: int,
@@ -142,13 +147,16 @@ async def _indexed_map_worker_async(
             result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
         )
 
+        byte_ranges = pickle.loads(
+            await read_storage(
+                storage_client, storage_bucket, f"{file_prefix}.ranges.pkl"
+            )
+        )
+
         i = current_worker_index
         while i < total_num_tasks:
-
-            arg = pickle.loads(
-                await read_storage(
-                    storage_client, storage_bucket, f"{file_prefix}.taskarg{i}"
-                )
+            arg = await download_task_arg(
+                storage_client, storage_bucket, job_id, byte_ranges[i]
             )
 
             try:
@@ -164,19 +172,18 @@ async def _indexed_map_worker_async(
                     pickled_result=pickle.dumps(
                         (str(type(e)), str(e), tb), protocol=result_pickle_protocol
                     ),
-                ).SerializeToString()
+                )
             else:
                 process_state = ProcessState(
                     state=ProcessState.SUCCEEDED,
                     pickled_result=pickle.dumps(
                         result, protocol=result_pickle_protocol
                     ),
-                ).SerializeToString()
+                )
 
-            # The trailing /1 indicates the attempt number. This will be used when we
-            # add support for retries
-            await storage_client.put_object(
-                Bucket=storage_bucket, Key=f"{file_prefix}/{i}/1", Body=process_state
+            # we don't support retries yet so we're always on attempt 1
+            await complete_task(
+                storage_client, storage_bucket, job_id, i, 1, process_state
             )
 
             i += num_workers
@@ -904,7 +911,7 @@ class Kubernetes(Host):
                 "implemented yet on Kubernetes"
             )
 
-    async def run_map(
+    async def run_map_as_completed(
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
@@ -914,7 +921,7 @@ class Kubernetes(Host):
         pickle_protocol: int,
         wait_for_result: WaitOption,
         max_num_task_attempts: int,
-    ) -> Optional[Sequence[_U]]:
+    ) -> AsyncIterable[TaskResult[_U]]:
         # TODO add support for this feature
         if job_fields["sidecar_containers"]:
             raise NotImplementedError(
@@ -931,91 +938,38 @@ class Kubernetes(Host):
                     " use Kubernetes with run_map"
                 )
 
-            job_id = str(uuid.uuid4())
+            # pretty much copied from AllocVM.run_map_as_completed
 
-            file_prefix = f"{self.storage_file_prefix}{job_id}"
+            driver = KubernetesGridJobDriver(self, num_concurrent_tasks, storage_client)
 
-            for i, arg in enumerate(args):
-                await write_storage_pickle(
-                    storage_client,
-                    self.storage_bucket,
-                    f"{file_prefix}.taskarg{i}",
-                    arg,
+            # this should be in get_results, but
+            await driver._add_tasks(args)
+
+            run_worker_loops = asyncio.create_task(
+                driver.run_worker_functions(
+                    function,
+                    len(args),
+                    resources_required_per_task,
+                    job_fields,
                     pickle_protocol,
+                    wait_for_result,
                 )
-
-            indexed_map_worker_args = (
-                len(args),
-                num_concurrent_tasks,
-                function,
-                self.storage_bucket,
-                file_prefix,
-                self.storage_endpoint_url_in_cluster,
-                pickle.HIGHEST_PROTOCOL,
             )
+            num_tasks_done = 0
+            async for result in driver.get_results(args, max_num_task_attempts):
+                yield result
+                num_tasks_done += 1
 
-            # we don't care about the worker completions--if they had an error, an
-            # Exception will be raised, and the workers just return None
-            await self._run_job_helper(
-                storage_client,
-                Job(
-                    job_id=job_id,
-                    py_function=PyFunctionJob(
-                        qualified_function_name=QualifiedFunctionName(
-                            module_name=__name__,
-                            function_name=_indexed_map_worker.__name__,
-                        ),
-                        pickled_function_arguments=cloudpickle.dumps(
-                            (indexed_map_worker_args, None), protocol=pickle_protocol
-                        ),
-                    ),
-                    **job_fields,
-                ),
-                resources_required_per_task,
-                num_concurrent_tasks,
-                wait_for_result,
+            await run_worker_loops
+
+        # this is for extra safety--the only case where we don't get all of our results
+        # back should be if run_worker_loops throws an exception because there were
+        # worker failures
+        if num_tasks_done < len(args):
+            raise ValueError(
+                "Gave up retrieving task results, most likely due to worker failures. "
+                f"Received {num_tasks_done}/{len(args)} task results."
             )
-
-            results = []
-            for i in range(len(args)):
-                process_state = ProcessState.FromString(
-                    await read_storage(
-                        storage_client, self.storage_bucket, f"{file_prefix}/{i}/1"
-                    )
-                )
-
-                if (
-                    process_state.state
-                    == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
-                ):
-                    # TODO we should raise all of the exceptions if there are more than
-                    # 1, not just the first one we see
-                    raise MeadowrunException(
-                        ProcessState(
-                            state=process_state.state,
-                            pickled_result=process_state.pickled_result,
-                            return_code=0,
-                        )
-                    )
-
-                results.append(pickle.loads(process_state.pickled_result))
-
-        return results
-
-    def run_map_as_completed(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
-        job_fields: Dict[str, Any],
-        num_concurrent_tasks: int,
-        pickle_protocol: int,
-        wait_for_result: WaitOption,
-        max_num_task_attempts: int,
-    ) -> AsyncIterable[TaskResult[_U]]:
-        raise NotImplementedError(
-            "run_map_as_completed is not implemented for Kubernetes"
-        )
 
     async def get_object_storage(self) -> ObjectStorage:
         storage_client = await self._get_storage_client()
@@ -1028,6 +982,196 @@ class Kubernetes(Host):
         return FuncWorkerClientObjectStorage(
             await storage_client.__aenter__(), self.storage_bucket
         )
+
+
+class KubernetesGridJobDriver:
+    """
+    Similar to GridJobDriver, should potentially be merged with that code at some point
+    """
+    def __init__(
+        self,
+        kubernetes: Kubernetes,
+        num_concurrent_tasks: int,
+        storage_client: types_aiobotocore_s3.S3Client,
+    ):
+        self._kubernetes = kubernetes
+
+        # properties of the job
+        self._num_concurrent_tasks = num_concurrent_tasks
+        self._storage_client = storage_client
+
+        self._job_id = str(uuid.uuid4())
+        self._file_prefix = f"{self._kubernetes.storage_file_prefix}{self._job_id}"
+
+        # run_worker_functions will set this to indicate to get_results
+        # that there all of our workers have either exited unexpectedly (and we have
+        # given up trying to restore them), or have been told to shutdown normally
+        self._no_workers_available = asyncio.Event()
+
+        # these events aren't actually used right now, but for now we're keeping this
+        # code similar to GridJobDriver with the goal of eventually merging these
+        # classes
+        self._workers_needed = num_concurrent_tasks
+        self._workers_needed_changed = asyncio.Event()
+
+        self._abort_launching_new_workers = asyncio.Event()
+
+    # these three functions are effectively the GridJobCloudInterface
+
+    async def _add_tasks(self, args: Sequence[Any]) -> None:
+        assert self._kubernetes.storage_bucket is not None  # just for mypy
+
+        # TODO not respecting the storage_file_prefix
+        ranges = await upload_task_args(
+            self._storage_client, self._kubernetes.storage_bucket, self._job_id, args
+        )
+        # this is a hack--"normally" this would get sent with the "task assignment"
+        # message, but we don't have the infrastructure for that in the case of Indexed
+        # Jobs (static task-to-worker assignment)
+        await self._storage_client.put_object(
+            Bucket=self._kubernetes.storage_bucket,
+            Key=f"{self._file_prefix}.ranges.pkl",
+            Body=pickle.dumps(ranges),
+        )
+
+    async def _receive_task_results(
+        self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
+    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+        assert self._kubernetes.storage_bucket is not None  # just for mypy
+
+        return receive_results(
+            self._storage_client,
+            self._kubernetes.storage_bucket,
+            self._job_id,
+            stop_receiving=stop_receiving,
+            all_workers_exited=workers_done,
+            initial_wait_seconds=2,
+        )
+
+    async def _retry_task(self, task_id: int, attempts_so_far: int) -> None:
+        raise NotImplementedError("Retries are not implemented for Kubernetes")
+
+    async def run_worker_functions(
+        self,
+        function: Callable[[_T], _U],
+        num_args: int,
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        pickle_protocol: int,
+        wait_for_result: WaitOption,
+    ) -> None:
+
+        indexed_map_worker_args = (
+            num_args,
+            self._num_concurrent_tasks,
+            function,
+            self._kubernetes.storage_bucket,
+            self._job_id,
+            self._file_prefix,
+            self._kubernetes.storage_endpoint_url_in_cluster,
+            pickle.HIGHEST_PROTOCOL,
+        )
+
+        try:
+            # we don't care about the worker completions--if they had an error, an
+            # Exception will be raised, and the workers just return None
+            await self._kubernetes._run_job_helper(
+                self._storage_client,
+                Job(
+                    job_id=self._job_id,
+                    py_function=PyFunctionJob(
+                        qualified_function_name=QualifiedFunctionName(
+                            module_name=__name__,
+                            function_name=_indexed_map_worker.__name__,
+                        ),
+                        pickled_function_arguments=cloudpickle.dumps(
+                            (indexed_map_worker_args, None), protocol=pickle_protocol
+                        ),
+                    ),
+                    **job_fields,
+                ),
+                resources_required_per_task,
+                self._num_concurrent_tasks,
+                wait_for_result,
+            )
+        finally:
+            self._no_workers_available.set()
+
+    async def get_results(
+        self,
+        args: Sequence[_T],
+        max_num_task_attempts: int,
+    ) -> AsyncIterable[TaskResult]:
+        """Yields TaskResult objects as soon as tasks complete."""
+
+        # copied with very few modifications from
+        # GridJobDriver.add_tasks_and_get_results
+
+        # done = successful or exhausted retries
+        num_tasks_done = 0
+        # stop_receiving tells _cloud_interface.receive_task_results that there are no
+        # more results to get
+        stop_receiving = asyncio.Event()
+        if len(args) == num_tasks_done:
+            stop_receiving.set()
+        last_printed_update = time.time()
+        print(
+            f"Waiting for task results. Requested: {len(args)}, "
+            f"Done: {num_tasks_done}"
+        )
+        async for batch in await self._receive_task_results(
+            stop_receiving=stop_receiving, workers_done=self._no_workers_available
+        ):
+            for task_id, attempt, result in batch:
+                task_result = TaskResult.from_process_state(task_id, attempt, result)
+                if task_result.is_success:
+                    num_tasks_done += 1
+                    yield task_result
+                elif attempt < max_num_task_attempts:
+                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
+                    await self._retry_task(task_id, attempt)
+                else:
+                    print(
+                        f"Task {task_id} failed at attempt {attempt}, "
+                        f"max attempts is {max_num_task_attempts}, not retrying."
+                    )
+                    num_tasks_done += 1
+                    yield task_result
+
+            if num_tasks_done >= len(args):
+                stop_receiving.set()
+            else:
+                t0 = time.time()
+                if t0 - last_printed_update > _PRINT_RECEIVED_TASKS_SECONDS:
+                    print(
+                        f"Waiting for task results. Requested: {len(args)}, "
+                        f"Done: {num_tasks_done}"
+                    )
+                    last_printed_update = t0
+
+            # reduce the number of workers needed if we have more workers than
+            # outstanding tasks
+            num_workers_needed = max(len(args) - num_tasks_done, 0)
+            if num_workers_needed < self._workers_needed:
+                self._workers_needed = num_workers_needed
+                self._workers_needed_changed.set()
+
+        # We could be more finegrained about aborting launching workers. This is the
+        # easiest to implement, but ideally every time num_workers_needed changes we
+        # would consider cancelling launching new workers
+        self._abort_launching_new_workers.set()
+
+        if num_tasks_done < len(args):
+            # It would make sense for this to raise an exception, but it's more helpful
+            # to see the actual worker failures, and run_worker_functions should always
+            # raise an exception in that case. The caller should still check though that
+            # we returned all of the task results we were expecting.
+            print(
+                "Gave up retrieving task results, most likely due to worker failures. "
+                f"Received {num_tasks_done}/{len(args)} task results."
+            )
+        else:
+            print(f"Received all {len(args)} task results.")
 
 
 async def _get_pods_for_job(

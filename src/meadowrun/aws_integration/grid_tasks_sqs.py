@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import itertools
 import json
 import os
@@ -10,23 +9,22 @@ import traceback
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterable,
     Iterable,
     List,
     Optional,
-    Set,
     Tuple,
     TypeVar,
 )
 
 import aiobotocore.session
 
-from meadowrun.aws_integration import s3
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
 )
+from meadowrun.aws_integration.s3 import _get_bucket_name
 from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.s3_grid_job import upload_task_args, download_task_arg, complete_task
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -78,10 +76,6 @@ def _chunker(it: Iterable[_T], size: int) -> Iterable[Tuple[_T, ...]]:
         yield chunk
 
 
-def _s3_args_key(job_id: str) -> str:
-    return f"task-args/{job_id}"
-
-
 MESSAGE_PREFIX_TASK = "task"
 MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
 
@@ -94,39 +88,34 @@ async def add_tasks(
     run_map_args: Iterable[Any],
 ) -> List[Tuple[int, int]]:
     """
-    See create_queues_and_add_tasks
-
     This can only be called once per request_queue_url. If we wanted to support calling
     add_tasks more than once for the same job, we would need the caller to manage the
     task_ids
     """
 
-    pickles = bytearray()
-    grid_tasks: List[str] = []
-    range_from = 0
-    ranges = []
-    for i, arg in enumerate(run_map_args):
-        arg_pkl = pickle.dumps(((arg,), {}))
-        pickles.extend(arg_pkl)
-        range_to = len(pickles) - 1
-        grid_tasks.append(
-            json.dumps(
-                dict(task_id=i, attempt=1, range_from=range_from, range_end=range_to)
-            )
-        )
-        ranges.append((range_from, range_to))
-        range_from = range_to + 1
-
-    await s3.upload_async(
-        _s3_args_key(job_id), bytes(pickles), s3c.meta.region_name, s3c
+    byte_ranges = await upload_task_args(
+        s3c, _get_bucket_name(s3c.meta.region_name), job_id, run_map_args
     )
 
-    for tasks_chunk in _chunker(enumerate(grid_tasks), 10):
+    for byte_ranges_chunk in _chunker(enumerate(byte_ranges), 10):
         # this function can only take 10 messages at a time, so we chunk into
         # batches of 10
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.send_message_batch
 
-        entries = [{"Id": str(i), "MessageBody": task} for i, task in tasks_chunk]
+        entries = [
+            {
+                "Id": str(i),
+                "MessageBody": json.dumps(
+                    {
+                        "task_id": i,
+                        "attempt": 1,
+                        "range_from": range_from,
+                        "range_end": range_to,
+                    }
+                ),
+            }
+            for i, (range_from, range_to) in byte_ranges_chunk
+        ]
 
         result = await sqs.send_message_batch(
             QueueUrl=request_queue_url, Entries=entries  # type: ignore
@@ -134,7 +123,7 @@ async def add_tasks(
         if "Failed" in result:
             raise ValueError(f"Some grid tasks could not be queued: {result['Failed']}")
 
-    return ranges
+    return byte_ranges
 
 
 async def retry_task(
@@ -144,14 +133,6 @@ async def retry_task(
     range: Tuple[int, int],
     sqs_client: SQSClient,
 ) -> None:
-    """
-    See create_queues_and_add_tasks
-
-    This can only be called once per request_queue_url. If we wanted to support calling
-    add_tasks more than once for the same job, we would need the caller to manage the
-    task_ids
-    """
-
     task = json.dumps(
         dict(
             task_id=task_id,
@@ -240,8 +221,8 @@ async def _get_task(
             task["range_from"],
             task["range_end"],
         )
-        _, arg = await s3.download_async(
-            _s3_args_key(job_id), region_name, s3c, (range_from, range_end)
+        arg = await download_task_arg(
+            s3c, _get_bucket_name(region_name), job_id, (range_from, range_end)
         )
 
         # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
@@ -260,39 +241,6 @@ async def _get_task(
         QueueUrl=request_queue_url, ReceiptHandle=messages[0]["ReceiptHandle"]
     )
     return None
-
-
-def _s3_results_prefix(job_id: str) -> str:
-    return f"task-results/{job_id}/"
-
-
-def _s3_results_key(job_id: str, task_id: int, attempt: int) -> str:
-    # A million tasks and 1000 attempts should be enough for everybody. Formatting the
-    # task is important because when we task download results from S3, we use the
-    # StartFrom argument to S3's ListObjects to exclude most tasks we've already
-    # downloaded.
-    return f"{_s3_results_prefix(job_id)}{task_id:06d}/{attempt:03d}"
-
-
-def _s3_result_key_to_task_id_attempt(key: str, results_prefix: str) -> Tuple[int, int]:
-    [task_id, attempt] = key.replace(results_prefix, "").split("/")
-    return int(task_id), int(attempt)
-
-
-async def _complete_task(
-    s3c: S3Client,
-    job_id: str,
-    region_name: str,
-    task_id: int,
-    attempt: int,
-    process_state: ProcessState,
-) -> None:
-    """Uploads the result of the task to S3."""
-
-    process_state_bytes = process_state.SerializeToString()
-    await s3.upload_async(
-        _s3_results_key(job_id, task_id, attempt), process_state_bytes, region_name, s3c
-    )
 
 
 async def _worker_iteration(
@@ -354,10 +302,10 @@ async def _worker_iteration(
 
         cont = False
 
-    await _complete_task(
+    await complete_task(
         s3c,
+        _get_bucket_name(region_name),
         job_id,
-        region_name,
         task_id,
         attempt,
         process_state,
@@ -396,91 +344,3 @@ async def worker_function(
             worker_server,
         ):
             pass
-
-
-async def receive_results(
-    job_id: str,
-    region_name: str,
-    s3_client: S3Client,
-    stop_receiving: asyncio.Event,
-    all_workers_exited: asyncio.Event,
-    receive_message_wait_seconds: int = 20,
-) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
-    """
-    Listens to a result queue until we have results for num_tasks. Returns the unpickled
-    results of those tasks.
-    """
-
-    # Note: download here is all via S3. It's important that downloads are fast enough -
-    # in some cases (many workers, small-ish tasks) the rate of downloading the results
-    # to the client can be a limiting factor. Other alternatives that were considered:
-    # - SQS queues. Limitations are 1. Only 10 messages can be downloaded at a time,
-    #   which slows us down when we have hundreds of tasks completing quickly. 2. SQS
-    #   message limit is 256KB which means we need to use S3 to transfer the actual data
-    #   in the case of large results.
-    # - Sending data via SSH/SCP. This seems like it should be faster especially in the
-    #   same VPC/subnet, but even in that case, uploading to S3 first seems to be
-    #   faster. It's possible this would make sense in cases where we e.g. overwhelm the
-    #   S3 bucket.
-
-    # Behavior is that if stop_receiving is set, we want to return immediately. If
-    # all_workers_exited is set, then keep trying for about 3 seconds (just in case some
-    # results are still coming in), and then return
-
-    results_prefix = _s3_results_prefix(job_id)
-    download_keys_received: Set[str] = set()
-    wait = 4  # it's rare for any results to be ready in <4 seconds
-    workers_exited_wait_count = 0
-    while not stop_receiving.is_set() and (workers_exited_wait_count < 3 or wait == 0):
-        if all_workers_exited.is_set():
-            workers_exited_wait_count += 1
-
-        if wait:
-            events_to_wait_for = [asyncio.create_task(stop_receiving.wait())]
-            if workers_exited_wait_count == 0:
-                events_to_wait_for.append(
-                    asyncio.create_task(all_workers_exited.wait())
-                )
-            else:
-                # poll more frequently if workers are done, but still wait 1 second
-                # (unless stop_receiving is set)
-                wait = 1
-
-            done, pending = await asyncio.wait(
-                events_to_wait_for,
-                timeout=wait,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for p in pending:
-                p.cancel()
-            if stop_receiving.is_set():
-                break
-
-        keys = await s3.list_objects_async(results_prefix, "", region_name, s3_client)
-
-        download_tasks = []
-        for key in keys:
-            if key not in download_keys_received:
-                download_tasks.append(
-                    asyncio.create_task(s3.download_async(key, region_name, s3_client))
-                )
-
-        download_keys_received.update(keys)
-
-        if len(download_tasks) == 0:
-            if wait == 0:
-                wait = 1
-            else:
-                wait = min(wait * 2, receive_message_wait_seconds)
-        else:
-            wait = 0
-            results = []
-            for task_result_future in asyncio.as_completed(download_tasks):
-                key, process_state_bytes = await task_result_future
-                process_state = ProcessState()
-                process_state.ParseFromString(process_state_bytes)
-                task_id, attempt = _s3_result_key_to_task_id_attempt(
-                    key, results_prefix
-                )
-                results.append((task_id, attempt, process_state))
-            yield results

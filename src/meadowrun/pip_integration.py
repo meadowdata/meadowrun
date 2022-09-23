@@ -4,7 +4,7 @@ import asyncio
 import os
 import pkgutil
 import sys
-from typing import Callable
+from typing import Callable, Awaitable
 
 import filelock
 
@@ -94,8 +94,8 @@ async def get_cached_or_create_pip_environment(
     environment_hash: str,
     requirements_file_path: str,
     new_environment_path: str,
-    try_get_file: Callable[[str, str], bool],
-    upload_file: Callable[[str, str], None],
+    try_get_file: Callable[[str, str], Awaitable[bool]],
+    upload_file: Callable[[str, str], Awaitable[None]],
 ) -> str:
     """
     If the desired pip environment exists, does nothing. If the environment has been
@@ -122,7 +122,9 @@ async def get_cached_or_create_pip_environment(
             ".tar.gz"
         )
         local_cached_file = f"{new_environment_path}.tar.gz"
-        download_succeeded = try_get_file(remote_cached_file_name, local_cached_file)
+        download_succeeded = await try_get_file(
+            remote_cached_file_name, local_cached_file
+        )
         if download_succeeded:
             try:
                 print("Unpacking cached pip environment")
@@ -170,7 +172,7 @@ async def get_cached_or_create_pip_environment(
         # kill the container until this finishes
         print("Caching the pip environment")
         venv_pack.pack(new_environment_path, output=local_cached_file)
-        upload_file(local_cached_file, remote_cached_file_name)
+        await upload_file(local_cached_file, remote_cached_file_name)
 
         return new_environment_interpreter
 

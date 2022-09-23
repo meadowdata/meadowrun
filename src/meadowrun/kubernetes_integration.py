@@ -12,6 +12,7 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncContextManager,
     AsyncIterable,
     Callable,
     Dict,
@@ -41,9 +42,7 @@ from meadowrun.func_worker_storage_helper import (
 )
 from meadowrun.s3_grid_job import (
     get_storage_client_from_args,
-    read_storage_bytes,
-    read_storage_pickle,
-    write_storage_bytes,
+    read_storage,
     write_storage_pickle,
 )
 from meadowrun.meadowrun_pb2 import (
@@ -64,10 +63,12 @@ from meadowrun.run_job_local import (
     _get_credentials_sources,
     _string_pairs_to_dict,
 )
+from meadowrun.shared import none_async_context
 from meadowrun.version import __version__
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
+    import types_aiobotocore_s3
 
     from meadowrun.instance_selection import ResourcesInternal
     from meadowrun.run_job_core import TaskResult
@@ -92,7 +93,11 @@ def _new_get_watch_argument_name(watch: kubernetes_watch.Watch, func: Callable) 
 kubernetes_watch.watch.Watch.get_watch_argument_name = _new_get_watch_argument_name
 
 
-def _indexed_map_worker(
+def _indexed_map_worker(*args: Any, **kwargs: Any) -> None:
+    asyncio.run(_indexed_map_worker_async(*args, **kwargs))
+
+
+async def _indexed_map_worker_async(
     total_num_tasks: int,
     num_workers: int,
     function: Callable[[_T], _U],
@@ -122,55 +127,66 @@ def _indexed_map_worker(
         if storage_username is None and storage_password is None:
             raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
-        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = (
-            get_storage_client_from_args(
-                storage_endpoint_url, storage_username, storage_password
-            )
-        )
+        storage_client_needs_exit = True
+        storage_client = await get_storage_client_from_args(
+            storage_endpoint_url, storage_username, storage_password
+        ).__aenter__()
+        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
         meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
+    else:
+        storage_client_needs_exit = False
+        storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
 
-    storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
-
-    result_pickle_protocol = min(
-        result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
-    )
-
-    i = current_worker_index
-    while i < total_num_tasks:
-        arg = read_storage_pickle(
-            storage_client, storage_bucket, f"{file_prefix}.taskarg{i}"
+    try:
+        result_pickle_protocol = min(
+            result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
         )
 
-        try:
-            result = function(arg)
-        except Exception as e:
-            # first print the exception for the local log file
-            traceback.print_exc()
+        i = current_worker_index
+        while i < total_num_tasks:
 
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            arg = pickle.loads(
+                await read_storage(
+                    storage_client, storage_bucket, f"{file_prefix}.taskarg{i}"
+                )
+            )
 
-            process_state = ProcessState(
-                state=ProcessState.PYTHON_EXCEPTION,
-                pickled_result=pickle.dumps(
-                    (str(type(e)), str(e), tb), protocol=result_pickle_protocol
-                ),
-            ).SerializeToString()
-        else:
-            process_state = ProcessState(
-                state=ProcessState.SUCCEEDED,
-                pickled_result=pickle.dumps(result, protocol=result_pickle_protocol),
-            ).SerializeToString()
+            try:
+                result = function(arg)
+            except Exception as e:
+                # first print the exception for the local log file
+                traceback.print_exc()
 
-        # The trailing /1 indicates the attempt number. This will be used when we add
-        # support for retries
-        write_storage_bytes(
-            storage_client, storage_bucket, f"{file_prefix}/{i}/1", process_state
-        )
+                tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
 
-        i += num_workers
+                process_state = ProcessState(
+                    state=ProcessState.PYTHON_EXCEPTION,
+                    pickled_result=pickle.dumps(
+                        (str(type(e)), str(e), tb), protocol=result_pickle_protocol
+                    ),
+                ).SerializeToString()
+            else:
+                process_state = ProcessState(
+                    state=ProcessState.SUCCEEDED,
+                    pickled_result=pickle.dumps(
+                        result, protocol=result_pickle_protocol
+                    ),
+                ).SerializeToString()
+
+            # The trailing /1 indicates the attempt number. This will be used when we
+            # add support for retries
+            await storage_client.put_object(
+                Bucket=storage_bucket, Key=f"{file_prefix}/{i}/1", Body=process_state
+            )
+
+            i += num_workers
+    finally:
+        if storage_client_needs_exit:
+            # TODO should pass in the exception if we have one
+            await storage_client.__aexit__(None, None, None)
 
 
-def _get_job_completion_from_state_result(
+async def _get_job_completion_from_state_result(
     storage_client: Any,
     storage_bucket: Optional[str],
     file_prefix: str,
@@ -214,7 +230,7 @@ def _get_job_completion_from_state_result(
         )
 
     try:
-        state_bytes = read_storage_bytes(
+        state_bytes = await read_storage(
             storage_client, storage_bucket, f"{file_prefix}.state{file_suffix}"
         )
     except botocore.exceptions.ClientError as e:
@@ -245,8 +261,10 @@ def _get_job_completion_from_state_result(
         raise ValueError(f"Unknown state string: {state_string}")
 
     # if we got a state string, we should have a result file
-    result = read_storage_pickle(
-        storage_client, storage_bucket, f"{file_prefix}.result{file_suffix}"
+    result = pickle.loads(
+        await read_storage(
+            storage_client, storage_bucket, f"{file_prefix}.result{file_suffix}"
+        )
     )
 
     if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
@@ -264,7 +282,7 @@ def _get_job_completion_from_state_result(
     return JobCompletion(result, state, "", return_code, public_address)
 
 
-def _get_job_completion_from_process_state(
+async def _get_job_completion_from_process_state(
     storage_client: Any,
     storage_bucket: str,
     file_prefix: str,
@@ -295,7 +313,7 @@ def _get_job_completion_from_process_state(
         )
 
     process_state = ProcessState.FromString(
-        read_storage_bytes(
+        await read_storage(
             storage_client, storage_bucket, f"{file_prefix}.process_state{file_suffix}"
         )
     )
@@ -413,7 +431,9 @@ class Kubernetes(Host):
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
 
-    async def _get_storage_client(self) -> Any:
+    async def _get_storage_client(
+        self,
+    ) -> AsyncContextManager[Optional[types_aiobotocore_s3.S3Client]]:
         # get the storage client
 
         # this is kind of weird, this should be called before any Kubernetes function,
@@ -435,9 +455,9 @@ class Kubernetes(Host):
                 secret_data.get("password", None),
             )
 
-        return None
+        return none_async_context()
 
-    def _prepare_command(
+    async def _prepare_command(
         self, job: Job, job_spec_type: str, storage_client: Any, file_prefix: str
     ) -> List[str]:
         if job_spec_type == "py_command":
@@ -504,11 +524,10 @@ class Kubernetes(Host):
                 if function.pickled_function is None:
                     raise ValueError("pickled_function cannot be None")
 
-                write_storage_bytes(
-                    storage_client,
-                    self.storage_bucket,
-                    f"{file_prefix}.function",
-                    function.pickled_function,
+                await storage_client.put_object(
+                    Bucket=self.storage_bucket,
+                    Key=f"{file_prefix}.function",
+                    Body=function.pickled_function,
                 )
                 command.append("--has-pickled-function")
 
@@ -520,11 +539,10 @@ class Kubernetes(Host):
                         "storage_bucket. Please either specify the function to run with"
                         " a string or provide a storage_bucket"
                     )
-                write_storage_bytes(
-                    storage_client,
-                    self.storage_bucket,
-                    f"{file_prefix}.arguments",
-                    function.pickled_function_arguments,
+                await storage_client.put_object(
+                    Bucket=self.storage_bucket,
+                    Key=f"{file_prefix}.arguments",
+                    Body=function.pickled_function_arguments,
                 )
                 command.append("--has-pickled-arguments")
 
@@ -544,13 +562,14 @@ class Kubernetes(Host):
                 "Sidecar containers are not yet supported for Kubernetes"
             )
 
-        job_completions = await self._run_job_helper(
-            await self._get_storage_client(),
-            job,
-            resources_required,
-            None,
-            wait_for_result,
-        )
+        async with await self._get_storage_client() as storage_client:
+            job_completions = await self._run_job_helper(
+                storage_client,
+                job,
+                resources_required,
+                None,
+                wait_for_result,
+            )
         if len(job_completions) != 1:
             raise ValueError(
                 "Unexpected, requested a single job but got back "
@@ -630,11 +649,10 @@ class Kubernetes(Host):
                         "Please either use a different Deployment or provide a "
                         "storage_bucket"
                     )
-                write_storage_bytes(
-                    storage_client,
-                    self.storage_bucket,
-                    f"{file_prefix}.codezipfile",
-                    job.code_zip_file.SerializeToString(),
+                await storage_client.put_object(
+                    Bucket=self.storage_bucket,
+                    Key=f"{file_prefix}.codezipfile",
+                    Body=job.code_zip_file.SerializeToString(),
                 )
 
                 command_suffixes.append("--has-code-zip-file")
@@ -653,7 +671,7 @@ class Kubernetes(Host):
             if job_spec_type is None:
                 raise ValueError("Unexpected: job_spec is None")
 
-            command = self._prepare_command(
+            command = await self._prepare_command(
                 job, job_spec_type, storage_client, file_prefix
             )
             command.extend(command_suffixes)
@@ -693,17 +711,19 @@ class Kubernetes(Host):
             else:
                 file_suffixes = [""]
 
-            return [
-                _get_job_completion_from_state_result(
-                    storage_client,
-                    self.storage_bucket,
-                    file_prefix,
-                    file_suffix,
-                    job_spec_type,
-                    return_code,
+            return await asyncio.gather(
+                *(
+                    _get_job_completion_from_state_result(
+                        storage_client,
+                        self.storage_bucket,
+                        file_prefix,
+                        file_suffix,
+                        job_spec_type,
+                        return_code,
+                    )
+                    for file_suffix, return_code in zip(file_suffixes, return_codes)
                 )
-                for file_suffix, return_code in zip(file_suffixes, return_codes)
-            ]
+            )
         finally:
             # TODO we should separately periodically clean up these files in case we
             # aren't able to execute this finally block
@@ -716,7 +736,7 @@ class Kubernetes(Host):
                     "codezipfile",
                 ]:
                     try:
-                        storage_client.delete_object(
+                        await storage_client.delete_object(
                             Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
                         )
                     except asyncio.CancelledError:
@@ -754,11 +774,10 @@ class Kubernetes(Host):
                     "interpreter or provide a storage_bucket"
                 )
 
-            write_storage_bytes(
-                storage_client,
-                self.storage_bucket,
-                f"{file_prefix}.job_to_run",
-                job.SerializeToString(),
+            await storage_client.put_object(
+                Bucket=self.storage_bucket,
+                Key=f"{file_prefix}.job_to_run",
+                Body=job.SerializeToString(),
             )
 
             command = [
@@ -817,7 +836,7 @@ class Kubernetes(Host):
             if job_spec_type is None:
                 raise ValueError("Unexpected, job.job_spec is None")
             return [
-                _get_job_completion_from_process_state(
+                await _get_job_completion_from_process_state(
                     storage_client,
                     self.storage_bucket,
                     file_prefix,
@@ -832,7 +851,7 @@ class Kubernetes(Host):
             # aren't able to execute this finally block
             for suffix in ["job_to_run", "process_state"]:
                 try:
-                    storage_client.delete_object(
+                    await storage_client.delete_object(
                         Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
                     )
                 except asyncio.CancelledError:
@@ -904,78 +923,82 @@ class Kubernetes(Host):
         if max_num_task_attempts != 1:
             raise NotImplementedError("max_num_task_attempts must be 1 on Kubernetes")
 
-        storage_client = await self._get_storage_client()
-        # extra storage_bucket check is for mypy
-        if storage_client is None or self.storage_bucket is None:
-            raise ValueError(
-                "storage_bucket and other storage_* parameters must be specified to use"
-                " Kubernetes with run_map"
-            )
-
-        job_id = str(uuid.uuid4())
-
-        file_prefix = f"{self.storage_file_prefix}{job_id}"
-
-        for i, arg in enumerate(args):
-            write_storage_pickle(
-                storage_client,
-                self.storage_bucket,
-                f"{file_prefix}.taskarg{i}",
-                arg,
-                pickle_protocol,
-            )
-
-        indexed_map_worker_args = (
-            len(args),
-            num_concurrent_tasks,
-            function,
-            self.storage_bucket,
-            file_prefix,
-            self.storage_endpoint_url_in_cluster,
-            pickle.HIGHEST_PROTOCOL,
-        )
-
-        # we don't care about the worker completions--if they had an error, an Exception
-        # will be raised, and the workers just return None
-        await self._run_job_helper(
-            storage_client,
-            Job(
-                job_id=job_id,
-                py_function=PyFunctionJob(
-                    qualified_function_name=QualifiedFunctionName(
-                        module_name=__name__, function_name=_indexed_map_worker.__name__
-                    ),
-                    pickled_function_arguments=cloudpickle.dumps(
-                        (indexed_map_worker_args, None), protocol=pickle_protocol
-                    ),
-                ),
-                **job_fields,
-            ),
-            resources_required_per_task,
-            num_concurrent_tasks,
-            wait_for_result,
-        )
-
-        results = []
-        for i in range(len(args)):
-            process_state = ProcessState.FromString(
-                read_storage_bytes(
-                    storage_client, self.storage_bucket, f"{file_prefix}/{i}/1"
+        async with await self._get_storage_client() as storage_client:
+            # extra storage_bucket check is for mypy
+            if storage_client is None or self.storage_bucket is None:
+                raise ValueError(
+                    "storage_bucket and other storage_* parameters must be specified to"
+                    " use Kubernetes with run_map"
                 )
+
+            job_id = str(uuid.uuid4())
+
+            file_prefix = f"{self.storage_file_prefix}{job_id}"
+
+            for i, arg in enumerate(args):
+                await write_storage_pickle(
+                    storage_client,
+                    self.storage_bucket,
+                    f"{file_prefix}.taskarg{i}",
+                    arg,
+                    pickle_protocol,
+                )
+
+            indexed_map_worker_args = (
+                len(args),
+                num_concurrent_tasks,
+                function,
+                self.storage_bucket,
+                file_prefix,
+                self.storage_endpoint_url_in_cluster,
+                pickle.HIGHEST_PROTOCOL,
             )
 
-            if process_state.state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
-                # TODO we should raise all of the exceptions if there are more than 1,
-                # not just the first one we see
-                raise MeadowrunException(
-                    ProcessState(
-                        state=process_state.state,
-                        pickled_result=process_state.pickled_result,
-                        return_code=0,
+            # we don't care about the worker completions--if they had an error, an
+            # Exception will be raised, and the workers just return None
+            await self._run_job_helper(
+                storage_client,
+                Job(
+                    job_id=job_id,
+                    py_function=PyFunctionJob(
+                        qualified_function_name=QualifiedFunctionName(
+                            module_name=__name__,
+                            function_name=_indexed_map_worker.__name__,
+                        ),
+                        pickled_function_arguments=cloudpickle.dumps(
+                            (indexed_map_worker_args, None), protocol=pickle_protocol
+                        ),
+                    ),
+                    **job_fields,
+                ),
+                resources_required_per_task,
+                num_concurrent_tasks,
+                wait_for_result,
+            )
+
+            results = []
+            for i in range(len(args)):
+                process_state = ProcessState.FromString(
+                    await read_storage(
+                        storage_client, self.storage_bucket, f"{file_prefix}/{i}/1"
                     )
                 )
 
-            results.append(pickle.loads(process_state.pickled_result))
+                if (
+                    process_state.state
+                    == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
+                ):
+                    # TODO we should raise all of the exceptions if there are more than
+                    # 1, not just the first one we see
+                    raise MeadowrunException(
+                        ProcessState(
+                            state=process_state.state,
+                            pickled_result=process_state.pickled_result,
+                            return_code=0,
+                        )
+                    )
+
+                results.append(pickle.loads(process_state.pickled_result))
 
         return results
 
@@ -1002,7 +1025,9 @@ class Kubernetes(Host):
                 "Cannot use mirror_local without providing a storage_bucket. Please "
                 "either use a different Deployment method or provide a storage_bucket"
             )
-        return FuncWorkerClientObjectStorage(storage_client, self.storage_bucket)
+        return FuncWorkerClientObjectStorage(
+            await storage_client.__aenter__(), self.storage_bucket
+        )
 
 
 async def _get_pods_for_job(

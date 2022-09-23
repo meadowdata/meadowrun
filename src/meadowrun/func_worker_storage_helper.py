@@ -12,18 +12,23 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 
-from typing import Optional, Any, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING, Type
 
 import botocore.exceptions
 
 from meadowrun.run_job_core import S3CompatibleObjectStorage
+from meadowrun.s3_grid_job import read_storage
+
+if TYPE_CHECKING:
+    from types import TracebackType
+    import types_aiobotocore_s3
 
 MEADOWRUN_STORAGE_USERNAME = "MEADOWRUN_STORAGE_USERNAME"
 MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 
 # This is a global variable that will be updated with the storage client if it's
 # available in func_worker_storage
-FUNC_WORKER_STORAGE_CLIENT: Optional[Any] = None
+FUNC_WORKER_STORAGE_CLIENT: Optional[types_aiobotocore_s3.S3Client] = None
 FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 
 
@@ -31,8 +36,17 @@ FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
     # this really belongs in kubernetes_integration.py but can't put it there because of
     # circular imports
-    storage_client: Any = None
+    storage_client: Optional[types_aiobotocore_s3.S3Client] = None
     bucket_name: Optional[str] = None
+
+    async def __aexit__(
+        self,
+        exc_typ: Type[BaseException],
+        exc_val: BaseException,
+        exc_tb: TracebackType,
+    ) -> None:
+        if self.storage_client is not None:
+            await self.storage_client.__aexit__(exc_typ, exc_val, exc_tb)
 
     @classmethod
     def get_url_scheme(cls) -> str:
@@ -41,8 +55,10 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
     async def _upload(self, file_path: str) -> Tuple[str, str]:
         # TODO these will never get cleaned up
 
-        if self.bucket_name is None:
-            raise Exception("Can't use _upload without a bucket_name")
+        if self.storage_client is None or self.bucket_name is None:
+            raise Exception(
+                "Can't use _upload without a bucket_name and a storage endpoint"
+            )
 
         hasher = hashlib.blake2b()
         with open(file_path, "rb") as file:
@@ -51,7 +67,7 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
         digest = hasher.hexdigest()
 
         try:
-            self.storage_client.head_object(Bucket=self.bucket_name, Key=digest)
+            await self.storage_client.head_object(Bucket=self.bucket_name, Key=digest)
             return self.bucket_name, digest
         except botocore.exceptions.ClientError as error:
             # don't raise an error saying the file doesn't exist, we'll just upload it
@@ -60,9 +76,10 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
                 raise error
 
         # doesn't exist, need to upload it
-        self.storage_client.upload_file(
-            Filename=file_path, Bucket=self.bucket_name, Key=digest
-        ),
+        with open(file_path, "rb") as f:
+            await self.storage_client.put_object(
+                Bucket=self.bucket_name, Key=digest, Body=f
+            )
         return self.bucket_name, digest
 
     async def _download(
@@ -71,4 +88,5 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
         storage_client = FUNC_WORKER_STORAGE_CLIENT
         if storage_client is None:
             raise Exception("FUNC_WORKER_STORAGE_CLIENT is not available")
-        storage_client.download_file(bucket_name, object_name, file_name)
+        with open(file_name, "wb") as f:
+            f.write(await read_storage(storage_client, bucket_name, object_name))

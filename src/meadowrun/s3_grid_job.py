@@ -9,59 +9,50 @@ from __future__ import annotations
 
 import io
 import pickle
+import typing
 
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 
-import boto3
+import aiobotocore.session
 import botocore.exceptions
+
+if TYPE_CHECKING:
+    import types_aiobotocore_s3
 
 
 def get_storage_client_from_args(
     storage_endpoint_url: Optional[str],
     storage_access_key_id: Optional[str],
     storage_secret_access_key: Optional[str],
-) -> Any:
-    session_kwargs = {}
+) -> typing.AsyncContextManager[types_aiobotocore_s3.S3Client]:
+    kwargs = {}
     if storage_access_key_id is not None:
-        session_kwargs["aws_access_key_id"] = storage_access_key_id
+        kwargs["aws_access_key_id"] = storage_access_key_id
     if storage_secret_access_key is not None:
-        session_kwargs["aws_secret_access_key"] = storage_secret_access_key
-    client_kwargs = {}
+        kwargs["aws_secret_access_key"] = storage_secret_access_key
     if storage_endpoint_url is not None:
-        client_kwargs["endpoint_url"] = storage_endpoint_url
-    if session_kwargs:
-        session = boto3.Session(**session_kwargs)  # type: ignore
-        return session.client("s3", **client_kwargs)  # type: ignore
-    else:
-        # TODO if all the parameters are None then we're implicitly falling back on AWS
-        # S3, which we should make explicit
-        return boto3.client("s3", **client_kwargs)  # type: ignore
+        kwargs["endpoint_url"] = storage_endpoint_url
+
+    # TODO if all the parameters are None then we're implicitly falling back on AWS
+    # S3, which we should make explicit
+    session = aiobotocore.session.get_session()
+    return session.create_client("s3", **kwargs)  # type: ignore
 
 
-def read_storage_pickle(
-    storage_client: Any, storage_bucket: str, storage_filename: str
+async def read_storage(
+    storage_client: types_aiobotocore_s3.S3Client,
+    storage_bucket: str,
+    storage_filename: str,
 ) -> Any:
-    with io.BytesIO() as buffer:
-        storage_client.download_fileobj(
-            Bucket=storage_bucket, Key=storage_filename, Fileobj=buffer
-        )
-        buffer.seek(0)
-        return pickle.load(buffer)
+    response = await storage_client.get_object(
+        Bucket=storage_bucket, Key=storage_filename
+    )
+    async with response["Body"] as stream:
+        return await stream.read()
 
 
-def read_storage_bytes(
-    storage_client: Any, storage_bucket: str, storage_filename: str
-) -> bytes:
-    with io.BytesIO() as buffer:
-        storage_client.download_fileobj(
-            Bucket=storage_bucket, Key=storage_filename, Fileobj=buffer
-        )
-        buffer.seek(0)
-        return buffer.read()
-
-
-def write_storage_pickle(
-    storage_client: Any,
+async def write_storage_pickle(
+    storage_client: types_aiobotocore_s3.S3Client,
     storage_bucket: str,
     storage_filename: str,
     obj: Any,
@@ -70,43 +61,43 @@ def write_storage_pickle(
     with io.BytesIO() as buffer:
         pickle.dump(obj, buffer, protocol=pickle_protocol)
         buffer.seek(0)
-        storage_client.upload_fileobj(
-            Fileobj=buffer, Bucket=storage_bucket, Key=storage_filename
+        await storage_client.put_object(
+            Bucket=storage_bucket,
+            Key=storage_filename,
+            Body=buffer,
         )
 
 
-def write_storage_bytes(
-    storage_client: Any, storage_bucket: str, storage_filename: str, bs: bytes
+async def write_storage_file(
+    storage_client: types_aiobotocore_s3.S3Client,
+    storage_bucket: str,
+    local_filename: str,
+    storage_filename: str,
 ) -> None:
-    with io.BytesIO() as buffer:
-        buffer.write(bs)
-        buffer.seek(0)
-        storage_client.upload_fileobj(
-            Fileobj=buffer, Bucket=storage_bucket, Key=storage_filename
+    with open(local_filename, "rb") as f:
+        await storage_client.put_object(
+            Bucket=storage_bucket, Key=storage_filename, Body=f
         )
 
 
-def write_storage_file(
-    storage_client: Any, storage_bucket: str, local_filename: str, storage_filename: str
-) -> None:
-    storage_client.upload_file(
-        Filename=local_filename, Bucket=storage_bucket, Key=storage_filename
-    )
-
-
-def try_get_storage_file(
-    storage_client: Any,
+async def try_get_storage_file(
+    storage_client: types_aiobotocore_s3.S3Client,
     storage_bucket: str,
     storage_filename: str,
     local_filename: str,
 ) -> bool:
     try:
-        storage_client.download_file(storage_bucket, storage_filename, local_filename)
+        response = await storage_client.get_object(
+            Bucket=storage_bucket, Key=storage_filename
+        )
+        async with response["Body"] as stream:
+            with open(local_filename, "wb") as f:
+                f.write(await stream.read())
         return True
     except botocore.exceptions.ClientError as error:
         # don't raise an error saying the file doesn't exist, we'll just upload it
         # in that case by falling through to the next bit of code
-        if not error.response["Error"]["Code"] == "404":
+        if error.response["Error"]["Code"] not in ("404", "NoSuchKey"):
             raise error
 
         return False

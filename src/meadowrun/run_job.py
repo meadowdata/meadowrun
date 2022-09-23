@@ -148,9 +148,8 @@ async def _prepare_code_deployment(
 ) -> None:
     """Modifies code_deploy in place!"""
     if isinstance(code_deploy, CodeZipFile):
-        code_deploy.url = await (await host.get_object_storage()).upload_from_file_url(
-            code_deploy.url
-        )
+        async with await host.get_object_storage() as object_storage:
+            code_deploy.url = await object_storage.upload_from_file_url(code_deploy.url)
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:

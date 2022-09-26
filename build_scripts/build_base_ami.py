@@ -27,7 +27,7 @@ async def prepare_meadowrun_virtual_env(
         "&& mkdir /var/meadowrun/env "
         f"&& {python} -m venv /var/meadowrun/env "
         "&& source /var/meadowrun/env/bin/activate "
-        "&& pip install wheel",
+        f"&& {python} -m pip install wheel",
     )
 
 

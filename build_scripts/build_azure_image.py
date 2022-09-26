@@ -38,7 +38,7 @@ async def build_meadowrun_azure_image() -> None:
     location = get_default_location()
     private_key, public_key = await ensure_meadowrun_key_pair(location)
     ip_address, vm_name = await _provision_vm(
-        location, "Standard_DS4_v2", "spot", public_key, _BASE_IMAGE, "Regular"
+        location, "Standard_D2s_v3", "spot", public_key, _BASE_IMAGE, "Regular"
     )
     print(f"Launched VM {ip_address}")
 

@@ -31,10 +31,10 @@ from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
 from meadowrun.azure_integration.blob_storage import AzureBlobStorage
 from meadowrun.azure_integration.grid_tasks_queue import (
     Queue,
-    _add_tasks,
-    _add_worker_shutdown_message,
-    _create_queues_for_job,
-    _retry_task,
+    add_tasks,
+    add_worker_shutdown_message,
+    create_queues_for_job,
+    retry_task,
     get_results_unordered,
     worker_function_async,
 )
@@ -558,10 +558,10 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             ensure_meadowrun_key_pair(self._location)
         )
         self._request_result_queues = asyncio.create_task(
-            _create_queues_for_job(self._job_id, self._location)
+            create_queues_for_job(self._job_id, self._location)
         )
         self._tasks = tasks
-        await _add_tasks((await self._request_result_queues)[0], tasks)
+        await add_tasks((await self._request_result_queues)[0], tasks)
 
     async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
         if self._ssh_private_key is None:
@@ -583,7 +583,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
                 "Must call setup_and_add_tasks before calling shutdown_workers"
             )
 
-        await _add_worker_shutdown_message(
+        await add_worker_shutdown_message(
             (await self._request_result_queues)[0], num_workers
         )
 
@@ -623,7 +623,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         if self._tasks is None or self._request_result_queues is None:
             raise ValueError("Must call setup_and_add_tasks before calling retry_task")
 
-        await _retry_task(
+        await retry_task(
             (await self._request_result_queues)[0],
             task_id,
             attempts_so_far + 1,

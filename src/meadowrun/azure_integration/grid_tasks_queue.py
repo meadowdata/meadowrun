@@ -57,7 +57,7 @@ class Queue:
     storage_account: StorageAccount
 
 
-async def _create_queues_for_job(job_id: str, location: str) -> Tuple[Queue, Queue]:
+async def create_queues_for_job(job_id: str, location: str) -> Tuple[Queue, Queue]:
     storage_account = await ensure_meadowrun_storage_account(location, "create")
     now = datetime.datetime.utcnow().strftime(QUEUE_NAME_TIMESTAMP_FORMAT)
     request_queue_task = azure_rest_api(
@@ -84,22 +84,26 @@ async def _create_queues_for_job(job_id: str, location: str) -> Tuple[Queue, Que
 _WORKER_SHUTDOWN_MESSAGE = b"worker-shutdown"
 
 
-async def _add_tasks(request_queue: Queue, tasks: Iterable[Any]) -> None:
+async def add_tasks(request_queue: Queue, tasks: Iterable[Any]) -> None:
     await asyncio.wait(
         [
-            queue_send_message(
-                request_queue.storage_account,
-                request_queue.queue_name,
-                GridTask(
-                    task_id=i, attempt=1, pickled_function_arguments=pickle.dumps(task)
-                ).SerializeToString(),
+            asyncio.create_task(
+                queue_send_message(
+                    request_queue.storage_account,
+                    request_queue.queue_name,
+                    GridTask(
+                        task_id=i,
+                        attempt=1,
+                        pickled_function_arguments=pickle.dumps(((task,), {})),
+                    ).SerializeToString(),
+                )
             )
             for i, task in enumerate(tasks)
         ]
     )
 
 
-async def _retry_task(
+async def retry_task(
     request_queue: Queue, task_id: int, attempt: int, task: Any
 ) -> None:
     await queue_send_message(
@@ -113,14 +117,16 @@ async def _retry_task(
     )
 
 
-async def _add_worker_shutdown_message(request_queue: Queue, num_workers: int) -> None:
+async def add_worker_shutdown_message(request_queue: Queue, num_workers: int) -> None:
     # TODO I think these could be sent in a single API call
     await asyncio.wait(
         [
-            queue_send_message(
-                request_queue.storage_account,
-                request_queue.queue_name,
-                _WORKER_SHUTDOWN_MESSAGE,
+            asyncio.create_task(
+                queue_send_message(
+                    request_queue.storage_account,
+                    request_queue.queue_name,
+                    _WORKER_SHUTDOWN_MESSAGE,
+                )
             )
             for _ in range(num_workers)
         ]

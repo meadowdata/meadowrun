@@ -71,6 +71,9 @@ class HostProvider(abc.ABC):
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
         pass
 
+    def get_num_concurrent_tasks(self) -> int:
+        return 4
+
 
 def _path_from_here(path: str) -> str:
     """
@@ -179,9 +182,8 @@ class BasicsSuite(HostProvider, abc.ABC):
             )
 
             if self.can_get_log_file():
-                assert (await self.get_log_file_text(result)).startswith(
-                    f"Python" f" {version}"
-                )
+                actual = await self.get_log_file_text(result)
+                assert f"Python" f" {version}" in actual, actual
             else:
                 print("Warning get_log_file_text is not implemented")
 
@@ -364,7 +366,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
             ),
         )
-        assert results == ("2.28.0", "1.4.2", "a, b")
+        assert results == ("2.28.1", "1.4.3", "a, b"), results
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
@@ -596,7 +598,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2, 3, 4],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=4,
+            num_concurrent_tasks=self.get_num_concurrent_tasks(),
         )
 
         assert results == [1, 4, 27, 256], str(results)
@@ -610,7 +612,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2, 3, 4],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=4,
+            num_concurrent_tasks=self.get_num_concurrent_tasks(),
             deployment=Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 branch="main",
@@ -630,7 +632,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2, 3, 4],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=2,
+            num_concurrent_tasks=self.get_num_concurrent_tasks(),
         ):
             actual.append(result.result_or_raise())
 
@@ -649,7 +651,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2, 3, 4],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=2,
+            num_concurrent_tasks=self.get_num_concurrent_tasks(),
             max_num_task_attempts=3,
         ):
             actual.append(result)
@@ -672,7 +674,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2, 3, 4],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=2,
+            num_concurrent_tasks=self.get_num_concurrent_tasks(),
             max_num_task_attempts=3,
             deployment=Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
@@ -701,7 +703,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2],
             self.get_host(),
             self.get_resources_required(),
-            num_concurrent_tasks=2,
+            num_concurrent_tasks=self.get_num_concurrent_tasks(),
         ):
             actual.append(result)
 
@@ -722,6 +724,6 @@ class MapSuite(HostProvider, abc.ABC):
                 [1, 2, 3, 4],
                 self.get_host(),
                 self.get_resources_required(),
-                num_concurrent_tasks=4,
+                num_concurrent_tasks=self.get_num_concurrent_tasks(),
             )
         assert "UNEXPECTED_WORKER_EXIT" in str(exc)

@@ -53,6 +53,10 @@ class AzureHostProvider(HostProvider):
         ) as conn:
             return await ssh.read_text_from_file(conn, job_completion.log_file_name)
 
+    def get_num_concurrent_tasks(self) -> int:
+        # default quota on Azure is very low (3vCPUs)
+        return 2
+
 
 class TestBasicsAzure(AzureHostProvider, BasicsSuite):
     pass

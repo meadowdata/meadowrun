@@ -29,6 +29,7 @@ import cloudpickle
 import kubernetes_asyncio.client as kubernetes_client
 import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
 import kubernetes_asyncio.config as kubernetes_config
+import kubernetes_asyncio.stream as kubernetes_stream
 import kubernetes_asyncio.watch as kubernetes_watch
 
 import meadowrun.func_worker_storage_helper
@@ -428,6 +429,9 @@ class Kubernetes(Host):
         kubernetes_namespace: The Kubernetes namespace that Meadowrun will create Jobs
             in. This should usually not be left to the default value ("default") for any
             "real" workloads.
+        resuable_pods: Experimental feature: rather than always starting a new pod for
+            each job, starts generic long-lived pods that can be reused for multiple
+            jobs
     """
 
     storage_bucket: Optional[str] = None
@@ -437,6 +441,7 @@ class Kubernetes(Host):
     storage_username_password_secret: Optional[str] = None
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
+    reusable_pods: bool = False
 
     async def _get_storage_client(
         self,
@@ -942,11 +947,16 @@ class Kubernetes(Host):
 
             driver = KubernetesGridJobDriver(self, num_concurrent_tasks, storage_client)
 
-            # this should be in get_results, but
+            # this should be in get_results, but with indexed workers we need to make
+            # sure the tasks are uploaded before we can start workers
             await driver._add_tasks(args)
 
+            if not self.reusable_pods:
+                run_worker_functions = driver.run_worker_functions
+            else:
+                run_worker_functions = driver.run_worker_functions_reusable_pods
             run_worker_loops = asyncio.create_task(
-                driver.run_worker_functions(
+                run_worker_functions(
                     function,
                     len(args),
                     resources_required_per_task,
@@ -955,6 +965,7 @@ class Kubernetes(Host):
                     wait_for_result,
                 )
             )
+
             num_tasks_done = 0
             async for result in driver.get_results(args, max_num_task_attempts):
                 yield result
@@ -1097,6 +1108,132 @@ class KubernetesGridJobDriver:
             )
         finally:
             self._no_workers_available.set()
+
+    async def run_worker_functions_reusable_pods(
+        self,
+        function: Callable[[_T], _U],
+        num_args: int,
+        resources_required_per_task: Optional[ResourcesInternal],
+        job_fields: Dict[str, Any],
+        pickle_protocol: int,
+        wait_for_result: WaitOption,
+    ) -> None:
+        # TODO implement wait_for_result options
+
+        try:
+            indexed_map_worker_args = (
+                num_args,
+                self._num_concurrent_tasks,
+                function,
+                self._kubernetes.storage_bucket,
+                self._job_id,
+                self._file_prefix,
+                self._kubernetes.storage_endpoint_url_in_cluster,
+                pickle.HIGHEST_PROTOCOL,
+            )
+
+            job = Job(
+                job_id=self._job_id,
+                py_function=PyFunctionJob(
+                    qualified_function_name=QualifiedFunctionName(
+                        module_name=__name__, function_name=_indexed_map_worker.__name__
+                    ),
+                    pickled_function_arguments=cloudpickle.dumps(
+                        (indexed_map_worker_args, None), protocol=pickle_protocol
+                    ),
+                ),
+                **job_fields,
+            )
+
+            interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
+            if interpreter_deployment_type in (
+                "container_at_digest",
+                "container_at_tag",
+                "server_available_container",
+            ):
+                # TODO we would need to require that Meadowrun is installed in the
+                # custom container, so then we could just implement this by translating
+                # to ServerAvailableInterpreter(sys.executable)
+                raise NotImplementedError(
+                    "Specifying a container image when running on Kubernetes with "
+                    "reusable pods is not yet supported"
+                )
+
+            if (
+                self._kubernetes.storage_bucket is None
+                or self._kubernetes.storage_endpoint_url is None
+            ):
+                raise ValueError(
+                    "Cannot use an environment_spec without providing a storage_bucket."
+                    " Please either provide a pre-built container image for the "
+                    "interpreter or provide a storage_bucket"
+                )
+
+            await self._storage_client.put_object(
+                Bucket=self._kubernetes.storage_bucket,
+                Key=f"{self._file_prefix}.job_to_run",
+                Body=job.SerializeToString(),
+            )
+
+            if self._kubernetes.storage_endpoint_url_in_cluster:
+                storage_endpoint = self._kubernetes.storage_endpoint_url_in_cluster
+            elif self._kubernetes.storage_endpoint_url:
+                storage_endpoint = self._kubernetes.storage_endpoint_url
+            else:
+                raise ValueError("Storage endpoint must be specified")
+            # TODO it's possible that a job will run more than once on the same
+            # container, although not in parallel
+            inner_command = (
+                "python -m meadowrun.run_job_local_storage_main --storage-bucket "
+                f"{self._kubernetes.storage_bucket} --storage-file-prefix "
+                f"{self._file_prefix} --storage-endpoint-url {storage_endpoint} "
+                f">/var/meadowrun/job_logs/{self._job_id}.log 2>&1 &"
+            )
+            command = ["/bin/bash", "-c", inner_command]
+
+            all_tasks = []
+
+            async with kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
+                core_api = kubernetes_client.CoreV1Api(api_client)
+                ws_core_api = kubernetes_client.CoreV1Api(ws_api_client)
+                batch_api = kubernetes_client.BatchV1Api(api_client)
+
+                async for pods in _get_meadowrun_resuable_pods(
+                    self._kubernetes.kubernetes_namespace,
+                    _python_version_from_environment_spec(job),
+                    job_fields["ports"],
+                    resources_required_per_task,
+                    self._num_concurrent_tasks,
+                    core_api,
+                    batch_api,
+                    self._kubernetes.storage_username_password_secret,
+                ):
+                    for pod in pods:
+                        all_tasks.append(
+                            asyncio.create_task(
+                                _run_job_on_reusable_pod(
+                                    pod.metadata.name,
+                                    self._kubernetes.kubernetes_namespace,
+                                    command,
+                                    ws_core_api,
+                                )
+                            )
+                        )
+
+                # TODO replace pods as they fail
+
+                await asyncio.gather(*all_tasks, return_exceptions=True)
+        except BaseException:
+            # Unfortunately we have no way of knowing whether our workers are still
+            # running or not--we have to hope that if we launched the remote process
+            # successfully, then some sort of indication of success/failure will come
+            # back:
+            # TODO run_job_local_storage_main needs more error handling and we need to
+            # check for those errors in get_results
+            # TODO no_workers_available should only be set if all of the workers failed
+            # to start
+            self._no_workers_available.set()
+            raise
 
     async def get_results(
         self,
@@ -1492,6 +1629,45 @@ def _resources_to_kubernetes(resources: ResourcesInternal) -> Dict[str, int]:
     return result
 
 
+def _add_storage_username_password_to_environment(
+    storage_username_password_secret: Optional[str],
+    environment: List[kubernetes_client.V1EnvVar],
+    environment_variables: Dict[str, str],
+) -> None:
+    """
+    Modifies environment in place!! environment_variables is just to make sure we don't
+    overwrite an existing environment variable
+    """
+
+    if storage_username_password_secret is not None:
+        if MEADOWRUN_STORAGE_USERNAME not in environment_variables:
+            environment.append(
+                kubernetes_client.V1EnvVar(
+                    name=MEADOWRUN_STORAGE_USERNAME,
+                    value_from=kubernetes_client.V1EnvVarSource(
+                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
+                            key="username",
+                            name=storage_username_password_secret,
+                            optional=False,
+                        )
+                    ),
+                )
+            )
+        if MEADOWRUN_STORAGE_PASSWORD not in environment_variables:
+            environment.append(
+                kubernetes_client.V1EnvVar(
+                    name=MEADOWRUN_STORAGE_PASSWORD,
+                    value_from=kubernetes_client.V1EnvVarSource(
+                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
+                            key="password",
+                            name=storage_username_password_secret,
+                            optional=False,
+                        )
+                    ),
+                )
+            )
+
+
 async def _run_kubernetes_job(
     job_id: str,
     kubernetes_namespace: str,
@@ -1523,33 +1699,9 @@ async def _run_kubernetes_job(
         for key, value in environment_variables.items()
     ]
 
-    if storage_username_password_secret is not None:
-        if MEADOWRUN_STORAGE_USERNAME not in environment_variables:
-            environment.append(
-                kubernetes_client.V1EnvVar(
-                    name=MEADOWRUN_STORAGE_USERNAME,
-                    value_from=kubernetes_client.V1EnvVarSource(
-                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
-                            key="username",
-                            name=storage_username_password_secret,
-                            optional=False,
-                        )
-                    ),
-                )
-            )
-        if MEADOWRUN_STORAGE_PASSWORD not in environment_variables:
-            environment.append(
-                kubernetes_client.V1EnvVar(
-                    name=MEADOWRUN_STORAGE_PASSWORD,
-                    value_from=kubernetes_client.V1EnvVarSource(
-                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
-                            key="password",
-                            name=storage_username_password_secret,
-                            optional=False,
-                        )
-                    ),
-                )
-            )
+    _add_storage_username_password_to_environment(
+        storage_username_password_secret, environment, environment_variables
+    )
 
     if indexed_completions:
         additional_job_spec_parameters = {
@@ -1691,3 +1843,134 @@ async def _run_kubernetes_job(
                 )
             except kubernetes_client_exceptions.ApiException as e:
                 print(f"Warning, error cleaning up job: {e}")
+
+
+async def _get_meadowrun_resuable_pods(
+    kubernetes_namespace: str,
+    python_version: str,
+    ports: List[int],
+    resources: Optional[ResourcesInternal],
+    number_of_pods: int,
+    core_api: kubernetes_client.CoreV1Api,
+    batch_api: kubernetes_client.BatchV1Api,
+    storage_username_password_secret: Optional[str],
+) -> AsyncIterable[List[kubernetes_client.V1Pod]]:
+
+    pods_response = await core_api.list_namespaced_pod(
+        kubernetes_namespace,
+        # TODO also add ports and resources in selector
+        label_selector=f"meadowrun.io/reusable-pod-python-version={python_version}",
+        field_selector="status.phase=Running",
+        limit=number_of_pods,
+    )
+    existing_pods = pods_response.items
+    # limit may be ignored according to the Kubernetes API spec
+    # TODO pods that say "terminating" in the dashboard show up as "running" in this
+    # query
+    if len(existing_pods) > number_of_pods:
+        existing_pods = existing_pods[:number_of_pods]
+    if existing_pods:
+        print(f"Reusing {len(existing_pods)} existing pods")
+        yield existing_pods
+
+    remaining_pods_to_launch = number_of_pods - len(existing_pods)
+
+    if remaining_pods_to_launch > 0:
+        # TODO do something about ports
+
+        image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
+        # uncomment this for development
+        # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
+
+        environment: List[kubernetes_client.V1EnvVar] = []
+
+        _add_storage_username_password_to_environment(
+            storage_username_password_secret, environment, {}
+        )
+
+        additional_container_parameters = {}
+
+        if ports:
+            additional_container_parameters["ports"] = [
+                kubernetes_client.V1ContainerPort(container_port=port) for port in ports
+            ]
+
+        if resources is not None:
+            additional_container_parameters[
+                "resources"
+            ] = kubernetes_client.V1ResourceRequirements(
+                requests=_resources_to_kubernetes(resources)
+            )
+
+        job_name = f"mdr-reusable-{uuid.uuid4()}"
+        body = kubernetes_client.V1Job(
+            metadata=kubernetes_client.V1ObjectMeta(name=job_name),
+            spec=kubernetes_client.V1JobSpec(
+                ttl_seconds_after_finished=10,
+                backoff_limit=0,
+                template=kubernetes_client.V1PodTemplateSpec(
+                    metadata=kubernetes_client.V1ObjectMeta(
+                        labels={
+                            "meadowrun.io/reusable-pod-python-version": python_version
+                        }
+                    ),
+                    spec=kubernetes_client.V1PodSpec(
+                        containers=[
+                            kubernetes_client.V1Container(
+                                name="main",
+                                image=image_name,
+                                args=[
+                                    "python",
+                                    "-m",
+                                    "meadowrun.k8s_integration.k8s_main",
+                                ],
+                                env=environment,
+                                **additional_container_parameters,
+                            )
+                        ],
+                        restart_policy="Never",
+                    ),
+                ),
+                completion_mode="Indexed",
+                completions=remaining_pods_to_launch,
+                parallelism=remaining_pods_to_launch,
+            ),
+        )
+
+        await batch_api.create_namespaced_job(kubernetes_namespace, body)
+
+        pods = await _get_pods_for_job(
+            core_api,
+            kubernetes_namespace,
+            job_name,
+            [f"{job_name}-{i}-" for i in range(remaining_pods_to_launch)],
+        )
+        for pod_future in asyncio.as_completed(
+            [
+                _wait_for_pod_running(core_api, job_name, kubernetes_namespace, pod)
+                for pod in pods
+            ]
+        ):
+            yield [await pod_future]
+
+        print(f"Started {remaining_pods_to_launch} new pods")
+
+
+async def _run_job_on_reusable_pod(
+    pod_name: str,
+    kubernetes_namespace: str,
+    command: List[str],
+    ws_core_api: kubernetes_client.CoreV1Api,
+) -> str:
+    return await ws_core_api.connect_post_namespaced_pod_exec(
+        name=pod_name,
+        namespace=kubernetes_namespace,
+        command=command,
+        # We don't actually want to stream any output back (it will be empty in any
+        # case), but it seems like at least one of stderr or stdout needs to be True for
+        # this to work
+        stderr=True,
+        stdin=False,
+        stdout=False,
+        tty=False,
+    )

@@ -106,6 +106,7 @@ module = [
     "kubernetes_asyncio.client",
     "kubernetes_asyncio.client.exceptions",
     "kubernetes_asyncio.config",
+    "kubernetes_asyncio.stream",
     "kubernetes_asyncio.watch",
     "venv_pack",
 ]

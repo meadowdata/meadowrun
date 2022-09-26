@@ -326,6 +326,12 @@ async def _prepare_py_agent(
     child process.
     """
 
+    io_files = [
+        # these line up with __meadowrun_task_worker
+        os.path.join(job.job_id + ".state"),
+        os.path.join(job.job_id + ".result"),
+    ]
+
     if not is_container:
         worker_path = _TASK_WORKER_PATH
         io_path_container = os.path.join(io_folder, job.job_id)
@@ -334,6 +340,8 @@ async def _prepare_py_agent(
             f"{MEADOWRUN_CODE_MOUNT_LINUX}{os.path.basename(_TASK_WORKER_PATH)}"
         )
         io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}"
+        for io_file in io_files:
+            open(os.path.join(io_folder, io_file), "w", encoding="utf-8").close()
 
     server = await agent_start_serving("0.0.0.0" if is_container else "127.0.0.1")
     command_line = [
@@ -357,7 +365,7 @@ async def _prepare_py_agent(
         list(itertools.chain(command_line, command_line_for_function)),
         _io_file_container_binds(
             io_folder,
-            io_files_for_function,
+            itertools.chain(io_files, io_files_for_function),
         )
         + [(_TASK_WORKER_PATH, worker_path)],
         server=server,
@@ -519,7 +527,10 @@ async def _non_container_job_continuation(
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        # there was an exception while trying to get the final ProcessState
+        print(
+            "There was an exception while trying to get the final ProcessState:\n"
+            + traceback.format_exc()
+        )
         return ProcessState(
             state=ProcessStateEnum.ERROR_GETTING_STATE,
             pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
@@ -730,7 +741,10 @@ async def _container_job_continuation(
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        # there was an exception while trying to get the final ProcessState
+        print(
+            "There was an exception while trying to get the final ProcessState:\n"
+            + traceback.format_exc()
+        )
         return ProcessState(
             state=ProcessStateEnum.ERROR_GETTING_STATE,
             pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),

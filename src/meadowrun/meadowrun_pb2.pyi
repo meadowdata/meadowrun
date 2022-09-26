@@ -1080,12 +1080,14 @@ class ProcessState(google.protobuf.message.Message):
     LOG_FILE_NAME_FIELD_NUMBER: builtins.int
     PICKLED_RESULT_FIELD_NUMBER: builtins.int
     RETURN_CODE_FIELD_NUMBER: builtins.int
+    MAX_MEMORY_USED_GB_FIELD_NUMBER: builtins.int
     state: global___ProcessState.ProcessStateEnum.ValueType
     pid: builtins.int
     container_id: builtins.str
     log_file_name: builtins.str
     pickled_result: builtins.bytes
     return_code: builtins.int
+    max_memory_used_gb: builtins.float
     def __init__(
         self,
         *,
@@ -1095,6 +1097,7 @@ class ProcessState(google.protobuf.message.Message):
         log_file_name: builtins.str = ...,
         pickled_result: builtins.bytes = ...,
         return_code: builtins.int = ...,
+        max_memory_used_gb: builtins.float = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -1103,6 +1106,8 @@ class ProcessState(google.protobuf.message.Message):
             b"container_id",
             "log_file_name",
             b"log_file_name",
+            "max_memory_used_gb",
+            b"max_memory_used_gb",
             "pickled_result",
             b"pickled_result",
             "pid",

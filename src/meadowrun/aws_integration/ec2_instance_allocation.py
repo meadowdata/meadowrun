@@ -11,6 +11,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
+    Awaitable,
     Callable,
     Coroutine,
     Dict,
@@ -84,7 +85,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from meadowrun.meadowrun_pb2 import Job, ProcessState
-    from meadowrun.run_job_local import AgentTaskWorkerServer
+    from meadowrun.run_job_local import AgentTaskWorkerServer, Stats
     from types_aiobotocore_s3 import S3Client
     from types_aiobotocore_sqs import SQSClient
     from typing_extensions import Literal
@@ -721,7 +722,11 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
         self._ssh_private_key = get_meadowrun_ssh_key(self._region_name)
 
-        self._request_queue_url: Optional[asyncio.Task[str]] = None
+        # We keep multiple request queues so that we can retry tasks with more
+        # resources. The ith queue (where i starts at 0) will have workers with
+        # (original_memory * (i + 1)) memory. For the happy path, we will only create
+        # one queue with one set of workers having the originally requested memory
+        self._request_queue_urls: List[asyncio.Task[str]] = []
         self._task_argument_ranges: Optional[asyncio.Task[List[Tuple[int, int]]]] = None
 
         # this id is just used for creating the job's queues. It has no relationship to
@@ -755,19 +760,36 @@ class EC2GridJobInterface(GridJobCloudInterface):
     def create_instance_registrar(self) -> InstanceRegistrar:
         return EC2InstanceRegistrar(self._region_name, "create")
 
+    def create_queue(self) -> int:
+        if self._sqs_client is None:
+            raise ValueError("EC2GridJobInterface must be created with `async with`")
+
+        index = len(self._request_queue_urls)
+        if index == 0:
+            job_id_modified = self._job_id
+        else:
+            job_id_modified = f"{self._job_id}-{index}"
+        self._request_queue_urls.append(
+            asyncio.create_task(create_request_queue(job_id_modified, self._sqs_client))
+        )
+        return index
+
     async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
         if self._sqs_client is None or self._s3_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 
         # create SQS queues and add tasks to the request queue
         print(f"The current run_map's id is {self._job_id}")
-        self._request_queue_url = asyncio.create_task(
-            create_request_queue(self._job_id, self._sqs_client)
-        )
+        queue_index = self.create_queue()
+        if queue_index != 0:
+            raise ValueError(
+                "setup_and_add_tasks was called more than once, or create_queue was "
+                "called before setup_and_add_tasks"
+            )
         self._task_argument_ranges = asyncio.create_task(
             add_tasks(
                 self._job_id,
-                await self._request_queue_url,
+                await self._request_queue_urls[queue_index],
                 self._s3_client,
                 self._sqs_client,
                 tasks,
@@ -784,28 +806,27 @@ class EC2GridJobInterface(GridJobCloudInterface):
             instance_name,
         )
 
-    async def shutdown_workers(self, num_workers: int) -> None:
-        if self._request_queue_url is None:
-            raise ValueError(
-                "setup_and_add_tasks must be called before send_worker_done_messages"
-            )
+    async def shutdown_workers(self, num_workers: int, queue_index: int) -> None:
+        if len(self._request_queue_urls) < queue_index + 1:
+            raise ValueError(f"Queue {queue_index} has not been created yet")
         if self._sqs_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
         await add_worker_shutdown_messages(
-            await self._request_queue_url, num_workers, self._sqs_client
+            await self._request_queue_urls[queue_index], num_workers, self._sqs_client
         )
 
     async def get_worker_function(
-        self,
-    ) -> Callable[[str, str, AgentTaskWorkerServer], Coroutine[Any, Any, None]]:
-        if self._request_queue_url is None:
-            raise ValueError(
-                "setup_and_add_tasks must be called before get_worker_function"
-            )
+        self, queue_index: int
+    ) -> Callable[
+        [str, str, AgentTaskWorkerServer, Callable[[], Awaitable[Stats]]],
+        Coroutine[Any, Any, None],
+    ]:
+        if len(self._request_queue_urls) < queue_index + 1:
+            raise ValueError(f"Queue {queue_index} has not been created yet")
 
         return functools.partial(
             worker_function,
-            await self._request_queue_url,
+            await self._request_queue_urls[queue_index],
             self._job_id,
             self._region_name,
         )
@@ -838,14 +859,18 @@ class EC2GridJobInterface(GridJobCloudInterface):
             initial_wait_seconds=4,
         )
 
-    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
-        if self._request_queue_url is None or self._task_argument_ranges is None:
+    async def retry_task(
+        self, task_id: int, attempts_so_far: int, queue_index: int
+    ) -> None:
+        if len(self._request_queue_urls) < queue_index + 1:
+            raise ValueError(f"Queue {queue_index} has not been created yet")
+        if self._task_argument_ranges is None:
             raise ValueError("setup_and_add_tasks must be called before retry_task")
         if self._sqs_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 
         await retry_task(
-            await self._request_queue_url,
+            await self._request_queue_urls[queue_index],
             task_id,
             attempts_so_far + 1,
             (await self._task_argument_ranges)[task_id],

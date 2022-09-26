@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import asyncio.subprocess
 import dataclasses
+import functools
 import itertools
 import os
 import os.path
@@ -15,6 +16,7 @@ import traceback
 from typing import (
     Any,
     AsyncIterable,
+    Awaitable,
     Callable,
     Coroutine,
     Dict,
@@ -27,6 +29,8 @@ from typing import (
     TypeVar,
     Union,
 )
+
+import psutil
 
 from meadowrun.aws_integration.ecr import get_ecr_username_password
 from meadowrun.azure_integration.acr import get_acr_username_password
@@ -372,6 +376,17 @@ async def _prepare_py_agent(
     )
 
 
+@dataclasses.dataclass
+class StatsAccumulator:
+    max_memory_used_gb: float = 0
+
+
+@dataclasses.dataclass(frozen=True)
+class Stats:
+    # TODO add cpu usage
+    memory_in_use_gb: float
+
+
 async def _launch_non_container_job(
     job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
@@ -487,6 +502,12 @@ async def _stop_process(process: asyncio.subprocess.Process) -> None:
         pass
 
 
+async def _get_non_container_stats(pid: int) -> Stats:
+    process = psutil.Process(pid)
+    # RSS is in bytes: https://man7.org/linux/man-pages/man1/ps.1.html
+    return Stats(process.memory_info().rss / (1024**3))
+
+
 async def _non_container_job_continuation(
     process: asyncio.subprocess.Process,
     job_spec_type: JobSpecType,
@@ -510,7 +531,11 @@ async def _non_container_job_continuation(
         tail_log_task = asyncio.create_task(tail_log())
 
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job)
+            await _run_agent(
+                job_spec_transformed,
+                job,
+                functools.partial(_get_non_container_stats, process.pid),
+            )
             await _stop_process(process)
 
         returncode = await process.wait()
@@ -686,6 +711,21 @@ async def _launch_container_job(
     )
 
 
+async def _get_container_stats(
+    container: aiodocker_containers.DockerContainer,
+) -> Stats:
+    stats = await container.stats(stream=False)
+    if not stats:
+        return Stats(0)
+    # according to
+    # https://docs.docker.com/engine/api/v1.41/#tag/Container/operation/ContainerStats
+    # "memory used" in the docker CLI corresponds to this formula:
+    return Stats(
+        (stats[0]["memory_stats"]["usage"] - stats[0]["memory_stats"]["stats"]["cache"])
+        / (1024**3)
+    )
+
+
 async def _container_job_continuation(
     container: aiodocker_containers.DockerContainer,
     docker_client: aiodocker.Docker,
@@ -719,7 +759,11 @@ async def _container_job_continuation(
         tail_log_task = asyncio.create_task(tail_log())
 
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job)
+            await _run_agent(
+                job_spec_transformed,
+                job,
+                functools.partial(_get_container_stats, container),
+            )
             await container.stop()
 
         wait_result = await container.wait()
@@ -760,7 +804,11 @@ async def _container_job_continuation(
         await docker_client.__aexit__(None, None, None)
 
 
-async def _run_agent(job_spec_transformed: _JobSpecTransformed, job: Job) -> None:
+async def _run_agent(
+    job_spec_transformed: _JobSpecTransformed,
+    job: Job,
+    get_worker_stats: Callable[[], Awaitable[Stats]],
+) -> None:
     # run the agent function. The agent function connects to another
     # process, the task worker, which runs the actual user function.
     assert job_spec_transformed.server is not None
@@ -771,6 +819,7 @@ async def _run_agent(job_spec_transformed: _JobSpecTransformed, job: Job) -> Non
     await agent_func(
         *agent_func_args,
         worker_server=job_spec_transformed.server,
+        get_worker_stats=get_worker_stats,
         **agent_func_kwargs,
     )
     await job_spec_transformed.server.close()
@@ -1395,6 +1444,7 @@ class LocalHost(Host):
         pickle_protocol: int,
         wait_for_result: WaitOption,
         max_num_tasks_attempts: int,
+        retry_with_more_memory: bool,
     ) -> Optional[Sequence[_U]]:
         raise NotImplementedError("run_map on LocalHost is not implemented")
 
@@ -1408,6 +1458,7 @@ class LocalHost(Host):
         pickle_protocol: int,
         wait_for_result: WaitOption,
         max_num_tasks_attempts: int,
+        retry_with_more_memory: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError(
             "run_map_as_completed is not implemented for LocalHost"
@@ -1415,3 +1466,20 @@ class LocalHost(Host):
 
     async def get_object_storage(self) -> ObjectStorage:
         return LocalObjectStorage()
+
+
+async def _accumulate_stats(
+    get_worker_stats: Callable[[], Awaitable[Stats]], accumulator: StatsAccumulator
+) -> None:
+    """Modifies accumulator in place!"""
+    while True:
+        try:
+            stats = await get_worker_stats()
+            if stats.memory_in_use_gb > accumulator.max_memory_used_gb:
+                accumulator.max_memory_used_gb = stats.memory_in_use_gb
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            print("Error updating stats:\n" + traceback.format_exc())
+
+        await asyncio.sleep(1)

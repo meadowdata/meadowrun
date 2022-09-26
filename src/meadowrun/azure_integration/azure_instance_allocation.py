@@ -9,6 +9,7 @@ import uuid
 from typing import (
     Any,
     AsyncIterable,
+    Awaitable,
     Callable,
     Coroutine,
     Generic,
@@ -83,7 +84,7 @@ if TYPE_CHECKING:
     from typing_extensions import Literal
     from types import TracebackType
     from meadowrun.meadowrun_pb2 import Job, ProcessState
-    from meadowrun.run_job_local import AgentTaskWorkerServer
+    from meadowrun.run_job_local import AgentTaskWorkerServer, Stats
 
 
 _T = TypeVar("_T")
@@ -533,6 +534,11 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
     issues.
     """
 
+    def create_queue(self) -> int:
+        raise NotImplementedError(
+            "Retrying with more resources is not supported on Azure yet"
+        )
+
     def __init__(self, alloc_cloud_instance: AllocAzureVM):
         self._cloud_provider = alloc_cloud_instance.get_cloud_provider()
         self._location = alloc_cloud_instance._get_location()
@@ -577,7 +583,12 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             instance_name,
         )
 
-    async def shutdown_workers(self, num_workers: int) -> None:
+    async def shutdown_workers(self, num_workers: int, queue_index: int) -> None:
+        if queue_index != 0:
+            raise NotImplementedError(
+                "Retrying with more resources is not implemented for Azure yet"
+            )
+
         if self._request_result_queues is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling shutdown_workers"
@@ -588,11 +599,18 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         )
 
     async def get_worker_function(
-        self,
-    ) -> Callable[[str, str, AgentTaskWorkerServer], Coroutine[Any, Any, None]]:
+        self, queue_index: int
+    ) -> Callable[
+        [str, str, AgentTaskWorkerServer, Callable[[], Awaitable[Stats]]],
+        Coroutine[Any, Any, None],
+    ]:
         if self._request_result_queues is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling get_worker_function"
+            )
+        if queue_index != 0:
+            raise NotImplementedError(
+                "Retrying with more resources is not implemented for Azure yet"
             )
 
         request_queue, result_queue = await self._request_result_queues
@@ -619,7 +637,9 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             workers_done,
         )
 
-    async def retry_task(self, task_id: int, attempts_so_far: int) -> None:
+    async def retry_task(
+        self, task_id: int, attempts_so_far: int, queue_index: int
+    ) -> None:
         if self._tasks is None or self._request_result_queues is None:
             raise ValueError("Must call setup_and_add_tasks before calling retry_task")
 

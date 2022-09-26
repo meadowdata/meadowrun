@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import itertools
 import json
 import os
@@ -9,6 +10,8 @@ import traceback
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
+    Callable,
     Iterable,
     List,
     Optional,
@@ -25,11 +28,12 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 from meadowrun.aws_integration.s3 import _get_bucket_name
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.s3_grid_job import upload_task_args, download_task_arg, complete_task
+from meadowrun.run_job_local import StatsAccumulator, _accumulate_stats
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_sqs.client import SQSClient
-    from meadowrun.run_job_local import AgentTaskWorkerServer
+    from meadowrun.run_job_local import AgentTaskWorkerServer, Stats
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-"
 
@@ -252,6 +256,7 @@ async def _worker_iteration(
     log_file_name: str,
     pid: int,
     worker_server: AgentTaskWorkerServer,
+    get_stats: Callable[[], Awaitable[Stats]],
 ) -> bool:
     task = await _get_task(
         sqs,
@@ -268,10 +273,19 @@ async def _worker_iteration(
     task_id, attempt, arg = task
     cont = True
     print(f"Meadowrun agent: About to execute task #{task_id}, attempt #{attempt}")
+    stats = StatsAccumulator()
     try:
         await worker_server.send_message(arg)
 
-        state, result = await worker_server.receive_message()
+        accumulate_stats_task = asyncio.create_task(_accumulate_stats(get_stats, stats))
+        receive_message_task = asyncio.create_task(worker_server.receive_message())
+
+        await asyncio.wait(
+            [receive_message_task, accumulate_stats_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        state, result = await receive_message_task
+        accumulate_stats_task.cancel()
 
         process_state = ProcessState(
             state=ProcessState.ProcessStateEnum.SUCCEEDED
@@ -281,16 +295,19 @@ async def _worker_iteration(
             pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
             return_code=0,
             log_file_name=log_file_name,
+            max_memory_used_gb=stats.max_memory_used_gb,
         )
 
         print(
             f"Meadowrun agent: Completed task #{task_id}, attempt #{attempt}, "
-            f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
+            f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}, max "
+            f"memory {stats.max_memory_used_gb}GB "
         )
     except Exception:
         print(
             f"Meadowrun agent: Unexpected task worker exit #{task_id}, attempt "
-            f"#{attempt}: {traceback.format_exc()}"
+            f"#{attempt}, max memory {stats.max_memory_used_gb}GB: "
+            f"{traceback.format_exc()}"
         )
 
         process_state = ProcessState(
@@ -298,6 +315,7 @@ async def _worker_iteration(
             pid=pid,
             return_code=0,
             log_file_name=log_file_name,
+            max_memory_used_gb=stats.max_memory_used_gb,
         )
 
         cont = False
@@ -321,6 +339,7 @@ async def worker_function(
     public_address: str,
     log_file_name: str,
     worker_server: AgentTaskWorkerServer,
+    get_worker_stats: Callable[[], Awaitable[Stats]],
 ) -> None:
     """
     Runs a loop that gets tasks off of the request_queue, communicates that via reader
@@ -342,5 +361,6 @@ async def worker_function(
             log_file_name,
             pid,
             worker_server,
+            get_worker_stats,
         ):
             pass

@@ -926,6 +926,7 @@ class Kubernetes(Host):
         pickle_protocol: int,
         wait_for_result: WaitOption,
         max_num_task_attempts: int,
+        retry_with_more_memory: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
         # TODO add support for this feature
         if job_fields["sidecar_containers"]:

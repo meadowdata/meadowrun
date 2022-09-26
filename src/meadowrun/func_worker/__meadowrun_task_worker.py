@@ -31,9 +31,9 @@ async def do_tasks(
 ) -> None:
     try:
         while True:
-            # in principle we could get fewer bytes for reads,
-            # but since comms are local and sender puts them all on the
-            # wire at once, that doesn't actually happen in practice.
+            # in principle we could get fewer bytes for reads, but since comms are local
+            # and sender puts them all on the wire at once, that doesn't actually happen
+            # in practice.
             arg_size_bs = await reader.read(4)
             if len(arg_size_bs) == 0:
                 break

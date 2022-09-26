@@ -57,7 +57,7 @@ from meadowrun.instance_selection import (
     choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_local import TaskResult
+from meadowrun.run_job_local import TaskResult, Stats
 from meadowrun.s3_grid_job import complete_task, receive_results
 
 if TYPE_CHECKING:
@@ -241,6 +241,10 @@ async def test_get_ec2_instance_types() -> None:
     assert len(chosen_instance_types) == 0
 
 
+async def _get_dummy_stats() -> Stats:
+    return Stats(1)
+
+
 class TestGridSQSQueue:
     # These tests are a mess as they re-implement aspect of the grid job driver.
 
@@ -358,13 +362,15 @@ class TestGridSQSQueue:
 
         async with await self._create_driver_interface() as interface:
             await interface.setup_and_add_tasks([1, 2, 3, 4])
-            worker_function = await interface.get_worker_function()
+            worker_function = await interface.get_worker_function(0)
             public_address = "foo"
             log_file_name = "worker_1.log"
 
             async with task_worker_process("example_package.example", "tetration"):
                 worker_task = asyncio.create_task(
-                    worker_function(public_address, log_file_name, agent_server)
+                    worker_function(
+                        public_address, log_file_name, agent_server, _get_dummy_stats
+                    )
                 )
 
                 results = []
@@ -381,7 +387,7 @@ class TestGridSQSQueue:
                         if len(results) == 4:
                             stop_receiving.set()
                             workers_done.set()
-                            await interface.shutdown_workers(1)
+                            await interface.shutdown_workers(1, 0)
                 await worker_task
                 assert set(results) == {1, 4, 27, 256}
                 await agent_server.close()
@@ -397,7 +403,7 @@ class TestGridSQSQueue:
 
         async with await self._create_driver_interface() as interface:
             await interface.setup_and_add_tasks([1, 2, 3, 4])
-            worker_function = await interface.get_worker_function()
+            worker_function = await interface.get_worker_function(0)
             public_address = "foo"
             log_file_name = "worker_1.log"
 
@@ -405,7 +411,9 @@ class TestGridSQSQueue:
                 "example_package.example", "example_function_raises"
             ):
                 worker_task = asyncio.create_task(
-                    worker_function(public_address, log_file_name, agent_server)
+                    worker_function(
+                        public_address, log_file_name, agent_server, _get_dummy_stats
+                    )
                 )
 
                 results = []
@@ -422,9 +430,9 @@ class TestGridSQSQueue:
                         if len(results) == 8:
                             stop_receiving.set()
                             workers_done.set()
-                            await interface.shutdown_workers(1)
+                            await interface.shutdown_workers(1, 0)
                         else:
-                            await interface.retry_task(task_id, attempt)
+                            await interface.retry_task(task_id, attempt, 0)
                 await worker_task
                 await agent_server.close()
 
@@ -439,13 +447,15 @@ class TestGridSQSQueue:
 
         async with await self._create_driver_interface() as interface:
             await interface.setup_and_add_tasks([1, 2, 3, 4])
-            worker_function = await interface.get_worker_function()
+            worker_function = await interface.get_worker_function(0)
             public_address = "foo"
             log_file_name = "worker_1.log"
 
             async with task_worker_process("example_package.example", "crash"):
                 worker_task = asyncio.create_task(
-                    worker_function(public_address, log_file_name, agent_server)
+                    worker_function(
+                        public_address, log_file_name, agent_server, _get_dummy_stats
+                    )
                 )
 
                 results = []

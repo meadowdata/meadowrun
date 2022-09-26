@@ -12,6 +12,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
+    Awaitable,
+    Callable,
     Iterable,
     List,
     Optional,
@@ -43,6 +45,7 @@ from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessStat
 
 if TYPE_CHECKING:
     from meadowrun.run_job_core import AgentTaskWorkerServer
+    from meadowrun.run_job_local import Stats
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -253,6 +256,7 @@ async def worker_function_async(
     public_address: str,
     log_file_name: str,
     worker_server: AgentTaskWorkerServer,
+    get_worker_stats: Callable[[], Awaitable[Stats]],
 ) -> None:
     pid = os.getpid()
     log_file_name = f"{public_address}:{log_file_name}"

@@ -512,6 +512,7 @@ async def run_map(
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
     wait_for_result: bool = True,
     max_num_task_attempts: int = 1,
+    retry_with_more_memory: bool = False,
 ) -> Optional[Sequence[_U]]:
     """
     Equivalent to `map(function, args)`, but runs distributed and in parallel.
@@ -544,6 +545,11 @@ async def run_map(
         max_num_task_attempts: If this is set to more than 1, tasks that fail will be
             retried. If this parameter is e.g. 3, a task that fails will be attempted a
             total of 3 times.
+        retry_with_more_memory: This is an experimental feature and the API will likely
+            change. If this is set to True, when a task fails, if the task at some point
+            used more than 95% of the requested memory, the task will be retried with
+            more memory. Each attempt will be allocated (original requested memory) *
+            (attempt number).
 
     Returns:
         If wait_for_result is True (which is the default), the return value will be the
@@ -614,6 +620,7 @@ async def run_map(
         pickle_protocol,
         wait_option,
         max_num_task_attempts,
+        retry_with_more_memory,
     )
 
 
@@ -629,6 +636,7 @@ async def run_map_as_completed(
     ] = None,
     ports: Union[Iterable[str], str, Iterable[int], int, None] = None,
     max_num_task_attempts: int = 1,
+    retry_with_more_memory: bool = False,
 ) -> AsyncIterable[TaskResult[_U]]:
     """
     Equivalent to [run_map][meadowrun.run_map], but returns results from tasks as they
@@ -671,6 +679,11 @@ async def run_map_as_completed(
         max_num_task_attempts: If this is set to more than 1, tasks that fail will be
             retried. If this parameter is e.g. 3, a task that fails will be attempted a
             total of 3 times.
+        retry_with_more_memory: This is an experimental feature and the API will likely
+            change. If this is set to True, when a task fails, if the task at some point
+            used more than 95% of the requested memory, the task will be retried with
+            more memory. Each attempt will be allocated (original requested memory) *
+            (attempt number).
 
     Returns:
         An async iterable returning [TaskResult][meadowrun.TaskResult] objects.
@@ -732,6 +745,7 @@ async def run_map_as_completed(
         pickle_protocol,
         wait_for_result=WaitOption.WAIT_SILENTLY,
         max_num_task_attempts=max_num_task_attempts,
+        retry_with_more_memory=retry_with_more_memory,
     )
 
 

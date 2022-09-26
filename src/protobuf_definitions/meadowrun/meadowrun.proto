@@ -313,6 +313,7 @@ message ProcessState {
     string log_file_name = 4;
     bytes pickled_result = 5;
     int32 return_code = 6;
+    float max_memory_used_gb = 7;
 }
 
 

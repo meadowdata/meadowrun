@@ -70,6 +70,16 @@ from meadowrun.run_job_local import (
     _string_pairs_to_dict,
 )
 from meadowrun.shared import none_async_context
+from meadowrun.storage_keys import (
+    storage_key_code_zip_file,
+    storage_key_function,
+    storage_key_function_args,
+    storage_key_job_to_run,
+    storage_key_process_state,
+    storage_key_ranges,
+    storage_key_result,
+    storage_key_state,
+)
 from meadowrun.version import __version__
 
 if TYPE_CHECKING:
@@ -108,7 +118,6 @@ async def _indexed_map_worker_async(
     function: Callable[[_T], _U],
     storage_bucket: str,
     job_id: str,
-    file_prefix: str,
     storage_endpoint_url: Optional[str],
     result_highest_pickle_protocol: int,
 ) -> None:
@@ -150,7 +159,7 @@ async def _indexed_map_worker_async(
 
         byte_ranges = pickle.loads(
             await read_storage(
-                storage_client, storage_bucket, f"{file_prefix}.ranges.pkl"
+                storage_client, storage_bucket, storage_key_ranges(job_id)
             )
         )
 
@@ -197,8 +206,8 @@ async def _indexed_map_worker_async(
 async def _get_job_completion_from_state_result(
     storage_client: Any,
     storage_bucket: Optional[str],
-    file_prefix: str,
-    file_suffix: str,
+    job_id: str,
+    worker_index: str,
     job_spec_type: str,
     return_code: int,
 ) -> JobCompletion[Any]:
@@ -239,7 +248,7 @@ async def _get_job_completion_from_state_result(
 
     try:
         state_bytes = await read_storage(
-            storage_client, storage_bucket, f"{file_prefix}.state{file_suffix}"
+            storage_client, storage_bucket, storage_key_state(job_id, worker_index)
         )
     except botocore.exceptions.ClientError as e:
         # if we were expecting a state file but didn't get it we need to
@@ -271,7 +280,7 @@ async def _get_job_completion_from_state_result(
     # if we got a state string, we should have a result file
     result = pickle.loads(
         await read_storage(
-            storage_client, storage_bucket, f"{file_prefix}.result{file_suffix}"
+            storage_client, storage_bucket, storage_key_result(job_id, worker_index)
         )
     )
 
@@ -293,8 +302,8 @@ async def _get_job_completion_from_state_result(
 async def _get_job_completion_from_process_state(
     storage_client: Any,
     storage_bucket: str,
-    file_prefix: str,
-    file_suffix: str,
+    job_id: str,
+    worker_index: str,
     job_spec_type: Literal["py_command", "py_function", "py_agent"],
     return_code: int,
 ) -> JobCompletion[Any]:
@@ -322,7 +331,9 @@ async def _get_job_completion_from_process_state(
 
     process_state = ProcessState.FromString(
         await read_storage(
-            storage_client, storage_bucket, f"{file_prefix}.process_state{file_suffix}"
+            storage_client,
+            storage_bucket,
+            storage_key_process_state(job_id, worker_index),
         )
     )
 
@@ -435,7 +446,6 @@ class Kubernetes(Host):
     """
 
     storage_bucket: Optional[str] = None
-    storage_file_prefix: str = ""
     storage_endpoint_url: Optional[str] = None
     storage_endpoint_url_in_cluster: Optional[str] = None
     storage_username_password_secret: Optional[str] = None
@@ -470,8 +480,13 @@ class Kubernetes(Host):
         return none_async_context()
 
     async def _prepare_command(
-        self, job: Job, job_spec_type: str, storage_client: Any, file_prefix: str
+        self,
+        job: Job,
+        job_spec_type: str,
+        storage_client: Any,
+        storage_keys_used: List[str],
     ) -> List[str]:
+        """storage_keys_used is modified in place!!"""
         if job_spec_type == "py_command":
             # TODO we should set all of the storage-related parameters in the
             # environment variables so that the code in result_request can send back a
@@ -501,9 +516,7 @@ class Kubernetes(Host):
             ]
             if self.storage_bucket:
                 command.extend(["--storage-bucket", self.storage_bucket])
-            # a bit sneaky--on the remote side, the storage-file-prefix includes the
-            # job_id
-            command.extend(["--storage-file-prefix", file_prefix])
+            command.extend(["--job-id", job.job_id])
             if self.storage_endpoint_url_in_cluster:
                 command.extend(
                     ["--storage-endpoint-url", self.storage_endpoint_url_in_cluster]
@@ -536,9 +549,11 @@ class Kubernetes(Host):
                 if function.pickled_function is None:
                     raise ValueError("pickled_function cannot be None")
 
+                function_key = storage_key_function(job.job_id)
+                storage_keys_used.append(function_key)
                 await storage_client.put_object(
                     Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.function",
+                    Key=function_key,
                     Body=function.pickled_function,
                 )
                 command.append("--has-pickled-function")
@@ -551,9 +566,11 @@ class Kubernetes(Host):
                         "storage_bucket. Please either specify the function to run with"
                         " a string or provide a storage_bucket"
                     )
+                arguments_key = storage_key_function_args(job.job_id)
+                storage_keys_used.append(arguments_key)
                 await storage_client.put_object(
                     Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.arguments",
+                    Key=arguments_key,
                     Body=function.pickled_function_arguments,
                 )
                 command.append("--has-pickled-arguments")
@@ -596,7 +613,6 @@ class Kubernetes(Host):
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
         interpreter_deployment_type: str,
-        file_prefix: str,
         wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
         # This function is for jobs where job.interpreter_deployment is a user-specified
@@ -613,6 +629,11 @@ class Kubernetes(Host):
         # container. We could theoretically use this approach with environment specs by
         # building the container locally or with various techniques for building
         # containers from inside of a container.
+
+        # keeps track of most of what we write to object storage so we can clean it up
+        # when we're done
+        storage_keys_used = []
+
         try:
             if interpreter_deployment_type == "container_at_digest":
                 image_repository_name = job.container_at_digest.repository
@@ -661,9 +682,11 @@ class Kubernetes(Host):
                         "Please either use a different Deployment or provide a "
                         "storage_bucket"
                     )
+                code_zip_file_key = storage_key_code_zip_file(job.job_id)
+                storage_keys_used.append(code_zip_file_key)
                 await storage_client.put_object(
                     Bucket=self.storage_bucket,
-                    Key=f"{file_prefix}.codezipfile",
+                    Key=code_zip_file_key,
                     Body=job.code_zip_file.SerializeToString(),
                 )
 
@@ -684,7 +707,7 @@ class Kubernetes(Host):
                 raise ValueError("Unexpected: job_spec is None")
 
             command = await self._prepare_command(
-                job, job_spec_type, storage_client, file_prefix
+                job, job_spec_type, storage_client, storage_keys_used
             )
             command.extend(command_suffixes)
 
@@ -692,6 +715,16 @@ class Kubernetes(Host):
             environment_variables.update(
                 **_string_pairs_to_dict(job.environment_variables)
             )
+
+            if indexed_completions:
+                worker_indexes: Iterable[str] = (
+                    str(i) for i in range(indexed_completions)
+                )
+            else:
+                worker_indexes = [""]
+            for worker_index in worker_indexes:
+                storage_keys_used.append(storage_key_state(job.job_id, worker_index))
+                storage_keys_used.append(storage_key_result(job.job_id, worker_index))
 
             try:
                 return_codes = await _run_kubernetes_job(
@@ -716,45 +749,32 @@ class Kubernetes(Host):
                     )
                 ) from e
 
-            if indexed_completions:
-                file_suffixes: Iterable[str] = (
-                    str(i) for i in range(indexed_completions)
-                )
-            else:
-                file_suffixes = [""]
-
             return await asyncio.gather(
                 *(
                     _get_job_completion_from_state_result(
                         storage_client,
                         self.storage_bucket,
-                        file_prefix,
-                        file_suffix,
+                        job.job_id,
+                        worker_index,
                         job_spec_type,
                         return_code,
                     )
-                    for file_suffix, return_code in zip(file_suffixes, return_codes)
+                    for worker_index, return_code in zip(worker_indexes, return_codes)
                 )
             )
         finally:
             # TODO we should separately periodically clean up these files in case we
             # aren't able to execute this finally block
             if storage_client is not None:
-                for suffix in [
-                    "state",
-                    "result",
-                    "function",
-                    "arguments",
-                    "codezipfile",
-                ]:
-                    try:
-                        await storage_client.delete_object(
-                            Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
+                await asyncio.gather(
+                    *(
+                        storage_client.delete_object(
+                            Bucket=self.storage_bucket, Key=storage_key
                         )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        pass
+                        for storage_key in storage_keys_used
+                    ),
+                    return_exceptions=True,
+                )
 
     async def _run_job_helper_generic_container(
         self,
@@ -762,7 +782,6 @@ class Kubernetes(Host):
         job: Job,
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
-        file_prefix: str,
         wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
         # This function is for jobs where job.interpreter_deployment is an "environment
@@ -778,6 +797,11 @@ class Kubernetes(Host):
         # This approach can only be used with an "environment spec", it cannot be used
         # with a user-defined container as containers in Kubernetes can't launch other
         # containers.
+
+        # keeps track of most of what we write to object storage so we can clean it up
+        # when we're done
+        storage_keys_used = []
+
         try:
             if self.storage_bucket is None or self.storage_endpoint_url is None:
                 raise ValueError(
@@ -786,9 +810,11 @@ class Kubernetes(Host):
                     "interpreter or provide a storage_bucket"
                 )
 
+            job_to_run_key = storage_key_job_to_run(job.job_id)
+            storage_keys_used.append(job_to_run_key)
             await storage_client.put_object(
                 Bucket=self.storage_bucket,
-                Key=f"{file_prefix}.job_to_run",
+                Key=job_to_run_key,
                 Body=job.SerializeToString(),
             )
 
@@ -798,8 +824,8 @@ class Kubernetes(Host):
                 "meadowrun.run_job_local_storage_main",
                 "--storage-bucket",
                 self.storage_bucket,
-                "--storage-file-prefix",
-                file_prefix,
+                "--job-id",
+                job.job_id,
             ]
             if self.storage_endpoint_url_in_cluster:
                 command.extend(
@@ -813,6 +839,17 @@ class Kubernetes(Host):
             image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
             # uncomment this for development
             # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
+
+            if indexed_completions:
+                worker_indexes: Iterable[str] = (
+                    str(i) for i in range(indexed_completions)
+                )
+            else:
+                worker_indexes = [""]
+            for worker_index in worker_indexes:
+                storage_keys_used.append(
+                    storage_key_process_state(job.job_id, worker_index)
+                )
 
             try:
                 return_codes = await _run_kubernetes_job(
@@ -837,13 +874,6 @@ class Kubernetes(Host):
                     )
                 ) from e
 
-            if indexed_completions:
-                file_suffixes: Iterable[str] = (
-                    str(i) for i in range(indexed_completions)
-                )
-            else:
-                file_suffixes = [""]
-
             job_spec_type = job.WhichOneof("job_spec")
             if job_spec_type is None:
                 raise ValueError("Unexpected, job.job_spec is None")
@@ -851,25 +881,26 @@ class Kubernetes(Host):
                 await _get_job_completion_from_process_state(
                     storage_client,
                     self.storage_bucket,
-                    file_prefix,
-                    file_suffix,
+                    job.job_id,
+                    worker_index,
                     job_spec_type,
                     return_code,
                 )
-                for file_suffix, return_code in zip(file_suffixes, return_codes)
+                for worker_index, return_code in zip(worker_indexes, return_codes)
             ]
         finally:
             # TODO we should separately periodically clean up these files in case we
             # aren't able to execute this finally block
-            for suffix in ["job_to_run", "process_state"]:
-                try:
-                    await storage_client.delete_object(
-                        Bucket=self.storage_bucket, Key=f"{file_prefix}.{suffix}"
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    pass
+            if storage_client is not None:
+                await asyncio.gather(
+                    *(
+                        storage_client.delete_object(
+                            Bucket=self.storage_bucket, Key=storage_key
+                        )
+                        for storage_key in storage_keys_used
+                    ),
+                    return_exceptions=True,
+                )
 
     async def _run_job_helper(
         self,
@@ -879,8 +910,6 @@ class Kubernetes(Host):
         indexed_completions: Optional[int],
         wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
-        file_prefix = f"{self.storage_file_prefix}{job.job_id}"
-
         # interpreter deployment
         interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
         if interpreter_deployment_type in (
@@ -894,7 +923,6 @@ class Kubernetes(Host):
                 resources_required,
                 indexed_completions,
                 interpreter_deployment_type,
-                file_prefix,
                 wait_for_result,
             )
         elif interpreter_deployment_type in (
@@ -907,7 +935,6 @@ class Kubernetes(Host):
                 job,
                 resources_required,
                 indexed_completions,
-                file_prefix,
                 wait_for_result,
             )
         else:
@@ -1014,7 +1041,6 @@ class KubernetesGridJobDriver:
         self._storage_client = storage_client
 
         self._job_id = str(uuid.uuid4())
-        self._file_prefix = f"{self._kubernetes.storage_file_prefix}{self._job_id}"
 
         # run_worker_functions will set this to indicate to get_results
         # that there all of our workers have either exited unexpectedly (and we have
@@ -1043,7 +1069,7 @@ class KubernetesGridJobDriver:
         # Jobs (static task-to-worker assignment)
         await self._storage_client.put_object(
             Bucket=self._kubernetes.storage_bucket,
-            Key=f"{self._file_prefix}.ranges.pkl",
+            Key=storage_key_ranges(self._job_id),
             Body=pickle.dumps(ranges),
         )
 
@@ -1080,7 +1106,6 @@ class KubernetesGridJobDriver:
             function,
             self._kubernetes.storage_bucket,
             self._job_id,
-            self._file_prefix,
             self._kubernetes.storage_endpoint_url_in_cluster,
             pickle.HIGHEST_PROTOCOL,
         )
@@ -1128,7 +1153,6 @@ class KubernetesGridJobDriver:
                 function,
                 self._kubernetes.storage_bucket,
                 self._job_id,
-                self._file_prefix,
                 self._kubernetes.storage_endpoint_url_in_cluster,
                 pickle.HIGHEST_PROTOCOL,
             )
@@ -1172,7 +1196,7 @@ class KubernetesGridJobDriver:
 
             await self._storage_client.put_object(
                 Bucket=self._kubernetes.storage_bucket,
-                Key=f"{self._file_prefix}.job_to_run",
+                Key=storage_key_job_to_run(self._job_id),
                 Body=job.SerializeToString(),
             )
 
@@ -1186,8 +1210,8 @@ class KubernetesGridJobDriver:
             # container, although not in parallel
             inner_command = (
                 "python -m meadowrun.run_job_local_storage_main --storage-bucket "
-                f"{self._kubernetes.storage_bucket} --storage-file-prefix "
-                f"{self._file_prefix} --storage-endpoint-url {storage_endpoint} "
+                f"{self._kubernetes.storage_bucket} --job-id {self._job_id} "
+                f"--storage-endpoint-url {storage_endpoint} "
                 f">/var/meadowrun/job_logs/{self._job_id}.log 2>&1 &"
             )
             command = ["/bin/bash", "-c", inner_command]

@@ -32,6 +32,13 @@ from meadowrun.s3_grid_job import (
 )
 from meadowrun.meadowrun_pb2 import CodeZipFile
 from meadowrun.shared import none_async_context
+from meadowrun.storage_keys import (
+    storage_key_code_zip_file,
+    storage_key_function,
+    storage_key_function_args,
+    storage_key_result,
+    storage_key_state,
+)
 
 if TYPE_CHECKING:
     import types_aiobotocore_s3
@@ -54,7 +61,7 @@ async def main() -> None:
     # arguments for finding the storage bucket (i.e. S3-compatible store) where we can
     # find inputs and put outputs. These are optional.
     parser.add_argument("--storage-bucket")
-    parser.add_argument("--storage-file-prefix", required=True)
+    parser.add_argument("--job-id", required=True)
     parser.add_argument("--storage-endpoint-url")
 
     # arguments for getting code
@@ -74,7 +81,7 @@ async def main() -> None:
         )
 
     storage_bucket: Optional[str] = args.storage_bucket
-    storage_file_prefix: str = args.storage_file_prefix
+    job_id: str = args.job_id
 
     if (
         args.has_pickled_function
@@ -102,8 +109,8 @@ async def main() -> None:
         meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
 
         suffix = os.environ.get("JOB_COMPLETION_INDEX", "")
-        state_filename = f"{storage_file_prefix}.state{suffix}"
-        result_filename = f"{storage_file_prefix}.result{suffix}"
+        state_filename = storage_key_state(job_id, suffix)
+        result_filename = storage_key_result(job_id, suffix)
 
         result_pickle_protocol = min(
             args.result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
@@ -117,7 +124,7 @@ async def main() -> None:
             print("Downloading and extracting CodeZipFile")
             code_zip_file = CodeZipFile.FromString(
                 await read_storage(
-                    storage_client, storage_bucket, f"{storage_file_prefix}.codezipfile"
+                    storage_client, storage_bucket, storage_key_code_zip_file(job_id)
                 )
             )
             os.makedirs("/meadowrun/local_copies", exist_ok=True)
@@ -139,7 +146,7 @@ async def main() -> None:
                     f"{getattr(module, '__file__', str(module))}"
                 )
             else:
-                pickled_function_filename = storage_file_prefix + ".function"
+                pickled_function_filename = storage_key_function(job_id)
                 print(
                     f"Downloading function from {storage_bucket}/"
                     f"{pickled_function_filename}"
@@ -162,7 +169,7 @@ async def main() -> None:
                     await read_storage(
                         storage_client,
                         storage_bucket,
-                        storage_file_prefix + ".arguments",
+                        storage_key_function_args(job_id),
                     )
                 )
             else:

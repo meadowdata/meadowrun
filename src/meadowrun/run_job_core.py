@@ -252,7 +252,9 @@ class S3CompatibleObjectStorage(ObjectStorage, abc.ABC):
         decoded_url = urllib.parse.urlparse(remote_url)
         bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
-        extracted_folder = os.path.join(local_copies_folder, object_name)
+        extracted_folder = os.path.join(
+            local_copies_folder, os.path.basename(object_name)
+        )
 
         with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
             if not os.path.exists(extracted_folder):

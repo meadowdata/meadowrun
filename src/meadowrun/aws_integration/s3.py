@@ -5,6 +5,7 @@ import hashlib
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+import aiobotocore.session
 import boto3
 import boto3.exceptions
 from botocore.exceptions import ClientError
@@ -19,6 +20,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
 from meadowrun.run_job_core import S3CompatibleObjectStorage
+from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -89,25 +91,32 @@ def ensure_bucket(
     )
 
 
-async def ensure_uploaded(
-    file_path: str, region_name: Optional[str] = None
-) -> Tuple[str, str]:
+async def ensure_uploaded_by_hash(
+    s3_client: S3Client,
+    local_file_path: str,
+    bucket_name: str,
+    key_prefix: str = "",
+) -> str:
+    """
+    Uploads the specified file from the local machine to S3. The file will be uploaded
+    to the key "{key_prefix}{hash}", where {hash} is a hash of the contents of the file.
+    If the S3 object already exists, it does not need to be re-uploaded.
 
-    if region_name is None:
-        region_name = await _get_default_region_name()
+    key_prefix should usually be "" or end in a "/" like "code/". key_suffix should
+    usually be "" or something like ".tar.gz"
 
-    s3 = boto3.client("s3", region_name=region_name)
+    Returns the key of the file in the S3 bucket, e.g. "code/123456789abcdefg"
+    """
 
     hasher = hashlib.blake2b()
-    with open(file_path, "rb") as file:
+    with open(local_file_path, "rb") as file:
         buf = file.read()
         hasher.update(buf)
-    digest = hasher.hexdigest()
+    s3_key = f"{key_prefix}{hasher.hexdigest()}"
 
-    bucket_name = _get_bucket_name(region_name)
     try:
-        s3.head_object(Bucket=bucket_name, Key=digest)
-        return bucket_name, digest
+        await s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+        return s3_key
     except ClientError as error:
         if error.response["Error"]["Code"] == "403":
             # if we don't have permissions to the bucket, throw a helpful error
@@ -120,13 +129,13 @@ async def ensure_uploaded(
 
     # doesn't exist, need to upload it
     try:
-        s3.upload_file(Filename=file_path, Bucket=bucket_name, Key=digest),
+        await s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=buf)
     except boto3.exceptions.S3UploadFailedError as e:
         if len(e.args) >= 1 and "NoSuchBucket" in e.args[0]:
             raise MeadowrunNotInstalledError("S3 bucket")
         raise
 
-    return bucket_name, digest
+    return s3_key
 
 
 async def download_file(
@@ -225,7 +234,28 @@ class S3ObjectStorage(S3CompatibleObjectStorage):
         return "s3"
 
     async def _upload(self, file_path: str) -> Tuple[str, str]:
-        return await ensure_uploaded(file_path)
+        if self.region_name is None:
+            region_name = await _get_default_region_name()
+        else:
+            region_name = self.region_name
+
+        bucket_name = _get_bucket_name(region_name)
+
+        async with aiobotocore.session.get_session().create_client(
+            "s3", region_name=region_name
+        ) as s3_client:
+            try:
+                s3_key = await ensure_uploaded_by_hash(
+                    s3_client, file_path, bucket_name, STORAGE_CODE_CACHE_PREFIX
+                )
+            except ClientError as error:
+                if error.response["Error"]["Code"] == "403":
+                    # if we don't have permissions to the bucket, throw a helpful error
+                    raise MeadowrunAWSAccessError("S3 bucket") from error
+
+                raise
+
+        return bucket_name, s3_key
 
     async def _download(
         self, bucket_name: str, object_name: str, file_name: str

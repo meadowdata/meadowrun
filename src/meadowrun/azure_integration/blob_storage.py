@@ -103,7 +103,7 @@ async def ensure_uploaded(file_path: str) -> Tuple[str, str]:
 
 
 async def download_file(container_name: str, object_name: str, file_name: str) -> None:
-    # see comment in ensure_uploaded regarding empty location
+    # see comment in ensure_uploaded_by_hash regarding empty location
     storage_account = await ensure_meadowrun_storage_account("", on_missing="raise")
 
     result: bytes = await azure_blob_api(

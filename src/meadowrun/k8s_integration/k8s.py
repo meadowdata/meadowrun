@@ -129,7 +129,11 @@ async def _indexed_map_worker_async(
     complete all of the tasks where task_index % num_workers == current worker index.
     """
 
-    current_worker_index = int(os.environ["JOB_COMPLETION_INDEX"])
+    # WORKER_INDEX will be available in reusable pods. In non-reusable pods we have to
+    # use JOB_COMPLETION_INDEX
+    current_worker_index = int(
+        os.environ.get("MEADOWRUN_WORKER_INDEX", os.environ["JOB_COMPLETION_INDEX"])
+    )
     # if we're the main process launched in the container (via
     # _run_job_helper_custom_container) then FUNC_WORKER_STORAGE_CLIENT will already be
     # set by func_worker_storage. If we're a child process launched by
@@ -170,7 +174,8 @@ async def _indexed_map_worker_async(
             )
 
             try:
-                result = function(arg)
+                arg = pickle.loads(arg)
+                result = function(*arg[0], **arg[1])
             except Exception as e:
                 # first print the exception for the local log file
                 traceback.print_exc()
@@ -1209,12 +1214,12 @@ class KubernetesGridJobDriver:
             # TODO it's possible that a job will run more than once on the same
             # container, although not in parallel
             inner_command = (
-                "python -m meadowrun.run_job_local_storage_main --storage-bucket "
+                "PYTHONUNBUFFERED=1 MEADOWRUN_WORKER_INDEX=%WORKER_INDEX% python -m "
+                "meadowrun.run_job_local_storage_main --storage-bucket "
                 f"{self._kubernetes.storage_bucket} --job-id {self._job_id} "
                 f"--storage-endpoint-url {storage_endpoint} "
                 f">/var/meadowrun/job_logs/{self._job_id}.log 2>&1 &"
             )
-            command = ["/bin/bash", "-c", inner_command]
 
             all_tasks = []
             all_pods = []
@@ -1224,6 +1229,7 @@ class KubernetesGridJobDriver:
                 ws_core_api = kubernetes_client.CoreV1Api(ws_api_client)
                 batch_api = kubernetes_client.BatchV1Api(api_client)
 
+                worker_index = 0
                 async for pods in _get_meadowrun_resuable_pods(
                     self._kubernetes.kubernetes_namespace,
                     _python_version_from_environment_spec(job),
@@ -1241,11 +1247,18 @@ class KubernetesGridJobDriver:
                                 _run_job_on_reusable_pod(
                                     pod.metadata.name,
                                     self._kubernetes.kubernetes_namespace,
-                                    command,
+                                    [
+                                        "/bin/bash",
+                                        "-c",
+                                        inner_command.replace(
+                                            "%WORKER_INDEX%", str(worker_index)
+                                        ),
+                                    ],
                                     ws_core_api,
                                 )
                             )
                         )
+                        worker_index += 1
 
                 # TODO replace pods as they fail
 

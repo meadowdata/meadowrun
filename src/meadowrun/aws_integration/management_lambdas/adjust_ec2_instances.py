@@ -66,7 +66,9 @@ def _get_registered_ec2_instances(
 
     return {
         item[_INSTANCE_ID]: (
-            datetime.datetime.fromisoformat(item[_LAST_UPDATE_TIME]),
+            datetime.datetime.fromisoformat(item[_LAST_UPDATE_TIME]).replace(
+                tzinfo=datetime.timezone.utc
+            ),
             len(item[_RUNNING_JOBS]),
         )
         for item in response["Items"]
@@ -155,8 +157,7 @@ def _deregister_and_terminate_instances(
 
     registered_instances = _get_registered_ec2_instances(region_name)
 
-    now = datetime.datetime.utcnow()
-    now_with_timezone = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     for instance_id, (last_updated, num_jobs) in registered_instances.items():
         if instance_id not in running_instances:
@@ -181,7 +182,7 @@ def _deregister_and_terminate_instances(
 
     for instance_id, instance in non_terminated_instances.items():
         if instance_id not in registered_instances:
-            if (now_with_timezone - instance.launch_time) > launch_register_delay:
+            if (now - instance.launch_time) > launch_register_delay:
                 print(
                     f"{instance_id} is running but is not registered, will terminate. "
                     f"Was launched at {instance.launch_time}."

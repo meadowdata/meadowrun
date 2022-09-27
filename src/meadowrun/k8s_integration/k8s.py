@@ -1193,6 +1193,7 @@ class KubernetesGridJobDriver:
             command = ["/bin/bash", "-c", inner_command]
 
             all_tasks = []
+            all_pods = []
 
             async with kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
                 core_api = kubernetes_client.CoreV1Api(api_client)
@@ -1210,6 +1211,7 @@ class KubernetesGridJobDriver:
                     self._kubernetes.storage_username_password_secret,
                 ):
                     for pod in pods:
+                        all_pods.append(pod)
                         all_tasks.append(
                             asyncio.create_task(
                                 _run_job_on_reusable_pod(
@@ -1224,6 +1226,20 @@ class KubernetesGridJobDriver:
                 # TODO replace pods as they fail
 
                 await asyncio.gather(*all_tasks, return_exceptions=True)
+
+                while self._workers_needed > 0:
+                    await self._workers_needed_changed.wait()
+
+                # this is an optimization--the automated readiness probe will mark the
+                # pods as ready eventually, but this is faster
+                await asyncio.gather(
+                    *(
+                        set_main_container_ready(core_api, pod, True)
+                        for pod in all_pods
+                    ),
+                    return_exceptions=True,
+                )
+
         except BaseException:
             # Unfortunately we have no way of knowing whether our workers are still
             # running or not--we have to hope that if we launched the remote process
@@ -1862,9 +1878,21 @@ async def _get_meadowrun_resuable_pods(
         # TODO also add ports and resources in selector
         label_selector=f"meadowrun.io/reusable-pod-python-version={python_version}",
         field_selector="status.phase=Running",
-        limit=number_of_pods,
     )
-    existing_pods = pods_response.items
+    existing_pods: List[kubernetes_client.V1Pod] = []
+    for pod in pods_response.items:
+        if len(existing_pods) >= number_of_pods:
+            break
+        if _main_container_is_ready(pod):
+            # This is an "optimistic concurrency"-style check. It's possible that the
+            # automated readiness probe will run between now and when we're able to
+            # launch our job, remarking this pod as ready and allowing another job to
+            # swoop in and steal the pod. In that case, the job will fail to start up
+            # because it won't be able to get the _JOB_IS_RUNNING file lock, and we can
+            # request another pod
+            await set_main_container_ready(core_api, pod, False)
+            existing_pods.append(pod)
+
     # limit may be ignored according to the Kubernetes API spec
     # TODO pods that say "terminating" in the dashboard show up as "running" in this
     # query
@@ -1904,6 +1932,13 @@ async def _get_meadowrun_resuable_pods(
             )
 
         job_name = f"mdr-reusable-{uuid.uuid4()}"
+        # it would be way more convenient to do -m
+        # meadowrun.k8s_integration.is_job_running, but that is way slower because it
+        # imports everything (i.e. boto3)
+        is_job_running_path = (
+            f"/usr/local/lib/python{python_version}/site-packages/meadowrun/"
+            "k8s_integration/is_job_running.py"
+        )
         body = kubernetes_client.V1Job(
             metadata=kubernetes_client.V1ObjectMeta(name=job_name),
             spec=kubernetes_client.V1JobSpec(
@@ -1926,6 +1961,14 @@ async def _get_meadowrun_resuable_pods(
                                     "meadowrun.k8s_integration.k8s_main",
                                 ],
                                 env=environment,
+                                readiness_probe=kubernetes_client.V1Probe(
+                                    _exec=kubernetes_client.V1ExecAction(
+                                        command=["python", is_job_running_path]
+                                    ),
+                                    initial_delay_seconds=15,
+                                    period_seconds=15,
+                                    timeout_seconds=5,
+                                ),
                                 **additional_container_parameters,
                             )
                         ],
@@ -1974,4 +2017,51 @@ async def _run_job_on_reusable_pod(
         stdin=False,
         stdout=False,
         tty=False,
+    )
+
+
+def _main_container_is_ready(pod: kubernetes_client.V1Pod) -> bool:
+    main_container_statuses = [
+        container
+        for container in pod.status.container_statuses
+        if container.name == "main"
+    ]
+    if len(main_container_statuses) == 0:
+        print(f"Unexpected: pod {pod.metadata.name} has no main container, skipping")
+        return False
+    elif len(main_container_statuses) > 1:
+        print(
+            f"Unexpected: pod {pod.metadata.name} has more than one main container, "
+            "skipping"
+        )
+        return False
+    else:
+        return main_container_statuses[0].ready
+
+
+async def set_main_container_ready(
+    core_api: kubernetes_client.CoreV1Api, pod: kubernetes_client.V1Pod, is_ready: bool
+) -> None:
+    main_containers = [
+        container
+        for container in pod.status.container_statuses
+        if container.name == "main"
+    ]
+    if len(main_containers) != 1:
+        raise ValueError(
+            "Unexpected number of container with the name 'main': "
+            f"{len(main_containers)}"
+        )
+
+    main_container_state = main_containers[0]
+    main_container_state.ready = is_ready
+
+    await core_api.patch_namespaced_pod_status(
+        pod.metadata.name,
+        pod.metadata.namespace,
+        kubernetes_client.V1Pod(
+            status=kubernetes_client.V1PodStatus(
+                container_statuses=[main_container_state]
+            )
+        ),
     )

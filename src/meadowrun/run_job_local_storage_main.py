@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import logging
 import os
+import time
 import traceback
 
 import filelock
@@ -18,11 +19,15 @@ from meadowrun.func_worker_storage_helper import (
 )
 from meadowrun.s3_grid_job import get_storage_client_from_args, read_storage
 from meadowrun.meadowrun_pb2 import ProcessState, Job
-from meadowrun.k8s_integration.k8s_main import _JOB_IS_RUNNING_FILE
+from meadowrun.k8s_integration.is_job_running import _JOB_IS_RUNNING_FILE
+from meadowrun.k8s_integration.k8s_main import _LAST_JOB_TIMESTAMP_FILE
 
 
 async def main() -> None:
     with filelock.FileLock(_JOB_IS_RUNNING_FILE, 0):
+        with open(_LAST_JOB_TIMESTAMP_FILE, "w", encoding="utf-8") as f:
+            f.write(str(time.time()))
+
         logging.basicConfig(level=logging.INFO)
 
         # parse arguments

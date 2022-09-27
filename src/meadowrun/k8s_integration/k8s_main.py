@@ -6,11 +6,13 @@ kubectl exec on this pod.
 Not dissimilar to deallocate_jobs.py
 """
 import time
+import traceback
 
-import filelock
+from meadowrun.k8s_integration.is_job_running import is_job_running
+
+_LAST_JOB_TIMESTAMP_FILE = "/var/meadowrun/job_timestamp"
 
 _IDLE_TIMEOUT_SECS = 60 * 5
-_JOB_IS_RUNNING_FILE = "/var/meadowrun/job_is_running"
 
 
 def main() -> None:
@@ -23,15 +25,21 @@ def main() -> None:
             )
             break
 
-        time.sleep(5)
+        time.sleep(30)
 
         try:
-            with filelock.FileLock(_JOB_IS_RUNNING_FILE, 0):
-                pass
-
-            last_activity = time.time()
-        except filelock.Timeout:
-            pass
+            # this checks for jobs that are currently running
+            if is_job_running():
+                last_activity = time.time()
+            else:
+                # this checks for jobs that ran and exited quickly that we may not have
+                # "noticed" were running
+                with open(_LAST_JOB_TIMESTAMP_FILE, "r", encoding="utf-8") as f:
+                    last_job_timestamp = float(f.read())
+                if last_job_timestamp > last_activity:
+                    last_activity = last_job_timestamp
+        except BaseException:
+            print("Error checking for running jobs: " + traceback.format_exc())
 
 
 if __name__ == "__main__":

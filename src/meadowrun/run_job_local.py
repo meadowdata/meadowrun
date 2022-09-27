@@ -597,7 +597,7 @@ class WorkerProcessMonitor(WorkerMonitor):
         process = self.process
         assert process.stdout is not None
         async for line in process.stdout:
-            print(line.decode(), end="")
+            sys.stdout.buffer.write(line)
 
     async def restart(self) -> None:
         await self.stop()

@@ -1070,10 +1070,6 @@ class GridJobDriver:
                     job, wait_for_result, deallocator
                 )
 
-            workers_needed_changed_wait_task = asyncio.create_task(
-                self._num_workers_needed_changed.wait()
-            )
-
             async with self._cloud_interface.create_instance_registrar() as instance_registrar:  # noqa: E501
                 while True:
                     for worker_queue in self._worker_queues:
@@ -1192,6 +1188,12 @@ class GridJobDriver:
                         else:
                             new_worker_tasks.append(worker_task)
                     worker_tasks = new_worker_tasks
+
+                    if workers_needed_changed_wait_task.done():
+                        self._num_workers_needed_changed.clear()
+                        workers_needed_changed_wait_task = asyncio.create_task(
+                            self._num_workers_needed_changed.wait()
+                        )
 
                     # this means all workers are either done or shutting down
                     if all(

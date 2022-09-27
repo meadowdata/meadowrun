@@ -130,15 +130,15 @@ async def retry_task(
     request_queue_url: str,
     task_id: int,
     attempt: int,
-    range: Tuple[int, int],
+    byte_range: Tuple[int, int],
     sqs_client: SQSClient,
 ) -> None:
     task = json.dumps(
         dict(
             task_id=task_id,
             attempt=attempt,
-            range_from=range[0],
-            range_end=range[1],
+            range_from=byte_range[0],
+            range_end=byte_range[1],
         )
     )
 

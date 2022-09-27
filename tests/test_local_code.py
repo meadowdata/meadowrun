@@ -99,10 +99,10 @@ def test_zip_file() -> None:
     with tempfile.TemporaryDirectory() as temp:
         result = local_code.zip_local_code(temp)
         assert result is not None
-        zip_file, zip_python_paths, cwd = result
-        with zipfile.ZipFile(zip_file) as zip:
+        zip_file_path, zip_python_paths, cwd = result
+        with zipfile.ZipFile(zip_file_path) as zip_file:
             all_paths = zip_python_paths + [cwd]
-            for file in zip.filelist:
+            for file in zip_file.filelist:
                 ext = os.path.splitext(file.filename)[1]
                 assert ext == ".py"
                 assert any(zip_path in file.filename for zip_path in all_paths)

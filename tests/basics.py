@@ -643,7 +643,7 @@ class MapSuite(HostProvider, abc.ABC):
     async def test_run_map_as_completed_with_retries(self) -> None:
         actual: List[TaskResult[None]] = []
 
-        def fail(input: int) -> None:
+        def fail(x: int) -> None:
             raise Exception("intentional failure")
 
         async for result in await run_map_as_completed(
@@ -665,7 +665,7 @@ class MapSuite(HostProvider, abc.ABC):
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map_as_completed_in_container_with_retries(self) -> None:
-        def fail(input: int) -> None:
+        def fail(x: int) -> None:
             raise Exception("intentional failure")
 
         actual: List[TaskResult[None]] = []
@@ -717,7 +717,7 @@ class MapSuite(HostProvider, abc.ABC):
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map_unexpected_exit(self) -> None:
-        def unexpected_exit(input: int) -> None:
+        def unexpected_exit(x: int) -> None:
             sys.exit(123)
 
         with pytest.raises(RunMapTasksFailedException) as exc:

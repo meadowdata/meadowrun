@@ -79,6 +79,7 @@ from meadowrun.storage_keys import (
     storage_key_ranges,
     storage_key_result,
     storage_key_state,
+    storage_key_task_args,
 )
 from meadowrun.version import __version__
 
@@ -984,27 +985,43 @@ class Kubernetes(Host):
             # sure the tasks are uploaded before we can start workers
             await driver._add_tasks(args)
 
-            if not self.reusable_pods:
-                run_worker_functions = driver.run_worker_functions
-            else:
-                run_worker_functions = driver.run_worker_functions_reusable_pods
-            run_worker_loops = asyncio.create_task(
-                run_worker_functions(
-                    function,
-                    len(args),
-                    resources_required_per_task,
-                    job_fields,
-                    pickle_protocol,
-                    wait_for_result,
+            try:
+                if not self.reusable_pods:
+                    run_worker_functions = driver.run_worker_functions
+                else:
+                    run_worker_functions = driver.run_worker_functions_reusable_pods
+                run_worker_loops = asyncio.create_task(
+                    run_worker_functions(
+                        function,
+                        len(args),
+                        resources_required_per_task,
+                        job_fields,
+                        pickle_protocol,
+                        wait_for_result,
+                    )
                 )
-            )
 
-            num_tasks_done = 0
-            async for result in driver.get_results(args, max_num_task_attempts):
-                yield result
-                num_tasks_done += 1
+                num_tasks_done = 0
+                async for result in driver.get_results(args, max_num_task_attempts):
+                    yield result
+                    num_tasks_done += 1
 
-            await run_worker_loops
+                await run_worker_loops
+
+            finally:
+                keys_to_delete = [
+                    storage_key_task_args(driver._job_id),
+                    storage_key_ranges(driver._job_id),
+                ]
+                await asyncio.gather(
+                    *(
+                        storage_client.delete_object(
+                            Bucket=self.storage_bucket, Key=key
+                        )
+                        for key in keys_to_delete
+                    ),
+                    return_exceptions=True,
+                )
 
         # this is for extra safety--the only case where we don't get all of our results
         # back should be if run_worker_loops throws an exception because there were
@@ -1065,7 +1082,6 @@ class KubernetesGridJobDriver:
     async def _add_tasks(self, args: Sequence[Any]) -> None:
         assert self._kubernetes.storage_bucket is not None  # just for mypy
 
-        # TODO not respecting the storage_file_prefix
         ranges = await upload_task_args(
             self._storage_client, self._kubernetes.storage_bucket, self._job_id, args
         )
@@ -1288,6 +1304,17 @@ class KubernetesGridJobDriver:
             # to start
             self._no_workers_available.set()
             raise
+        finally:
+            try:
+                if self._kubernetes.storage_bucket is not None:
+                    await self._storage_client.delete_object(
+                        Bucket=self._kubernetes.storage_bucket,
+                        Key=storage_key_job_to_run(self._job_id),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except BaseException:
+                pass
 
     async def get_results(
         self,

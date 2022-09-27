@@ -10,14 +10,13 @@ warn(RuntimeWarning(msg))
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 
 from typing import Optional, Tuple, TYPE_CHECKING, Type
 
-import botocore.exceptions
-
+from meadowrun.aws_integration.s3 import ensure_uploaded_by_hash
 from meadowrun.run_job_core import S3CompatibleObjectStorage
 from meadowrun.s3_grid_job import read_storage
+from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -60,27 +59,10 @@ class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
                 "Can't use _upload without a bucket_name and a storage endpoint"
             )
 
-        hasher = hashlib.blake2b()
-        with open(file_path, "rb") as file:
-            buf = file.read()
-            hasher.update(buf)
-        digest = hasher.hexdigest()
-
-        try:
-            await self.storage_client.head_object(Bucket=self.bucket_name, Key=digest)
-            return self.bucket_name, digest
-        except botocore.exceptions.ClientError as error:
-            # don't raise an error saying the file doesn't exist, we'll just upload it
-            # in that case by falling through to the next bit of code
-            if not error.response["Error"]["Code"] == "404":
-                raise error
-
-        # doesn't exist, need to upload it
-        with open(file_path, "rb") as f:
-            await self.storage_client.put_object(
-                Bucket=self.bucket_name, Key=digest, Body=f
-            )
-        return self.bucket_name, digest
+        s3_key = await ensure_uploaded_by_hash(
+            self.storage_client, file_path, self.bucket_name, STORAGE_CODE_CACHE_PREFIX
+        )
+        return self.bucket_name, s3_key
 
     async def _download(
         self, bucket_name: str, object_name: str, file_name: str

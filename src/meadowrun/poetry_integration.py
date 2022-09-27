@@ -9,6 +9,7 @@ from typing import Callable, Awaitable
 import filelock
 
 from meadowrun.shared import remove_corrupted_environment
+from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
 
 _POETRY_ENVIRONMENT_TIMEOUT = 10 * 60
 
@@ -42,8 +43,8 @@ async def get_cached_or_create_poetry_environment(
             return new_environment_interpreter
 
         remote_cached_file_name = (
-            f"{environment_hash}-{sys.version_info.major}.{sys.version_info.minor}"
-            ".tar.gz"
+            f"{STORAGE_ENV_CACHE_PREFIX}{environment_hash}-{sys.version_info.major}."
+            f"{sys.version_info.minor}.tar.gz"
         )
         local_cached_file = f"{new_environment_path}.tar.gz"
         download_succeeded = await try_get_file(

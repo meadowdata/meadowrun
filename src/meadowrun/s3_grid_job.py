@@ -28,6 +28,12 @@ import botocore.exceptions
 from meadowrun.aws_integration import s3
 
 from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.storage_keys import (
+    parse_storage_key_task_result,
+    storage_key_task_args,
+    storage_key_task_result,
+    storage_prefix_outputs,
+)
 
 if TYPE_CHECKING:
     import types_aiobotocore_s3
@@ -116,10 +122,6 @@ async def try_get_storage_file(
         return False
 
 
-def _s3_args_key(job_id: str) -> str:
-    return f"task-args/{job_id}"
-
-
 async def upload_task_args(
     s3_client: types_aiobotocore_s3.S3Client,
     bucket_name: str,
@@ -136,7 +138,9 @@ async def upload_task_args(
             range_from = range_to + 1
 
         await s3_client.put_object(
-            Bucket=bucket_name, Key=_s3_args_key(job_id), Body=buffer.getvalue()
+            Bucket=bucket_name,
+            Key=storage_key_task_args(job_id),
+            Body=buffer.getvalue(),
         )
 
     return ranges
@@ -150,26 +154,9 @@ async def download_task_arg(
 ) -> Any:
     return (
         await s3.download_async(
-            s3_client, bucket_name, _s3_args_key(job_id), byte_range
+            s3_client, bucket_name, storage_key_task_args(job_id), byte_range
         )
     )[1]
-
-
-def _s3_results_prefix(job_id: str) -> str:
-    return f"task-results/{job_id}/"
-
-
-def _s3_results_key(job_id: str, task_id: int, attempt: int) -> str:
-    # A million tasks and 1000 attempts should be enough for everybody. Formatting the
-    # task is important because when we task download results from S3, we use the
-    # StartFrom argument to S3's ListObjects to exclude most tasks we've already
-    # downloaded.
-    return f"{_s3_results_prefix(job_id)}{task_id:06d}/{attempt:03d}"
-
-
-def _s3_result_key_to_task_id_attempt(key: str, results_prefix: str) -> Tuple[int, int]:
-    [task_id, attempt] = key.replace(results_prefix, "").split("/")
-    return int(task_id), int(attempt)
 
 
 async def complete_task(
@@ -183,7 +170,7 @@ async def complete_task(
     """Uploads the result of the task to S3."""
     await s3_client.put_object(
         Bucket=bucket_name,
-        Key=_s3_results_key(job_id, task_id, attempt),
+        Key=storage_key_task_result(job_id, task_id, attempt),
         Body=process_state.SerializeToString(),
     )
 
@@ -206,7 +193,7 @@ async def receive_results(
     # all_workers_exited is set, then keep trying for about 3 seconds (just in case some
     # results are still coming in), and then return
 
-    results_prefix = _s3_results_prefix(job_id)
+    results_prefix = storage_prefix_outputs(job_id)
     download_keys_received: Set[str] = set()
     wait = initial_wait_seconds
     workers_exited_wait_count = 0
@@ -258,8 +245,6 @@ async def receive_results(
                 key, process_state_bytes = await task_result_future
                 process_state = ProcessState()
                 process_state.ParseFromString(process_state_bytes)
-                task_id, attempt = _s3_result_key_to_task_id_attempt(
-                    key, results_prefix
-                )
+                task_id, attempt = parse_storage_key_task_result(key, results_prefix)
                 results.append((task_id, attempt, process_state))
             yield results

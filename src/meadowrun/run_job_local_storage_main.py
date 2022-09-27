@@ -18,6 +18,7 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_USERNAME,
 )
 from meadowrun.s3_grid_job import get_storage_client_from_args, read_storage
+from meadowrun.storage_keys import storage_key_job_to_run, storage_key_process_state
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.k8s_integration.is_job_running import _JOB_IS_RUNNING_FILE
 from meadowrun.k8s_integration.k8s_main import _LAST_JOB_TIMESTAMP_FILE
@@ -37,13 +38,13 @@ async def main() -> None:
         # arguments for finding the storage bucket (i.e. S3-compatible store) where we
         # can find inputs and put outputs
         parser.add_argument("--storage-bucket", required=True)
-        parser.add_argument("--storage-file-prefix", required=True)
+        parser.add_argument("--job-id", required=True)
         parser.add_argument("--storage-endpoint-url", required=True)
 
         args = parser.parse_args()
 
         storage_bucket: str = args.storage_bucket
-        storage_file_prefix: str = args.storage_file_prefix
+        job_id: str = args.job_id
         suffix = os.environ.get("JOB_COMPLETION_INDEX", "")
 
         # prepare storage client, filenames and pickle protocol for the result
@@ -65,7 +66,7 @@ async def main() -> None:
                     await read_storage(
                         storage_client,
                         storage_bucket,
-                        f"{storage_file_prefix}.job_to_run",
+                        storage_key_job_to_run(job_id),
                     )
                 )
                 # hypothetically we should make sure MEADOWRUN_STORAGE_USERNAME and
@@ -87,7 +88,7 @@ async def main() -> None:
                 ):
                     await storage_client.put_object(
                         Bucket=storage_bucket,
-                        Key=f"{storage_file_prefix}.process_state{suffix}",
+                        Key=storage_key_process_state(job_id, suffix),
                         Body=first_state.SerializeToString(),
                     )
                 else:
@@ -95,7 +96,7 @@ async def main() -> None:
 
                     await storage_client.put_object(
                         Bucket=storage_bucket,
-                        Key=f"{storage_file_prefix}.process_state{suffix}",
+                        Key=storage_key_process_state(job_id, suffix),
                         Body=final_process_state.SerializeToString(),
                     )
             except:  # noqa: E722

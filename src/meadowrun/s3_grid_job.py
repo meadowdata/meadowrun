@@ -193,58 +193,76 @@ async def receive_results(
     # all_workers_exited is set, then keep trying for about 3 seconds (just in case some
     # results are still coming in), and then return
 
-    results_prefix = storage_prefix_outputs(job_id)
-    download_keys_received: Set[str] = set()
-    wait = initial_wait_seconds
-    workers_exited_wait_count = 0
-    while not stop_receiving.is_set() and (workers_exited_wait_count < 3 or wait == 0):
-        if all_workers_exited.is_set():
-            workers_exited_wait_count += 1
+    delete_tasks = []
 
-        if wait:
-            events_to_wait_for = [asyncio.create_task(stop_receiving.wait())]
-            if workers_exited_wait_count == 0:
-                events_to_wait_for.append(
-                    asyncio.create_task(all_workers_exited.wait())
+    try:
+        results_prefix = storage_prefix_outputs(job_id)
+        download_keys_received: Set[str] = set()
+        wait = initial_wait_seconds
+        workers_exited_wait_count = 0
+        while not stop_receiving.is_set() and (
+            workers_exited_wait_count < 3 or wait == 0
+        ):
+            if all_workers_exited.is_set():
+                workers_exited_wait_count += 1
+
+            if wait:
+                events_to_wait_for = [asyncio.create_task(stop_receiving.wait())]
+                if workers_exited_wait_count == 0:
+                    events_to_wait_for.append(
+                        asyncio.create_task(all_workers_exited.wait())
+                    )
+                else:
+                    # poll more frequently if workers are done, but still wait 1 second
+                    # (unless stop_receiving is set)
+                    wait = 1
+
+                done, pending = await asyncio.wait(
+                    events_to_wait_for,
+                    timeout=wait,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            else:
-                # poll more frequently if workers are done, but still wait 1 second
-                # (unless stop_receiving is set)
-                wait = 1
+                for p in pending:
+                    p.cancel()
+                if stop_receiving.is_set():
+                    break
 
-            done, pending = await asyncio.wait(
-                events_to_wait_for,
-                timeout=wait,
-                return_when=asyncio.FIRST_COMPLETED,
+            keys = await s3.list_objects_async(
+                s3_client, bucket_name, results_prefix, ""
             )
-            for p in pending:
-                p.cancel()
-            if stop_receiving.is_set():
-                break
 
-        keys = await s3.list_objects_async(s3_client, bucket_name, results_prefix, "")
+            download_tasks = []
+            for key in keys:
+                if key not in download_keys_received:
+                    download_tasks.append(
+                        asyncio.create_task(
+                            s3.download_async(s3_client, bucket_name, key)
+                        )
+                    )
 
-        download_tasks = []
-        for key in keys:
-            if key not in download_keys_received:
-                download_tasks.append(
-                    asyncio.create_task(s3.download_async(s3_client, bucket_name, key))
-                )
+            download_keys_received.update(keys)
 
-        download_keys_received.update(keys)
-
-        if len(download_tasks) == 0:
-            if wait == 0:
-                wait = 1
+            if len(download_tasks) == 0:
+                if wait == 0:
+                    wait = 1
+                else:
+                    wait = min(wait * 2, receive_message_wait_seconds)
             else:
-                wait = min(wait * 2, receive_message_wait_seconds)
-        else:
-            wait = 0
-            results = []
-            for task_result_future in asyncio.as_completed(download_tasks):
-                key, process_state_bytes = await task_result_future
-                process_state = ProcessState()
-                process_state.ParseFromString(process_state_bytes)
-                task_id, attempt = parse_storage_key_task_result(key, results_prefix)
-                results.append((task_id, attempt, process_state))
-            yield results
+                wait = 0
+                results = []
+                for task_result_future in asyncio.as_completed(download_tasks):
+                    key, process_state_bytes = await task_result_future
+                    process_state = ProcessState()
+                    process_state.ParseFromString(process_state_bytes)
+                    task_id, attempt = parse_storage_key_task_result(
+                        key, results_prefix
+                    )
+                    results.append((task_id, attempt, process_state))
+                    delete_tasks.append(
+                        asyncio.create_task(
+                            s3_client.delete_object(Bucket=bucket_name, Key=key)
+                        )
+                    )
+                yield results
+    finally:
+        await asyncio.gather(*delete_tasks, return_exceptions=True)

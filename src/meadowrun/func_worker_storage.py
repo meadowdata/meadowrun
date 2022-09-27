@@ -128,8 +128,8 @@ async def main() -> None:
                 )
             )
             os.makedirs("/meadowrun/local_copies", exist_ok=True)
-            code_paths, _, cwd_path = asyncio.run(
-                _get_zip_file_code_paths("/meadowrun/local_copies", code_zip_file)
+            code_paths, _, cwd_path = await _get_zip_file_code_paths(
+                "/meadowrun/local_copies", code_zip_file
             )
             sys.path.extend(code_paths)
             os.chdir(cwd_path)

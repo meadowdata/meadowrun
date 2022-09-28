@@ -3,7 +3,7 @@ import pickle
 import pytest
 from meadowrun import TaskResult
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import TaskException
+from meadowrun.run_job_core import TaskException, TaskProcessState
 from meadowrun.shared import pickle_exception
 
 
@@ -44,12 +44,14 @@ def test_task_result() -> None:
 
 def test_task_result_from_process_state_success() -> None:
     task_result = TaskResult.from_process_state(
-        2,
-        1,
-        ProcessState(
-            state=ProcessState.ProcessStateEnum.SUCCEEDED,
-            pickled_result=pickle.dumps("OK"),
-        ),
+        TaskProcessState(
+            2,
+            1,
+            ProcessState(
+                state=ProcessState.ProcessStateEnum.SUCCEEDED,
+                pickled_result=pickle.dumps("OK"),
+            ),
+        )
     )
     assert task_result.task_id == 2
     assert task_result.attempt == 1
@@ -60,12 +62,16 @@ def test_task_result_from_process_state_success() -> None:
 
 def test_task_result_from_process_state_exception() -> None:
     task_result = TaskResult.from_process_state(
-        2,
-        1,
-        ProcessState(
-            state=ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-            pickled_result=pickle_exception(Exception("test"), pickle.HIGHEST_PROTOCOL),
-        ),
+        TaskProcessState(
+            2,
+            1,
+            ProcessState(
+                state=ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+                pickled_result=pickle_exception(
+                    Exception("test"), pickle.HIGHEST_PROTOCOL
+                ),
+            ),
+        )
     )
     assert task_result.task_id == 2
     assert task_result.attempt == 1

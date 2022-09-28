@@ -82,7 +82,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     import asyncssh
-    from meadowrun.meadowrun_pb2 import Job, ProcessState
+    from meadowrun.meadowrun_pb2 import Job
+    from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from typing_extensions import Literal
 
@@ -623,7 +624,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
 
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+    ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
         if self._request_result_queues is None:
             raise ValueError(
                 "Must call setup_and_add_tasks before calling receive_task_results"

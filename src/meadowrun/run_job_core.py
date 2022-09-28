@@ -662,36 +662,34 @@ class TaskResult(Generic[_T]):
     log_file_name: str = ""
 
     @staticmethod
-    def from_process_state(
-        task_id: int, attempt: int, result: ProcessState
-    ) -> TaskResult:
-        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+    def from_process_state(task: TaskProcessState) -> TaskResult:
+        if task.result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
             # TODO try/catch on pickle.loads?
             return TaskResult(
-                task_id,
+                task.task_id,
                 is_success=True,
-                state=ProcessState.ProcessStateEnum.Name(result.state),
-                result=pickle.loads(result.pickled_result),
-                attempt=attempt,
-                log_file_name=result.log_file_name,
+                state=ProcessState.ProcessStateEnum.Name(task.result.state),
+                result=pickle.loads(task.result.pickled_result),
+                attempt=task.attempt,
+                log_file_name=task.result.log_file_name,
             )
-        elif result.state in _EXCEPTION_STATES:
-            exception = unpickle_exception(result.pickled_result)
+        elif task.result.state in _EXCEPTION_STATES:
+            exception = unpickle_exception(task.result.pickled_result)
             return TaskResult(
-                task_id,
+                task.task_id,
                 is_success=False,
-                state=ProcessState.ProcessStateEnum.Name(result.state),
+                state=ProcessState.ProcessStateEnum.Name(task.result.state),
                 exception=exception,
-                attempt=attempt,
-                log_file_name=result.log_file_name,
+                attempt=task.attempt,
+                log_file_name=task.result.log_file_name,
             )
         else:
             return TaskResult(
-                task_id,
+                task.task_id,
                 is_success=False,
-                state=ProcessState.ProcessStateEnum.Name(result.state),
-                attempt=attempt,
-                log_file_name=result.log_file_name,
+                state=ProcessState.ProcessStateEnum.Name(task.result.state),
+                attempt=task.attempt,
+                log_file_name=task.result.log_file_name,
             )
 
     def result_or_raise(self) -> _T:
@@ -827,6 +825,19 @@ class AllocVM(Host, abc.ABC):
         pass
 
 
+@dataclasses.dataclass(frozen=True)
+class TaskProcessState:
+    task_id: int
+    attempt: int
+    result: ProcessState
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkerProcessState:
+    worker_index: str
+    result: ProcessState
+
+
 class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     """
     See also GridJobDriver. The GridJobDriver is a concrete class that handles the
@@ -890,7 +901,7 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     @abc.abstractmethod
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+    ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
         ...
 
     @abc.abstractmethod
@@ -1278,52 +1289,61 @@ class GridJobDriver:
             f"Waiting for task results. Requested: {len(args)}, "
             f"Done: {num_tasks_done}"
         )
-        async for batch in await self._cloud_interface.receive_task_results(  # noqa: E501
+        async for task_batch, worker_batch in await self._cloud_interface.receive_task_results(  # noqa: E501
             stop_receiving=stop_receiving, workers_done=self._no_workers_available
         ):
-            for task_id, attempt, result in batch:
-                task_result = TaskResult.from_process_state(task_id, attempt, result)
+            # TODO right now we ignore worker_batch because we get worker failures
+            # through the SSH connection. At some point, we may want to process worker
+            # failures here.
+
+            for task in task_batch:
+                task_result = TaskResult.from_process_state(task)
                 if task_result.is_success:
                     num_tasks_done += 1
-                    arg_to_queue_index[task_id] = -1
+                    arg_to_queue_index[task.task_id] = -1
                     yield task_result
-                elif attempt < max_num_task_attempts:
-                    prev_queue_index = arg_to_queue_index[task_id]
+                elif task.attempt < max_num_task_attempts:
+                    prev_queue_index = arg_to_queue_index[task.task_id]
                     prev_memory_requirement = _memory_gb_for_queue_index(
                         prev_queue_index, self._resources_required_per_task
                     )
                     if (
                         retry_with_more_memory
-                        and result.max_memory_used_gb >= 0.95 * prev_memory_requirement
+                        and task.result.max_memory_used_gb
+                        >= 0.95 * prev_memory_requirement
                     ):
                         print(
-                            f"Task {task_id} failed at attempt {attempt}, retrying with"
-                            f" more memory (task used {result.max_memory_used_gb:.2f}/"
+                            f"Task {task.task_id} failed at attempt {task.attempt}, "
+                            "retrying with more memory (task used "
+                            f"{task.result.max_memory_used_gb:.2f}/"
                             f"{prev_memory_requirement}GB requested)"
                         )
 
-                        new_queue_index = arg_to_queue_index[task_id] + 1
-                        arg_to_queue_index[task_id] = new_queue_index
+                        new_queue_index = arg_to_queue_index[task.task_id] + 1
+                        arg_to_queue_index[task.task_id] = new_queue_index
                         if len(self._worker_queues) < new_queue_index + 1:
                             # TODO any new queue gets 1 worker by default. We should
                             # increase this later depending on how the situation changes
                             self._cloud_interface.create_queue()
                             self._worker_queues.append(WorkerQueue(new_queue_index, 1))
                         await self._cloud_interface.retry_task(
-                            task_id, attempt, new_queue_index
+                            task.task_id, task.attempt, new_queue_index
                         )
                     else:
-                        print(f"Task {task_id} failed at attempt {attempt}, retrying")
+                        print(
+                            f"Task {task.task_id} failed at attempt {task.attempt}, "
+                            "retrying"
+                        )
                         await self._cloud_interface.retry_task(
-                            task_id, attempt, prev_queue_index
+                            task.task_id, task.attempt, prev_queue_index
                         )
                 else:
                     print(
-                        f"Task {task_id} failed at attempt {attempt}, "
-                        f"max attempts is {max_num_task_attempts}, not retrying."
+                        f"Task {task.task_id} failed at attempt {task.attempt}, max "
+                        f"attempts is {max_num_task_attempts}, not retrying."
                     )
                     num_tasks_done += 1
-                    arg_to_queue_index[task_id] = -1
+                    arg_to_queue_index[task.task_id] = -1
                     yield task_result
 
             if num_tasks_done >= len(args):

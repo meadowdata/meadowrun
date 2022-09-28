@@ -43,7 +43,13 @@ def storage_key_task_result(job_id: str, task_id: int, attempt: int) -> str:
     # task is important because when we task download results from S3, we use the
     # StartFrom argument to S3's ListObjects to exclude most tasks we've already
     # downloaded.
-    return f"{storage_prefix_outputs(job_id)}{task_id:06d}.{attempt:03d}.taskresult"
+    return (
+        f"{storage_prefix_outputs(job_id)}{task_id:06d}.{attempt:03d}"
+        f"{STORAGE_KEY_TASK_RESULT_SUFFIX}"
+    )
+
+
+STORAGE_KEY_TASK_RESULT_SUFFIX = ".taskresult"
 
 
 def parse_storage_key_task_result(key: str, results_prefix: str) -> Tuple[int, int]:
@@ -52,10 +58,18 @@ def parse_storage_key_task_result(key: str, results_prefix: str) -> Tuple[int, i
     return int(task_id), int(attempt)
 
 
+STORAGE_KEY_PROCESS_STATE_SUFFIX = ".process_state"
+
+
 def storage_key_process_state(job_id: str, worker_index: str) -> str:
-    # this will be changed to
-    # {storage_prefix_outputs(job_id)}{worker_index}.process_state in the next commit
-    return f"{job_id}{worker_index}.process_state"
+    return (
+        f"{storage_prefix_outputs(job_id)}{worker_index}"
+        f"{STORAGE_KEY_PROCESS_STATE_SUFFIX}"
+    )
+
+
+def parse_storage_key_process_state(key: str, results_prefix: str) -> str:
+    return key.replace(results_prefix, "").replace(STORAGE_KEY_PROCESS_STATE_SUFFIX, "")
 
 
 def storage_key_state(job_id: str, worker_index: str) -> str:

@@ -28,7 +28,11 @@ import botocore.exceptions
 from meadowrun.aws_integration import s3
 
 from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.run_job_core import WorkerProcessState, TaskProcessState
 from meadowrun.storage_keys import (
+    STORAGE_KEY_PROCESS_STATE_SUFFIX,
+    STORAGE_KEY_TASK_RESULT_SUFFIX,
+    parse_storage_key_process_state,
     parse_storage_key_task_result,
     storage_key_task_args,
     storage_key_task_result,
@@ -183,10 +187,14 @@ async def receive_results(
     all_workers_exited: asyncio.Event,
     initial_wait_seconds: int = 1,
     receive_message_wait_seconds: int = 20,
-) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+    read_worker_process_states: bool = True,
+) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
     """
-    Listens to a result queue until we have results for num_tasks. Returns the unpickled
-    results of those tasks.
+    Listens to a result queue until we have results for num_tasks.
+
+    As results become available, yields (task results, worker results). Task results
+    will be a list of TaskProcessState. Worker results will be a list of
+    WorkerProcessState
     """
 
     # Behavior is that if stop_receiving is set, we want to return immediately. If
@@ -249,20 +257,38 @@ async def receive_results(
                     wait = min(wait * 2, receive_message_wait_seconds)
             else:
                 wait = 0
-                results = []
+                task_results = []
+                worker_results = []
                 for task_result_future in asyncio.as_completed(download_tasks):
                     key, process_state_bytes = await task_result_future
                     process_state = ProcessState()
                     process_state.ParseFromString(process_state_bytes)
-                    task_id, attempt = parse_storage_key_task_result(
-                        key, results_prefix
-                    )
-                    results.append((task_id, attempt, process_state))
+                    if key.endswith(STORAGE_KEY_TASK_RESULT_SUFFIX):
+                        task_id, attempt = parse_storage_key_task_result(
+                            key, results_prefix
+                        )
+                        task_results.append(
+                            TaskProcessState(task_id, attempt, process_state)
+                        )
+                    elif key.endswith(STORAGE_KEY_PROCESS_STATE_SUFFIX):
+                        if not read_worker_process_states:
+                            continue
+
+                        worker_index = parse_storage_key_process_state(
+                            key, results_prefix
+                        )
+                        worker_results.append(
+                            WorkerProcessState(worker_index, process_state)
+                        )
+                    else:
+                        print(f"Warning, unrecognized key {key}, will ignore")
+                        continue  # don't delete if we can't parse the key
+
                     delete_tasks.append(
                         asyncio.create_task(
                             s3_client.delete_object(Bucket=bucket_name, Key=key)
                         )
                     )
-                yield results
+                yield task_results, worker_results
     finally:
         await asyncio.gather(*delete_tasks, return_exceptions=True)

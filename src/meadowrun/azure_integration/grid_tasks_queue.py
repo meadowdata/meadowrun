@@ -39,10 +39,11 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
     queue_send_message,
 )
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
+from meadowrun.run_job_core import TaskProcessState
 from meadowrun.run_job_local import WorkerMonitor, restart_worker
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import TaskWorkerServer
+    from meadowrun.run_job_core import TaskWorkerServer, WorkerProcessState
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -272,7 +273,7 @@ async def get_results_unordered(
     location: str,
     stop_receiving: asyncio.Event,
     all_workers_exited: asyncio.Event,
-) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
 
     # TODO currently, we get back messages saying that a task is running on a particular
     # worker. We don't really do anything with these messages, but eventually we should
@@ -328,7 +329,7 @@ async def get_results_unordered(
                     num_tasks_running -= 1
                     num_tasks_completed += 1
                     results.append(
-                        (
+                        TaskProcessState(
                             task_result.task_id,
                             task_result.attempt,
                             task_result.process_state,
@@ -341,4 +342,4 @@ async def get_results_unordered(
                     message.pop_receipt,
                 )
 
-            yield results
+            yield results, []

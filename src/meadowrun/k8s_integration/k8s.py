@@ -88,6 +88,7 @@ if TYPE_CHECKING:
     import types_aiobotocore_s3
 
     from meadowrun.instance_selection import ResourcesInternal
+    from meadowrun.run_job_core import WorkerProcessState, TaskProcessState
 
 
 _T = TypeVar("_T")
@@ -1078,6 +1079,9 @@ class KubernetesGridJobDriver:
 
         self._abort_launching_new_workers = asyncio.Event()
 
+        self._worker_process_states: List[List[WorkerProcessState]] = []
+        self._worker_process_state_received = asyncio.Event()
+
     # these three functions are effectively the GridJobCloudInterface
 
     async def _add_tasks(self, args: Sequence[Any]) -> None:
@@ -1097,7 +1101,7 @@ class KubernetesGridJobDriver:
 
     async def _receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+    ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
         assert self._kubernetes.storage_bucket is not None  # just for mypy
 
         return receive_results(
@@ -1107,6 +1111,7 @@ class KubernetesGridJobDriver:
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
             initial_wait_seconds=2,
+            read_worker_process_states=self._kubernetes.reusable_pods,
         )
 
     async def _retry_task(self, task_id: int, attempts_so_far: int) -> None:
@@ -1266,12 +1271,54 @@ class KubernetesGridJobDriver:
                         )
                         worker_index += 1
 
-                # TODO replace pods as they fail
-
                 await asyncio.gather(*all_tasks, return_exceptions=True)
 
+                worker_process_state_received_task = asyncio.create_task(
+                    self._worker_process_state_received.wait()
+                )
+                workers_needed_changed_task = asyncio.create_task(
+                    self._workers_needed_changed.wait()
+                )
+
+                # wait for all of the tasks to complete. If a worker fails, raise an
+                # exception
+                # TODO we should try to replace workers rather than just throwing an
+                # exception immediately
                 while self._workers_needed > 0:
-                    await self._workers_needed_changed.wait()
+                    await asyncio.wait(
+                        [
+                            worker_process_state_received_task,
+                            workers_needed_changed_task,
+                        ],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    if worker_process_state_received_task.done():
+                        while self._worker_process_states:
+                            for (
+                                worker_process_state
+                            ) in self._worker_process_states.pop():
+                                if (
+                                    worker_process_state.result.state
+                                    != ProcessState.ProcessStateEnum.SUCCEEDED
+                                ):
+                                    raise MeadowrunException(
+                                        worker_process_state.result
+                                    )
+
+                        self._worker_process_state_received.clear()
+                        worker_process_state_received_task = asyncio.create_task(
+                            self._worker_process_state_received.wait()
+                        )
+
+                    if workers_needed_changed_task.done():
+                        self._workers_needed_changed.clear()
+                        workers_needed_changed_task = asyncio.create_task(
+                            self._workers_needed_changed.wait()
+                        )
+
+                worker_process_state_received_task.cancel()
+                workers_needed_changed_task.cancel()
 
                 # this is an optimization--the automated readiness probe will mark the
                 # pods as ready eventually, but this is faster
@@ -1322,18 +1369,22 @@ class KubernetesGridJobDriver:
             f"Waiting for task results. Requested: {len(args)}, "
             f"Done: {num_tasks_done}"
         )
-        async for batch in await self._receive_task_results(
+        async for task_batch, worker_batch in await self._receive_task_results(
             stop_receiving=stop_receiving, workers_done=self._no_workers_available
         ):
-            for task_id, attempt, result in batch:
-                task_result = TaskResult.from_process_state(task_id, attempt, result)
+            for task_process_state in task_batch:
+                task_result = TaskResult.from_process_state(task_process_state)
                 if task_result.is_success:
                     num_tasks_done += 1
                     yield task_result
                 else:
-                    print(f"Task {task_id} failed")
+                    print(f"Task {task_process_state.task_id} failed")
                     num_tasks_done += 1
                     yield task_result
+
+            if worker_batch:
+                self._worker_process_states.append(worker_batch)
+                self._worker_process_state_received.set()
 
             if num_tasks_done >= len(args):
                 stop_receiving.set()

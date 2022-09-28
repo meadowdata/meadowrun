@@ -325,7 +325,7 @@ class TestGridSQSQueue:
             stop_receiving = asyncio.Event()
             results: List = [None] * len(task_arguments)
             received = 0
-            async for batch in receive_results(
+            async for batch, _ in receive_results(
                 s3c,
                 _get_bucket_name(region_name),
                 job_id,
@@ -333,10 +333,12 @@ class TestGridSQSQueue:
                 all_workers_exited=asyncio.Event(),
                 # receive_message_wait_seconds=2,
             ):
-                for task_id, attempt, process_state in batch:
-                    assert attempt == 1
-                    (args,), kwargs = pickle.loads(process_state.pickled_result)
-                    results[task_id] = args
+                for task_process_state in batch:
+                    assert task_process_state.attempt == 1
+                    (args,), kwargs = pickle.loads(
+                        task_process_state.result.pickled_result
+                    )
+                    results[task_process_state.task_id] = args
                     received += 1
                     if received >= 4:
                         stop_receiving.set()
@@ -376,13 +378,11 @@ class TestGridSQSQueue:
 
                 results = []
                 stop_receiving, workers_done = asyncio.Event(), asyncio.Event()
-                async for batch in await interface.receive_task_results(
+                async for batch, _ in await interface.receive_task_results(
                     stop_receiving=stop_receiving, workers_done=workers_done
                 ):
-                    for task_id, attempt, result in batch:
-                        task_result = TaskResult.from_process_state(
-                            task_id, attempt, result
-                        )
+                    for task_process_state in batch:
+                        task_result = TaskResult.from_process_state(task_process_state)
                         assert task_result.is_success
                         results.append(task_result.result)
                         if len(results) == 4:
@@ -419,13 +419,11 @@ class TestGridSQSQueue:
 
                 results = []
                 stop_receiving, workers_done = asyncio.Event(), asyncio.Event()
-                async for batch in await interface.receive_task_results(
+                async for batch, _ in await interface.receive_task_results(
                     stop_receiving=stop_receiving, workers_done=workers_done
                 ):
-                    for task_id, attempt, result in batch:
-                        task_result = TaskResult.from_process_state(
-                            task_id, attempt, result
-                        )
+                    for task_process_state in batch:
+                        task_result = TaskResult.from_process_state(task_process_state)
                         assert not task_result.is_success
                         results.append(task_result.result)
                         if len(results) == 8:
@@ -433,7 +431,11 @@ class TestGridSQSQueue:
                             workers_done.set()
                             await interface.shutdown_workers(1, 0)
                         else:
-                            await interface.retry_task(task_id, attempt, 0)
+                            await interface.retry_task(
+                                task_process_state.task_id,
+                                task_process_state.attempt,
+                                0,
+                            )
                 await worker_task
                 await agent_server.close()
 
@@ -463,13 +465,11 @@ class TestGridSQSQueue:
 
                 results = []
                 stop_receiving, workers_done = asyncio.Event(), asyncio.Event()
-                async for batch in await interface.receive_task_results(
+                async for batch, _ in await interface.receive_task_results(
                     stop_receiving=stop_receiving, workers_done=workers_done
                 ):
-                    for task_id, attempt, result in batch:
-                        task_result = TaskResult.from_process_state(
-                            task_id, attempt, result
-                        )
+                    for task_process_state in batch:
+                        task_result = TaskResult.from_process_state(task_process_state)
                         assert not task_result.is_success
                         results.append(task_result.result)
                         if len(results) == 4:

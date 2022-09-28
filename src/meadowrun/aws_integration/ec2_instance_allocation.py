@@ -83,7 +83,8 @@ from meadowrun.s3_grid_job import receive_results
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from meadowrun.meadowrun_pb2 import Job, ProcessState
+    from meadowrun.meadowrun_pb2 import Job
+    from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types_aiobotocore_s3 import S3Client
     from types_aiobotocore_sqs import SQSClient
@@ -833,7 +834,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
-    ) -> AsyncIterable[List[Tuple[int, int, ProcessState]]]:
+    ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
         if self._s3_client is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 

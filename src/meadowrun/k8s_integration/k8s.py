@@ -1170,6 +1170,7 @@ class KubernetesGridJobDriver:
                 self._num_concurrent_tasks,
                 wait_for_result,
             )
+            # TODO we should propagate a SIGINT here if we get it
         finally:
             self._no_workers_available.set()
 
@@ -1184,58 +1185,75 @@ class KubernetesGridJobDriver:
     ) -> None:
         # TODO implement wait_for_result options
 
-        try:
-            if (
-                self._kubernetes.storage_bucket is None
-                or self._kubernetes.storage_endpoint_url is None
-            ):
-                raise ValueError(
-                    "Cannot use an environment_spec without providing a storage_bucket."
-                    " Please either provide a pre-built container image for the "
-                    "interpreter or provide a storage_bucket"
+        all_pods = []
+        pods_and_pids = []
+        worker_process_state_received_task = asyncio.create_task(
+            self._worker_process_state_received.wait()
+        )
+        workers_needed_changed_task = asyncio.create_task(
+            self._workers_needed_changed.wait()
+        )
+
+        async with kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
+            try:
+                if (
+                    self._kubernetes.storage_bucket is None
+                    or self._kubernetes.storage_endpoint_url is None
+                ):
+                    raise ValueError(
+                        "Cannot use an environment_spec without providing a "
+                        "storage_bucket. Please either provide a pre-built container "
+                        "image for the interpreter or provide a storage_bucket"
+                    )
+
+                job = self._worker_function_job(
+                    function, num_args, job_fields, pickle_protocol
                 )
 
-            job = self._worker_function_job(
-                function, num_args, job_fields, pickle_protocol
-            )
+                interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
+                if interpreter_deployment_type in (
+                    "container_at_digest",
+                    "container_at_tag",
+                    "server_available_container",
+                ):
+                    # TODO we would need to require that Meadowrun is installed in the
+                    # custom container, so then we could just implement this by
+                    # translating to ServerAvailableInterpreter(sys.executable)
+                    raise NotImplementedError(
+                        "Specifying a container image when running on Kubernetes with "
+                        "reusable pods is not yet supported"
+                    )
 
-            interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
-            if interpreter_deployment_type in (
-                "container_at_digest",
-                "container_at_tag",
-                "server_available_container",
-            ):
-                # TODO we would need to require that Meadowrun is installed in the
-                # custom container, so then we could just implement this by translating
-                # to ServerAvailableInterpreter(sys.executable)
-                raise NotImplementedError(
-                    "Specifying a container image when running on Kubernetes with "
-                    "reusable pods is not yet supported"
+                await self._storage_client.put_object(
+                    Bucket=self._kubernetes.storage_bucket,
+                    Key=storage_key_job_to_run(self._job_id),
+                    Body=job.SerializeToString(),
                 )
 
-            await self._storage_client.put_object(
-                Bucket=self._kubernetes.storage_bucket,
-                Key=storage_key_job_to_run(self._job_id),
-                Body=job.SerializeToString(),
-            )
+                storage_endpoint = (
+                    self._kubernetes.get_storage_endpoint_url_in_cluster()
+                )
+                if storage_endpoint is None:
+                    raise ValueError("Storage endpoint must be specified")
+                # TODO it's possible that a job will run more than once on the same
+                # container, although not in parallel
+                inner_command = (
+                    "PYTHONUNBUFFERED=1 MEADOWRUN_WORKER_INDEX=%WORKER_INDEX% python -m"
+                    " meadowrun.run_job_local_storage_main --storage-bucket "
+                    f"{self._kubernetes.storage_bucket} --job-id {self._job_id} "
+                    f"--storage-endpoint-url {storage_endpoint} "
+                    f">/var/meadowrun/job_logs/{self._job_id}.log 2>&1 & echo $$"
+                )
+                # echo $$ gets the process id of the current bash session (we will run
+                # inner_command in a bash session). We assume that all processes started
+                # in this session will get this id as their process group id (it's not
+                # clear if this assumption is bulletproof) so that we can kill them all
+                # quickly. (100% reliable would be to do echo $! to get the
+                # run_job_local_storage_main PID and then explicitly ask for its group
+                # id and kill all processes in that group)
 
-            storage_endpoint = self._kubernetes.get_storage_endpoint_url_in_cluster()
-            if storage_endpoint is None:
-                raise ValueError("Storage endpoint must be specified")
-            # TODO it's possible that a job will run more than once on the same
-            # container, although not in parallel
-            inner_command = (
-                "PYTHONUNBUFFERED=1 MEADOWRUN_WORKER_INDEX=%WORKER_INDEX% python -m "
-                "meadowrun.run_job_local_storage_main --storage-bucket "
-                f"{self._kubernetes.storage_bucket} --job-id {self._job_id} "
-                f"--storage-endpoint-url {storage_endpoint} "
-                f">/var/meadowrun/job_logs/{self._job_id}.log 2>&1 &"
-            )
+                all_tasks = []
 
-            all_tasks = []
-            all_pods = []
-
-            async with kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
                 core_api = kubernetes_client.CoreV1Api(api_client)
                 ws_core_api = kubernetes_client.CoreV1Api(ws_api_client)
                 batch_api = kubernetes_client.BatchV1Api(api_client)
@@ -1255,7 +1273,7 @@ class KubernetesGridJobDriver:
                         all_pods.append(pod)
                         all_tasks.append(
                             asyncio.create_task(
-                                _run_job_on_reusable_pod(
+                                _run_command_on_reusable_pod(
                                     pod.metadata.name,
                                     self._kubernetes.kubernetes_namespace,
                                     [
@@ -1271,14 +1289,7 @@ class KubernetesGridJobDriver:
                         )
                         worker_index += 1
 
-                await asyncio.gather(*all_tasks, return_exceptions=True)
-
-                worker_process_state_received_task = asyncio.create_task(
-                    self._worker_process_state_received.wait()
-                )
-                workers_needed_changed_task = asyncio.create_task(
-                    self._workers_needed_changed.wait()
-                )
+                pods_and_pids = await asyncio.gather(*all_tasks, return_exceptions=True)
 
                 # wait for all of the tasks to complete. If a worker fails, raise an
                 # exception
@@ -1298,6 +1309,7 @@ class KubernetesGridJobDriver:
                             for (
                                 worker_process_state
                             ) in self._worker_process_states.pop():
+                                # TODO periodically also check for our pods disappearing
                                 if (
                                     worker_process_state.result.state
                                     != ProcessState.ProcessStateEnum.SUCCEEDED
@@ -1305,6 +1317,7 @@ class KubernetesGridJobDriver:
                                     raise MeadowrunException(
                                         worker_process_state.result
                                     )
+                                # TODO keep track of successful worker exits?
 
                         self._worker_process_state_received.clear()
                         worker_process_state_received_task = asyncio.create_task(
@@ -1316,42 +1329,50 @@ class KubernetesGridJobDriver:
                         workers_needed_changed_task = asyncio.create_task(
                             self._workers_needed_changed.wait()
                         )
-
-                worker_process_state_received_task.cancel()
-                workers_needed_changed_task.cancel()
-
-                # this is an optimization--the automated readiness probe will mark the
-                # pods as ready eventually, but this is faster
-                await asyncio.gather(
-                    *(
-                        set_main_container_ready(core_api, pod, True)
-                        for pod in all_pods
-                    ),
-                    return_exceptions=True,
-                )
-
-        except BaseException:
-            # Unfortunately we have no way of knowing whether our workers are still
-            # running or not--we have to hope that if we launched the remote process
-            # successfully, then some sort of indication of success/failure will come
-            # back:
-            # TODO run_job_local_storage_main needs more error handling and we need to
-            # check for those errors in get_results
-            # TODO no_workers_available should only be set if all of the workers failed
-            # to start
-            self._no_workers_available.set()
-            raise
-        finally:
-            try:
-                if self._kubernetes.storage_bucket is not None:
-                    await self._storage_client.delete_object(
-                        Bucket=self._kubernetes.storage_bucket,
-                        Key=storage_key_job_to_run(self._job_id),
-                    )
-            except asyncio.CancelledError:
-                raise
             except BaseException:
-                pass
+                # TODO no_workers_available should only be set if all of the workers
+                # failed to start
+                self._no_workers_available.set()
+
+                # try to kill all of the worker processes
+                await asyncio.gather(
+                    *[
+                        _run_command_on_reusable_pod(
+                            pod_name,
+                            self._kubernetes.kubernetes_namespace,
+                            ["kill", "-9", "--", f"-{pid}"],
+                            ws_core_api,
+                        )
+                        for pod_name, pid in pods_and_pids
+                    ],
+                    return_exceptions=False,
+                )
+                raise
+            finally:
+                try:
+                    # now mark those pods as ready--this is an optimization--the
+                    # automated readiness probe will mark the pods as ready eventually,
+                    # but this is faster
+                    await asyncio.gather(
+                        *(
+                            set_main_container_ready(core_api, pod, True)
+                            for pod in all_pods
+                        ),
+                        return_exceptions=True,
+                    )
+
+                    worker_process_state_received_task.cancel()
+                    workers_needed_changed_task.cancel()
+
+                    if self._kubernetes.storage_bucket is not None:
+                        await self._storage_client.delete_object(
+                            Bucket=self._kubernetes.storage_bucket,
+                            Key=storage_key_job_to_run(self._job_id),
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except BaseException:
+                    pass
 
     async def get_results(self, args: Sequence[_T]) -> AsyncIterable[TaskResult]:
         """Yields TaskResult objects as soon as tasks complete."""
@@ -2092,24 +2113,23 @@ async def _get_meadowrun_resuable_pods(
         print(f"Started {remaining_pods_to_launch} new pods")
 
 
-async def _run_job_on_reusable_pod(
+async def _run_command_on_reusable_pod(
     pod_name: str,
     kubernetes_namespace: str,
     command: List[str],
     ws_core_api: kubernetes_client.CoreV1Api,
-) -> str:
-    return await ws_core_api.connect_post_namespaced_pod_exec(
+) -> Tuple[str, str]:
+    """Returns pod_name, output of command"""
+    output = await ws_core_api.connect_post_namespaced_pod_exec(
         name=pod_name,
         namespace=kubernetes_namespace,
         command=command,
-        # We don't actually want to stream any output back (it will be empty in any
-        # case), but it seems like at least one of stderr or stdout needs to be True for
-        # this to work
         stderr=True,
         stdin=False,
-        stdout=False,
+        stdout=True,
         tty=False,
     )
+    return pod_name, output
 
 
 def _main_container_is_ready(pod: kubernetes_client.V1Pod) -> bool:

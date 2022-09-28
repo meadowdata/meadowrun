@@ -857,6 +857,13 @@ async def _non_container_job_continuation(
             state=ProcessStateEnum.ERROR_GETTING_STATE,
             pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
         )
+    finally:
+        # TODO this is not 100% bulletproof--there will be a tiny sliver of time between
+        # when we create the process and we enter this try/finally block
+        try:
+            await worker.stop()
+        except BaseException:
+            print("Exception trying to kill process: " + traceback.format_exc())
 
 
 async def _launch_container_job(
@@ -1051,13 +1058,15 @@ async def _container_job_continuation(
             pickled_result=pickle_exception(e, job.result_highest_pickle_protocol),
         )
     finally:
+        # TODO this is not 100% bulletproof--there will be a tiny sliver of time between
+        # when we create the container and we enter this try/finally block
         try:
             await asyncio.gather(
                 remove_container(worker.container),
                 *(remove_container(c) for c in sidecar_containers),
             )
-        except Exception as e:
-            print(f"Warning, unable to remove container: {e}")
+        except BaseException:
+            print("Warning, unable to remove container: " + traceback.format_exc())
         assert worker.docker_client is not None
         await worker.docker_client.__aexit__(None, None, None)
 

@@ -393,16 +393,17 @@ async def push_image(
                 raise ValueError(f"Error building docker image: f{line['errorDetail']}")
 
 
-def expand_ports(ports: Iterable[str]) -> Iterable[str]:
-    for port in ports:
-        if "-" in port:
-            split = port.split("-")
-            if len(split) != 2:
-                raise ValueError(f"Bad port specification {port}")
-            for i in range(int(split[0]), int(split[1]) + 1):
-                yield str(i)
-        else:
-            yield port
+def expand_ports(ports: Optional[Iterable[str]]) -> Iterable[str]:
+    if ports is not None:
+        for port in ports:
+            if "-" in port:
+                split = port.split("-")
+                if len(split) != 2:
+                    raise ValueError(f"Bad port specification {port}")
+                for i in range(int(split[0]), int(split[1]) + 1):
+                    yield str(i)
+            else:
+                yield port
 
 
 async def run_container(

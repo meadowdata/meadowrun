@@ -1244,7 +1244,7 @@ class KubernetesGridJobDriver:
                 async for pods in _get_meadowrun_resuable_pods(
                     self._kubernetes.kubernetes_namespace,
                     _python_version_from_environment_spec(job),
-                    job_fields["ports"],
+                    [int(p) for p in expand_ports(job_fields["ports"])],
                     resources_required_per_task,
                     self._num_concurrent_tasks,
                     core_api,
@@ -1826,34 +1826,6 @@ async def _run_kubernetes_job(
     else:
         additional_pod_spec_parameters = {}
 
-    additional_container_parameters = {}
-
-    if ports:
-        additional_container_parameters["ports"] = [
-            kubernetes_client.V1ContainerPort(container_port=port) for port in ports
-        ]
-        service = kubernetes_client.V1Service(
-            metadata=kubernetes_client.V1ObjectMeta(name=f"svc-{job_id}"),
-            spec=kubernetes_client.V1ServiceSpec(
-                # The job-name label is automatically set by Kubernetes for pods created
-                # by jobs
-                selector={"job-name": job_id},
-                ports=[
-                    kubernetes_client.V1ServicePort(port=port, name=f"port{port}")
-                    for port in ports
-                ],
-            ),
-        )
-    else:
-        service = None
-
-    if resources is not None:
-        additional_container_parameters[
-            "resources"
-        ] = kubernetes_client.V1ResourceRequirements(
-            requests=_resources_to_kubernetes(resources)
-        )
-
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
     body = kubernetes_client.V1Job(
         metadata=kubernetes_client.V1ObjectMeta(name=job_id),
@@ -1870,7 +1842,7 @@ async def _run_kubernetes_job(
                             image=image,
                             args=args,
                             env=environment,
-                            **additional_container_parameters,
+                            **_get_additional_container_parameters(ports, resources),
                         )
                     ],
                     restart_policy="Never",
@@ -1896,10 +1868,6 @@ async def _run_kubernetes_job(
             await batch_api.create_namespaced_job(kubernetes_namespace, body)
 
             core_api = kubernetes_client.CoreV1Api(api_client)
-
-            if service:
-                await core_api.create_namespaced_service(kubernetes_namespace, service)
-                print(f"Created service {service.metadata.name}")
 
             # Now that we've created the job, wait for the pods to be created
 
@@ -1931,23 +1899,68 @@ async def _run_kubernetes_job(
                 ]
             )
         finally:
-            # TODO we should separately periodically clean up these jobs/pods services
-            # in case we aren't able to execute this finally block
-            if service is not None:
-                try:
-                    await core_api.delete_namespaced_service(
-                        service.metadata.name,
-                        kubernetes_namespace,
-                        propagation_policy="Foreground",
-                    )
-                except kubernetes_client_exceptions.ApiException as e:
-                    print(f"Warning, error cleaning up service: {e}")
             try:
                 await batch_api.delete_namespaced_job(
                     job_id, kubernetes_namespace, propagation_policy="Foreground"
                 )
             except kubernetes_client_exceptions.ApiException as e:
                 print(f"Warning, error cleaning up job: {e}")
+
+
+def _get_additional_container_parameters(
+    ports: List[int], resources: Optional[ResourcesInternal]
+) -> Dict[str, Any]:
+    additional_container_parameters = {}
+    if ports:
+        additional_container_parameters["ports"] = [
+            kubernetes_client.V1ContainerPort(container_port=port) for port in ports
+        ]
+    if resources is not None:
+        additional_container_parameters[
+            "resources"
+        ] = kubernetes_client.V1ResourceRequirements(
+            requests=_resources_to_kubernetes(resources)
+        )
+    return additional_container_parameters
+
+
+def _pod_meets_requirements(
+    pod: kubernetes_client.V1Pod,
+    ports: List[int],
+    resources: Optional[ResourcesInternal],
+) -> bool:
+    main_containers = [
+        container for container in pod.spec.containers if container.name == "main"
+    ]
+    if len(main_containers) != 1:
+        print(
+            f"Warning: pod {pod.metadata.name} has {len(main_containers)} containers "
+            f"named main, which was unexpected"
+        )
+        return False
+    main_container = main_containers[0]
+
+    if ports:
+        if not main_container.ports:
+            return False
+        required_ports = set(ports)
+        for port in main_container.ports:
+            required_ports.discard(port.container_port)
+        if required_ports:
+            return False
+
+    if resources:
+        existing_resources = main_container.resources.requests
+        for key, value in _resources_to_kubernetes(resources).items():
+            if key not in existing_resources:
+                return False
+            # this str conversion is a bit sketchy. Also, we could do a >= check here,
+            # but it seems better to just get the exact same resource requirements--the
+            # existing pod will just disappear on its own
+            if existing_resources[key] != str(value):
+                return False
+
+    return True
 
 
 async def _get_meadowrun_resuable_pods(
@@ -1965,13 +1978,20 @@ async def _get_meadowrun_resuable_pods(
         kubernetes_namespace,
         # TODO also add ports and resources in selector
         label_selector=f"meadowrun.io/reusable-pod-python-version={python_version}",
+        # Available fields:
+        # https://github.com/kubernetes/kubernetes/blob/f01c9e8683adacbfbad58e5153dfac9ebf954c4b/pkg/registry/core/pod/strategy.go#L301
         field_selector="status.phase=Running",
+    )
+    additional_container_parameters = _get_additional_container_parameters(
+        ports, resources
     )
     existing_pods: List[kubernetes_client.V1Pod] = []
     for pod in pods_response.items:
         if len(existing_pods) >= number_of_pods:
             break
-        if _main_container_is_ready(pod):
+        if _main_container_is_ready(pod) and _pod_meets_requirements(
+            pod, ports, resources
+        ):
             # This is an "optimistic concurrency"-style check. It's possible that the
             # automated readiness probe will run between now and when we're able to
             # launch our job, remarking this pod as ready and allowing another job to
@@ -1993,8 +2013,6 @@ async def _get_meadowrun_resuable_pods(
     remaining_pods_to_launch = number_of_pods - len(existing_pods)
 
     if remaining_pods_to_launch > 0:
-        # TODO do something about ports
-
         image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
         # uncomment this for development
         # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
@@ -2004,20 +2022,6 @@ async def _get_meadowrun_resuable_pods(
         _add_storage_username_password_to_environment(
             storage_username_password_secret, environment, {}
         )
-
-        additional_container_parameters = {}
-
-        if ports:
-            additional_container_parameters["ports"] = [
-                kubernetes_client.V1ContainerPort(container_port=port) for port in ports
-            ]
-
-        if resources is not None:
-            additional_container_parameters[
-                "resources"
-            ] = kubernetes_client.V1ResourceRequirements(
-                requests=_resources_to_kubernetes(resources)
-            )
 
         job_name = f"mdr-reusable-{uuid.uuid4()}"
         # it would be way more convenient to do -m

@@ -459,6 +459,11 @@ class Kubernetes(Host):
     kubernetes_namespace: str = "default"
     reusable_pods: bool = False
 
+    def get_storage_endpoint_url_in_cluster(self) -> Optional[str]:
+        if self.storage_endpoint_url_in_cluster is not None:
+            return self.storage_endpoint_url_in_cluster
+        return self.storage_endpoint_url
+
     async def _get_storage_client(
         self,
     ) -> AsyncContextManager[Optional[types_aiobotocore_s3.S3Client]]:
@@ -523,12 +528,11 @@ class Kubernetes(Host):
             if self.storage_bucket:
                 command.extend(["--storage-bucket", self.storage_bucket])
             command.extend(["--job-id", job.job_id])
-            if self.storage_endpoint_url_in_cluster:
+            storage_endpoint_url_in_cluster = self.get_storage_endpoint_url_in_cluster()
+            if storage_endpoint_url_in_cluster is not None:
                 command.extend(
-                    ["--storage-endpoint-url", self.storage_endpoint_url_in_cluster]
+                    ["--storage-endpoint-url", storage_endpoint_url_in_cluster]
                 )
-            elif self.storage_endpoint_url:
-                command.extend(["--storage-endpoint-url", self.storage_endpoint_url])
 
             # prepare function
             if function_spec == "qualified_function_name":
@@ -809,7 +813,8 @@ class Kubernetes(Host):
         storage_keys_used = []
 
         try:
-            if self.storage_bucket is None or self.storage_endpoint_url is None:
+            storage_endpoint_url = self.get_storage_endpoint_url_in_cluster()
+            if self.storage_bucket is None or storage_endpoint_url is None:
                 raise ValueError(
                     "Cannot use an environment_spec without providing a storage_bucket."
                     " Please either provide a pre-built container image for the "
@@ -832,13 +837,9 @@ class Kubernetes(Host):
                 self.storage_bucket,
                 "--job-id",
                 job.job_id,
+                "--storage-endpoint-url",
+                storage_endpoint_url,
             ]
-            if self.storage_endpoint_url_in_cluster:
-                command.extend(
-                    ["--storage-endpoint-url", self.storage_endpoint_url_in_cluster]
-                )
-            else:
-                command.extend(["--storage-endpoint-url", self.storage_endpoint_url])
 
             python_version = _python_version_from_environment_spec(job)
             # TODO use meadowrun-cuda if we need cuda
@@ -1002,7 +1003,7 @@ class Kubernetes(Host):
                 )
 
                 num_tasks_done = 0
-                async for result in driver.get_results(args, max_num_task_attempts):
+                async for result in driver.get_results(args):
                     yield result
                     num_tasks_done += 1
 
@@ -1111,6 +1112,38 @@ class KubernetesGridJobDriver:
     async def _retry_task(self, task_id: int, attempts_so_far: int) -> None:
         raise NotImplementedError("Retries are not implemented for Kubernetes")
 
+    def _worker_function_job(
+        self,
+        function: Callable[[_T], _U],
+        num_args: int,
+        job_fields: Dict[str, Any],
+        pickle_protocol: int,
+    ) -> Job:
+
+        indexed_map_worker_args = (
+            num_args,
+            self._num_concurrent_tasks,
+            function,
+            self._kubernetes.storage_bucket,
+            self._job_id,
+            self._kubernetes.get_storage_endpoint_url_in_cluster(),
+            pickle.HIGHEST_PROTOCOL,
+        )
+
+        return Job(
+            job_id=self._job_id,
+            py_function=PyFunctionJob(
+                qualified_function_name=QualifiedFunctionName(
+                    module_name=__name__,
+                    function_name=_indexed_map_worker.__name__,
+                ),
+                pickled_function_arguments=cloudpickle.dumps(
+                    (indexed_map_worker_args, None), protocol=pickle_protocol
+                ),
+            ),
+            **job_fields,
+        )
+
     async def run_worker_functions(
         self,
         function: Callable[[_T], _U],
@@ -1120,34 +1153,13 @@ class KubernetesGridJobDriver:
         pickle_protocol: int,
         wait_for_result: WaitOption,
     ) -> None:
-
-        indexed_map_worker_args = (
-            num_args,
-            self._num_concurrent_tasks,
-            function,
-            self._kubernetes.storage_bucket,
-            self._job_id,
-            self._kubernetes.storage_endpoint_url_in_cluster,
-            pickle.HIGHEST_PROTOCOL,
-        )
-
         try:
             # we don't care about the worker completions--if they had an error, an
             # Exception will be raised, and the workers just return None
             await self._kubernetes._run_job_helper(
                 self._storage_client,
-                Job(
-                    job_id=self._job_id,
-                    py_function=PyFunctionJob(
-                        qualified_function_name=QualifiedFunctionName(
-                            module_name=__name__,
-                            function_name=_indexed_map_worker.__name__,
-                        ),
-                        pickled_function_arguments=cloudpickle.dumps(
-                            (indexed_map_worker_args, None), protocol=pickle_protocol
-                        ),
-                    ),
-                    **job_fields,
+                self._worker_function_job(
+                    function, num_args, job_fields, pickle_protocol
                 ),
                 resources_required_per_task,
                 self._num_concurrent_tasks,
@@ -1168,27 +1180,18 @@ class KubernetesGridJobDriver:
         # TODO implement wait_for_result options
 
         try:
-            indexed_map_worker_args = (
-                num_args,
-                self._num_concurrent_tasks,
-                function,
-                self._kubernetes.storage_bucket,
-                self._job_id,
-                self._kubernetes.storage_endpoint_url_in_cluster,
-                pickle.HIGHEST_PROTOCOL,
-            )
+            if (
+                self._kubernetes.storage_bucket is None
+                or self._kubernetes.storage_endpoint_url is None
+            ):
+                raise ValueError(
+                    "Cannot use an environment_spec without providing a storage_bucket."
+                    " Please either provide a pre-built container image for the "
+                    "interpreter or provide a storage_bucket"
+                )
 
-            job = Job(
-                job_id=self._job_id,
-                py_function=PyFunctionJob(
-                    qualified_function_name=QualifiedFunctionName(
-                        module_name=__name__, function_name=_indexed_map_worker.__name__
-                    ),
-                    pickled_function_arguments=cloudpickle.dumps(
-                        (indexed_map_worker_args, None), protocol=pickle_protocol
-                    ),
-                ),
-                **job_fields,
+            job = self._worker_function_job(
+                function, num_args, job_fields, pickle_protocol
             )
 
             interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
@@ -1205,27 +1208,14 @@ class KubernetesGridJobDriver:
                     "reusable pods is not yet supported"
                 )
 
-            if (
-                self._kubernetes.storage_bucket is None
-                or self._kubernetes.storage_endpoint_url is None
-            ):
-                raise ValueError(
-                    "Cannot use an environment_spec without providing a storage_bucket."
-                    " Please either provide a pre-built container image for the "
-                    "interpreter or provide a storage_bucket"
-                )
-
             await self._storage_client.put_object(
                 Bucket=self._kubernetes.storage_bucket,
                 Key=storage_key_job_to_run(self._job_id),
                 Body=job.SerializeToString(),
             )
 
-            if self._kubernetes.storage_endpoint_url_in_cluster:
-                storage_endpoint = self._kubernetes.storage_endpoint_url_in_cluster
-            elif self._kubernetes.storage_endpoint_url:
-                storage_endpoint = self._kubernetes.storage_endpoint_url
-            else:
+            storage_endpoint = self._kubernetes.get_storage_endpoint_url_in_cluster()
+            if storage_endpoint is None:
                 raise ValueError("Storage endpoint must be specified")
             # TODO it's possible that a job will run more than once on the same
             # container, although not in parallel
@@ -1316,17 +1306,11 @@ class KubernetesGridJobDriver:
             except BaseException:
                 pass
 
-    async def get_results(
-        self,
-        args: Sequence[_T],
-        max_num_task_attempts: int,
-    ) -> AsyncIterable[TaskResult]:
+    async def get_results(self, args: Sequence[_T]) -> AsyncIterable[TaskResult]:
         """Yields TaskResult objects as soon as tasks complete."""
 
-        # copied with very few modifications from
-        # GridJobDriver.add_tasks_and_get_results
+        # semi-copy/paste from GridJobDriver.add_tasks_and_get_results
 
-        # done = successful or exhausted retries
         num_tasks_done = 0
         # stop_receiving tells _cloud_interface.receive_task_results that there are no
         # more results to get
@@ -1346,14 +1330,8 @@ class KubernetesGridJobDriver:
                 if task_result.is_success:
                     num_tasks_done += 1
                     yield task_result
-                elif attempt < max_num_task_attempts:
-                    print(f"Task {task_id} failed at attempt {attempt}, retrying.")
-                    await self._retry_task(task_id, attempt)
                 else:
-                    print(
-                        f"Task {task_id} failed at attempt {attempt}, "
-                        f"max attempts is {max_num_task_attempts}, not retrying."
-                    )
+                    print(f"Task {task_id} failed")
                     num_tasks_done += 1
                     yield task_result
 
@@ -1374,11 +1352,6 @@ class KubernetesGridJobDriver:
             if num_workers_needed < self._workers_needed:
                 self._workers_needed = num_workers_needed
                 self._workers_needed_changed.set()
-
-        # We could be more finegrained about aborting launching workers. This is the
-        # easiest to implement, but ideally every time num_workers_needed changes we
-        # would consider cancelling launching new workers
-        self._abort_launching_new_workers.set()
 
         if num_tasks_done < len(args):
             # It would make sense for this to raise an exception, but it's more helpful

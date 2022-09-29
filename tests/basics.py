@@ -363,7 +363,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 repo_url=self.get_test_repo_url(),
                 branch="main",
                 path_to_source="example_package",
-                interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
+                interpreter=ContainerInterpreter("meadowrun/meadowrun_test_env"),
             ),
         )
         assert results == ("2.28.1", "1.5.0", "a, b"), results
@@ -528,7 +528,7 @@ class BasicsSuite(HostProvider, abc.ABC):
             self.get_host(),
             self.get_resources_required(),
             await Deployment.mirror_local(
-                interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
+                interpreter=ContainerInterpreter("meadowrun/meadowrun_test_env"),
                 additional_python_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],

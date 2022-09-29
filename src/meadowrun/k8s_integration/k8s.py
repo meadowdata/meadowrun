@@ -386,7 +386,7 @@ def _python_version_from_environment_spec(job: Job) -> str:
             f"interpreter_deployment_type {interpreter_deployment_type}"
         )
 
-    if python_version is None:
+    if not python_version:
         # conda environments and raw server_available_interpreter won't have a
         # python version
         return "3.10"
@@ -853,8 +853,6 @@ class Kubernetes(Host):
             python_version = _python_version_from_environment_spec(job)
             # TODO use meadowrun-cuda if we need cuda
             image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
-            # uncomment this for development
-            # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
 
             if indexed_completions:
                 worker_indexes: Iterable[str] = (
@@ -2043,8 +2041,6 @@ async def _get_meadowrun_resuable_pods(
 
     if remaining_pods_to_launch > 0:
         image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
-        # uncomment this for development
-        # image_name = f"meadowrun/meadowrun-dev:py{python_version}"
 
         environment: List[kubernetes_client.V1EnvVar] = []
 
@@ -2089,6 +2085,8 @@ async def _get_meadowrun_resuable_pods(
                                     initial_delay_seconds=15,
                                     period_seconds=15,
                                     timeout_seconds=5,
+                                    failure_threshold=1,
+                                    success_threshold=1,
                                 ),
                                 **additional_container_parameters,
                             )

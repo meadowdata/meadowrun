@@ -7,9 +7,9 @@ import functools
 import json
 import uuid
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Awaitable,
     Callable,
     Coroutine,
     Generic,
@@ -17,7 +17,6 @@ from typing import (
     List,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
     Type,
     TypeVar,
@@ -35,9 +34,9 @@ from meadowrun.azure_integration.grid_tasks_queue import (
     add_tasks,
     add_worker_shutdown_message,
     create_queues_for_job,
-    retry_task,
     get_results_unordered,
-    worker_function_async,
+    retry_task,
+    worker_function,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
@@ -80,11 +79,12 @@ from meadowrun.run_job_core import (
 )
 
 if TYPE_CHECKING:
-    import asyncssh
-    from typing_extensions import Literal
     from types import TracebackType
+
+    import asyncssh
     from meadowrun.meadowrun_pb2 import Job, ProcessState
-    from meadowrun.run_job_local import AgentTaskWorkerServer, Stats
+    from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
+    from typing_extensions import Literal
 
 
 _T = TypeVar("_T")
@@ -601,7 +601,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
     async def get_worker_function(
         self, queue_index: int
     ) -> Callable[
-        [str, str, AgentTaskWorkerServer, Callable[[], Awaitable[Stats]]],
+        [str, str, TaskWorkerServer, WorkerMonitor],
         Coroutine[Any, Any, None],
     ]:
         if self._request_result_queues is None:
@@ -616,7 +616,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         request_queue, result_queue = await self._request_result_queues
 
         return functools.partial(
-            worker_function_async,
+            worker_function,
             # user_function,
             request_queue,
             result_queue,

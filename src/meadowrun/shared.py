@@ -61,3 +61,12 @@ def remove_corrupted_environment(path: str) -> None:
 @contextlib.asynccontextmanager
 async def none_async_context() -> typing.AsyncIterator:
     yield None
+
+
+async def cancel_task(task: asyncio.Task) -> None:
+    """Cancel a task, wait for it, don't throw CancelledError."""
+    try:
+        task.cancel()
+        await task
+    except asyncio.CancelledError:
+        pass

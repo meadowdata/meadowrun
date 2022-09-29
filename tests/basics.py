@@ -704,6 +704,7 @@ class MapSuite(HostProvider, abc.ABC):
             self.get_host(),
             self.get_resources_required(),
             num_concurrent_tasks=self.get_num_concurrent_tasks(),
+            max_num_task_attempts=3,
         ):
             actual.append(result)
 
@@ -711,6 +712,7 @@ class MapSuite(HostProvider, abc.ABC):
         for result in actual:
             assert not result.is_success
             assert result.exception is None
+            assert result.attempt == 3
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio

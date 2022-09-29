@@ -52,7 +52,7 @@ from meadowrun.shared import unpickle_exception
 
 if TYPE_CHECKING:
     from meadowrun.credentials import UsernamePassword
-    from meadowrun.run_job_local import AgentTaskWorkerServer, Stats
+    from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types import TracebackType
 
 
@@ -875,7 +875,7 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
     async def get_worker_function(
         self, queue_index: int
     ) -> Callable[
-        [str, str, AgentTaskWorkerServer, Callable[[], Awaitable[Stats]]],
+        [str, str, TaskWorkerServer, WorkerMonitor],
         Coroutine[Any, Any, None],
     ]:
         """

@@ -12,8 +12,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Awaitable,
-    Callable,
     Iterable,
     List,
     Optional,
@@ -42,10 +40,10 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
     queue_send_message,
 )
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
+from meadowrun.run_job_local import WorkerMonitor, restart_worker
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import AgentTaskWorkerServer
-    from meadowrun.run_job_local import Stats
+    from meadowrun.run_job_core import TaskWorkerServer
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -200,14 +198,14 @@ async def _worker_iteration(
     result_queue: Queue,
     log_file_name: str,
     pid: int,
-    worker_server: AgentTaskWorkerServer,
+    worker_server: TaskWorkerServer,
+    worker_monitor: WorkerMonitor,
 ) -> bool:
     task = await _get_task(request_queue, result_queue)
     if not task:
         print("Meadowrun agent: Received shutdown message. Exiting.")
         return False
 
-    cont = True
     print(
         f"Meadowrun agent: About to execute task #{task.task_id}, attempt "
         f"#{task.attempt}"
@@ -244,25 +242,25 @@ async def _worker_iteration(
             log_file_name=log_file_name,
         )
 
-        cont = False
+        await restart_worker(worker_server, worker_monitor)
 
     await _complete_task(result_queue, task, process_state)
-    return cont
+    return True
 
 
-async def worker_function_async(
+async def worker_function(
     request_queue: Queue,
     result_queue: Queue,
     public_address: str,
     log_file_name: str,
-    worker_server: AgentTaskWorkerServer,
-    get_worker_stats: Callable[[], Awaitable[Stats]],
+    worker_server: TaskWorkerServer,
+    worker_monitor: WorkerMonitor,
 ) -> None:
     pid = os.getpid()
     log_file_name = f"{public_address}:{log_file_name}"
 
     while await _worker_iteration(
-        request_queue, result_queue, log_file_name, pid, worker_server
+        request_queue, result_queue, log_file_name, pid, worker_server, worker_monitor
     ):
         pass
 

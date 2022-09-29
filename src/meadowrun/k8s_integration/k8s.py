@@ -110,11 +110,7 @@ def _new_get_watch_argument_name(watch: kubernetes_watch.Watch, func: Callable) 
 kubernetes_watch.watch.Watch.get_watch_argument_name = _new_get_watch_argument_name
 
 
-def _indexed_map_worker(*args: Any, **kwargs: Any) -> None:
-    asyncio.run(_indexed_map_worker_async(*args, **kwargs))
-
-
-async def _indexed_map_worker_async(
+def _indexed_map_worker(
     total_num_tasks: int,
     num_workers: int,
     function: Callable[[_T], _U],
@@ -130,6 +126,9 @@ async def _indexed_map_worker_async(
     meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT and will just
     complete all of the tasks where task_index % num_workers == current worker index.
     """
+
+    # TODO add additional error handling a la asynico.run?
+    worker_event_loop = asyncio.new_event_loop()
 
     # WORKER_INDEX will be available in reusable pods. In non-reusable pods we have to
     # use JOB_COMPLETION_INDEX
@@ -149,9 +148,11 @@ async def _indexed_map_worker_async(
             raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
         storage_client_needs_exit = True
-        storage_client = await get_storage_client_from_args(
-            storage_endpoint_url, storage_username, storage_password
-        ).__aenter__()
+        storage_client = worker_event_loop.run_until_complete(
+            get_storage_client_from_args(
+                storage_endpoint_url, storage_username, storage_password
+            ).__aenter__()
+        )
         meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
         meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
     else:
@@ -164,15 +165,17 @@ async def _indexed_map_worker_async(
         )
 
         byte_ranges = pickle.loads(
-            await read_storage(
-                storage_client, storage_bucket, storage_key_ranges(job_id)
+            worker_event_loop.run_until_complete(
+                read_storage(storage_client, storage_bucket, storage_key_ranges(job_id))
             )
         )
 
         i = current_worker_index
         while i < total_num_tasks:
-            arg = await download_task_arg(
-                storage_client, storage_bucket, job_id, byte_ranges[i]
+            arg = worker_event_loop.run_until_complete(
+                download_task_arg(
+                    storage_client, storage_bucket, job_id, byte_ranges[i]
+                )
             )
 
             try:
@@ -199,15 +202,20 @@ async def _indexed_map_worker_async(
                 )
 
             # we don't support retries yet so we're always on attempt 1
-            await complete_task(
-                storage_client, storage_bucket, job_id, i, 1, process_state
+            worker_event_loop.run_until_complete(
+                complete_task(
+                    storage_client, storage_bucket, job_id, i, 1, process_state
+                )
             )
 
             i += num_workers
     finally:
         if storage_client_needs_exit:
             # TODO should pass in the exception if we have one
-            await storage_client.__aexit__(None, None, None)
+            worker_event_loop.run_until_complete(
+                storage_client.__aexit__(None, None, None)
+            )
+        worker_event_loop.close()
 
 
 async def _get_job_completion_from_state_result(

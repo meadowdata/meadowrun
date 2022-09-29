@@ -484,10 +484,14 @@ class MeadowrunException(Exception):
         elif address is not None:
             message.append(f"On host: {address}")
 
-        if process_state.state in (
-            ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
-            ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-            ProcessState.ProcessStateEnum.ERROR_GETTING_STATE,
+        if (
+            process_state.state
+            in (
+                ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
+                ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+                ProcessState.ProcessStateEnum.ERROR_GETTING_STATE,
+            )
+            and process_state.pickled_result
         ):
             remote_exception = unpickle_exception(process_state.pickled_result)
             message.append(remote_exception[2])

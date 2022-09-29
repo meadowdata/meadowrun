@@ -617,7 +617,6 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
 
         return functools.partial(
             worker_function,
-            # user_function,
             request_queue,
             result_queue,
         )

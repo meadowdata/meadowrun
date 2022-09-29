@@ -7,7 +7,6 @@ import datetime
 import os
 import pickle
 import time
-import traceback
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -113,7 +112,7 @@ async def retry_task(
         GridTask(
             task_id=task_id,
             attempt=attempt,
-            pickled_function_arguments=pickle.dumps(task),
+            pickled_function_arguments=pickle.dumps(((task,), {})),
         ).SerializeToString(),
     )
 
@@ -212,8 +211,10 @@ async def _worker_iteration(
     )
 
     try:
+        worker_monitor.start_stats()
         await worker_server.send_message(task.pickled_function_arguments)
         state, result = await worker_server.receive_message()
+        stats = await worker_monitor.stop_stats()
 
         process_state = ProcessState(
             state=ProcessState.ProcessStateEnum.SUCCEEDED
@@ -223,26 +224,27 @@ async def _worker_iteration(
             pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
             return_code=0,
             log_file_name=log_file_name,
+            max_memory_used_gb=stats.max_memory_used_gb,
         )
 
-        print(
-            f"Meadowrun agent: Completed task #{task.task_id}, attempt {task.attempt}, "
-            f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}"
-        )
     except Exception:
-        print(
-            f"Meadowrun agent: Unexpected task worker exit #{task.task_id}, attempt "
-            f"#{task.attempt}: {traceback.format_exc()}"
-        )
+        stats = await worker_monitor.stop_stats()
 
         process_state = ProcessState(
             state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
             pid=pid,
             return_code=0,
             log_file_name=log_file_name,
+            max_memory_used_gb=stats.max_memory_used_gb,
         )
 
         await restart_worker(worker_server, worker_monitor)
+
+    print(
+        f"Meadowrun agent: Completed task #{task.task_id}, attempt #{task.attempt}, "
+        f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}, max "
+        f"memory {process_state.max_memory_used_gb}GB "
+    )
 
     await _complete_task(result_queue, task, process_state)
     return True

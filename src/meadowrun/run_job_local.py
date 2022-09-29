@@ -578,9 +578,7 @@ class WorkerProcessMonitor(WorkerMonitor):
         returncode = await self.process.wait()
         if self._tail_task is not None:
             await self._tail_task
-        self._process = None
         self._tail_task = None
-        self._stats_task = None
         return returncode
 
     async def cleanup(self) -> None:
@@ -593,9 +591,7 @@ class WorkerProcessMonitor(WorkerMonitor):
                 await self._tail_task
             except asyncio.CancelledError:
                 pass
-        self._process = None
         self._tail_task = None
-        self._stats_task = None
 
     async def _tail_log(self) -> None:
         process = self.process
@@ -677,7 +673,6 @@ class WorkerContainerMonitor(WorkerMonitor):
         if self._tail_task is not None:
             await self._tail_task
         self.tail_task = None
-        self._container = None
         # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
         # can get the return code from the result
         return wait_result["StatusCode"]
@@ -837,8 +832,6 @@ async def _non_container_job_continuation(
     """
 
     try:
-        # get the worker pid now, before it exits
-        worker_pid = worker.pid
         if job_spec_type == "py_agent":
             await _run_agent(job_spec_transformed, job, worker)
             await worker.stop()
@@ -850,7 +843,7 @@ async def _non_container_job_continuation(
             io_folder,
             log_file_name,
             returncode,
-            worker_pid,
+            worker.pid,
             None,
         )
     except asyncio.CancelledError:
@@ -1031,7 +1024,6 @@ async def _container_job_continuation(
     docker_client just needs to be closed when the container process has completed.
     """
     try:
-
         if job_spec_type == "py_agent":
             await _run_agent(job_spec_transformed, job, worker)
             await worker.stop()

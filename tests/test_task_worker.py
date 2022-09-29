@@ -83,6 +83,7 @@ async def test_call_process(
         "example_package.example", "example_function"
     ) as (monitor, io_path):
         await _check_start(agent_server, monitor, io_path)
+        assert monitor.pid is not None
 
 
 async def _check_start(
@@ -107,6 +108,7 @@ async def test_restart_process(
     ) as (monitor, io_path):
 
         await _check_restart(agent_server, monitor, io_path)
+        assert monitor.pid is not None
 
 
 async def _check_restart(
@@ -138,6 +140,7 @@ async def test_call_container(
         io_path,
     ):
         await _check_start(agent_server, monitor, io_path)
+        assert monitor.container_id is not None
 
 
 @pytest.mark.asyncio
@@ -155,3 +158,4 @@ async def test_restart_container(
     ):
 
         await _check_restart(agent_server, monitor, io_path)
+        assert monitor.container_id is not None

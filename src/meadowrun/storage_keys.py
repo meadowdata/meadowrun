@@ -19,21 +19,6 @@ def storage_key_job_to_run(job_id: str) -> str:
     return f"inputs/{job_id}.job_to_run"
 
 
-def storage_key_function(job_id: str) -> str:
-    return f"inputs/{job_id}.function"
-
-
-def storage_key_function_args(job_id: str) -> str:
-    return f"inputs/{job_id}.function_args"
-
-
-def storage_key_code_zip_file(job_id: str) -> str:
-    # this is NOT the actual code, it is a serialized CodeZipFile protobuf that has the
-    # specs for the code. This is usually contained in the .job_to_run file, but in some
-    # cases that doesn't exist
-    return f"inputs/{job_id}.code_zip_file"
-
-
 def storage_prefix_outputs(job_id: str) -> str:
     return f"outputs/{job_id}/"
 
@@ -70,11 +55,3 @@ def storage_key_process_state(job_id: str, worker_index: str) -> str:
 
 def parse_storage_key_process_state(key: str, results_prefix: str) -> str:
     return key.replace(results_prefix, "").replace(STORAGE_KEY_PROCESS_STATE_SUFFIX, "")
-
-
-def storage_key_state(job_id: str, worker_index: str) -> str:
-    return f"{storage_prefix_outputs(job_id)}{worker_index}.state"
-
-
-def storage_key_result(job_id: str, worker_index: str) -> str:
-    return f"{storage_prefix_outputs(job_id)}{worker_index}.result"

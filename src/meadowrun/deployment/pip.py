@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import pkgutil
 import sys
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Optional
 
 import filelock
 
@@ -18,8 +17,10 @@ from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
 # image or a Meadowrun AMI
 
 
-async def _pip_freeze(python_interpreter: str) -> str:
-    """Effectively returns the output of <python_interpreter> -m pip freeze"""
+async def _pip_freeze(python_interpreter: str, *freeze_opts: str) -> str:
+    """Effectively returns the output of:
+    > <python_interpreter> -m pip freeze <freeze_opts>
+    """
 
     # `pip freeze` and `pip list --format=freeze` usually give identical results, but
     # not for "packages installed via Direct URLs":
@@ -33,9 +34,10 @@ async def _pip_freeze(python_interpreter: str) -> str:
     # installed via git URLs.
     env = os.environ.copy()
     env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    opts = ("-m", "pip", "freeze") + freeze_opts
     p = await asyncio.create_subprocess_exec(
         python_interpreter,
-        *("-m", "pip", "freeze"),
+        *opts,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
@@ -50,42 +52,19 @@ async def _pip_freeze(python_interpreter: str) -> str:
     return stdout.decode()
 
 
-async def pip_freeze_without_local_other_interpreter(python_interpreter: str) -> str:
+async def pip_freeze_exclude_editable(
+    python_interpreter: Optional[str] = None,
+) -> str:
     """
-    Returns the result of calling pip freeze on the specified python_interpreter, but
-    tries to exclude packages that won't be available on PyPI or otherwise won't be
-    available on a different machine because they're "editable installs". The local code
-    deployment should take care of the editable installs.
+    Returns the result of calling pip freeze on the specified python_interpreter, or the
+    current one if not specified. Excludes editable installs - the local code deployment
+    should take largely care of the editable installs, except for running setup.py or
+    equivalent.
     """
+    if python_interpreter is None:
+        python_interpreter = sys.executable
     # TODO we have not actually implemented the portable part of this yet
-    return await _pip_freeze(python_interpreter)
-
-
-async def pip_freeze_without_local_current_interpreter() -> str:
-    """
-    Returns the result of calling pip freeze on the current interpreter, but tries to
-    exclude packages that won't be available on PyPI or otherwise won't be available on
-    a different machine because they're "editable installs". The local code deployment
-    should take care of the editable installs.
-    """
-    packages_to_skip = set()
-    for package in pkgutil.iter_modules():
-        package_path = getattr(package.module_finder, "path", "")
-        if not package_path.startswith(sys.prefix) and not package_path.startswith(
-            sys.base_prefix
-        ):
-            packages_to_skip.add(package.name)
-
-    # now run pip freeze
-    raw_result = await _pip_freeze(sys.executable)
-
-    processed_result = []
-    for line in raw_result.splitlines():
-        package_name, sep, version = line.partition("==")
-        if sep != "==" or package_name not in packages_to_skip:
-            processed_result.append(line)
-
-    return "\n".join(processed_result)
+    return await _pip_freeze(python_interpreter, "--exclude-editable")
 
 
 _PIP_ENVIRONMENT_TIMEOUT = 10 * 60

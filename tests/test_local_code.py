@@ -4,7 +4,7 @@ import zipfile
 from typing import Sequence, Dict
 
 import pytest
-from meadowrun import local_code
+from meadowrun.deployment import local_code
 
 
 @pytest.mark.parametrize(

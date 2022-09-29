@@ -30,7 +30,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
 from meadowrun.azure_integration.acr import get_acr_helper
-from meadowrun.conda import get_cached_or_create_conda_environment
+from meadowrun.deployment.conda import get_cached_or_create_conda_environment
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.docker_controller import (
     _does_digest_exist_locally,
@@ -47,8 +47,10 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableContainer,
     ServerAvailableInterpreter,
 )
-from meadowrun.pip_integration import get_cached_or_create_pip_environment
-from meadowrun.poetry_integration import get_cached_or_create_poetry_environment
+from meadowrun.deployment.pip import get_cached_or_create_pip_environment
+from meadowrun.deployment.poetry import (
+    get_cached_or_create_poetry_environment,
+)
 from meadowrun.azure_integration.blob_storage import AzureBlobStorage
 from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.run_job_core import (

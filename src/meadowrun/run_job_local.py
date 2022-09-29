@@ -4,7 +4,7 @@ import abc
 import asyncio
 import asyncio.subprocess
 import dataclasses
-import functools
+from decimal import InvalidOperation
 import itertools
 import os
 import os.path
@@ -17,7 +17,6 @@ import traceback
 from typing import (
     Any,
     AsyncIterable,
-    Awaitable,
     Callable,
     Coroutine,
     Dict,
@@ -42,7 +41,8 @@ if TYPE_CHECKING:
     JobSpecType = Literal["py_command", "py_function", "py_agent"]
 
     from meadowrun._vendor import aiodocker
-    from meadowrun._vendor.aiodocker import containers as aiodocker_containers
+
+    from meadowrun._vendor.aiodocker.containers import DockerContainer
     from meadowrun.instance_selection import ResourcesInternal
 
 from meadowrun.config import (
@@ -87,7 +87,7 @@ from meadowrun.run_job_core import (
     TaskResult,
     WaitOption,
 )
-from meadowrun.shared import pickle_exception
+from meadowrun.shared import cancel_task, pickle_exception
 
 ProcessStateEnum = ProcessState.ProcessStateEnum
 
@@ -130,7 +130,7 @@ class _JobSpecTransformed:
     environment_variables: Dict[str, str] = dataclasses.field(
         default_factory=lambda: {}
     )
-    server: Optional[AgentTaskWorkerServer] = None
+    server: Optional[TaskWorkerServer] = None
 
 
 def _io_file_container_binds(
@@ -348,7 +348,9 @@ async def _prepare_py_agent(
         for io_file in io_files:
             open(os.path.join(io_folder, io_file), "w", encoding="utf-8").close()
 
-    server = await agent_start_serving("0.0.0.0" if is_container else "127.0.0.1")
+    server = await TaskWorkerServer.start_serving(
+        "0.0.0.0" if is_container else "127.0.0.1"
+    )
     command_line = [
         "python",
         worker_path,
@@ -377,9 +379,86 @@ async def _prepare_py_agent(
     )
 
 
-@dataclasses.dataclass
-class StatsAccumulator:
-    max_memory_used_gb: float = 0
+class TaskWorkerServer:
+    """This class opens a port in the agent process for the task worker to connect to.
+    It allows waiting for connections from task workers, and sending and receiving
+    messages.
+    """
+
+    def __init__(self) -> None:
+        self.server: Optional[asyncio.AbstractServer] = None
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
+        self.have_connection: asyncio.Event = asyncio.Event()
+        self.port: Optional[int] = None
+
+    @staticmethod
+    async def start_serving(
+        host: str,
+    ) -> TaskWorkerServer:
+        """Create a TaskWorkerServer, open a free port, and return the server."""
+        server = TaskWorkerServer()
+        await server._start_serving(host)
+        return server
+
+    async def _start_serving(
+        self,
+        host: str,
+    ) -> None:
+        server = await asyncio.start_server(self._handle_connection, host, 0)
+        (socket,) = server.sockets
+        self.port = socket.getsockname()[1]
+
+    async def _handle_connection(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        self.reader = reader
+        self.writer = writer
+        self.have_connection.set()
+
+    async def wait_for_task_worker_connection(
+        self, timeout: float = 30
+    ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """Wait until a task worker process connects, with an optional timeout."""
+        await asyncio.wait_for(self.have_connection.wait(), timeout=timeout)
+        assert self.reader is not None
+        assert self.writer is not None
+        return self.reader, self.writer
+
+    async def send_message(self, bs: bytes) -> None:
+        """Send the given bytes as a message to the task worker. If no task worker is
+        connected yet, waits for a connection."""
+        if not self.have_connection.is_set():
+            await self.wait_for_task_worker_connection()
+        assert self.writer is not None
+        msg_len = struct.pack(">i", len(bs))
+        self.writer.write(msg_len)
+        self.writer.write(bs)
+        await self.writer.drain()
+
+    async def receive_message(self) -> Any:
+        """Receives a message from the task worker. If no task worker is
+        connected yet, waits for a connection. The message is unpickled."""
+        if not self.have_connection.is_set():
+            await self.wait_for_task_worker_connection()
+        assert self.reader is not None
+        (result_len,) = struct.unpack(">i", await self.reader.read(4))
+        result_bs = await self.reader.read(result_len)
+        return pickle.loads(result_bs)
+
+    async def close_task_worker_connection(self) -> None:
+        """Cleanly close the connection to the task worker."""
+        if self.writer is not None:
+            self.writer.close()
+            await self.writer.wait_closed()
+            self.have_connection.clear()
+
+    async def close(self) -> None:
+        """Cleanly close the connection to the task worker, and stop serving."""
+        await self.close_task_worker_connection()
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -388,67 +467,157 @@ class Stats:
     memory_in_use_gb: float
 
 
+@dataclasses.dataclass
+class StatsAccumulator:
+    max_memory_used_gb: float = 0
+
+    def accumulate(self, stats: Stats) -> None:
+        if stats.memory_in_use_gb > self.max_memory_used_gb:
+            self.max_memory_used_gb = stats.memory_in_use_gb
+
+    def snapshot(self) -> Stats:
+        return Stats(memory_in_use_gb=self.max_memory_used_gb)
+
+
 class WorkerMonitor(abc.ABC):
-    """Monitors a func or task worker, and can restart it if needed."""
+    """Monitors a task worker."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._stats_accumulator = StatsAccumulator()
+        self._stats_task: Optional[asyncio.Task[None]] = None
+
+    @abc.abstractmethod
+    async def wait_until_exited(self) -> int:
+        ...
 
     @abc.abstractmethod
     async def restart(self) -> None:
+        """Restart the task worker."""
         ...
+
+    @abc.abstractmethod
+    async def get_stats(self) -> Stats:
+        """Get some stats (memory, cpu...) about the task worker."""
+        ...
+
+    async def _start_stats(self) -> None:
+        """Subclasses should start this as a task to accumulate statistics,
+        and cancel the task when done."""
+        self._stats_accumulator = StatsAccumulator()
+        while True:
+            try:
+                stats = await self.get_stats()
+                self._stats_accumulator.accumulate(stats)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                print("Error updating stats:\n" + traceback.format_exc())
+
+            await asyncio.sleep(1)
+
+    def start_stats(self) -> None:
+        self._stats_task = asyncio.create_task(self._start_stats())
+
+    async def stop_stats(self) -> StatsAccumulator:
+        if self._stats_task is not None:
+            await cancel_task(self._stats_task)
+        return self._stats_accumulator
 
 
 class WorkerProcessMonitor(WorkerMonitor):
+    """Monitors a task worker that runs as a process."""
+
     def __init__(
         self,
         command_line: Iterable[str],
         working_directory: Optional[str],
         env_vars: Dict[str, str],
     ):
+        super().__init__()
         self.command_line = tuple(command_line)
         self.working_directory = working_directory
         self.env_vars = env_vars
+        self._process: Optional[asyncio.subprocess.Process] = None
+        self._tail_task: Optional[asyncio.Task[None]] = None
+
+    @property
+    def process(self) -> asyncio.subprocess.Process:
+        if self._process is None:
+            raise InvalidOperation(
+                "Worker process not started. Call start_and_tail first."
+            )
+        return self._process
 
     @property
     def pid(self) -> int:
         return self.process.pid
 
-    # TODO  - maybe start_and_tail_stdout
     async def start_and_tail(self) -> None:
-        self.process = await asyncio.subprocess.create_subprocess_exec(
+        self._process = await asyncio.subprocess.create_subprocess_exec(
             *self.command_line,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=self.working_directory,
             env=self.env_vars,
         )
-        self.tail_task = asyncio.create_task(self._tail_log())
+        self._tail_task = asyncio.create_task(self._tail_log())
 
-    def stop(self) -> None:
-        """Safe way to terminate and kill a process."""
+    async def stop(self) -> None:
+        """Safely stop the process."""
+        await self.stop_stats()
         try:
-            self.process.terminate()
-            self.process.kill()
+            if self._process is not None:
+                self._process.terminate()
+                self._process.kill()
         except ProcessLookupError:
             # if it's already gone, we're done here
             pass
 
-    async def wait(self) -> int:
+    async def wait_until_exited(self) -> int:
         returncode = await self.process.wait()
-        await self.tail_task
+        if self._tail_task is not None:
+            await self._tail_task
+        self._process = None
+        self._tail_task = None
+        self._stats_task = None
         return returncode
 
+    async def cleanup(self) -> None:
+        if self._process is not None:
+            await self.stop()
+            await self.wait_until_exited()
+        if self._tail_task is not None:
+            self._tail_task.cancel()
+            try:
+                await self._tail_task
+            except asyncio.CancelledError:
+                pass
+        self._process = None
+        self._tail_task = None
+        self._stats_task = None
+
     async def _tail_log(self) -> None:
-        assert self.process.stdout is not None
-        async for line in self.process.stdout:
-            print(line)
+        process = self.process
+        assert process.stdout is not None
+        async for line in process.stdout:
+            print(line.decode(), end="")
 
     async def restart(self) -> None:
-        # TODO probably more stuff to make it safe
-        self.stop()
-        await self.wait()
+        await self.stop()
+        await self.wait_until_exited()
         await self.start_and_tail()
+
+    async def get_stats(self) -> Stats:
+        # TODO cache the psutil process
+        process = psutil.Process(self.process.pid)
+        # RSS is in bytes: https://man7.org/linux/man-pages/man1/ps.1.html
+        return Stats(process.memory_info().rss / (1024**3))
 
 
 class WorkerContainerMonitor(WorkerMonitor):
+    """Monitors a task worker that runs as a container."""
+
     def __init__(
         self,
         client: Optional[aiodocker.Docker],
@@ -470,13 +639,23 @@ class WorkerContainerMonitor(WorkerMonitor):
         self.ports = list(ports)
         self.extra_hosts = extra_hosts
         self.uses_gpus = uses_gpus
+        self._container: Optional[DockerContainer] = None
+        self._tail_task: Optional[asyncio.Task[None]] = None
+
+    @property
+    def container(self) -> DockerContainer:
+        if self._container is None:
+            raise InvalidOperation(
+                "Container not started yet. Call start_and_tail first."
+            )
+        return self._container
 
     @property
     def container_id(self) -> str:
         return self.container.id
 
     async def start_and_tail(self) -> None:
-        self.container, self.docker_client = await run_container(
+        self._container, self.docker_client = await run_container(
             self.docker_client,
             self.image,
             self.command_line,
@@ -487,14 +666,18 @@ class WorkerContainerMonitor(WorkerMonitor):
             self.extra_hosts,
             self.uses_gpus,
         )
-        self.tail_task = asyncio.create_task(self._tail_log())
+        self._tail_task = asyncio.create_task(self._tail_log())
 
     async def stop(self) -> None:
-        await self.container.stop()
+        if self._container is not None:
+            await self.container.stop()
 
-    async def wait(self) -> int:
+    async def wait_until_exited(self) -> int:
         wait_result = await self.container.wait()
-        await self.tail_task
+        if self._tail_task is not None:
+            await self._tail_task
+        self.tail_task = None
+        self._container = None
         # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
         # can get the return code from the result
         return wait_result["StatusCode"]
@@ -509,10 +692,32 @@ class WorkerContainerMonitor(WorkerMonitor):
             print(f"Task worker: {line}", end="")
 
     async def restart(self) -> None:
-        # TODO catch some exceptions
         await self.stop()
-        await self.wait()
+        await self.wait_until_exited()
         await self.start_and_tail()
+
+    async def get_stats(self) -> Stats:
+        stats = await self.container.stats(stream=False)
+        if not stats:
+            return Stats(0)
+        # according to
+        # https://docs.docker.com/engine/api/v1.41/#tag/Container/operation/ContainerStats
+        # "memory used" in the docker CLI corresponds to this formula:
+        return Stats(
+            (
+                stats[0]["memory_stats"]["usage"]
+                - stats[0]["memory_stats"]["stats"]["cache"]
+            )
+            / (1024**3)
+        )
+
+
+async def restart_worker(
+    server: TaskWorkerServer, worker_monitor: WorkerMonitor
+) -> None:
+    await server.close_task_worker_connection()
+    await worker_monitor.restart()
+    await server.wait_for_task_worker_connection()
 
 
 async def _launch_non_container_job(
@@ -617,12 +822,6 @@ async def _launch_non_container_job(
     )
 
 
-async def _get_non_container_stats(pid: int) -> Stats:
-    process = psutil.Process(pid)
-    # RSS is in bytes: https://man7.org/linux/man-pages/man1/ps.1.html
-    return Stats(process.memory_info().rss / (1024**3))
-
-
 async def _non_container_job_continuation(
     worker: WorkerProcessMonitor,
     job_spec_type: JobSpecType,
@@ -638,23 +837,20 @@ async def _non_container_job_continuation(
     """
 
     try:
-
+        # get the worker pid now, before it exits
+        worker_pid = worker.pid
         if job_spec_type == "py_agent":
-            await _run_agent(
-                job_spec_transformed,
-                job,
-                functools.partial(_get_non_container_stats, worker.pid),
-            )
-            worker.stop()
+            await _run_agent(job_spec_transformed, job, worker)
+            await worker.stop()
 
-        returncode = await worker.wait()
+        returncode = await worker.wait_until_exited()
         return _completed_job_state(
             job_spec_type,
             job.job_id,
             io_folder,
             log_file_name,
             returncode,
-            worker.pid,
+            worker_pid,
             None,
         )
     except asyncio.CancelledError:
@@ -818,21 +1014,6 @@ async def _launch_container_job(
     )
 
 
-async def _get_container_stats(
-    container: aiodocker_containers.DockerContainer,
-) -> Stats:
-    stats = await container.stats(stream=False)
-    if not stats:
-        return Stats(0)
-    # according to
-    # https://docs.docker.com/engine/api/v1.41/#tag/Container/operation/ContainerStats
-    # "memory used" in the docker CLI corresponds to this formula:
-    return Stats(
-        (stats[0]["memory_stats"]["usage"] - stats[0]["memory_stats"]["stats"]["cache"])
-        / (1024**3)
-    )
-
-
 async def _container_job_continuation(
     worker: WorkerContainerMonitor,
     job_spec_type: JobSpecType,
@@ -840,7 +1021,7 @@ async def _container_job_continuation(
     job: Job,
     io_folder: str,
     log_file_name: str,
-    sidecar_containers: List[aiodocker_containers.DockerContainer],
+    sidecar_containers: List[DockerContainer],
 ) -> ProcessState:
     """
     Writes the container's logs to log_file_name, waits for the container to finish, and
@@ -852,14 +1033,10 @@ async def _container_job_continuation(
     try:
 
         if job_spec_type == "py_agent":
-            await _run_agent(
-                job_spec_transformed,
-                job,
-                functools.partial(_get_container_stats, worker.container),
-            )
+            await _run_agent(job_spec_transformed, job, worker)
             await worker.stop()
 
-        return_code = await worker.wait()
+        return_code = await worker.wait_until_exited()
 
         return _completed_job_state(
             job_spec_type,
@@ -894,9 +1071,7 @@ async def _container_job_continuation(
 
 
 async def _run_agent(
-    job_spec_transformed: _JobSpecTransformed,
-    job: Job,
-    get_worker_stats: Callable[[], Awaitable[Stats]],
+    job_spec_transformed: _JobSpecTransformed, job: Job, worker: WorkerMonitor
 ) -> None:
     # run the agent function. The agent function connects to another
     # process, the task worker, which runs the actual user function.
@@ -908,7 +1083,7 @@ async def _run_agent(
     await agent_func(
         *agent_func_args,
         worker_server=job_spec_transformed.server,
-        get_worker_stats=get_worker_stats,
+        worker_monitor=worker,
         **agent_func_kwargs,
     )
     await job_spec_transformed.server.close()
@@ -1146,72 +1321,6 @@ async def _get_credentials_for_job(
         interpreter_deployment_credentials,
         sidecar_container_credentials,
     )
-
-
-class AgentTaskWorkerServer:
-    def __init__(self) -> None:
-        self.server: Optional[asyncio.AbstractServer] = None
-        self.reader: Optional[asyncio.StreamReader] = None
-        self.writer: Optional[asyncio.StreamWriter] = None
-        self.have_connection: asyncio.Event = asyncio.Event()
-        self.port: Optional[int] = None
-
-    async def start_serving(
-        self,
-        host: str,
-    ) -> None:
-        server = await asyncio.start_server(self._handle_connection, host, 0)
-        (socket,) = server.sockets
-        self.port = socket.getsockname()[1]
-
-    async def _handle_connection(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        self.reader = reader
-        self.writer = writer
-        self.have_connection.set()
-
-    async def wait_for_task_worker_connection(
-        self, timeout: float = 30
-    ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        await asyncio.wait_for(self.have_connection.wait(), timeout=timeout)
-        assert self.reader is not None
-        assert self.writer is not None
-        return self.reader, self.writer
-
-    async def send_message(self, bs: bytes) -> None:
-        if not self.have_connection.is_set():
-            await self.wait_for_task_worker_connection()
-        assert self.writer is not None
-        msg_len = struct.pack(">i", len(bs))
-        self.writer.write(msg_len)
-        self.writer.write(bs)
-        await self.writer.drain()
-
-    async def receive_message(self) -> Any:
-        if not self.have_connection.is_set():
-            await self.wait_for_task_worker_connection()
-        assert self.reader is not None
-        (result_len,) = struct.unpack(">i", await self.reader.read(4))
-        result_bs = await self.reader.read(result_len)
-        return pickle.loads(result_bs)
-
-    async def close(self) -> None:
-        if self.writer:
-            self.writer.close()
-            await self.writer.wait_closed()
-            self.have_connection.clear()
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-
-
-async def agent_start_serving(
-    host: str,
-) -> AgentTaskWorkerServer:
-    server = AgentTaskWorkerServer()
-    await server.start_serving(host)
-    return server
 
 
 async def run_local(
@@ -1555,20 +1664,3 @@ class LocalHost(Host):
 
     async def get_object_storage(self) -> ObjectStorage:
         return LocalObjectStorage()
-
-
-async def _accumulate_stats(
-    get_worker_stats: Callable[[], Awaitable[Stats]], accumulator: StatsAccumulator
-) -> None:
-    """Modifies accumulator in place!"""
-    while True:
-        try:
-            stats = await get_worker_stats()
-            if stats.memory_in_use_gb > accumulator.max_memory_used_gb:
-                accumulator.max_memory_used_gb = stats.memory_in_use_gb
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            print("Error updating stats:\n" + traceback.format_exc())
-
-        await asyncio.sleep(1)

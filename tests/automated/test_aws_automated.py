@@ -57,15 +57,14 @@ from meadowrun.instance_selection import (
     choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_local import TaskResult, Stats
+from meadowrun.run_job_local import TaskResult, Stats, WorkerProcessMonitor
 from meadowrun.s3_grid_job import complete_task, receive_results
 
 if TYPE_CHECKING:
-    from asyncio.subprocess import Process
     from pathlib import Path
 
     from meadowrun.run_job_core import Host, JobCompletion
-    from meadowrun.run_job_local import AgentTaskWorkerServer
+    from meadowrun.run_job_local import TaskWorkerServer
 
 
 # TODO don't always run tests in us-east-2
@@ -354,9 +353,9 @@ class TestGridSQSQueue:
     @pytest.mark.asyncio
     async def test_worker_loop_happy_path(
         self,
-        agent_server: AgentTaskWorkerServer,
-        task_worker_process: Callable[
-            [str, str], AsyncContextManager[Tuple[Process, Path]]
+        agent_server: TaskWorkerServer,
+        task_worker_process_monitor: Callable[
+            [str, str], AsyncContextManager[Tuple[WorkerProcessMonitor, Path]]
         ],
     ) -> None:
 
@@ -366,10 +365,12 @@ class TestGridSQSQueue:
             public_address = "foo"
             log_file_name = "worker_1.log"
 
-            async with task_worker_process("example_package.example", "tetration"):
+            async with task_worker_process_monitor(
+                "example_package.example", "tetration"
+            ) as (monitor, _):
                 worker_task = asyncio.create_task(
                     worker_function(
-                        public_address, log_file_name, agent_server, _get_dummy_stats
+                        public_address, log_file_name, agent_server, monitor
                     )
                 )
 
@@ -395,9 +396,9 @@ class TestGridSQSQueue:
     @pytest.mark.asyncio
     async def test_worker_loop_failures(
         self,
-        agent_server: AgentTaskWorkerServer,
-        task_worker_process: Callable[
-            [str, str], AsyncContextManager[Tuple[Process, Path]]
+        agent_server: TaskWorkerServer,
+        task_worker_process_monitor: Callable[
+            [str, str], AsyncContextManager[Tuple[WorkerProcessMonitor, Path]]
         ],
     ) -> None:
 
@@ -407,12 +408,12 @@ class TestGridSQSQueue:
             public_address = "foo"
             log_file_name = "worker_1.log"
 
-            async with task_worker_process(
+            async with task_worker_process_monitor(
                 "example_package.example", "example_function_raises"
-            ):
+            ) as (monitor, _):
                 worker_task = asyncio.create_task(
                     worker_function(
-                        public_address, log_file_name, agent_server, _get_dummy_stats
+                        public_address, log_file_name, agent_server, monitor
                     )
                 )
 
@@ -439,9 +440,9 @@ class TestGridSQSQueue:
     @pytest.mark.asyncio
     async def test_worker_loop_crash(
         self,
-        agent_server: AgentTaskWorkerServer,
-        task_worker_process: Callable[
-            [str, str], AsyncContextManager[Tuple[Process, Path]]
+        agent_server: TaskWorkerServer,
+        task_worker_process_monitor: Callable[
+            [str, str], AsyncContextManager[Tuple[WorkerProcessMonitor, Path]]
         ],
     ) -> None:
 
@@ -451,10 +452,12 @@ class TestGridSQSQueue:
             public_address = "foo"
             log_file_name = "worker_1.log"
 
-            async with task_worker_process("example_package.example", "crash"):
+            async with task_worker_process_monitor(
+                "example_package.example", "crash"
+            ) as (monitor, _):
                 worker_task = asyncio.create_task(
                     worker_function(
-                        public_address, log_file_name, agent_server, _get_dummy_stats
+                        public_address, log_file_name, agent_server, monitor
                     )
                 )
 
@@ -469,8 +472,9 @@ class TestGridSQSQueue:
                         )
                         assert not task_result.is_success
                         results.append(task_result.result)
-
-                        stop_receiving.set()
-                        workers_done.set()
+                        if len(results) == 4:
+                            stop_receiving.set()
+                            workers_done.set()
+                            await interface.shutdown_workers(1, 0)
                 await worker_task
                 await agent_server.close()

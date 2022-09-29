@@ -5,11 +5,16 @@ import pickle
 import sys
 from typing import TYPE_CHECKING, Any, AsyncContextManager, Callable, Tuple
 
+from meadowrun.run_job_local import restart_worker
+
 if TYPE_CHECKING:
-    from meadowrun.run_job_local import AgentTaskWorkerServer
+    from meadowrun.run_job_local import TaskWorkerServer
     from pathlib import Path
-    from meadowrun._vendor.aiodocker import Docker
-    from meadowrun._vendor.aiodocker.containers import DockerContainer
+    from meadowrun.run_job_local import (
+        WorkerContainerMonitor,
+        WorkerProcessMonitor,
+        WorkerMonitor,
+    )
 
 import pytest
 
@@ -41,7 +46,7 @@ async def _assert_agent_result(
         assert result == expected_result
 
 
-async def send_receive(agent_server: AgentTaskWorkerServer) -> None:
+async def send_receive(agent_server: TaskWorkerServer) -> None:
     messages = [
         (
             (("arg1", 12654), {"kw_arg1": 3.1415, "kw_arg2": "kw_arg2"}),
@@ -66,47 +71,87 @@ async def send_receive(agent_server: AgentTaskWorkerServer) -> None:
         if expected_result is not None:
             assert expected_result == result[1]
 
-    await agent_server.close()
-
 
 @pytest.mark.asyncio
 async def test_call_process(
-    agent_server: AgentTaskWorkerServer,
-    task_worker_process: Callable[[str, str], AsyncContextManager[Tuple]],
+    agent_server: TaskWorkerServer,
+    task_worker_process_monitor: Callable[
+        [str, str], AsyncContextManager[Tuple[WorkerProcessMonitor, Path]]
+    ],
 ) -> None:
-    async with task_worker_process(
+    async with task_worker_process_monitor(
         "example_package.example", "example_function"
-    ) as proc:
-        await send_receive(agent_server)
-        io_path = proc[1]
-        await _assert_agent_result(io_path, "SUCCEEDED", None)
+    ) as (monitor, io_path):
+        await _check_start(agent_server, monitor, io_path)
+
+
+async def _check_start(
+    agent_server: TaskWorkerServer, monitor: WorkerMonitor, io_path: Path
+) -> None:
+    await send_receive(agent_server)
+    await agent_server.close_task_worker_connection()
+    result = await monitor.wait_until_exited()
+    assert result == 0
+    await _assert_agent_result(io_path, "SUCCEEDED", None)
+
+
+@pytest.mark.asyncio
+async def test_restart_process(
+    agent_server: TaskWorkerServer,
+    task_worker_process_monitor: Callable[
+        [str, str], AsyncContextManager[Tuple[WorkerProcessMonitor, Path]]
+    ],
+) -> None:
+    async with task_worker_process_monitor(
+        "example_package.example", "example_function"
+    ) as (monitor, io_path):
+
+        await _check_restart(agent_server, monitor, io_path)
+
+
+async def _check_restart(
+    agent_server: TaskWorkerServer, monitor: WorkerMonitor, io_path: Path
+) -> None:
+    await send_receive(agent_server)
+
+    await restart_worker(agent_server, monitor)
+
+    await send_receive(agent_server)
+
+    await agent_server.close_task_worker_connection()
+    result = await monitor.wait_until_exited()
+    assert result == 0
+    await _assert_agent_result(io_path, "SUCCEEDED", None)
 
 
 @pytest.mark.asyncio
 async def test_call_container(
-    agent_server: AgentTaskWorkerServer,
-    task_worker_container: Callable[
-        [str, str], AsyncContextManager[Tuple[DockerContainer, Docker, Path]]
+    agent_server: TaskWorkerServer,
+    task_worker_container_monitor: Callable[
+        [str, str], AsyncContextManager[Tuple[WorkerContainerMonitor, Path]]
     ],
 ) -> None:
-    async with task_worker_container("example_package.example", "example_function") as (
-        container,
-        _,
+    async with task_worker_container_monitor(
+        "example_package.example", "example_function"
+    ) as (
+        monitor,
+        io_path,
+    ):
+        await _check_start(agent_server, monitor, io_path)
+
+
+@pytest.mark.asyncio
+async def test_restart_container(
+    agent_server: TaskWorkerServer,
+    task_worker_container_monitor: Callable[
+        [str, str], AsyncContextManager[Tuple[WorkerContainerMonitor, Path]]
+    ],
+) -> None:
+    async with task_worker_container_monitor(
+        "example_package.example", "example_function"
+    ) as (
+        monitor,
         io_path,
     ):
 
-        async def logger() -> None:
-            async for line in container.log(stdout=True, stderr=True, follow=True):
-                print(line, end="")
-
-        log_task = asyncio.create_task(logger())
-        await send_receive(agent_server)
-        await container.stop()
-        result = await container.wait()
-        assert result["StatusCode"] == 0
-        await _assert_agent_result(io_path, "SUCCEEDED", None)
-        log_task.cancel()
-        try:
-            await log_task
-        except asyncio.CancelledError:
-            pass
+        await _check_restart(agent_server, monitor, io_path)

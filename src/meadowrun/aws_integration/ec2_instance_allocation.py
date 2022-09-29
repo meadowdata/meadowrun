@@ -11,7 +11,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Awaitable,
     Callable,
     Coroutine,
     Dict,
@@ -85,10 +84,11 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from meadowrun.meadowrun_pb2 import Job, ProcessState
-    from meadowrun.run_job_local import AgentTaskWorkerServer, Stats
+    from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types_aiobotocore_s3 import S3Client
     from types_aiobotocore_sqs import SQSClient
     from typing_extensions import Literal
+
 
 # SEE ALSO ec2_alloc_stub.py
 
@@ -99,7 +99,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-07f0f36fa29c65aaa",
+        "us-east-2": "ami-0c808c80a53f826bb",
         "us-east-1": "ami-0ee6b624d61b9b641",
         "us-west-1": "ami-06f0dd65aff3c563b",
         "us-west-2": "ami-02d0917b63f6b9bae",
@@ -818,7 +818,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
     async def get_worker_function(
         self, queue_index: int
     ) -> Callable[
-        [str, str, AgentTaskWorkerServer, Callable[[], Awaitable[Stats]]],
+        [str, str, TaskWorkerServer, WorkerMonitor],
         Coroutine[Any, Any, None],
     ]:
         if len(self._request_queue_urls) < queue_index + 1:

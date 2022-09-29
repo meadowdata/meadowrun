@@ -24,7 +24,6 @@ from typing import (
     TypeVar,
 )
 
-import botocore.exceptions
 import cloudpickle
 import kubernetes_asyncio.client as kubernetes_client
 import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
@@ -33,7 +32,7 @@ import kubernetes_asyncio.stream as kubernetes_stream
 import kubernetes_asyncio.watch as kubernetes_watch
 
 import meadowrun.func_worker_storage_helper
-from meadowrun.config import GPU, LOGICAL_CPU, MEMORY_GB
+from meadowrun.config import GPU, LOGICAL_CPU, MEMORY_GB, MEADOWRUN_INTERPRETER
 from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.docker_controller import expand_ports
 from meadowrun.func_worker_storage_helper import (
@@ -54,6 +53,7 @@ from meadowrun.meadowrun_pb2 import (
     ProcessState,
     PyFunctionJob,
     QualifiedFunctionName,
+    ServerAvailableInterpreter,
 )
 from meadowrun.run_job_core import (
     Host,
@@ -70,14 +70,9 @@ from meadowrun.run_job_local import (
 )
 from meadowrun.shared import none_async_context
 from meadowrun.storage_keys import (
-    storage_key_code_zip_file,
-    storage_key_function,
-    storage_key_function_args,
     storage_key_job_to_run,
     storage_key_process_state,
     storage_key_ranges,
-    storage_key_result,
-    storage_key_state,
     storage_key_task_args,
 )
 from meadowrun.version import __version__
@@ -136,9 +131,9 @@ def _indexed_map_worker(
         os.environ.get("MEADOWRUN_WORKER_INDEX", os.environ["JOB_COMPLETION_INDEX"])
     )
     # if we're the main process launched in the container (via
-    # _run_job_helper_custom_container) then FUNC_WORKER_STORAGE_CLIENT will already be
+    # _run_direct_command) then FUNC_WORKER_STORAGE_CLIENT will already be
     # set by func_worker_storage. If we're a child process launched by
-    # run_job_local_storage_main (via _run_job_helper_generic_container) then we need to
+    # run_job_local_storage_main (via _run_job_per_pod) then we need to
     # use the arguments passed to this function to create the storage client in this
     # function.
     if meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT is None:
@@ -218,102 +213,6 @@ def _indexed_map_worker(
         worker_event_loop.close()
 
 
-async def _get_job_completion_from_state_result(
-    storage_client: Any,
-    storage_bucket: Optional[str],
-    job_id: str,
-    worker_index: str,
-    job_spec_type: str,
-    return_code: int,
-) -> JobCompletion[Any]:
-    """
-    Creates a JobCompletion object based on the return code, and .state and .result
-    files if they're available.
-
-    file_suffix is used by indexed completion jobs to distinguish between the
-    completions of different workers, this should be set to the job completion index.
-    """
-    if return_code != 0:
-        raise MeadowrunException(
-            ProcessState(
-                state=ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
-                return_code=return_code,
-            )
-        )
-
-    # TODO get the name of the pod that ran the job? It won't be super useful
-    # because we delete the pod right away
-    public_address = "kubernetes"
-
-    # if we don't have a storage client, there's no way to get results back, so
-    # we just return None
-    if storage_client is None:
-        return JobCompletion(
-            None,
-            ProcessState.ProcessStateEnum.SUCCEEDED,
-            "",
-            return_code,
-            public_address,
-        )
-
-    if storage_bucket is None:
-        raise ValueError(
-            "Cannot provide a storage_client and not provide a storage_bucket"
-        )
-
-    try:
-        state_bytes = await read_storage(
-            storage_client, storage_bucket, storage_key_state(job_id, worker_index)
-        )
-    except botocore.exceptions.ClientError as e:
-        # if we were expecting a state file but didn't get it we need to
-        # throw an exception
-        if (
-            getattr(e, "response", {}).get("Error", {}).get("Code", None) == "404"
-            and job_spec_type == "py_function"
-        ):
-            raise
-
-        # if we're okay with not getting a state file, just return that we
-        # succeeded, and we don't have a result
-        return JobCompletion(
-            None,
-            ProcessState.ProcessStateEnum.SUCCEEDED,
-            "",
-            return_code,
-            public_address,
-        )
-
-    state_string = state_bytes.decode("utf-8")
-    if state_string == "SUCCEEDED":
-        state = ProcessState.ProcessStateEnum.SUCCEEDED
-    elif state_string == "PYTHON_EXCEPTION":
-        state = ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
-    else:
-        raise ValueError(f"Unknown state string: {state_string}")
-
-    # if we got a state string, we should have a result file
-    result = pickle.loads(
-        await read_storage(
-            storage_client, storage_bucket, storage_key_result(job_id, worker_index)
-        )
-    )
-
-    if state == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION:
-        # TODO very weird that we're re-pickling result here. Also, we should
-        # raise all of the exceptions if there are more than 1, not just the
-        # first one we see
-        raise MeadowrunException(
-            ProcessState(
-                state=state,
-                pickled_result=pickle.dumps(result),
-                return_code=return_code,
-            )
-        )
-
-    return JobCompletion(result, state, "", return_code, public_address)
-
-
 async def _get_job_completion_from_process_state(
     storage_client: Any,
     storage_bucket: str,
@@ -382,7 +281,7 @@ def _python_version_from_environment_spec(job: Job) -> str:
     else:
         raise Exception(
             "Programming error in caller. Called "
-            "_run_job_helper_generic_container with "
+            "_run_job_per_pod with "
             f"interpreter_deployment_type {interpreter_deployment_type}"
         )
 
@@ -499,105 +398,6 @@ class Kubernetes(Host):
 
         return none_async_context()
 
-    async def _prepare_command(
-        self,
-        job: Job,
-        job_spec_type: str,
-        storage_client: Any,
-        storage_keys_used: List[str],
-    ) -> List[str]:
-        """storage_keys_used is modified in place!!"""
-        if job_spec_type == "py_command":
-            # TODO we should set all of the storage-related parameters in the
-            # environment variables so that the code in result_request can send back a
-            # result if our code is "meadowrun-aware" and we can set the context
-            # variables
-            if job.py_command.pickled_context_variables:
-                raise NotImplementedError(
-                    "Context variables aren't supported for run_command on Kubernetes "
-                    "yet. Please open an issue at "
-                    "https://github.com/meadowdata/meadowrun/issues describing your use"
-                    " case"
-                )
-            if not job.py_command.command_line:
-                raise ValueError("command_line must have at least one string")
-            return list(job.py_command.command_line)
-        elif job_spec_type == "py_function":
-            # a copy/paste-ish of run_job_local:_prepare_py_function
-            function = job.py_function
-            function_spec = function.WhichOneof("function_spec")
-
-            command = [
-                "python",
-                "-m",
-                "meadowrun.func_worker_storage",
-                "--result-highest-pickle-protocol",
-                str(job.result_highest_pickle_protocol),
-            ]
-            if self.storage_bucket:
-                command.extend(["--storage-bucket", self.storage_bucket])
-            command.extend(["--job-id", job.job_id])
-            storage_endpoint_url_in_cluster = self.get_storage_endpoint_url_in_cluster()
-            if storage_endpoint_url_in_cluster is not None:
-                command.extend(
-                    ["--storage-endpoint-url", storage_endpoint_url_in_cluster]
-                )
-
-            # prepare function
-            if function_spec == "qualified_function_name":
-                if self.storage_bucket is None:
-                    print(
-                        "Warning, storage_bucket was not provided for a function, "
-                        "result will always be None"
-                    )
-                command.extend(
-                    [
-                        "--module-name",
-                        function.qualified_function_name.module_name,
-                        "--function-name",
-                        function.qualified_function_name.function_name,
-                    ]
-                )
-            elif function_spec == "pickled_function":
-                if self.storage_bucket is None:
-                    raise ValueError(
-                        "Cannot use a pickled function without providing a "
-                        "storage_bucket. Please either specify the function to run with"
-                        " a string or provide a storage_bucket"
-                    )
-                if function.pickled_function is None:
-                    raise ValueError("pickled_function cannot be None")
-
-                function_key = storage_key_function(job.job_id)
-                storage_keys_used.append(function_key)
-                await storage_client.put_object(
-                    Bucket=self.storage_bucket,
-                    Key=function_key,
-                    Body=function.pickled_function,
-                )
-                command.append("--has-pickled-function")
-
-            # prepare arguments
-            if job.py_function.pickled_function_arguments:
-                if self.storage_bucket is None:
-                    raise ValueError(
-                        "Cannot use pickled function arguments without providing a "
-                        "storage_bucket. Please either specify the function to run with"
-                        " a string or provide a storage_bucket"
-                    )
-                arguments_key = storage_key_function_args(job.job_id)
-                storage_keys_used.append(arguments_key)
-                await storage_client.put_object(
-                    Bucket=self.storage_bucket,
-                    Key=arguments_key,
-                    Body=function.pickled_function_arguments,
-                )
-                command.append("--has-pickled-arguments")
-
-            return command
-        else:
-            raise ValueError(f"Unknown job_spec {job_spec_type}")
-
     async def run_job(
         self,
         resources_required: Optional[ResourcesInternal],
@@ -625,197 +425,114 @@ class Kubernetes(Host):
             )
         return job_completions[0]
 
-    async def _run_job_helper_custom_container(
+    async def _run_direct_command_if_possible(
         self,
-        storage_client: Any,
         job: Job,
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
-        interpreter_deployment_type: str,
+        image_name: str,
+        image_pull_secret_name: Optional[str],
         wait_for_result: WaitOption,
-    ) -> List[JobCompletion[Any]]:
-        # This function is for jobs where job.interpreter_deployment is a user-specified
-        # container (i.e. not something we need to build ourselves). For these kinds of
-        # jobs, this function is effectively functioning as "the agent", i.e.
-        # run_job_local_main. The container we launch will only have a single process.
-        # That means we send (via S3-compatible object store) e.g. the pickled function,
-        # or we might not need to send anything at all if we're just running a command
-        # or a function based on the name of the function. The result comes back as a
-        # pair of .state and .result files (the same way run_job_local_main.py interacts
-        # with its child process).
-        #
-        # Right now we only use this approach for when we have a user-specified
-        # container. We could theoretically use this approach with environment specs by
-        # building the container locally or with various techniques for building
-        # containers from inside of a container.
+    ) -> Optional[JobCompletion[None]]:
+        # The normal way to run something via Meadowrun on Kubernetes is to call
+        # run_local_storage_main in a pod, which will then start another process. For
+        # very simple command jobs, we take a simpler approach of running a command
+        # directly in a container rather than using run_local_storage_main. The main
+        # advantage of this approach is that it doesn't require that Meadowrun is
+        # installed in the container.
 
-        # keeps track of most of what we write to object storage so we can clean it up
-        # when we're done
-        storage_keys_used = []
+        if job.WhichOneof("job_spec") != "py_command":
+            return None  # this obviously only works with commands
+
+        if job.py_command.pickled_context_variables:
+            return None  # pickled_context_variables requires Meadowrun is installed
+
+        if indexed_completions is not None and indexed_completions != 1:
+            # we should never get a py_command with indexed_completions, but just in
+            # case
+            return None
+
+        if (
+            job.WhichOneof("code_deployment") != "server_available_folder"
+            or len(job.server_available_folder.code_paths) > 0
+        ):
+            # We don't support running a direct command with any sort of code
+            # deployment. We could support a little more by adding
+            # server_available_folder.code_paths to PATH and PYTHONPATH, but it's not
+            # completely trivial to do that without interfering with whatever
+            # environment variables have been set up in the container
+            return None
+
+        # run the job
+        if not job.py_command.command_line:
+            raise ValueError("command_line must have at least one string")
+        command = list(job.py_command.command_line)
+
+        environment_variables = {"PYTHONUNBUFFERED": "1"}
+        environment_variables.update(**_string_pairs_to_dict(job.environment_variables))
 
         try:
-            if interpreter_deployment_type == "container_at_digest":
-                image_repository_name = job.container_at_digest.repository
-                image_name = (
-                    f"{job.container_at_digest.repository}@"
-                    f"{job.container_at_digest.digest}"
-                )
-            elif interpreter_deployment_type == "container_at_tag":
-                image_repository_name = job.container_at_tag.repository
-                image_name = (
-                    f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"
-                )
-            elif interpreter_deployment_type == "server_available_container":
-                image_repository_name = None
-                image_name = f"{job.server_available_container.image_name}"
-            else:
-                raise Exception(
-                    "Programming error in caller. Called "
-                    "_run_job_helper_prebuilt_container with "
-                    f"interpreter_deployment_type {interpreter_deployment_type}"
-                )
-
-            # get any image pull secrets
-            # first, get all available credentials sources from the JobToRun
-            image_pull_secret_name = None
-            if image_repository_name is not None:
-                image_pull_secret = await _get_credentials_for_docker(
-                    image_repository_name, _get_credentials_sources(job), None
-                )
-                if image_pull_secret is not None:
-                    if not isinstance(image_pull_secret, KubernetesSecretRaw):
-                        raise NotImplementedError(
-                            "Using anything other than KubernetesSecret with a "
-                            "Kubernetes host has not been implemented, "
-                            f"{type(image_pull_secret)} was provided"
-                        )
-                    image_pull_secret_name = image_pull_secret.secret_name
-
-            # code deployment
-            command_suffixes = []
-            code_deployment_type = job.WhichOneof("code_deployment")
-            if code_deployment_type == "code_zip_file":
-                if self.storage_bucket is None:
-                    raise ValueError(
-                        "Cannot use mirror_local without providing a storage_bucket. "
-                        "Please either use a different Deployment or provide a "
-                        "storage_bucket"
-                    )
-                code_zip_file_key = storage_key_code_zip_file(job.job_id)
-                storage_keys_used.append(code_zip_file_key)
-                await storage_client.put_object(
-                    Bucket=self.storage_bucket,
-                    Key=code_zip_file_key,
-                    Body=job.code_zip_file.SerializeToString(),
-                )
-
-                command_suffixes.append("--has-code-zip-file")
-            elif (
-                code_deployment_type != "server_available_folder"
-                or len(job.server_available_folder.code_paths) > 0
-            ):
-                raise NotImplementedError(
-                    f"code_deployment_type {code_deployment_type} is not supported for"
-                    " prebuilt containers on Kubernetes"
-                )
-
-            # run the job
-
-            job_spec_type = job.WhichOneof("job_spec")
-            if job_spec_type is None:
-                raise ValueError("Unexpected: job_spec is None")
-
-            command = await self._prepare_command(
-                job, job_spec_type, storage_client, storage_keys_used
+            return_codes = await _run_kubernetes_job(
+                job.job_id,
+                self.kubernetes_namespace,
+                image_name,
+                command,
+                environment_variables,
+                self.storage_username_password_secret,
+                image_pull_secret_name,
+                1,
+                [int(p) for p in expand_ports(job.ports)],
+                resources_required,
+                wait_for_result,
             )
-            command.extend(command_suffixes)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            raise MeadowrunException(
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
+                )
+            ) from e
 
-            environment_variables = {"PYTHONUNBUFFERED": "1"}
-            environment_variables.update(
-                **_string_pairs_to_dict(job.environment_variables)
+        if len(return_codes) != 1:
+            raise ValueError(
+                "Programming error: requested 1 job but got back "
+                f"{len(return_codes)}"
             )
 
-            if indexed_completions:
-                worker_indexes: Iterable[str] = (
-                    str(i) for i in range(indexed_completions)
-                )
-            else:
-                worker_indexes = [""]
-            for worker_index in worker_indexes:
-                storage_keys_used.append(storage_key_state(job.job_id, worker_index))
-                storage_keys_used.append(storage_key_result(job.job_id, worker_index))
-
-            try:
-                return_codes = await _run_kubernetes_job(
-                    job.job_id,
-                    self.kubernetes_namespace,
-                    image_name,
-                    command,
-                    environment_variables,
-                    self.storage_username_password_secret,
-                    image_pull_secret_name,
-                    indexed_completions,
-                    [int(p) for p in expand_ports(job.ports)],
-                    resources_required,
-                    wait_for_result,
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                raise MeadowrunException(
-                    ProcessState(
-                        state=ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
-                    )
-                ) from e
-
-            return await asyncio.gather(
-                *(
-                    _get_job_completion_from_state_result(
-                        storage_client,
-                        self.storage_bucket,
-                        job.job_id,
-                        worker_index,
-                        job_spec_type,
-                        return_code,
-                    )
-                    for worker_index, return_code in zip(worker_indexes, return_codes)
+        if return_codes[0] != 0:
+            raise MeadowrunException(
+                ProcessState(
+                    state=ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
+                    return_code=return_codes[0],
                 )
             )
-        finally:
-            # TODO we should separately periodically clean up these files in case we
-            # aren't able to execute this finally block
-            if storage_client is not None:
-                await asyncio.gather(
-                    *(
-                        storage_client.delete_object(
-                            Bucket=self.storage_bucket, Key=storage_key
-                        )
-                        for storage_key in storage_keys_used
-                    ),
-                    return_exceptions=True,
-                )
 
-    async def _run_job_helper_generic_container(
+        # TODO get the name of the pod that ran the job? It won't be super useful
+        # because we delete the pod right away
+        return JobCompletion(
+            None,
+            ProcessState.ProcessStateEnum.SUCCEEDED,
+            "",
+            0,
+            "kubernetes",
+        )
+
+    async def _run_job_per_pod(
         self,
         storage_client: Any,
         job: Job,
+        image_name: str,
+        image_pull_secret_name: Optional[str],
         resources_required: Optional[ResourcesInternal],
         indexed_completions: Optional[int],
         wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
-        # This function is for jobs where job.interpreter_deployment is an "environment
-        # spec" of some sort that requires us to build an environment. For these kinds
-        # of jobs, this function will send over a Job object (via S3-compatible object
-        # store) and run_job_local_storage_main.py will read the Job object, create the
-        # environment in the container, and then run the specified job. The result comes
-        # back as a .process_state file.
-        #
-        # This will always run using a "generic container image" (i.e. the prebuilt
-        # Meadowrun image) because the user did not specify a custom container.
-        #
-        # This approach can only be used with an "environment spec", it cannot be used
-        # with a user-defined container as containers in Kubernetes can't launch other
-        # containers.
+        # This is the "normal" way to run jobs on Kubernetes using a pod-per-job model.
+        # We assume that the image specified by image_name has Meadowrun set up in it.
+        # We use the storage_client to send a Job object via S3-compatible object
+        # storage and run run_job_local_storage_main which will actually run our job.
+        # The results will also come back via the object storage.
 
         # keeps track of most of what we write to object storage so we can clean it up
         # when we're done
@@ -850,10 +567,6 @@ class Kubernetes(Host):
                 storage_endpoint_url,
             ]
 
-            python_version = _python_version_from_environment_spec(job)
-            # TODO use meadowrun-cuda if we need cuda
-            image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
-
             if indexed_completions:
                 worker_indexes: Iterable[str] = (
                     str(i) for i in range(indexed_completions)
@@ -873,7 +586,7 @@ class Kubernetes(Host):
                     command,
                     {"PYTHONUNBUFFERED": "1"},
                     self.storage_username_password_secret,
-                    None,
+                    image_pull_secret_name,
                     indexed_completions,
                     [int(p) for p in expand_ports(job.ports)],
                     resources_required,
@@ -924,38 +637,100 @@ class Kubernetes(Host):
         indexed_completions: Optional[int],
         wait_for_result: WaitOption,
     ) -> List[JobCompletion[Any]]:
-        # interpreter deployment
+        # First, some configuration logic that's shared between
+        # _run_direct_command_if_possible and _run_job_per_pod
+
+        # get the image_repository_name and image_name
         interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
-        if interpreter_deployment_type in (
-            "container_at_digest",
-            "container_at_tag",
-            "server_available_container",
-        ):
-            return await self._run_job_helper_custom_container(
-                storage_client,
+
+        if interpreter_deployment_type == "container_at_digest":
+            custom_container_image = True
+            image_repository_name = job.container_at_digest.repository
+            image_name = (
+                f"{job.container_at_digest.repository}@"
+                f"{job.container_at_digest.digest}"
+            )
+        elif interpreter_deployment_type == "container_at_tag":
+            custom_container_image = True
+            image_repository_name = job.container_at_tag.repository
+            image_name = f"{job.container_at_tag.repository}:{job.container_at_tag.tag}"
+        elif interpreter_deployment_type == "server_available_container":
+            custom_container_image = True
+            image_repository_name = None
+            image_name = f"{job.server_available_container.image_name}"
+        else:
+            custom_container_image = False
+            image_repository_name = None
+            # This else block implies that the user specified an environment spec rather
+            # than a container. Our approach is to default to a "generic container
+            # image" and build the environment inside of the container. We could imagine
+            # other approaches like building the container locally and uploading it to
+            # Kubernetes.
+
+            python_version = _python_version_from_environment_spec(job)
+            # TODO use meadowrun-cuda if we need cuda
+            image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
+
+        # next, get an image pull secrets if it's been provided
+        image_pull_secret_name = None
+        if image_repository_name is not None:
+            image_pull_secret = await _get_credentials_for_docker(
+                image_repository_name, _get_credentials_sources(job), None
+            )
+            if image_pull_secret is not None:
+                if not isinstance(image_pull_secret, KubernetesSecretRaw):
+                    raise NotImplementedError(
+                        "Using anything other than KubernetesSecret with a "
+                        "Kubernetes host has not been implemented, "
+                        f"{type(image_pull_secret)} was provided"
+                    )
+                image_pull_secret_name = image_pull_secret.secret_name
+
+        # now, if we have a custom container, try to run the job as a direct command. If
+        # we don't have a custom container we "can't" run a direct command. We
+        # theoretically could with a generic container if we asked for a preinstalled
+        # interpreter, but there doesn't seem to be any real point in doing that.
+        if custom_container_image:
+            result = await self._run_direct_command_if_possible(
                 job,
                 resources_required,
                 indexed_completions,
-                interpreter_deployment_type,
+                image_name,
+                image_pull_secret_name,
                 wait_for_result,
             )
-        elif interpreter_deployment_type in (
-            "environment_spec_in_code",
-            "environment_spec",
-            "server_available_interpreter",
-        ):
-            return await self._run_job_helper_generic_container(
-                storage_client,
-                job,
-                resources_required,
-                indexed_completions,
-                wait_for_result,
+            if result is not None:
+                return [result]
+
+            # if we have a custom container and we're going to run a job on it via
+            # run_job_local_storage_main, we need to tell run_job_local_storage_main to
+            # just use the container's interpreter (rather than trying to go fetch
+            # another container)
+
+            # it's a little paranoid to make a copy here, this could probably be
+            # optimized if we need to for performance
+            modified_job = Job()
+            modified_job.CopyFrom(job)
+            # MEADOWRUN_INTERPRETER in this case will refer to whatever interpreter is
+            # running Meadowrun which will be whatever interpreter is on the path in the
+            # custom container
+            modified_job.server_available_interpreter.CopyFrom(
+                ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER)
             )
         else:
-            raise NotImplementedError(
-                f"interpreter_deployment_type {interpreter_deployment_type} is not "
-                "implemented yet on Kubernetes"
-            )
+            modified_job = job
+
+        # if _run_direct_command_if_possible returns None, our job can't be run as a
+        # direct command, so we need to run via run_job_local_storage_main.py
+        return await self._run_job_per_pod(
+            storage_client,
+            modified_job,
+            image_name,
+            image_pull_secret_name,
+            resources_required,
+            indexed_completions,
+            wait_for_result,
+        )
 
     async def run_map_as_completed(
         self,

@@ -7,14 +7,14 @@ import pytest
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
-from meadowrun import conda
+from meadowrun.deployment import conda
 
 pytestmark = pytest.mark.skipif(
     "sys.version_info < (3, 8)",
     reason="patch() was only updated for patching async functions in python 3.8",
 )
 
-_CONDA_RUN_NAME = f"meadowrun.conda.{conda._run.__qualname__}"
+_CONDA_RUN_NAME = f"meadowrun.deployment.conda.{conda._run.__qualname__}"
 
 
 @pytest.mark.asyncio

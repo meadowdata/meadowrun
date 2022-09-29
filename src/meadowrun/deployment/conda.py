@@ -29,7 +29,6 @@ async def _run(args: List[str]) -> Tuple[str, str]:
     p = await asyncio.create_subprocess_exec(
         conda,
         *args,
-        # cwd=cwd,
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -42,7 +41,6 @@ async def _run(args: List[str]) -> Tuple[str, str]:
             + stderr.decode()
         )
 
-    # TODO lookup whether we should specify an encoding here?
     return stdout.decode(), stderr.decode()
 
 

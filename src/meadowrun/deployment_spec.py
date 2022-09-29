@@ -20,12 +20,12 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from meadowrun.local_code import zip_local_code
+from meadowrun.deployment.local_code import zip_local_code
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import (
     get_subscription_id_sync,
 )
-from meadowrun.conda import try_get_current_conda_env, env_export
+from meadowrun.deployment.conda import try_get_current_conda_env, env_export
 
 from meadowrun.credentials import CredentialsService, CredentialsSourceForService
 
@@ -54,10 +54,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFolder,
     ServerAvailableInterpreter,
 )
-from meadowrun.pip_integration import (
-    pip_freeze_without_local_current_interpreter,
-    pip_freeze_without_local_other_interpreter,
-)
+from meadowrun.deployment.pip import pip_freeze_exclude_editable
 
 
 class Secret(abc.ABC):
@@ -405,8 +402,7 @@ class LocalCurrentInterpreter(LocalInterpreter):
         # next, check if we're in a poetry environment. Unfortunately it doesn't seem
         # like there's a way to detect that we're in a poetry environment unless the
         # current working directory or a parent contains the pyproject.toml and
-        # poetry.lock files. If for some reason this isn't the case, we'll fall through
-        # to the pip-based case.
+        # poetry.lock files.
         cwd = pathlib.Path.cwd()
         candidates = [cwd]
         candidates.extend(cwd.parents)
@@ -435,11 +431,11 @@ class LocalCurrentInterpreter(LocalInterpreter):
                 ),
             )
 
-        # if not, assume this is a pip-based environment
+        # last resort, assume this is a pip-based environment
         print("Mirroring current pip environment")
         return EnvironmentSpec(
             environment_type=EnvironmentType.PIP,
-            spec=await pip_freeze_without_local_current_interpreter(),
+            spec=await pip_freeze_exclude_editable(),
             python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
             additional_software=_additional_software_to_dict(self.additional_software),
         )
@@ -499,9 +495,7 @@ class LocalPipInterpreter(LocalInterpreter):
         return EnvironmentSpec(
             environment_type=EnvironmentType.PIP,
             # TODO this won't work if the specified environment has editable installs
-            spec=await pip_freeze_without_local_other_interpreter(
-                self.path_to_interpreter
-            ),
+            spec=await pip_freeze_exclude_editable(self.path_to_interpreter),
             python_version=self.python_version,
             additional_software=_additional_software_to_dict(self.additional_software),
         )

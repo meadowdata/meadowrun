@@ -366,7 +366,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 interpreter=ContainerInterpreter("hrichardlee/meadowrun_test_env"),
             ),
         )
-        assert results == ("2.28.1", "1.4.3", "a, b"), results
+        assert results == ("2.28.1", "1.5.0", "a, b"), results
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
@@ -534,7 +534,7 @@ class BasicsSuite(HostProvider, abc.ABC):
                 ],
             ),
         )
-        assert results == ("2.28.1", "1.4.3", "a, b")
+        assert results == ("2.28.1", "1.5.0", "a, b"), results
 
     def _get_remote_function_for_deployment(self) -> Callable[[], Tuple[str, str, str]]:
         # we have a wrapper around this so that the function gets pickled as a lambda

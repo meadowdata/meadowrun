@@ -834,6 +834,13 @@ async def _non_container_job_continuation(
         if job_spec_type == "py_agent":
             await _run_agent(job_spec_transformed, job, worker)
             await worker.stop()
+            await worker.wait_until_exited()
+            return ProcessState(
+                state=ProcessStateEnum.SUCCEEDED,
+                pid=worker.pid or 0,
+                log_file_name=log_file_name,
+                return_code=0,
+            )
 
         returncode = await worker.wait_until_exited()
         return _completed_job_state(
@@ -1033,9 +1040,15 @@ async def _container_job_continuation(
         if job_spec_type == "py_agent":
             await _run_agent(job_spec_transformed, job, worker)
             await worker.stop()
+            await worker.wait_until_exited()
+            return ProcessState(
+                state=ProcessStateEnum.SUCCEEDED,
+                container_id=worker.container_id or "",
+                log_file_name=log_file_name,
+                return_code=0,
+            )
 
         return_code = await worker.wait_until_exited()
-
         return _completed_job_state(
             job_spec_type,
             job.job_id,

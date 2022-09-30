@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import io
 import pickle
+import time
 import typing
 
 from typing import (
@@ -28,12 +29,18 @@ import botocore.exceptions
 from meadowrun.aws_integration import s3
 
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import WorkerProcessState, TaskProcessState
+from meadowrun.run_job_core import (
+    JobCompletion,
+    MeadowrunException,
+    TaskProcessState,
+    WorkerProcessState,
+)
 from meadowrun.storage_keys import (
     STORAGE_KEY_PROCESS_STATE_SUFFIX,
     STORAGE_KEY_TASK_RESULT_SUFFIX,
     parse_storage_key_process_state,
     parse_storage_key_task_result,
+    storage_key_process_state,
     storage_key_task_args,
     storage_key_task_result,
     storage_prefix_outputs,
@@ -41,6 +48,7 @@ from meadowrun.storage_keys import (
 
 if TYPE_CHECKING:
     import types_aiobotocore_s3
+    from typing_extensions import Literal
 
 
 def get_storage_client_from_args(
@@ -292,3 +300,63 @@ async def receive_results(
                 yield task_results, worker_results
     finally:
         await asyncio.gather(*delete_tasks, return_exceptions=True)
+
+
+async def get_job_completion_from_process_state(
+    storage_client: Any,
+    storage_bucket: str,
+    job_id: str,
+    worker_index: str,
+    job_spec_type: Literal["py_command", "py_function", "py_agent"],
+    timeout_seconds: int,
+    public_address: str,
+) -> JobCompletion[Any]:
+    """
+    Polls for the specified .process_state file, and then creates a JobCompletion object
+    based on the process_state
+
+    file_suffix is used by indexed completion jobs to distinguish between the
+    completions of different workers, this should be set to the job completion index.
+    """
+
+    t0 = time.time()
+    process_state_bytes = None
+    process_state_key = storage_key_process_state(job_id, worker_index)
+    wait = 1
+    while time.time() - t0 < timeout_seconds:
+        try:
+            process_state_bytes = await read_storage(
+                storage_client,
+                storage_bucket,
+                process_state_key,
+            )
+            break
+        except botocore.exceptions.ClientError as error:
+            if error.response["Error"]["Code"] not in ("404", "NoSuchKey"):
+                raise
+
+        await asyncio.sleep(wait)
+        wait = max(wait + 1, 20)
+
+    if process_state_bytes is None:
+        raise TimeoutError(
+            f"Waited {timeout_seconds} seconds but {process_state_key} does not exist"
+        )
+
+    process_state = ProcessState.FromString(process_state_bytes)
+    if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
+        # we must have a result from functions, in other cases we can optionally have a
+        # result
+        if job_spec_type == "py_function" or process_state.pickled_result:
+            result = pickle.loads(process_state.pickled_result)
+        else:
+            result = None
+        return JobCompletion(
+            result,
+            process_state.state,
+            process_state.log_file_name,
+            process_state.return_code,
+            public_address,
+        )
+    else:
+        raise MeadowrunException(process_state)

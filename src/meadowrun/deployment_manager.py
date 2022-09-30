@@ -266,12 +266,12 @@ async def _get_git_code_paths(
 _ALL_OBJECT_STORAGES = {
     # see the note on get_url_scheme
     s.get_url_scheme(): s  # type: ignore
-    for s in [
+    for s in (
         AzureBlobStorage,
         FuncWorkerClientObjectStorage,
         LocalObjectStorage,
         S3ObjectStorage,
-    ]
+    )
 }
 
 

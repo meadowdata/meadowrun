@@ -329,9 +329,9 @@ async def run_command_on_pod(
     kubernetes_namespace: str,
     command: List[str],
     ws_core_api: kubernetes_client.CoreV1Api,
-) -> Tuple[str, str]:
-    """Returns pod_name, output of command"""
-    output = await ws_core_api.connect_post_namespaced_pod_exec(
+) -> str:
+    """Returns the output of running command"""
+    return await ws_core_api.connect_post_namespaced_pod_exec(
         name=pod_name,
         namespace=kubernetes_namespace,
         command=command,
@@ -340,7 +340,6 @@ async def run_command_on_pod(
         stdout=True,
         tty=False,
     )
-    return pod_name, output
 
 
 def get_main_container_is_ready(pod: kubernetes_client.V1Pod) -> bool:

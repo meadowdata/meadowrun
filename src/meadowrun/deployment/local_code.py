@@ -4,7 +4,7 @@ import os
 import sys
 import uuid
 import zipfile
-from os.path import realpath, join, splitext
+from os.path import join, realpath, splitext
 from typing import Iterable, List, Set, Tuple
 
 
@@ -12,7 +12,7 @@ def zip_local_code(
     result_zip_dir: str,
     include_sys_path: bool = True,
     additional_python_paths: Iterable[str] = tuple(),
-    python_paths_extensions: Iterable[str] = (".py", ".pyd"),
+    python_paths_extensions: Iterable[str] = (".py",),
     working_directory_globs: Iterable[str] = tuple(),
 ) -> Tuple[str, List[str], str]:
     """
@@ -26,7 +26,7 @@ def zip_local_code(
     specified by working_directory_globs which are always relative to the current
     working directory.
 
-    python paths will only include *.py and *.pyd files (or whatever is specified in
+    python paths will only include *.py files (or whatever is specified in
     python_paths_extensions).
 
     Args:

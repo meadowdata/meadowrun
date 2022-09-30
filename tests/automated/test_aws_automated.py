@@ -57,7 +57,8 @@ from meadowrun.instance_selection import (
     choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_local import TaskResult, Stats, WorkerProcessMonitor
+from meadowrun.run_job_local import Stats, WorkerProcessMonitor
+from meadowrun.run_job_core import TaskResult
 from meadowrun.s3_grid_job import complete_task, receive_results
 
 if TYPE_CHECKING:

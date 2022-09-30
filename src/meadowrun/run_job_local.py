@@ -81,7 +81,6 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     Host,
     JobCompletion,
-    LocalObjectStorage,
     MeadowrunException,
     ObjectStorage,
     TaskResult,
@@ -1664,4 +1663,4 @@ class LocalHost(Host):
         )
 
     async def get_object_storage(self) -> ObjectStorage:
-        return LocalObjectStorage()
+        raise NotImplementedError("LocalHost has no object storage")

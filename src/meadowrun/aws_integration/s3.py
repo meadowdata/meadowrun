@@ -19,7 +19,7 @@ from meadowrun.aws_integration.aws_core import (
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
-from meadowrun.run_job_core import S3CompatibleObjectStorage
+from meadowrun.run_job_core import ObjectStorage
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
@@ -226,7 +226,7 @@ def delete_bucket(region_name: str) -> None:
 
 
 @dataclasses.dataclass
-class S3ObjectStorage(S3CompatibleObjectStorage):
+class S3ObjectStorage(ObjectStorage):
     region_name: Optional[str] = None
 
     @classmethod

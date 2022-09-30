@@ -56,7 +56,6 @@ from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.run_job_core import (
     CloudProviderType,
     ContainerRegistryHelper,
-    LocalObjectStorage,
 )
 from meadowrun.s3_grid_job import (
     try_get_storage_file,
@@ -269,7 +268,6 @@ _ALL_OBJECT_STORAGES = {
     for s in (
         AzureBlobStorage,
         FuncWorkerClientObjectStorage,
-        LocalObjectStorage,
         S3ObjectStorage,
     )
 }

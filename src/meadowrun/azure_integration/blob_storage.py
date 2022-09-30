@@ -20,7 +20,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_RESOURCE_GROUP_NAME,
 )
-from meadowrun.run_job_core import S3CompatibleObjectStorage
+from meadowrun.run_job_core import ObjectStorage
 
 CONTAINER_NAME = "meadowrun"
 
@@ -113,7 +113,7 @@ async def download_file(container_name: str, object_name: str, file_name: str) -
         file.write(result)
 
 
-class AzureBlobStorage(S3CompatibleObjectStorage):
+class AzureBlobStorage(ObjectStorage):
     # TODO this should have a region_name property also
 
     @classmethod

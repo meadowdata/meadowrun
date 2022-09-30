@@ -163,74 +163,12 @@ class ObjectStorage(abc.ABC):
         """
         pass
 
-    @abc.abstractmethod
     async def upload_from_file_url(self, file_url: str) -> str:
         """
         file_url will be a file:// url to a file on the local machine. This function
         should upload that file to the object storage, delete the local file, and return
         the URL of the remote file.
         """
-        pass
-
-    @abc.abstractmethod
-    async def download_and_unzip(
-        self, remote_url: str, local_copies_folder: str
-    ) -> str:
-        """
-        remote_url will be the URL of a file in the object storage system as generated
-        by upload_from_file_url. This function should download the file and extract it
-        to local_copies_folder if it has not already been extracted.
-        """
-        pass
-
-
-class LocalObjectStorage(ObjectStorage):
-    """
-    This is a "pretend" version of ObjectStorage where we assume that we have the same
-    file system available on both the client and the server. Mostly for testing.
-    """
-
-    @classmethod
-    def get_url_scheme(cls) -> str:
-        return "file"
-
-    async def upload_from_file_url(self, file_url: str) -> str:
-        # TODO maybe assert that this starts with file://
-        return file_url
-
-    async def download_and_unzip(
-        self, remote_url: str, local_copies_folder: str
-    ) -> str:
-        decoded_url = urllib.parse.urlparse(remote_url)
-        extracted_folder = os.path.join(
-            local_copies_folder, os.path.splitext(os.path.basename(decoded_url.path))[0]
-        )
-        with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
-            if not os.path.exists(extracted_folder):
-                with zipfile.ZipFile(decoded_url.path) as zip_file:
-                    zip_file.extractall(extracted_folder)
-
-        return extracted_folder
-
-
-class S3CompatibleObjectStorage(ObjectStorage, abc.ABC):
-    """
-    Think of this class as what ObjectStorage "should be" if it weren't for
-    LocalObjectStorage. Most implementations of ObjectStorage should implement this
-    class.
-    """
-
-    @abc.abstractmethod
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
-        pass
-
-    @abc.abstractmethod
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        pass
-
-    async def upload_from_file_url(self, file_url: str) -> str:
         decoded_url = urllib.parse.urlparse(file_url)
         if decoded_url.scheme != "file":
             raise ValueError(f"Expected file URI: {file_url}")
@@ -249,6 +187,11 @@ class S3CompatibleObjectStorage(ObjectStorage, abc.ABC):
     async def download_and_unzip(
         self, remote_url: str, local_copies_folder: str
     ) -> str:
+        """
+        remote_url will be the URL of a file in the object storage system as generated
+        by upload_from_file_url. This function should download the file and extract it
+        to local_copies_folder if it has not already been extracted.
+        """
         decoded_url = urllib.parse.urlparse(remote_url)
         bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
@@ -264,6 +207,16 @@ class S3CompatibleObjectStorage(ObjectStorage, abc.ABC):
                     zip_file.extractall(extracted_folder)
 
         return extracted_folder
+
+    @abc.abstractmethod
+    async def _upload(self, file_path: str) -> Tuple[str, str]:
+        pass
+
+    @abc.abstractmethod
+    async def _download(
+        self, bucket_name: str, object_name: str, file_name: str
+    ) -> None:
+        pass
 
 
 class WaitOption(enum.Enum):

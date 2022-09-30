@@ -78,7 +78,8 @@ from meadowrun.run_job_core import (
     SshHost,
     TaskException,
 )
-from meadowrun.run_job_local import Host, LocalHost, MACHINE_CACHE_FOLDER
+from meadowrun.run_job_core import Host
+from meadowrun.run_job_local import LocalHost, MACHINE_CACHE_FOLDER
 from meadowrun.version import __version__
 
 __all__ = [

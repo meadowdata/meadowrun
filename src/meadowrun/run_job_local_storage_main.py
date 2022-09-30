@@ -45,7 +45,9 @@ async def main() -> None:
 
         storage_bucket: str = args.storage_bucket
         job_id: str = args.job_id
-        suffix = os.environ.get("JOB_COMPLETION_INDEX", "")
+        suffix = os.environ.get(
+            "MEADOWRUN_WORKER_INDEX", os.environ["JOB_COMPLETION_INDEX"]
+        )
 
         # prepare storage client, filenames and pickle protocol for the result
         storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)

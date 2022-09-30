@@ -25,7 +25,6 @@ from typing import (
     TypeVar,
 )
 
-import botocore.exceptions
 import cloudpickle
 import kubernetes_asyncio.client as kubernetes_client
 import kubernetes_asyncio.client.exceptions as kubernetes_client_exceptions
@@ -53,6 +52,7 @@ from meadowrun.k8s_integration.k8s_core import (
 from meadowrun.s3_grid_job import (
     complete_task,
     download_task_arg,
+    get_job_completion_from_process_state,
     get_storage_client_from_args,
     read_storage,
     receive_results,
@@ -81,7 +81,6 @@ from meadowrun.run_job_local import (
 from meadowrun.shared import none_async_context
 from meadowrun.storage_keys import (
     storage_key_job_to_run,
-    storage_key_process_state,
     storage_key_ranges,
     storage_key_task_args,
 )
@@ -89,7 +88,6 @@ from meadowrun.version import __version__
 
 if TYPE_CHECKING:
     from asyncio import Task
-    from typing_extensions import Literal
     import types_aiobotocore_s3
 
     from meadowrun.instance_selection import ResourcesInternal
@@ -209,95 +207,6 @@ def _indexed_map_worker(
         worker_event_loop.close()
 
 
-async def _get_job_completion_from_process_state(
-    storage_client: Any,
-    storage_bucket: str,
-    job_id: str,
-    worker_index: str,
-    job_spec_type: Literal["py_command", "py_function", "py_agent"],
-    timeout_seconds: int,
-) -> JobCompletion[Any]:
-    """
-    Polls for the specified .process_state file, and then creates a JobCompletion object
-    based on the process_state
-
-    file_suffix is used by indexed completion jobs to distinguish between the
-    completions of different workers, this should be set to the job completion index.
-    """
-
-    # kind of copy/pasted from SshHost.run_job
-
-    # TODO get the name of the pod that ran the job? It won't be super useful
-    # because we delete the pod right away
-    public_address = "kubernetes"
-
-    t0 = time.time()
-    process_state_bytes = None
-    process_state_key = storage_key_process_state(job_id, worker_index)
-    wait = 1
-    while time.time() - t0 < timeout_seconds:
-        try:
-            process_state_bytes = await read_storage(
-                storage_client,
-                storage_bucket,
-                process_state_key,
-            )
-            break
-        except botocore.exceptions.ClientError as error:
-            if error.response["Error"]["Code"] not in ("404", "NoSuchKey"):
-                raise
-
-        await asyncio.sleep(wait)
-        wait = max(wait + 1, 20)
-
-    if process_state_bytes is None:
-        raise TimeoutError(
-            f"Waited {timeout_seconds} seconds but {process_state_key} does not exist"
-        )
-
-    process_state = ProcessState.FromString(process_state_bytes)
-    if process_state.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-        # we must have a result from functions, in other cases we can optionally have a
-        # result
-        if job_spec_type == "py_function" or process_state.pickled_result:
-            result = pickle.loads(process_state.pickled_result)
-        else:
-            result = None
-        return JobCompletion(
-            result,
-            process_state.state,
-            process_state.log_file_name,
-            process_state.return_code,
-            public_address,
-        )
-    else:
-        raise MeadowrunException(process_state)
-
-
-def _python_version_from_environment_spec(job: Job) -> str:
-    interpreter_deployment_type = job.WhichOneof("interpreter_deployment")
-
-    if interpreter_deployment_type == "environment_spec_in_code":
-        python_version = job.environment_spec_in_code.python_version
-    elif interpreter_deployment_type == "environment_spec":
-        python_version = job.environment_spec.python_version
-    elif interpreter_deployment_type == "server_available_interpreter":
-        python_version = None
-    else:
-        raise Exception(
-            "Programming error in caller. Called "
-            "_run_job_per_pod with "
-            f"interpreter_deployment_type {interpreter_deployment_type}"
-        )
-
-    if not python_version:
-        # conda environments and raw server_available_interpreter won't have a
-        # python version
-        return "3.10"
-    else:
-        return python_version
-
-
 async def _image_name_from_job(job: Job) -> Tuple[bool, str, Optional[str], Job]:
     """
     Returns is_custom_container_image, image_name, image_pull_secret_name, and
@@ -330,7 +239,23 @@ async def _image_name_from_job(job: Job) -> Tuple[bool, str, Optional[str], Job]
         # and build the environment inside of the container. We could imagine other
         # approaches like building the container locally and uploading it to Kubernetes.
 
-        python_version = _python_version_from_environment_spec(job)
+        if interpreter_deployment_type == "environment_spec_in_code":
+            python_version = job.environment_spec_in_code.python_version
+        elif interpreter_deployment_type == "environment_spec":
+            python_version = job.environment_spec.python_version
+        elif interpreter_deployment_type == "server_available_interpreter":
+            python_version = None
+        else:
+            raise ValueError(
+                "Programming error: unknown interpreter deployment type "
+                f"{interpreter_deployment_type}"
+            )
+
+        if not python_version:
+            # conda environments and raw server_available_interpreter won't have a
+            # python version
+            python_version = "3.10"
+
         # TODO use meadowrun-cuda if we need cuda
         image_name = f"meadowrun/meadowrun:{__version__}-py{python_version}"
 
@@ -567,19 +492,22 @@ class Kubernetes(Host):
         environment_variables.update(**_string_pairs_to_dict(job.environment_variables))
 
         try:
-            return_codes = await _run_kubernetes_job(
-                job.job_id,
-                self.kubernetes_namespace,
-                image_name,
-                command,
-                environment_variables,
-                self.storage_username_password_secret,
-                image_pull_secret_name,
-                1,
-                [int(p) for p in expand_ports(job.ports)],
-                resources_required,
-                wait_for_result,
-            )
+            async with kubernetes_client.ApiClient() as api_client:
+                return_codes = await _run_kubernetes_job(
+                    kubernetes_client.CoreV1Api(api_client),
+                    kubernetes_client.BatchV1Api(api_client),
+                    job.job_id,
+                    self.kubernetes_namespace,
+                    image_name,
+                    command,
+                    environment_variables,
+                    self.storage_username_password_secret,
+                    image_pull_secret_name,
+                    1,
+                    [int(p) for p in expand_ports(job.ports)],
+                    resources_required,
+                    wait_for_result,
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -714,13 +642,14 @@ class Kubernetes(Host):
                 job_spec_type = job.WhichOneof("job_spec")
                 if job_spec_type is None:
                     raise ValueError("Unexpected, job.job_spec is None")
-                result = await _get_job_completion_from_process_state(
+                result = await get_job_completion_from_process_state(
                     storage_client,
                     self.storage_bucket,
                     job.job_id,
                     "0",
                     job_spec_type,
                     timeout_seconds,
+                    "kubernetes",  # TODO get the name of the pod that ran the job?
                 )
                 process.received_result(0)
                 return result
@@ -1362,6 +1291,8 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
 
         self.run_task = asyncio.create_task(
             _run_kubernetes_job(
+                core_api,
+                batch_api,
                 job_id,
                 kubernetes_namespace,
                 image_name,
@@ -1391,6 +1322,8 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
 
 
 async def _run_kubernetes_job(
+    core_api: kubernetes_client.CoreV1Api,
+    batch_api: kubernetes_client.BatchV1Api,
     job_id: str,
     kubernetes_namespace: str,
     image: str,
@@ -1470,58 +1403,44 @@ async def _run_kubernetes_job(
         ),
     )
 
-    async with kubernetes_client.ApiClient() as api_client:
-        batch_api = kubernetes_client.BatchV1Api(api_client)
-        try:
-            if indexed_completions:
-                version = await kubernetes_client.VersionApi(api_client).get_code()
-                if (int(version.major), int(version.minor)) < (1, 21):
-                    raise ValueError(
-                        "run_map with Kubernetes is only supported on version 1.21 or "
-                        "higher"
+    try:
+        # this returns a result, but we don't really need anything from it
+        await batch_api.create_namespaced_job(kubernetes_namespace, body)
+
+        # Now that we've created the job, wait for the pods to be created
+
+        if indexed_completions:
+            pod_generate_names = [f"{job_id}-{i}-" for i in range(indexed_completions)]
+        else:
+            pod_generate_names = [f"{job_id}-"]
+
+        pods = await get_pods_for_job(
+            core_api, kubernetes_namespace, job_id, pod_generate_names
+        )
+
+        pod_names = [pod.metadata.name for pod in pods]
+        print(f"Created pod(s) {', '.join(pod_names)} for job {job_id}")
+
+        # Now that the pods have been created, stream their logs and get their exit
+        # codes
+
+        return await asyncio.gather(
+            *[
+                asyncio.create_task(
+                    wait_for_pod(
+                        core_api, job_id, kubernetes_namespace, pod, wait_for_result
                     )
-
-            # this returns a result, but we don't really need anything from it
-            await batch_api.create_namespaced_job(kubernetes_namespace, body)
-
-            core_api = kubernetes_client.CoreV1Api(api_client)
-
-            # Now that we've created the job, wait for the pods to be created
-
-            if indexed_completions:
-                pod_generate_names = [
-                    f"{job_id}-{i}-" for i in range(indexed_completions)
-                ]
-            else:
-                pod_generate_names = [f"{job_id}-"]
-
-            pods = await get_pods_for_job(
-                core_api, kubernetes_namespace, job_id, pod_generate_names
-            )
-
-            pod_names = [pod.metadata.name for pod in pods]
-            print(f"Created pod(s) {', '.join(pod_names)} for job {job_id}")
-
-            # Now that the pods have been created, stream their logs and get their exit
-            # codes
-
-            return await asyncio.gather(
-                *[
-                    asyncio.create_task(
-                        wait_for_pod(
-                            core_api, job_id, kubernetes_namespace, pod, wait_for_result
-                        )
-                    )
-                    for pod in pods
-                ]
-            )
-        finally:
-            try:
-                await batch_api.delete_namespaced_job(
-                    job_id, kubernetes_namespace, propagation_policy="Foreground"
                 )
-            except kubernetes_client_exceptions.ApiException as e:
-                print(f"Warning, error cleaning up job: {e}")
+                for pod in pods
+            ]
+        )
+    finally:
+        try:
+            await batch_api.delete_namespaced_job(
+                job_id, kubernetes_namespace, propagation_policy="Foreground"
+            )
+        except kubernetes_client_exceptions.ApiException as e:
+            print(f"Warning, error cleaning up job: {e}")
 
 
 class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):

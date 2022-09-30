@@ -1616,8 +1616,10 @@ async def _get_meadowrun_reusable_pods(
     for pod in pods_response.items:
         if len(existing_pods) >= number_of_pods:
             break
-        if get_main_container_is_ready(pod) and _pod_meets_requirements(
-            pod, ports, resources
+        if (
+            get_main_container_is_ready(pod)
+            and _pod_meets_requirements(pod, ports, resources)
+            and pod.metadata.deletion_timestamp is None
         ):
             # This is an "optimistic concurrency"-style check. It's possible that the
             # automated readiness probe will run between now and when we're able to

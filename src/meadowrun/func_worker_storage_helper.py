@@ -14,7 +14,7 @@ import dataclasses
 from typing import Optional, Tuple, TYPE_CHECKING, Type
 
 from meadowrun.aws_integration.s3 import ensure_uploaded_by_hash
-from meadowrun.run_job_core import S3CompatibleObjectStorage
+from meadowrun.run_job_core import ObjectStorage
 from meadowrun.s3_grid_job import read_storage
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
@@ -32,7 +32,7 @@ FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 
 
 @dataclasses.dataclass
-class FuncWorkerClientObjectStorage(S3CompatibleObjectStorage):
+class FuncWorkerClientObjectStorage(ObjectStorage):
     # this really belongs in k8s.py but can't put it there because of
     # circular imports
     storage_client: Optional[types_aiobotocore_s3.S3Client] = None

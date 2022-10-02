@@ -19,7 +19,7 @@ from meadowrun.aws_integration.aws_core import (
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
-from meadowrun.run_job_core import ObjectStorage
+from meadowrun.object_storage import ObjectStorage
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:

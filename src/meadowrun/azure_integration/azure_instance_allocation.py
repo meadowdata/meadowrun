@@ -73,7 +73,6 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     GridJobCloudInterface,
     JobCompletion,
-    ObjectStorage,
     SshHost,
     WaitOption,
 )
@@ -83,6 +82,7 @@ if TYPE_CHECKING:
 
     import asyncssh
     from meadowrun.meadowrun_pb2 import Job
+    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from typing_extensions import Literal

@@ -1,10 +1,9 @@
 from __future__ import annotations
-import abc
 
+import abc
 import asyncio
 import asyncio.subprocess
 import dataclasses
-from decimal import InvalidOperation
 import itertools
 import os
 import os.path
@@ -14,7 +13,9 @@ import shutil
 import struct
 import sys
 import traceback
+from decimal import InvalidOperation
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterable,
     Callable,
@@ -24,7 +25,6 @@ from typing import (
     List,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
     TypeVar,
     Union,
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from meadowrun._vendor.aiodocker.containers import DockerContainer
     from meadowrun.instance_selection import ResourcesInternal
+    from meadowrun.object_storage import ObjectStorage
 
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
@@ -73,8 +74,8 @@ from meadowrun.meadowrun_pb2 import (
     Credentials,
     Job,
     ProcessState,
-    PyFunctionJob,
     PyAgentJob,
+    PyFunctionJob,
     StringPair,
 )
 from meadowrun.run_job_core import (
@@ -82,7 +83,6 @@ from meadowrun.run_job_core import (
     Host,
     JobCompletion,
     MeadowrunException,
-    ObjectStorage,
     TaskResult,
     WaitOption,
 )

@@ -74,7 +74,6 @@ from meadowrun.run_job_core import (
     CloudProviderType,
     GridJobCloudInterface,
     JobCompletion,
-    ObjectStorage,
     SshHost,
     WaitOption,
 )
@@ -84,6 +83,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from meadowrun.meadowrun_pb2 import Job
+    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types_aiobotocore_s3 import S3Client

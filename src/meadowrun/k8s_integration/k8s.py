@@ -59,7 +59,6 @@ from meadowrun.run_job_core import (
     Host,
     JobCompletion,
     MeadowrunException,
-    ObjectStorage,
     TaskResult,
     WaitOption,
     _PRINT_RECEIVED_TASKS_SECONDS,
@@ -88,6 +87,7 @@ if TYPE_CHECKING:
     import types_aiobotocore_s3
 
     from meadowrun.instance_selection import ResourcesInternal
+    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import WorkerProcessState, TaskProcessState
 
 

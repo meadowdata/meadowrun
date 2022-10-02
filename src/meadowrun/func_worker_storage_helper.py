@@ -14,7 +14,7 @@ import dataclasses
 from typing import Optional, Tuple, TYPE_CHECKING, Type
 
 from meadowrun.aws_integration.s3 import ensure_uploaded_by_hash
-from meadowrun.run_job_core import ObjectStorage
+from meadowrun.object_storage import ObjectStorage
 from meadowrun.s3_grid_job import read_storage
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 

@@ -20,7 +20,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     MEADOWRUN_RESOURCE_GROUP_NAME,
 )
-from meadowrun.run_job_core import ObjectStorage
+from meadowrun.object_storage import ObjectStorage
 
 CONTAINER_NAME = "meadowrun"
 

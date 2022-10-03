@@ -45,6 +45,14 @@ class ObjectStorage(abc.ABC):
         should upload that file to the object storage, delete the local file, and return
         the URL of the remote file.
         """
+        file_path = self._file_path_from_url(file_url)
+        bucket_name, object_name = await self._upload(file_path)
+        shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+        return urllib.parse.urlunparse(
+            (self.get_url_scheme(), bucket_name, object_name, "", "", "")
+        )
+
+    def _file_path_from_url(self, file_url: str) -> str:
         decoded_url = urllib.parse.urlparse(file_url)
         if decoded_url.scheme != "file":
             raise ValueError(f"Expected file URI: {file_url}")
@@ -54,11 +62,7 @@ class ObjectStorage(abc.ABC):
             file_path = decoded_url.path[1:]
         else:
             file_path = decoded_url.path
-        bucket_name, object_name = await self._upload(file_path)
-        shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
-        return urllib.parse.urlunparse(
-            (self.get_url_scheme(), bucket_name, object_name, "", "", "")
-        )
+        return file_path
 
     async def download_and_unzip(
         self, remote_url: str, local_copies_folder: str

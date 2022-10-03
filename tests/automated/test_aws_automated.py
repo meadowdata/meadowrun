@@ -57,7 +57,6 @@ from meadowrun.instance_selection import (
     choose_instance_types_for_job,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_local import Stats, WorkerProcessMonitor
 from meadowrun.run_job_core import TaskResult
 from meadowrun.s3_grid_job import complete_task, receive_results
 
@@ -65,7 +64,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from meadowrun.run_job_core import Host, JobCompletion
-    from meadowrun.run_job_local import TaskWorkerServer
+    from meadowrun.run_job_local import TaskWorkerServer, WorkerProcessMonitor
 
 
 # TODO don't always run tests in us-east-2
@@ -241,12 +240,8 @@ async def test_get_ec2_instance_types() -> None:
     assert len(chosen_instance_types) == 0
 
 
-async def _get_dummy_stats() -> Stats:
-    return Stats(1)
-
-
 class TestGridSQSQueue:
-    # These tests are a mess as they re-implement aspect of the grid job driver.
+    # These tests are a mess as they re-implement aspects of the grid job driver.
 
     @pytest.mark.asyncio
     async def test_receive_results_happy_path(self) -> None:

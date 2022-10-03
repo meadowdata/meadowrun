@@ -593,7 +593,7 @@ class Kubernetes(Host):
                     )
                 except asyncio.CancelledError:
                     raise
-                except Exception as e:
+                except BaseException as e:
                     raise MeadowrunException(
                         ProcessState(
                             state=ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED,
@@ -616,7 +616,9 @@ class Kubernetes(Host):
                                 return_code=return_code,
                             )
                         )
-                    timeout_seconds = 0
+                    # this should be 0 in an ideal world, but seems worth it to have one
+                    # retry
+                    timeout_seconds = 1
                 else:
                     # TODO make this configurable
                     timeout_seconds = 60 * 60 * 24
@@ -1238,6 +1240,7 @@ class KubernetesRemoteProcesses(abc.ABC):
 class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
     def __init__(self) -> None:
         self.run_task: Optional[Task[Optional[Sequence[int]]]] = None
+        self.job_has_finished: bool = False
 
     async def run(
         self,
@@ -1291,13 +1294,16 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
     def received_result(self, worker_index: int) -> None:
         # this is fine for now, but when we implement kill_all correctly, we will want
         # to keep track of these completions
-        pass
+        self.job_has_finished = True
+        if self.run_task is not None:
+            self.run_task.cancel()
 
     async def kill_all(self) -> None:
-        # TODO this is kind of okay for now but really we should proactively kill the
-        # job
-        if self.run_task is not None:
-            await self.run_task
+        if not self.job_has_finished:
+            if self.run_task is not None:
+                # this works right now because _run_kubernetes_job has a finally block
+                # that always deletes the job it creates
+                self.run_task.cancel()
 
 
 async def _run_kubernetes_job(

@@ -84,7 +84,13 @@ def zip_local_code(
     # and hashing is fast though, certainly relative to EC2 startup times and container
     # building, so this is not currently a bottleneck.
     zip_file_path = join(result_zip_dir, str(uuid.uuid4()) + ".zip")
-    with zipfile.ZipFile(zip_file_path, "w") as zip_file:
+    with zipfile.ZipFile(
+        zip_file_path,
+        "w",
+        # ZIP_DEFLATED because it's the fastest. All code gets zipped every time,
+        # even when it hasn't changed, so this needs to be fast above all else.
+        compression=zipfile.ZIP_DEFLATED,
+    ) as zip_file:
         for real_path, zip_path in real_python_root_paths_to_zip_paths:
             for dirpath, _, filenames in os.walk(real_path):
                 for filename in filenames:

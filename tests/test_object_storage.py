@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 from unittest.mock import MagicMock
 
+
 import pytest
+
 from meadowrun.object_storage import ObjectStorage
 
 if TYPE_CHECKING:

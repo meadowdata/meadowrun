@@ -7,7 +7,6 @@ import math
 import os
 import pickle
 import time
-import traceback
 import uuid
 from typing import (
     TYPE_CHECKING,
@@ -61,8 +60,7 @@ from meadowrun.s3_grid_job import (
 from meadowrun.meadowrun_pb2 import (
     Job,
     ProcessState,
-    PyFunctionJob,
-    QualifiedFunctionName,
+    PyAgentJob,
     ServerAvailableInterpreter,
 )
 from meadowrun.run_job_core import (
@@ -74,9 +72,12 @@ from meadowrun.run_job_core import (
     _PRINT_RECEIVED_TASKS_SECONDS,
 )
 from meadowrun.run_job_local import (
+    TaskWorkerServer,
+    WorkerMonitor,
     _get_credentials_for_docker,
     _get_credentials_sources,
     _string_pairs_to_dict,
+    restart_worker,
 )
 from meadowrun.shared import none_async_context
 from meadowrun.storage_keys import (
@@ -99,14 +100,13 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 
 
-def _indexed_map_worker(
+async def _indexed_map_worker(
     total_num_tasks: int,
     num_workers: int,
-    function: Callable[[_T], _U],
-    storage_bucket: str,
     job_id: str,
-    storage_endpoint_url: Optional[str],
     result_highest_pickle_protocol: int,
+    worker_server: TaskWorkerServer,
+    worker_monitor: WorkerMonitor,
 ) -> None:
     """
     This is a worker function to help with running a run_map. This worker assumes that
@@ -116,95 +116,77 @@ def _indexed_map_worker(
     complete all of the tasks where task_index % num_workers == current worker index.
     """
 
-    # TODO add additional error handling a la asynico.run?
-    worker_event_loop = asyncio.new_event_loop()
-
     # WORKER_INDEX will be available in reusable pods. In non-reusable pods we have to
     # use JOB_COMPLETION_INDEX
     current_worker_index = int(
         os.environ.get("MEADOWRUN_WORKER_INDEX", os.environ["JOB_COMPLETION_INDEX"])
     )
-    # if we're the main process launched in the container (via
-    # _run_direct_command) then FUNC_WORKER_STORAGE_CLIENT will already be
-    # set by func_worker_storage. If we're a child process launched by
-    # run_job_local_storage_main (via _run_job_per_pod) then we need to
-    # use the arguments passed to this function to create the storage client in this
-    # function.
-    if meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT is None:
-        storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
-        storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
-        if storage_username is None and storage_password is None:
-            raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
-        storage_client_needs_exit = True
-        storage_client = worker_event_loop.run_until_complete(
-            get_storage_client_from_args(
-                storage_endpoint_url, storage_username, storage_password
-            ).__aenter__()
-        )
-        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT = storage_client
-        meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = storage_bucket
-    else:
-        storage_client_needs_exit = False
-        storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
+    storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
+    storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
+    if storage_username is None and storage_password is None:
+        raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
-    try:
-        result_pickle_protocol = min(
-            result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
+    # we're always being called from run_job_local_storage_main which sets these
+    # variables for us
+    storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
+    storage_bucket = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET
+    if storage_client is None or storage_bucket is None:
+        raise ValueError(
+            "Programming error--_indexed_map_worker must be called from "
+            "run_job_local_storage_main"
         )
 
-        byte_ranges = pickle.loads(
-            worker_event_loop.run_until_complete(
-                read_storage(storage_client, storage_bucket, storage_key_ranges(job_id))
-            )
+    result_pickle_protocol = min(
+        result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
+    )
+
+    byte_ranges = pickle.loads(
+        await read_storage(storage_client, storage_bucket, storage_key_ranges(job_id))
+    )
+
+    i = current_worker_index
+    while i < total_num_tasks:
+        arg = await download_task_arg(
+            storage_client, storage_bucket, job_id, byte_ranges[i]
         )
 
-        i = current_worker_index
-        while i < total_num_tasks:
-            arg = worker_event_loop.run_until_complete(
-                download_task_arg(
-                    storage_client, storage_bucket, job_id, byte_ranges[i]
-                )
+        try:
+            worker_monitor.start_stats()
+            await worker_server.send_message(arg)
+            state, result = await worker_server.receive_message()
+            stats = await worker_monitor.stop_stats()
+
+            process_state = ProcessState(
+                state=ProcessState.ProcessStateEnum.SUCCEEDED
+                if state == "SUCCEEDED"
+                else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
+                pickled_result=pickle.dumps(result, protocol=result_pickle_protocol),
+                return_code=0,
+                max_memory_used_gb=stats.max_memory_used_gb,
+                # TODO add pid and log_file_name
             )
-
-            try:
-                arg = pickle.loads(arg)
-                result = function(*arg[0], **arg[1])
-            except Exception as e:
-                # first print the exception for the local log file
-                traceback.print_exc()
-
-                tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-
-                process_state = ProcessState(
-                    state=ProcessState.PYTHON_EXCEPTION,
-                    pickled_result=pickle.dumps(
-                        (str(type(e)), str(e), tb), protocol=result_pickle_protocol
-                    ),
-                )
-            else:
-                process_state = ProcessState(
-                    state=ProcessState.SUCCEEDED,
-                    pickled_result=pickle.dumps(
-                        result, protocol=result_pickle_protocol
-                    ),
-                )
-
-            # we don't support retries yet so we're always on attempt 1
-            worker_event_loop.run_until_complete(
-                complete_task(
-                    storage_client, storage_bucket, job_id, i, 1, process_state
-                )
+        except BaseException:
+            stats = await worker_monitor.stop_stats()
+            process_state = ProcessState(
+                state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
+                return_code=0,
+                max_memory_used_gb=stats.max_memory_used_gb,
             )
+            await restart_worker(worker_server, worker_monitor)
 
-            i += num_workers
-    finally:
-        if storage_client_needs_exit:
-            # TODO should pass in the exception if we have one
-            worker_event_loop.run_until_complete(
-                storage_client.__aexit__(None, None, None)
-            )
-        worker_event_loop.close()
+        # we don't support retries yet so we're always on attempt 1
+        await complete_task(
+            storage_client, storage_bucket, job_id, i, 1, process_state
+        )
+
+        print(
+            f"Meadowrun agent: Completed task #{i}, "
+            f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}, max "
+            f"memory {process_state.max_memory_used_gb}GB "
+        )
+
+        i += num_workers
 
 
 async def _image_name_from_job(job: Job) -> Tuple[bool, str, Optional[str], Job]:
@@ -841,22 +823,19 @@ class KubernetesGridJobDriver:
         indexed_map_worker_args = (
             num_args,
             self._num_concurrent_tasks,
-            function,
-            self._kubernetes.storage_bucket,
             self._job_id,
-            self._kubernetes.get_storage_endpoint_url_in_cluster(),
             pickle.HIGHEST_PROTOCOL,
         )
 
         return Job(
             job_id=self._job_id,
-            py_function=PyFunctionJob(
-                qualified_function_name=QualifiedFunctionName(
-                    module_name=__name__,
-                    function_name=_indexed_map_worker.__name__,
+            py_agent=PyAgentJob(
+                pickled_function=cloudpickle.dumps(function, protocol=pickle_protocol),
+                pickled_agent_function=cloudpickle.dumps(
+                    _indexed_map_worker, protocol=pickle_protocol
                 ),
-                pickled_function_arguments=cloudpickle.dumps(
-                    (indexed_map_worker_args, None), protocol=pickle_protocol
+                pickled_agent_function_arguments=cloudpickle.dumps(
+                    (indexed_map_worker_args, {}), protocol=pickle_protocol
                 ),
             ),
             **job_fields,

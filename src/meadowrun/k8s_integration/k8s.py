@@ -6,6 +6,7 @@ import dataclasses
 import math
 import os
 import pickle
+import platform
 import time
 import uuid
 from typing import (
@@ -95,6 +96,8 @@ if TYPE_CHECKING:
     from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import WorkerProcessState, TaskProcessState
 
+MEADOWRUN_POD_NAME = "MEADOWRUN_POD_NAME"
+
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -140,6 +143,13 @@ async def _indexed_map_worker(
     result_pickle_protocol = min(
         result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
     )
+    # only the first option (MEADOWRUN_POD_NAME) will give the actual name of the pod.
+    # The hostname is similar but slightly different, and we'll fall back on that if
+    # something has gone wrong and MEADOWRUN_POD_NAME is not available
+    pod_name = os.environ.get(
+        MEADOWRUN_POD_NAME, os.environ.get("HOSTNAME", platform.node())
+    )
+    log_file_name = f"{pod_name}:/var/meadowrun/job_logs/{job_id}.log"
 
     byte_ranges = pickle.loads(
         await read_storage(storage_client, storage_bucket, storage_key_ranges(job_id))
@@ -164,7 +174,7 @@ async def _indexed_map_worker(
                 pickled_result=pickle.dumps(result, protocol=result_pickle_protocol),
                 return_code=0,
                 max_memory_used_gb=stats.max_memory_used_gb,
-                # TODO add pid and log_file_name
+                log_file_name=log_file_name,
             )
         except BaseException:
             stats = await worker_monitor.stop_stats()
@@ -176,9 +186,7 @@ async def _indexed_map_worker(
             await restart_worker(worker_server, worker_monitor)
 
         # we don't support retries yet so we're always on attempt 1
-        await complete_task(
-            storage_client, storage_bucket, job_id, i, 1, process_state
-        )
+        await complete_task(storage_client, storage_bucket, job_id, i, 1, process_state)
 
         print(
             f"Meadowrun agent: Completed task #{i}, "
@@ -762,6 +770,7 @@ class KubernetesGridJobDriver:
         self._storage_client = storage_client
 
         self._job_id = str(uuid.uuid4())
+        print(f"GridJob id is {self._job_id}")
 
         # run_worker_functions will set this to indicate to get_results
         # that there all of our workers have either exited unexpectedly (and we have
@@ -1144,10 +1153,10 @@ def _pod_meets_requirements(
     return True
 
 
-def _add_storage_username_password_to_environment(
-    storage_username_password_secret: Optional[str],
+def _add_meadowrun_variables_to_environment(
     environment: List[kubernetes_client.V1EnvVar],
     environment_variables: Dict[str, str],
+    storage_username_password_secret: Optional[str],
 ) -> None:
     """
     Modifies environment in place!! environment_variables is just to make sure we don't
@@ -1181,6 +1190,18 @@ def _add_storage_username_password_to_environment(
                     ),
                 )
             )
+
+    if MEADOWRUN_POD_NAME not in environment_variables:
+        environment.append(
+            kubernetes_client.V1EnvVar(
+                name=MEADOWRUN_POD_NAME,
+                value_from=kubernetes_client.V1EnvVarSource(
+                    field_ref=kubernetes_client.V1ObjectFieldSelector(
+                        field_path="metadata.name"
+                    )
+                ),
+            )
+        )
 
 
 class KubernetesRemoteProcesses(abc.ABC):
@@ -1339,8 +1360,8 @@ async def _run_kubernetes_job(
         for key, value in environment_variables.items()
     ]
 
-    _add_storage_username_password_to_environment(
-        storage_username_password_secret, environment, environment_variables
+    _add_meadowrun_variables_to_environment(
+        environment, environment_variables, storage_username_password_secret
     )
 
     if indexed_completions:
@@ -1621,7 +1642,10 @@ async def _get_meadowrun_reusable_pods(
     if len(existing_pods) > number_of_pods:
         existing_pods = existing_pods[:number_of_pods]
     if existing_pods:
-        print(f"Reusing {len(existing_pods)} existing pods")
+        print(
+            f"Reusing {len(existing_pods)} existing pods: "
+            + ", ".join(pod.metadata.name for pod in existing_pods)
+        )
         yield existing_pods
 
     remaining_pods_to_launch = number_of_pods - len(existing_pods)
@@ -1629,8 +1653,8 @@ async def _get_meadowrun_reusable_pods(
     if remaining_pods_to_launch > 0:
         environment: List[kubernetes_client.V1EnvVar] = []
 
-        _add_storage_username_password_to_environment(
-            storage_username_password_secret, environment, {}
+        _add_meadowrun_variables_to_environment(
+            environment, {}, storage_username_password_secret
         )
 
         if image_pull_secret_name:

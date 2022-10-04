@@ -17,7 +17,7 @@ async def main() -> None:
 
     # hack to find the automated module.
     sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-    from automated.test_aws_automated import EC2InstanceRegistrarProvider
+    from automated.aws.test_instance_registrar import EC2InstanceRegistrarProvider
 
     def remote_function() -> Tuple[int, str]:
         return os.getpid(), platform.node()

@@ -47,11 +47,17 @@ async def _assert_agent_result(
 
 
 async def send_receive(agent_server: TaskWorkerServer) -> None:
+    long_string = "loooong" * 10_000
     messages = [
         (
             (("arg1", 12654), {"kw_arg1": 3.1415, "kw_arg2": "kw_arg2"}),
             "SUCCEEDED",
             "arg1126543.1415kw_arg2",
+        ),
+        (
+            (("arg1", 12654), {"kw_arg1": 3.1415, "kw_arg2": long_string}),
+            "SUCCEEDED",
+            "arg1126543.1415" + long_string,
         ),
         ((("arg1",), {}), "PYTHON_EXCEPTION", None),
         (

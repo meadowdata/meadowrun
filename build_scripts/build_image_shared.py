@@ -38,6 +38,7 @@ async def upload_and_configure_meadowrun(
     await run_and_print(
         connection,
         "source /var/meadowrun/env/bin/activate "
+        "&& pip install --upgrade pip "
         f"&& pip install /var/meadowrun/meadowrun-{version}-py3-none-any.whl",
     )
     await run_and_print(

@@ -5,7 +5,7 @@ the test has passed
 
 import time
 
-from automated.test_aws_automated import EC2InstanceRegistrarProvider
+from automated.aws.test_instance_registrar import EC2InstanceRegistrarProvider
 from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     ensure_clean_up_lambda,
     ensure_ec2_alloc_lambda,

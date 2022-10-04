@@ -6,9 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 from unittest.mock import MagicMock
 
-
 import pytest
-
 from meadowrun.object_storage import ObjectStorage
 
 if TYPE_CHECKING:
@@ -21,12 +19,12 @@ class MockObjectStorage(ObjectStorage):
         return "mock"
 
     async def _upload(self, file_path: str) -> Tuple[str, str]:
-        return await super()._upload(file_path)
+        raise NotImplementedError()
 
     async def _download(
         self, bucket_name: str, object_name: str, file_name: str
     ) -> None:
-        await super()._download(bucket_name, object_name, file_name)
+        raise NotImplementedError()
 
 
 def make_future(result: Any) -> asyncio.Future:
@@ -39,7 +37,6 @@ def make_future(result: Any) -> asyncio.Future:
 async def test_upload(mocker: MockerFixture) -> None:
     os = MockObjectStorage()
     future = make_future(("bucket", "object"))
-    mocker.async_stub
     os._upload = MagicMock(return_value=future)  # type: ignore
 
     actual = await os.upload_from_file_url("file:///a/b/c/def.zip")

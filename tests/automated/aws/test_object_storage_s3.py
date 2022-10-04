@@ -1,10 +1,11 @@
 from __future__ import annotations
-import filecmp
 
+import filecmp
 import json
 from typing import TYPE_CHECKING
 
 import aiobotocore
+import aiobotocore.session
 import pytest
 from botocore.exceptions import ClientError
 from meadowrun.aws_integration.s3 import (
@@ -24,8 +25,9 @@ if TYPE_CHECKING:
 @pytest.mark.asyncio
 async def test_incremental_fresh_upload(tmp_path: Path, mocker: MockerFixture) -> None:
     _existing_keys.clear()
+
     s3c = mocker.create_autospec(S3Client)
-    # head_object is used to check if an object exists. If it throws 404, it doesn't.
+    # head_object is used to check if an object exists. 404 means it doesn't exist.
     s3c.head_object = mocker.AsyncMock(
         side_effect=ClientError(
             error_response={"Error": {"Code": "404"}}, operation_name="head_object"
@@ -39,6 +41,7 @@ async def test_incremental_fresh_upload(tmp_path: Path, mocker: MockerFixture) -
     await ensure_uploaded_incremental(
         s3c, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=1000
     )
+
     # even though all chunks need to be uploaded, some chunks are repeated.
     # De-duping makes the call count for head and put is less than the number of chunks.
     expected_call_count = 4
@@ -97,6 +100,8 @@ async def test_incremental_no_upload(tmp_path: Path, mocker: MockerFixture) -> N
 
 @pytest.mark.asyncio
 async def test_incremental_roundtrip(tmp_path: Path) -> None:
+    # this test actually uploads to S3
+
     _existing_keys.clear()
     region_name = "us-east-2"
     bucket_name = _get_bucket_name(region_name)
@@ -122,68 +127,3 @@ def _make_big_file(tmp_path: Path, size_bytes: int = 8000) -> Path:
         for i in range(size_bytes // 10):
             f.write(chars[i % 20 : i % 20 + 10].encode("utf-8"))
     return local_file_path
-
-
-# comp = zipfile.ZIP_BZIP2
-# comp_level = 9
-
-
-# def _make_zip_file(tmp_path: Path) -> Path:
-#     with zipfile.ZipFile(
-#         tmp_path / "mdr.zip", mode="x", compression=comp, compresslevel=comp_level
-#     ) as f:
-#         for file in glob("**/*.py", recursive=True):
-#             f.write(file)
-#     return tmp_path / "mdr.zip"
-
-
-# def _make_zip_file_2(tmp_path: Path) -> Path:
-#     for fn in range(ord("a"), ord("z")):
-#         with open(f"{chr(fn)}fake.py", "a", encoding="utf-8") as f:
-#             f.write("import os")
-#     with zipfile.ZipFile(
-#         tmp_path / "mdr2.zip", mode="x", compression=comp, compresslevel=comp_level
-#     ) as f:
-#         for file in glob("**/*.py", recursive=True):
-#             f.write(file)
-#     return tmp_path / "mdr2.zip"
-
-
-# def _change_zip_file(zip_file: Path) -> Path:
-#     with zipfile.ZipFile(zip_file, "a") as f:
-#         f.writestr("new_file.py", "import os")
-#     return zip_file
-
-
-# @pytest.mark.asyncio
-# async def test_changed_zip_incremental_upload(
-#     tmp_path: Path, mocker: MockerFixture
-# ) -> None:
-#     s3c = mocker.create_autospec(S3Client)
-#     s3c.head_object = mocker.AsyncMock(
-#         side_effect=ClientError(
-#             error_response={"Error": {"Code": "404"}}, operation_name="head_object"
-#         )
-#     )
-#     local_file_path = _make_zip_file(tmp_path)
-#     key_prefix = ""
-#     bucket_name = "test_bucket"
-#     await ensure_uploaded_incremental(
-#         s3c, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=40000
-#     )
-
-#     last_put = s3c.put_object.call_args_list[-1]
-#     chunks_json = json.loads(last_put.kwargs["Body"].decode("utf-8"))["chunks"]
-
-#     s3c.reset_mock()
-#     local_file_path = _make_zip_file_2(tmp_path)
-#     await ensure_uploaded_incremental(
-#         s3c, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=40000
-#     )
-
-#     last_put = s3c.put_object.call_args_list[-1]
-#     chunks_json_2 = json.loads(last_put.kwargs["Body"].decode("utf-8"))["chunks"]
-
-#     pprint(chunks_json)
-#     pprint(chunks_json_2)
-#     pprint(set(chunks_json).difference(chunks_json_2))

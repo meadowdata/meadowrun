@@ -5,6 +5,7 @@ import json
 import os
 import pickle
 import time
+import traceback
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -295,6 +296,11 @@ async def _worker_iteration(
             return_code=0,
             log_file_name=log_file_name,
             max_memory_used_gb=stats.max_memory_used_gb,
+        )
+
+        print(
+            f"Meadowrun agent: Unexpected worker exit, restarting worker. "
+            f"In task #{task_id}, attempt #{attempt}, {traceback.format_exc()}"
         )
 
         await restart_worker(worker_server, worker_monitor)

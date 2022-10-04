@@ -23,6 +23,13 @@ async def send_message(
     await writer.drain()
 
 
+async def receive_bytes(reader: asyncio.StreamReader, bytes_len: int) -> bytearray:
+    result_bs = bytearray()
+    while len(result_bs) < bytes_len:
+        result_bs.extend(await reader.read(bytes_len - len(result_bs)))
+    return result_bs
+
+
 async def do_tasks(
     function: Callable,
     pickle_protocol: int,
@@ -31,9 +38,6 @@ async def do_tasks(
 ) -> None:
     try:
         while True:
-            # in principle we could get fewer bytes for reads, but since comms are local
-            # and sender puts them all on the wire at once, that doesn't actually happen
-            # in practice.
             arg_size_bs = await reader.read(4)
             if len(arg_size_bs) == 0:
                 break
@@ -41,7 +45,7 @@ async def do_tasks(
 
             try:
                 if arg_size > 0:
-                    arg_bs = await reader.read(arg_size)
+                    arg_bs = await receive_bytes(reader, arg_size)
                     function_args, function_kwargs = pickle.loads(arg_bs)
                 else:
                     function_args, function_kwargs = (), {}

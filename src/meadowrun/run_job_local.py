@@ -442,7 +442,9 @@ class TaskWorkerServer:
             await self.wait_for_task_worker_connection()
         assert self.reader is not None
         (result_len,) = struct.unpack(">i", await self.reader.read(4))
-        result_bs = await self.reader.read(result_len)
+        result_bs = bytearray()
+        while len(result_bs) < result_len:
+            result_bs.extend(await self.reader.read(result_len - len(result_bs)))
         return pickle.loads(result_bs)
 
     async def close_task_worker_connection(self) -> None:

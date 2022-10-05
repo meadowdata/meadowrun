@@ -3,3 +3,4 @@ nav:
 - run_function.md
 - run_map.md
 - run_function_git_conda.md
+- run_command_in_container.md

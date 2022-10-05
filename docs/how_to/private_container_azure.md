@@ -43,7 +43,8 @@ value is a json string containing a username and password, like `{"username":
 
 Now you can use the following [ContainerInterpreter][meadowrun.ContainerInterpreter]
 with [Deployment.git_repo][meadowrun.Deployment.git_repo] or
-[Deployment.mirror_local][meadowrun.Deployment.mirror_local].
+[Deployment.mirror_local][meadowrun.Deployment.mirror_local]. Alternatively you can use
+[Deployment.container_image][meadowrun.Deployment.container_image] in a similar way.
 
 ```python
 import meadowrun

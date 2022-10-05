@@ -44,15 +44,6 @@ jobs:
     - name: Run Mypy
       run: |
         poetry run mypy
-    - name: Checkout test repo
-      uses: actions/checkout@v3
-      with:
-        repository: meadowdata/test_repo
-        path: test_repo
-        fetch-depth: 0
-    - name: Checkout test repo/test_branch
-      run: |
-        git -C ../test_repo checkout test_branch
     - name: Run Pytest
       env:
         PYTHONDEVMODE: 1 # see https://docs.python.org/3/library/devmode.html#devmode

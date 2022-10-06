@@ -180,8 +180,9 @@ async def _indexed_map_worker(
             stats = await worker_monitor.stop_stats()
             process_state = ProcessState(
                 state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
-                return_code=0,
+                return_code=(await worker_monitor.try_get_return_code()) or 0,
                 max_memory_used_gb=stats.max_memory_used_gb,
+                log_file_name=log_file_name,
             )
             await restart_worker(worker_server, worker_monitor)
 

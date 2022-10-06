@@ -121,34 +121,6 @@ async def _put_object(
         raise
 
 
-async def ensure_uploaded_by_hash(
-    s3_client: S3Client,
-    local_file_path: str,
-    bucket_name: str,
-    key_prefix: str = "",
-) -> str:
-    """
-    Uploads the specified file from the local machine to S3. The file will be uploaded
-    to the key "{key_prefix}{hash}", where {hash} is a hash of the contents of the file.
-    If the S3 object already exists, it does not need to be re-uploaded.
-
-    key_prefix should usually be "" or end in a "/" like "code/". key_suffix should
-    usually be "" or something like ".tar.gz"
-
-    Returns the key of the file in the S3 bucket, e.g. "code/123456789abcdefg"
-    """
-    # This code should eventually be removed in favor of ensure_uploaded_incremental
-    hasher = hashlib.blake2b()
-    with open(local_file_path, "rb") as file:
-        buffer = file.read()
-        hasher.update(buffer)
-    key = f"{key_prefix}{hasher.hexdigest()}"
-
-    await _put_object_if_not_exists(s3_client, bucket_name, key, buffer)
-
-    return key
-
-
 async def _put_object_if_not_exists(
     s3_client: S3Client, bucket_name: str, key: str, data: bytes
 ) -> None:

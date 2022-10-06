@@ -13,9 +13,11 @@ import dataclasses
 
 from typing import Optional, Tuple, TYPE_CHECKING, Type
 
-from meadowrun.aws_integration.s3 import ensure_uploaded_by_hash
+from meadowrun.aws_integration.s3 import (
+    download_chunked_file,
+    ensure_uploaded_incremental,
+)
 from meadowrun.object_storage import ObjectStorage
-from meadowrun.s3_grid_job import read_storage
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
@@ -59,7 +61,7 @@ class FuncWorkerClientObjectStorage(ObjectStorage):
                 "Can't use _upload without a bucket_name and a storage endpoint"
             )
 
-        s3_key = await ensure_uploaded_by_hash(
+        s3_key = await ensure_uploaded_incremental(
             self.storage_client, file_path, self.bucket_name, STORAGE_CODE_CACHE_PREFIX
         )
         return self.bucket_name, s3_key
@@ -70,5 +72,4 @@ class FuncWorkerClientObjectStorage(ObjectStorage):
         storage_client = FUNC_WORKER_STORAGE_CLIENT
         if storage_client is None:
             raise Exception("FUNC_WORKER_STORAGE_CLIENT is not available")
-        with open(file_name, "wb") as f:
-            f.write(await read_storage(storage_client, bucket_name, object_name))
+        await download_chunked_file(storage_client, bucket_name, object_name, file_name)

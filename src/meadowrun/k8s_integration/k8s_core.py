@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import enum
 import time
 from typing import Callable, List, Dict, Tuple, Optional
 
@@ -107,7 +108,7 @@ async def get_pods_for_job(
 
 
 def get_main_container_state(
-    pod: kubernetes_client.V1Pod, job_id: str, pod_name: str
+    pod: kubernetes_client.V1Pod, job_id: str
 ) -> Tuple[Optional[kubernetes_client.V1ContainerState], Optional[str]]:
     # first get main container state
     container_statuses = pod.status.container_statuses
@@ -118,13 +119,13 @@ def get_main_container_state(
         main_container_statuses = [s for s in container_statuses if s.name == "main"]
         if len(main_container_statuses) == 0:
             raise ValueError(
-                f"The job {job_id} has a pod {pod_name} but there is no `main` "
-                "container"
+                f"The job {job_id} has a pod {pod.metadata.name} but there is no `main`"
+                " container"
             )
         if len(main_container_statuses) > 1:
             raise ValueError(
-                f"The job {job_id} has a pod {pod_name} but there is more than one "
-                "`main` container"
+                f"The job {job_id} has a pod {pod.metadata.name} but there is more than"
+                " one `main` container"
             )
         main_container_state = main_container_statuses[0].state
 
@@ -142,6 +143,71 @@ def get_main_container_state(
         latest_condition_reason = None
 
     return main_container_state, latest_condition_reason
+
+
+# This is how long we'll wait for a pod that is pulling an image
+_WAIT_FOR_POD_PULLING_IMAGE_SECS = 60 * 7
+# This is how long we'll wait for a pod to that isn't running yet and is in the
+# "unschedulable" state. We want to allow some time for a pod autoscaler to kick in
+_WAIT_FOR_POD_UNSCHEDULABLE_SECS = 60 * 7
+# This is how long we'll wait for a pod to start running for any state other than the
+# ones described above
+_WAIT_FOR_POD_RUNNING_OTHER_SECS = 15
+
+
+class PodState(enum.Enum):
+    PULLING_IMAGE = 1
+    UNSCHEDULABLE = 2
+    OTHER_HAS_NOT_RUN = 3
+    STARTED_RUNNING = 4
+
+
+def _get_pod_state(pod: kubernetes_client.V1Pod, job_id: str) -> Tuple[PodState, str]:
+    """
+    Returns the internal representation of the pod state (PodState) and a string to
+    present to the user about the state of the pod
+    """
+    main_container_state, latest_condition_reason = get_main_container_state(
+        pod, job_id
+    )
+    if main_container_state is not None and (
+        main_container_state.running is not None
+        or main_container_state.terminated is not None
+    ):
+        return PodState.STARTED_RUNNING, ""
+
+    pod_state = PodState.OTHER_HAS_NOT_RUN
+
+    additional_info_builder = [":"]
+    if main_container_state is not None and main_container_state.waiting is not None:
+        waiting_reason = str(main_container_state.waiting.reason)
+        additional_info_builder.append(waiting_reason)
+
+        if main_container_state.waiting.message is not None:
+            additional_info_builder.append(str(main_container_state.waiting.message))
+        elif (
+            main_container_state.waiting.reason == "ContainerCreating"
+            and pod_state == PodState.OTHER_HAS_NOT_RUN
+        ):
+            # TODO this isn't exactly right, there's a separate Event (different API)
+            # that would tell us conclusively that we're waiting for the image pull, but
+            # this logic seems to be correct most of the time. We should maybe read
+            # those events, but at some point we may get what we need in this field
+            # waiting.reason field:
+            # https://github.com/kubernetes/kubernetes/issues/19077
+            pod_state = PodState.PULLING_IMAGE
+            additional_info_builder.append("(pulling image)")
+    if latest_condition_reason:
+        additional_info_builder.append(latest_condition_reason)
+        if latest_condition_reason.startswith("Unschedulable"):
+            pod_state = PodState.UNSCHEDULABLE
+
+    if len(additional_info_builder) == 1:
+        additional_info = ""
+    else:
+        additional_info = " ".join(additional_info_builder)
+
+    return pod_state, additional_info
 
 
 async def wait_for_pod_running(
@@ -163,61 +229,30 @@ async def wait_for_pod_running(
     # that case we'll only wait 15 seconds, as it doesn't make sense to expect that that
     # would change.
 
-    i = 0
-    wait_until = 15
-    max_wait_until = 60 * 7
-    main_container_state, latest_condition_reason = get_main_container_state(
-        pod, job_id, pod_name
-    )
+    seconds_waited = 0
+    wait_until = _WAIT_FOR_POD_RUNNING_OTHER_SECS
     prev_additional_info = None
-    while main_container_state is None or (
-        main_container_state.running is None and main_container_state.terminated is None
-    ):
-        is_happy_path = False
-        additional_info_builder = [":"]
-        if (
-            main_container_state is not None
-            and main_container_state.waiting is not None
-        ):
-            additional_info_builder.append(str(main_container_state.waiting.reason))
-            if main_container_state.waiting.message is not None:
-                additional_info_builder.append(
-                    str(main_container_state.waiting.message)
-                )
-            elif main_container_state.waiting.reason == "ContainerCreating":
-                # TODO Kubernetes unfortunately doesn't distinguish between waiting for
-                # an image to get pulled vs waiting for a free node in this field, we
-                # need to use the Events API to get that information. At some point it
-                # may come through in this waiting.reason field, though:
-                # https://github.com/kubernetes/kubernetes/issues/19077
-                additional_info_builder.append(
-                    "(pulling image or waiting for available nodes)"
-                )
-                is_happy_path = True
-        if latest_condition_reason:
-            additional_info_builder.append(latest_condition_reason)
-
-        if len(additional_info_builder) == 1:
-            additional_info = ""
-        else:
-            additional_info = " ".join(additional_info_builder)
+    pod_state, additional_info = _get_pod_state(pod, job_id)
+    while pod_state != PodState.STARTED_RUNNING:
         if additional_info != prev_additional_info:
             print(f"Waiting for pod {pod_name} to start running{additional_info}")
             prev_additional_info = additional_info
-        await asyncio.sleep(1.0)
-        i += 1
-        if is_happy_path:
-            wait_until += 1
-        if i > wait_until or i > max_wait_until:
+
+        await asyncio.sleep(1.0)  # this is the polling interval
+        seconds_waited += 1
+        if pod_state == PodState.PULLING_IMAGE:
+            wait_until = max(wait_until, _WAIT_FOR_POD_PULLING_IMAGE_SECS)
+        elif pod_state == PodState.UNSCHEDULABLE:
+            wait_until = max(wait_until, _WAIT_FOR_POD_UNSCHEDULABLE_SECS)
+
+        if seconds_waited > wait_until:
             raise TimeoutError(
-                f"Waited >{i} seconds for the container of job {job_id} in pod "
-                f"{pod_name} to start running"
+                f"Waited >{seconds_waited} seconds for the container of job {job_id} in"
+                " pod {pod_name} to start running"
             )
 
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-        main_container_state, latest_condition_reason = get_main_container_state(
-            pod, job_id, pod_name
-        )
+        pod_state, additional_info = _get_pod_state(pod, job_id)
 
     return pod
 
@@ -249,7 +284,7 @@ async def wait_for_pod_exit(
     # is reported as terminated.
 
     pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-    main_container_state, _ = get_main_container_state(pod, job_id, pod_name)
+    main_container_state, _ = get_main_container_state(pod, job_id)
     t0 = time.time()
     while main_container_state is None or main_container_state.running is not None:
         await asyncio.sleep(1.0)
@@ -266,7 +301,7 @@ async def wait_for_pod_exit(
                     f"for {timeout_seconds} seconds"
                 )
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-        main_container_state, _ = get_main_container_state(pod, job_id, pod_name)
+        main_container_state, _ = get_main_container_state(pod, job_id)
 
     return main_container_state.terminated.exit_code
 

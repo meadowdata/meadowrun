@@ -976,8 +976,7 @@ async def _launch_container_job(
             for (host_path, mounted_path) in binds
             if host_path in code_paths
         )
-        # TODO we need to use ":" for Linux and ";" for Windows containers
-        job_spec_transformed.environment_variables["PYTHONPATH"] = ":".join(
+        job_spec_transformed.environment_variables["PYTHONPATH"] = os.pathsep.join(
             itertools.chain(code_paths, existing_python_path)
         )
 

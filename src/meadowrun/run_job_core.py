@@ -466,7 +466,10 @@ class MeadowrunException(Exception):
     def __init__(
         self, process_state: ProcessState, address: Optional[str] = None
     ) -> None:
-        if process_state.state == ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE:
+        if process_state.state in (
+            ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE,
+            ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
+        ):
             return_code = f": {process_state.return_code}"
         else:
             return_code = ""
@@ -546,6 +549,9 @@ class TaskResult(Generic[_T]):
             )
         elif task.result.state in _EXCEPTION_STATES:
             exception = unpickle_exception(task.result.pickled_result)
+            if exception is None and task.result.return_code != 0:
+                return_code_message = f"Non-zero return code: {task.result.return_code}"
+                exception = ("", return_code_message, return_code_message + "\n")
             return TaskResult(
                 task.task_id,
                 is_success=False,
@@ -555,10 +561,16 @@ class TaskResult(Generic[_T]):
                 log_file_name=task.result.log_file_name,
             )
         else:
+            if task.result.return_code != 0:
+                return_code_message = f"Non-zero return code: {task.result.return_code}"
+                exception = ("", return_code_message, return_code_message + "\n")
+            else:
+                exception = None
             return TaskResult(
                 task.task_id,
                 is_success=False,
                 state=ProcessState.ProcessStateEnum.Name(task.result.state),
+                exception=exception,
                 attempt=task.attempt,
                 log_file_name=task.result.log_file_name,
             )

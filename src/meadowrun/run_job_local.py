@@ -493,6 +493,14 @@ class WorkerMonitor(abc.ABC):
         ...
 
     @abc.abstractmethod
+    async def try_get_return_code(self) -> Optional[int]:
+        """
+        Returns the exit code of the process if it has already exited, otherwise returns
+        None
+        """
+        ...
+
+    @abc.abstractmethod
     async def restart(self) -> None:
         """Restart the task worker."""
         ...
@@ -581,6 +589,9 @@ class WorkerProcessMonitor(WorkerMonitor):
             await self._tail_task
         self._tail_task = None
         return returncode
+
+    async def try_get_return_code(self) -> Optional[int]:
+        return self.process.returncode
 
     async def cleanup(self) -> None:
         if self._process is not None:
@@ -677,6 +688,14 @@ class WorkerContainerMonitor(WorkerMonitor):
         # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
         # can get the return code from the result
         return wait_result["StatusCode"]
+
+    async def try_get_return_code(self) -> Optional[int]:
+        container_status = (await self.container.show()).get("State", {})
+        if container_status.get("Status", "") == "running":
+            # container_status will have ExitCode == 0 while the process is running
+            return None
+        else:
+            return container_status.get("ExitCode", None)
 
     async def _tail_log(self) -> None:
         # 1. Docker appears to have an objection to having a log driver that can

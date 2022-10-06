@@ -293,7 +293,7 @@ async def _worker_iteration(
         process_state = ProcessState(
             state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
             pid=pid,
-            return_code=0,
+            return_code=(await worker_monitor.try_get_return_code()) or 0,
             log_file_name=log_file_name,
             max_memory_used_gb=stats.max_memory_used_gb,
         )

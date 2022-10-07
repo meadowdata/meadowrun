@@ -107,7 +107,6 @@ async def _indexed_map_worker(
     total_num_tasks: int,
     num_workers: int,
     job_id: str,
-    result_highest_pickle_protocol: int,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
 ) -> None:
@@ -140,9 +139,6 @@ async def _indexed_map_worker(
             "run_job_local_storage_main"
         )
 
-    result_pickle_protocol = min(
-        result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
-    )
     # only the first option (MEADOWRUN_POD_NAME) will give the actual name of the pod.
     # The hostname is similar but slightly different, and we'll fall back on that if
     # something has gone wrong and MEADOWRUN_POD_NAME is not available
@@ -164,14 +160,14 @@ async def _indexed_map_worker(
         try:
             worker_monitor.start_stats()
             await worker_server.send_message(arg)
-            state, result = await worker_server.receive_message()
+            state, result_bytes = await worker_server.receive_message()
             stats = await worker_monitor.stop_stats()
 
             process_state = ProcessState(
                 state=ProcessState.ProcessStateEnum.SUCCEEDED
                 if state == "SUCCEEDED"
                 else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
-                pickled_result=pickle.dumps(result, protocol=result_pickle_protocol),
+                pickled_result=result_bytes,
                 return_code=0,
                 max_memory_used_gb=stats.max_memory_used_gb,
                 log_file_name=log_file_name,
@@ -348,9 +344,14 @@ class Kubernetes(Host):
         kubernetes_namespace: The Kubernetes namespace that Meadowrun will create Jobs
             in. This should usually not be left to the default value ("default") for any
             "real" workloads.
-        resuable_pods: Experimental feature: rather than always starting a new pod for
-            each job, starts generic long-lived pods that can be reused for multiple
-            jobs
+        resuable_pods: When set to True, rather than always starting a new pod for each
+            job, starts generic long-lived pods that can be reused for multiple jobs
+        pod_customization: A function like pod_customization(pod_template_spec) that
+            will be called on the PodTemplateSpec just before we submit it to
+            Kubernetes. You can make changes like specifying a serviceAccountName,
+            adding ephemeral storage, etc. You can either modify the pod_template_spec
+            argument in place and return it as the result, or construct a new
+            V1PodTemplateSpec and return that.
     """
 
     storage_bucket: Optional[str] = None
@@ -838,12 +839,7 @@ class KubernetesGridJobDriver:
         pickle_protocol: int,
     ) -> Job:
 
-        indexed_map_worker_args = (
-            num_args,
-            self._num_concurrent_tasks,
-            self._job_id,
-            pickle.HIGHEST_PROTOCOL,
-        )
+        indexed_map_worker_args = num_args, self._num_concurrent_tasks, self._job_id
 
         return Job(
             job_id=self._job_id,
@@ -1765,12 +1761,20 @@ async def _get_meadowrun_reusable_pods(
 
         await batch_api.create_namespaced_job(kubernetes_namespace, body)
 
-        pods = await get_pods_for_job(
-            core_api,
-            kubernetes_namespace,
-            job_name,
-            [f"{job_name}-{i}-" for i in range(remaining_pods_to_launch)],
-        )
+        try:
+            pods = await get_pods_for_job(
+                core_api,
+                kubernetes_namespace,
+                job_name,
+                [f"{job_name}-{i}-" for i in range(remaining_pods_to_launch)],
+            )
+        except BaseException:
+            # usually the ttl_seconds_after_finished will take care of deleting the job,
+            # but there's a case where the pods can't be created (e.g. if you provide an
+            # invalid serviceAccountName), and the job will stick around forever
+            await batch_api.delete_namespaced_job(job_name, kubernetes_namespace)
+            raise
+
         for pod_future in asyncio.as_completed(
             [
                 wait_for_pod_running(core_api, job_name, kubernetes_namespace, pod)

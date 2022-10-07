@@ -360,6 +360,11 @@ class Kubernetes(Host):
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
     reusable_pods: bool = False
+    pod_customization: Optional[
+        Callable[
+            [kubernetes_client.V1PodTemplateSpec], kubernetes_client.V1PodTemplateSpec
+        ]
+    ] = None
 
     def get_storage_endpoint_url_in_cluster(self) -> Optional[str]:
         if self.storage_endpoint_url_in_cluster is not None:
@@ -598,6 +603,7 @@ class Kubernetes(Host):
                             job.job_id,
                             1,
                             wait_for_result,
+                            self.pod_customization,
                         )
                     )
                 except asyncio.CancelledError:
@@ -925,6 +931,7 @@ class KubernetesGridJobDriver:
                     self._job_id,
                     self._num_concurrent_tasks,
                     wait_for_result,
+                    self._kubernetes.pod_customization,
                 )
 
                 # wait for all of the tasks to complete. If a worker fails, raise an
@@ -1227,6 +1234,12 @@ class KubernetesRemoteProcesses(abc.ABC):
         # of worker indexes if we want to be able to restart workers
         num_executions: int,
         wait_for_result: WaitOption,
+        pod_customization: Optional[
+            Callable[
+                [kubernetes_client.V1PodTemplateSpec],
+                kubernetes_client.V1PodTemplateSpec,
+            ]
+        ] = None,
     ) -> Task[Optional[Sequence[int]]]:
         """
         Assumes that the Job has already been uploaded to object storage.
@@ -1280,6 +1293,12 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
         job_id: str,
         num_executions: int,
         wait_for_result: WaitOption,
+        pod_customization: Optional[
+            Callable[
+                [kubernetes_client.V1PodTemplateSpec],
+                kubernetes_client.V1PodTemplateSpec,
+            ]
+        ] = None,
     ) -> Task[Optional[Sequence[int]]]:
         command = [
             "python",
@@ -1308,6 +1327,7 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
                 ports,
                 resources,
                 wait_for_result,
+                pod_customization,
             )
         )
 
@@ -1342,6 +1362,12 @@ async def _run_kubernetes_job(
     ports: List[int],
     resources: Optional[ResourcesInternal],
     wait_for_result: WaitOption,
+    pod_customization: Optional[
+        Callable[
+            [kubernetes_client.V1PodTemplateSpec],
+            kubernetes_client.V1PodTemplateSpec,
+        ]
+    ] = None,
 ) -> Sequence[int]:
     """
     Runs the specified job on Kubernetes, waits for it to complete, and returns the exit
@@ -1384,6 +1410,23 @@ async def _run_kubernetes_job(
         additional_pod_spec_parameters = {}
 
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
+    pod_template_spec = kubernetes_client.V1PodTemplateSpec(
+        spec=kubernetes_client.V1PodSpec(
+            containers=[
+                kubernetes_client.V1Container(
+                    name="main",
+                    image=image,
+                    args=args,
+                    env=environment,
+                    **_get_additional_container_parameters(ports, resources),
+                )
+            ],
+            restart_policy="Never",
+            **additional_pod_spec_parameters,
+        )
+    )
+    if pod_customization:
+        pod_template_spec = pod_customization(pod_template_spec)
     body = kubernetes_client.V1Job(
         metadata=kubernetes_client.V1ObjectMeta(name=job_id),
         spec=kubernetes_client.V1JobSpec(
@@ -1391,21 +1434,7 @@ async def _run_kubernetes_job(
             # controller is not available
             ttl_seconds_after_finished=10,
             backoff_limit=0,
-            template=kubernetes_client.V1PodTemplateSpec(
-                spec=kubernetes_client.V1PodSpec(
-                    containers=[
-                        kubernetes_client.V1Container(
-                            name="main",
-                            image=image,
-                            args=args,
-                            env=environment,
-                            **_get_additional_container_parameters(ports, resources),
-                        )
-                    ],
-                    restart_policy="Never",
-                    **additional_pod_spec_parameters,
-                )
-            ),
+            template=pod_template_spec,
             **additional_job_spec_parameters,
         ),
     )
@@ -1471,6 +1500,12 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
         job_id: str,
         num_executions: int,
         wait_for_result: WaitOption,
+        pod_customization: Optional[
+            Callable[
+                [kubernetes_client.V1PodTemplateSpec],
+                kubernetes_client.V1PodTemplateSpec,
+            ]
+        ] = None,
     ) -> Task[Optional[Sequence[int]]]:
 
         # TODO it's possible that a job will run more than once on the same container,
@@ -1501,6 +1536,7 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
             core_api,
             batch_api,
             storage_username_password_secret,
+            pod_customization,
         ):
 
             for pod in pods:
@@ -1600,6 +1636,12 @@ async def _get_meadowrun_reusable_pods(
     core_api: kubernetes_client.CoreV1Api,
     batch_api: kubernetes_client.BatchV1Api,
     storage_username_password_secret: Optional[str],
+    pod_customization: Optional[
+        Callable[
+            [kubernetes_client.V1PodTemplateSpec],
+            kubernetes_client.V1PodTemplateSpec,
+        ]
+    ],
 ) -> AsyncIterable[List[kubernetes_client.V1Pod]]:
 
     # some potential confusion between different images, would it be better to hash
@@ -1675,43 +1717,46 @@ async def _get_meadowrun_reusable_pods(
             "import runpy,site;runpy.run_path(site.getsitepackages()[0]"
             '+"/meadowrun/k8s_integration/is_job_running.py",run_name="__main__")'
         )
+        pod_template_spec = kubernetes_client.V1PodTemplateSpec(
+            metadata=kubernetes_client.V1ObjectMeta(
+                labels={"meadowrun.io/image-name": image_name_label}
+            ),
+            spec=kubernetes_client.V1PodSpec(
+                containers=[
+                    kubernetes_client.V1Container(
+                        name="main",
+                        image=image_name,
+                        args=[
+                            "python",
+                            "-m",
+                            "meadowrun.k8s_integration.k8s_main",
+                        ],
+                        env=environment,
+                        readiness_probe=kubernetes_client.V1Probe(
+                            _exec=kubernetes_client.V1ExecAction(
+                                command=["python", "-c", is_job_running_command]
+                            ),
+                            initial_delay_seconds=15,
+                            period_seconds=15,
+                            timeout_seconds=5,
+                            failure_threshold=1,
+                            success_threshold=1,
+                        ),
+                        **additional_container_parameters,
+                    )
+                ],
+                restart_policy="Never",
+                **additional_pod_spec_parameters,
+            ),
+        )
+        if pod_customization:
+            pod_template_spec = pod_customization(pod_template_spec)
         body = kubernetes_client.V1Job(
             metadata=kubernetes_client.V1ObjectMeta(name=job_name),
             spec=kubernetes_client.V1JobSpec(
                 ttl_seconds_after_finished=10,
                 backoff_limit=0,
-                template=kubernetes_client.V1PodTemplateSpec(
-                    metadata=kubernetes_client.V1ObjectMeta(
-                        labels={"meadowrun.io/image-name": image_name_label}
-                    ),
-                    spec=kubernetes_client.V1PodSpec(
-                        containers=[
-                            kubernetes_client.V1Container(
-                                name="main",
-                                image=image_name,
-                                args=[
-                                    "python",
-                                    "-m",
-                                    "meadowrun.k8s_integration.k8s_main",
-                                ],
-                                env=environment,
-                                readiness_probe=kubernetes_client.V1Probe(
-                                    _exec=kubernetes_client.V1ExecAction(
-                                        command=["python", "-c", is_job_running_command]
-                                    ),
-                                    initial_delay_seconds=15,
-                                    period_seconds=15,
-                                    timeout_seconds=5,
-                                    failure_threshold=1,
-                                    success_threshold=1,
-                                ),
-                                **additional_container_parameters,
-                            )
-                        ],
-                        restart_policy="Never",
-                        **additional_pod_spec_parameters,
-                    ),
-                ),
+                template=pod_template_spec,
                 completion_mode="Indexed",
                 completions=remaining_pods_to_launch,
                 parallelism=remaining_pods_to_launch,

@@ -39,6 +39,11 @@ RUN if [[ -n "$APT_PACKAGES" ]]; then \
 # See PipDockerfile for comments
 RUN git config --global --add safe.directory '*'; exit 0
 
+ARG ENVIRONMENT_PREREQUISITES
+RUN if [[ -n "$ENVIRONMENT_PREREQUISITES" ]]; then \
+    /root/.local/bin/poetry self add $ENVIRONMENT_PREREQUISITES \
+    ; fi
+
 WORKDIR /tmp/
 COPY pyproject.toml ./
 COPY poetry.lock ./

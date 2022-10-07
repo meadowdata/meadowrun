@@ -1,13 +1,27 @@
 # This is meant to turn a conda environment.yml file into a container. To be used like:
-# docker build -t image_name:tag --build-arg ENV_FILE=myenv.yml --build-arg CONDA_IMAGE=continuumio/miniconda3 -f src/meadowrun/docker_files/CondaDockerfile .
+# docker build -t image_name:tag --build-arg ENV_FILE=myenv.yml --build-arg CONDA_IMAGE=continuumio/miniconda3 --build-arg APT_PACKAGES="git libgl1" -f src/meadowrun/docker_files/CondaDockerfile .
 # This assumes that ./myenv.yml exists and defines the environment
 
 ARG CONDA_IMAGE
 
 FROM $CONDA_IMAGE
 
+SHELL ["/bin/bash", "-c"]
+
 ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG APT_PACKAGES
+RUN if [[ -n "$APT_PACKAGES" ]]; then \
+    apt update && \
+    apt install -y $APT_PACKAGES && \
+    rm -rf /var/lib/apt \
+    ; fi
+
+# See PipAptDockerfile for comments
+RUN git config --global --add safe.directory '*'; exit 0
 
 WORKDIR /tmp/
 

@@ -1,16 +1,22 @@
 # This is meant to turn pyproject.toml/poetry.lock files into a container. To be used like:
-# docker build -t image_name:tag --build-arg PYTHON_IMAGE=python:3.10-slim-bullseye -f src/meadowrun/docker_files/PoetryDockerfile .
+# docker build -t image_name:tag --build-arg PYTHON_IMAGE=python:3.10-slim-bullseye --build-arg APT_PACKAGES="git libgl1" -f src/meadowrun/docker_files/PoetryDockerfile .
 # This assumes that ./pyproject.toml and ./poetry.lock exist
+
+# See PoetryDockerfile and PipGitDockerfile for comments
 
 ARG PYTHON_IMAGE
 
 FROM $PYTHON_IMAGE
 
+SHELL ["/bin/bash", "-c"]
+
 ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore
 
 # - curl/wget isn't available, but we can just use python
-# - TODO ideally we (or someone) would pre-build a bunch of versions python with poetry already installed
+# - TODO ideally we (or someone) would pre-build a bunch of versions python with poetry
+#   already installed
 # - When we actually run jobs, we will copy code for those jobs into paths like
 #   /meadowrun/code0 and we'll want to run with the working directory as one of those
 #   directories. But we're putting the pyproject.toml/project.lock files in /tmp and
@@ -20,9 +26,18 @@ ENV PIP_NO_CACHE_DIR=1 \
 #   something like https://github.com/python-poetry/poetry/issues/2179 gets implemented
 RUN python -c 'import urllib.request; urllib.request.urlretrieve("https://install.python-poetry.org", "poetry_install.py")' && \
     python poetry_install.py && \
-    rm poetry_install.py && \
     /root/.local/bin/poetry config virtualenvs.in-project true
 
+ARG DEBIAN_FRONTEND=noninteractive
+ARG APT_PACKAGES
+RUN if [[ -n "$APT_PACKAGES" ]]; then \
+    apt update && \
+    apt install -y $APT_PACKAGES && \
+    rm -rf /var/lib/apt \
+    ; fi
+
+# See PipDockerfile for comments
+RUN git config --global --add safe.directory '*'; exit 0
 
 WORKDIR /tmp/
 COPY pyproject.toml ./

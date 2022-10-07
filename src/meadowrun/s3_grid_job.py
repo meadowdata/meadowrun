@@ -262,7 +262,7 @@ async def receive_results(
                 if wait == 0:
                     wait = 1
                 else:
-                    wait = min(wait * 2, receive_message_wait_seconds)
+                    wait = min(wait + 1, receive_message_wait_seconds)
             else:
                 wait = 0
                 task_results = []

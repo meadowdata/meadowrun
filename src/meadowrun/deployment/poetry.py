@@ -10,6 +10,10 @@ import filelock
 
 from meadowrun.shared import remove_corrupted_environment
 from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
+from meadowrun.deployment.prerequisites import (
+    EnvironmentSpecPrerequisites,
+    GOOGLE_AUTH_PACKAGE,
+)
 
 _POETRY_ENVIRONMENT_TIMEOUT = 10 * 60
 
@@ -17,6 +21,7 @@ _POETRY_ENVIRONMENT_TIMEOUT = 10 * 60
 async def get_cached_or_create_poetry_environment(
     environment_hash: str,
     project_file_path: str,
+    prerequisites: EnvironmentSpecPrerequisites,
     new_environment_path: str,
     try_get_file: Callable[[str, str], Awaitable[bool]],
     upload_file: Callable[[str, str], Awaitable[None]],
@@ -80,7 +85,9 @@ async def get_cached_or_create_poetry_environment(
 
         print("Creating the poetry environment")
         try:
-            await create_poetry_environment(project_file_path, new_environment_path)
+            await create_poetry_environment(
+                project_file_path, new_environment_path, prerequisites
+            )
         except BaseException:
             remove_corrupted_environment(new_environment_path)
             raise
@@ -103,8 +110,15 @@ async def get_cached_or_create_poetry_environment(
         return new_environment_interpreter
 
 
+# this path depends on the poetry installation script, we have to hope that this never
+# changes
+_POETRY_PATH = "/root/.local/bin/poetry"
+
+
 async def create_poetry_environment(
-    project_file_path: str, new_environment_path: str
+    project_file_path: str,
+    new_environment_path: str,
+    prerequisites: EnvironmentSpecPrerequisites,
 ) -> None:
     os.makedirs(new_environment_path, exist_ok=True)
 
@@ -114,11 +128,26 @@ async def create_poetry_environment(
             os.path.join(new_environment_path, file),
         )
 
+    if prerequisites & EnvironmentSpecPrerequisites.GOOGLE_AUTH:
+        return_code = await (
+            await asyncio.create_subprocess_exec(
+                _POETRY_PATH,
+                "self",
+                "add",
+                GOOGLE_AUTH_PACKAGE,
+            )
+        ).wait()
+        if return_code != 0:
+            raise ValueError(
+                "poetry environment prerequisites installation failed with return code "
+                f"{return_code}"
+            )
+
     # this code is roughly equivalent to the code in PoetryDockerfile and
-    # PoetryAptDockerfile
+    # PoetryDockerfile
     return_code = await (
         await asyncio.create_subprocess_exec(
-            "/root/.local/bin/poetry", "install", "--no-root", cwd=new_environment_path
+            _POETRY_PATH, "install", "--no-root", cwd=new_environment_path
         )
     ).wait()
     if return_code != 0:

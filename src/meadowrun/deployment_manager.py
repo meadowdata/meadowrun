@@ -63,6 +63,10 @@ from meadowrun.s3_grid_job import (
 )
 from meadowrun.func_worker_storage_helper import FuncWorkerClientObjectStorage
 import meadowrun.func_worker_storage_helper
+from meadowrun.deployment.prerequisites import (
+    EnvironmentSpecPrerequisites,
+    GOOGLE_AUTH_PACKAGE,
+)
 
 _GIT_REPO_URL_SUFFIXES_TO_REMOVE = [".git", "/"]
 
@@ -308,7 +312,7 @@ async def compile_environment_spec_to_container(
     TODO we should also consider creating conda environments locally rather than always
     making a container for them, that might be more efficient.
     """
-    path_to_spec, spec_hash, has_git_dependency = _get_path_and_hash(
+    path_to_spec, spec_hash, prerequisites = _get_path_and_hash(
         environment_spec, interpreter_spec_path
     )
 
@@ -361,10 +365,12 @@ async def compile_environment_spec_to_container(
     apt_packages = [
         p for p in environment_spec.additional_software.keys() if p != "cuda"
     ]
-    if has_git_dependency:
+    if prerequisites & EnvironmentSpecPrerequisites.GIT:
         apt_packages.append("git")
     if apt_packages:
         build_args["APT_PACKAGES"] = " ".join(apt_packages)
+    if prerequisites & EnvironmentSpecPrerequisites.GOOGLE_AUTH:
+        build_args["ENVIRONMENT_PREREQUISITES"] = GOOGLE_AUTH_PACKAGE
 
     if environment_spec.environment_type == EnvironmentType.CONDA:
         docker_file_name = "CondaDockerfile"
@@ -439,7 +445,7 @@ async def compile_environment_spec_locally(
     """
     Turns e.g. a conda_environment.yml file into a locally available python interpreter
     """
-    path_to_spec, spec_hash, has_git_dependency = _get_path_and_hash(
+    path_to_spec, spec_hash, prerequisites = _get_path_and_hash(
         environment_spec, interpreter_spec_path
     )
     # we don't have to worry about has_git_dependency as we assume we always have git
@@ -458,6 +464,7 @@ async def compile_environment_spec_locally(
             [
                 str,
                 str,
+                EnvironmentSpecPrerequisites,
                 str,
                 Callable[[str, str], Awaitable[bool]],
                 Callable[[str, str], Awaitable[None]],
@@ -477,6 +484,7 @@ async def compile_environment_spec_locally(
         interpreter_path=await get_cached_or_create(
             spec_hash,
             path_to_spec,
+            prerequisites,
             os.path.join(built_interpreters_folder, spec_hash),
             # TODO this isn't the right way to do this--these try_get_storage_file and
             # write_storage file functions should be getting passed in from higher up.
@@ -516,7 +524,7 @@ def _format_additional_software(additional_software: Mapping[str, str]) -> str:
 def _get_path_and_hash(
     environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
     interpreter_spec_path: str,
-) -> Tuple[str, str, bool]:
+) -> Tuple[str, str, EnvironmentSpecPrerequisites]:
     """
     Returns path_to_spec, spec_hash, has_git_dependency. spec_hash is a hash that
     uniquely identifies the environment. path_to_spec is used slightly differently for
@@ -545,7 +553,7 @@ def _get_path_and_hash(
                     environment_spec.additional_software
                 ).encode("utf-8")
             ),
-            _has_git_dependency(
+            _get_environment_spec_prerequisites(
                 spec_contents_bytes.decode("utf-8"), environment_spec.environment_type
             ),
         )
@@ -597,7 +605,9 @@ def _get_path_and_hash(
         return (
             path_to_spec,
             spec_hash,
-            _has_git_dependency(spec_contents_str, environment_spec.environment_type),
+            _get_environment_spec_prerequisites(
+                spec_contents_str, environment_spec.environment_type
+            ),
         )
     else:
         raise ValueError(
@@ -605,9 +615,11 @@ def _get_path_and_hash(
         )
 
 
-def _has_git_dependency(
+def _get_environment_spec_prerequisites(
     spec_contents: str, environment_type: EnvironmentType.ValueType
-) -> bool:
+) -> EnvironmentSpecPrerequisites:
+    result = EnvironmentSpecPrerequisites.NONE
+
     if (
         environment_type == EnvironmentType.PIP
         or environment_type == EnvironmentType.CONDA
@@ -615,10 +627,20 @@ def _has_git_dependency(
         # example line resulting from pip freeze:
         # package @ git+https://github.com/name/repo.git@sha
         # Conda can have git-based dependencies via pip
-        return "git+" in spec_contents
+        if "git+" in spec_contents:
+            result |= EnvironmentSpecPrerequisites.GIT
+
+        if "-python.pkg.dev" in spec_contents:
+            # TODO this could be more sophisticated, e.g. if they've already supplied a
+            # username/password, if they're not running on GCP, then we shouldn't set
+            # this flag
+            result |= EnvironmentSpecPrerequisites.GOOGLE_AUTH
     elif environment_type == EnvironmentType.POETRY:
-        return any(
-            line.startswith('type = "git"') for line in spec_contents.splitlines()
-        )
-    else:
-        return False
+        for line in spec_contents.splitlines():
+            if line.startswith('type = "git"'):
+                result |= EnvironmentSpecPrerequisites.GIT
+            elif line.startswith("url = ") and "-python.pkg.dev" in line:
+                result |= EnvironmentSpecPrerequisites.GOOGLE_AUTH
+            # TODO break early if we've found everything?
+
+    return result

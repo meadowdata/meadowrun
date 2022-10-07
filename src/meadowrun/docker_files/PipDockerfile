@@ -33,6 +33,11 @@ RUN git config --global --add safe.directory '*'; exit 0
 
 WORKDIR /tmp/
 
+ARG ENVIRONMENT_PREREQUISITES
+RUN if [[ -n "$ENVIRONMENT_PREREQUISITES" ]]; then \
+    python -m pip install $ENVIRONMENT_PREREQUISITES \
+    ; fi
+
 ARG ENV_FILE
 
 COPY $ENV_FILE ./

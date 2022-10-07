@@ -74,33 +74,31 @@ def _get_remote_function_for_deployment() -> Callable[[], str]:
     return remote_function
 
 
-async def manual_test_pip() -> None:
+async def manual_test_pip_google_repository() -> None:
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),
         deployment=meadowrun.Deployment.git_repo(
-            repo_url="https://github.com/hrichardlee/test_repo",
-            branch="add-google-repository",
+            repo_url="https://github.com/meadowdata/test_repo",
             path_to_source="example_package",
             interpreter=meadowrun.PipRequirementsFile(
-                "requirements_google_artifact.txt", "3.9"
+                "requirements_with_google_repository.txt", "3.9"
             ),
         ),
     )
-    # the version number will keep changing, but we know it will be > 2.28.0
     assert results == "Hello from py_simple_package!"
 
 
-async def manual_test_poetry() -> None:
+async def manual_test_poetry_google_repository() -> None:
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),
         deployment=meadowrun.Deployment.git_repo(
-            repo_url="https://github.com/hrichardlee/test_repo",
-            branch="add-google-repository",
+            repo_url="https://github.com/meadowdata/test_repo",
             path_to_source="example_package",
-            interpreter=meadowrun.PoetryProjectPath("poetry_google_artifact", "3.9"),
+            interpreter=meadowrun.PoetryProjectPath(
+                "poetry_with_google_repository", "3.9"
+            ),
         ),
     )
-    # the version number will keep changing, but we know it will be > 2.28.0
     assert results == "Hello from py_simple_package!"

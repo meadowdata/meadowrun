@@ -8,6 +8,10 @@ from typing import Callable, Awaitable, Optional
 import filelock
 
 from meadowrun.shared import remove_corrupted_environment
+from meadowrun.deployment.prerequisites import (
+    EnvironmentSpecPrerequisites,
+    GOOGLE_AUTH_PACKAGE,
+)
 from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
 
 
@@ -73,6 +77,7 @@ _PIP_ENVIRONMENT_TIMEOUT = 10 * 60
 async def get_cached_or_create_pip_environment(
     environment_hash: str,
     requirements_file_path: str,
+    prerequisites: EnvironmentSpecPrerequisites,
     new_environment_path: str,
     try_get_file: Callable[[str, str], Awaitable[bool]],
     upload_file: Callable[[str, str], Awaitable[None]],
@@ -135,7 +140,9 @@ async def get_cached_or_create_pip_environment(
 
         print("Creating the pip environment")
         try:
-            await create_pip_environment(requirements_file_path, new_environment_path)
+            await create_pip_environment(
+                requirements_file_path, new_environment_path, prerequisites
+            )
         except BaseException:
             remove_corrupted_environment(new_environment_path)
             raise
@@ -158,7 +165,9 @@ async def get_cached_or_create_pip_environment(
 
 
 async def create_pip_environment(
-    requirements_file_path: str, new_environment_path: str
+    requirements_file_path: str,
+    new_environment_path: str,
+    prerequisites: EnvironmentSpecPrerequisites,
 ) -> None:
     """
     Creates a pip environment in new_environment_path. requirements_file_path should
@@ -166,7 +175,7 @@ async def create_pip_environment(
 
     There should usually be a filelock around this function.
     """
-    # this code is roughly equivalent to the code in PipDockerfile and PipAptDockerfile
+    # this code is roughly equivalent to the code in PipDockerfile and PipDockerfile
     return_code = await (
         await asyncio.create_subprocess_exec(
             "python", "-m", "venv", new_environment_path
@@ -178,15 +187,34 @@ async def create_pip_environment(
             f"{return_code}"
         )
 
+    disable_pip_version_check = {"PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+    pip_install = [
+        os.path.join(new_environment_path, "bin", "python"),
+        "-m",
+        "pip",
+        "install",
+    ]
+
+    if prerequisites & EnvironmentSpecPrerequisites.GOOGLE_AUTH:
+        return_code = await (
+            await asyncio.create_subprocess_exec(
+                *pip_install,
+                GOOGLE_AUTH_PACKAGE,
+                env=disable_pip_version_check,
+            )
+        ).wait()
+        if return_code != 0:
+            raise ValueError(
+                f"Installing pre-requirements for {requirements_file_path} in "
+                f"{new_environment_path} failed with return code {return_code}"
+            )
+
     return_code = await (
         await asyncio.create_subprocess_exec(
-            os.path.join(new_environment_path, "bin", "python"),
-            "-m",
-            "pip",
-            "install",
+            *pip_install,
             "-r",
             requirements_file_path,
-            env={"PIP_DISABLE_PIP_VERSION_CHECK": "1"},
+            env=disable_pip_version_check,
         )
     ).wait()
     if return_code != 0:

@@ -230,8 +230,9 @@ async def wait_for_pod_running(
     # would change.
 
     seconds_waited = 0
-    wait_until = _WAIT_FOR_POD_RUNNING_OTHER_SECS
     prev_additional_info = None
+    prev_pod_state = PodState.OTHER_HAS_NOT_RUN
+    wait_until = _WAIT_FOR_POD_RUNNING_OTHER_SECS
     pod_state, additional_info = _get_pod_state(pod, job_id)
     while pod_state != PodState.STARTED_RUNNING:
         if additional_info != prev_additional_info:
@@ -240,10 +241,16 @@ async def wait_for_pod_running(
 
         await asyncio.sleep(1.0)  # this is the polling interval
         seconds_waited += 1
-        if pod_state == PodState.PULLING_IMAGE:
-            wait_until = max(wait_until, _WAIT_FOR_POD_PULLING_IMAGE_SECS)
-        elif pod_state == PodState.UNSCHEDULABLE:
-            wait_until = max(wait_until, _WAIT_FOR_POD_UNSCHEDULABLE_SECS)
+        if pod_state != prev_pod_state:
+            # every time we "change state", extend/shorten how much time we will wait
+            # based on the new state
+            prev_pod_state = prev_pod_state
+            if pod_state == PodState.PULLING_IMAGE:
+                wait_until = seconds_waited + _WAIT_FOR_POD_PULLING_IMAGE_SECS
+            elif pod_state == PodState.UNSCHEDULABLE:
+                wait_until = seconds_waited + _WAIT_FOR_POD_UNSCHEDULABLE_SECS
+            else:
+                wait_until = seconds_waited + _WAIT_FOR_POD_RUNNING_OTHER_SECS
 
         if seconds_waited > wait_until:
             raise TimeoutError(

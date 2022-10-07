@@ -258,7 +258,7 @@ async def _get_git_code_paths(
             shutil.copytree(local_path, local_copy_path)
 
         # TODO raise a friendlier exception if this path doesn't exist
-        source_path = os.path.join(local_copy_path, path_to_source)
+        source_path = os.path.realpath((os.path.join(local_copy_path, path_to_source)))
         return ([source_path], local_copy_path, local_copy_path)
 
 

@@ -1190,20 +1190,17 @@ def _completed_job_state(
 
 def _set_up_working_folder() -> Tuple[str, str, str, str, str]:
     """
-    Sets the working_folder to a default if it's not set, creates the necessary
-    subfolders, gets a machine-wide lock on the working folder, then returns io_folder,
-    job_logs_folder, git_repos_folder, local_copies_folder
+    Returns conventional io, job_logs, git_repos, local_copies, and misc path names.
+    It's assumed that these paths already exist.
     """
 
     working_folder = "/var/meadowrun"
-
-    # first, create the directories that we need
 
     # this holds files for transferring data to and from this server process and the
     # child processes
     io_folder = os.path.join(working_folder, "io")
     # holds the logs for the functions/commands that this server runs
-    job_logs_folder = "/var/meadowrun/job_logs"
+    job_logs_folder = os.path.join(working_folder, "job_logs")
     # see CodeDeploymentManager
     git_repos_folder = os.path.join(working_folder, "git_repos")
     # see CodeDeploymentManager

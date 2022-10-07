@@ -367,10 +367,7 @@ async def compile_environment_spec_to_container(
         build_args["APT_PACKAGES"] = " ".join(apt_packages)
 
     if environment_spec.environment_type == EnvironmentType.CONDA:
-        if apt_packages:
-            docker_file_name = "CondaAptDockerfile"
-        else:
-            docker_file_name = "CondaDockerfile"
+        docker_file_name = "CondaDockerfile"
         spec_filename = os.path.basename(path_to_spec)
         build_args["ENV_FILE"] = spec_filename
         files_to_copy.append((path_to_spec, spec_filename))
@@ -393,18 +390,12 @@ async def compile_environment_spec_to_container(
             ] = f"python:{environment_spec.python_version}-slim-bullseye"
 
         if environment_spec.environment_type == EnvironmentType.PIP:
-            if apt_packages:
-                docker_file_name = "PipAptDockerfile"
-            else:
-                docker_file_name = "PipDockerfile"
+            docker_file_name = "PipDockerfile"
             spec_filename = os.path.basename(path_to_spec)
             files_to_copy.append((path_to_spec, spec_filename))
             build_args["ENV_FILE"] = spec_filename
         elif environment_spec.environment_type == EnvironmentType.POETRY:
-            if apt_packages:
-                docker_file_name = "PoetryAptDockerfile"
-            else:
-                docker_file_name = "PoetryDockerfile"
+            docker_file_name = "PoetryDockerfile"
             files_to_copy.append(
                 (os.path.join(path_to_spec, "pyproject.toml"), "pyproject.toml")
             )

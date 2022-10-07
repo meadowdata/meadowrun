@@ -1,13 +1,35 @@
 # This is meant to turn a pip requirements.txt file into a container. To be used like:
-# docker build -t image_name:tag --build-arg ENV_FILE=requirements.txt --build-arg PYTHON_IMAGE=python:3.10-slim-bullseye -f src/meadowrun/docker_files/PipDockerfile .
+# docker build -t image_name:tag --build-arg ENV_FILE=requirements.txt --build-arg PYTHON_IMAGE=python:3.10-slim-bullseye --build-arg APT_PACKAGES="git libgl1" -f src/meadowrun/docker_files/PipDockerfile .
 # This assumes that ./requirements.txt exists and defines the environment
 
 ARG PYTHON_IMAGE
 
 FROM $PYTHON_IMAGE
 
+SHELL ["/bin/bash", "-c"]
+
 ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore
+
+# Some packages like tzinfo expect the user to interact with the install process,
+# setting this environment variable avoids the interaction
+ARG DEBIAN_FRONTEND=noninteractive
+ARG APT_PACKAGES
+RUN if [[ -n "$APT_PACKAGES" ]]; then \
+    apt update && \
+    apt install -y $APT_PACKAGES && \
+    rm -rf /var/lib/apt \
+    ; fi
+
+# TODO This safe.directory setting is a pretty hacky. First of all, we hide any errors
+# because we don't know if APT_PACKAGES includes git or not. We need to run this in case
+# git does get installed because some code (e.g. the wandb module) calls git (which
+# should be added to additional_software instead of implicitly being included because
+# there's a git-based dependency in the requirements.txt file) in the /meadowrun/code0
+# directory. Without this setting, that would fail with a "detected dubious ownership in
+# repository" error, even though this isn't actually a git repository
+RUN git config --global --add safe.directory '*'; exit 0
 
 WORKDIR /tmp/
 

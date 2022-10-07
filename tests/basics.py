@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import os
+import subprocess
 import sys
 from typing import TYPE_CHECKING, Callable, List, Tuple, Union
 
@@ -210,6 +211,27 @@ class BasicsSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
+    async def test_conda_file_in_git_repo_with_apt_dependency(self) -> None:
+        def remote_function() -> int:
+            return subprocess.run(["curl", "--help"]).returncode
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=CondaEnvironmentYmlFile(
+                    "myenv.yml", additional_software=["curl"]
+                ),
+            ),
+        )
+        assert results == 0
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
     async def test_pip_file_in_git_repo(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
@@ -248,6 +270,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         def remote_function() -> str:
             import importlib
 
+            # cv2 will only work correctly if libgl1 and libglib2.0-0 are installed
             cv2 = importlib.import_module("cv2")
             return cv2.__version__
 
@@ -351,6 +374,24 @@ class BasicsSuite(HostProvider, abc.ABC):
         assert [int(part) for part in results[0].split(".")] > [2, 28, 0]
         print(results)
         assert results[1:] == ("1.4.3", "a, b")
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_poetry_project_in_git_repo_with_apt_dependency(self) -> None:
+        def remote_function() -> int:
+            return subprocess.run(["curl", "--help"]).returncode
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                path_to_source="example_package",
+                interpreter=PoetryProjectPath("", "3.9", additional_software=["curl"]),
+            ),
+        )
+        assert results == 0
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio

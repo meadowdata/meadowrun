@@ -538,12 +538,21 @@ class TaskResult(Generic[_T]):
     @staticmethod
     def from_process_state(task: TaskProcessState) -> TaskResult:
         if task.result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            # TODO try/catch on pickle.loads?
+
+            def _safe_pickle_loads(pickled: bytes) -> Any:
+                try:
+                    return pickle.loads(pickled)
+                except:  # noqa: E722
+                    return (
+                        "Task was successfully executed, but pickle.loads of result "
+                        f"failed. Error: {traceback.format_exc()}"
+                    )
+
             return TaskResult(
                 task.task_id,
                 is_success=True,
                 state=ProcessState.ProcessStateEnum.Name(task.result.state),
-                result=pickle.loads(task.result.pickled_result),
+                result=_safe_pickle_loads(task.result.pickled_result),
                 attempt=task.attempt,
                 log_file_name=task.result.log_file_name,
             )

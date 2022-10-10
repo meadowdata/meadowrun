@@ -100,7 +100,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-0349ef9d9837e8d22",
+        "us-east-2": "ami-08f51d17f4ee0508a",
         "us-east-1": "ami-04e6314b2f5d04d72",
         "us-west-1": "ami-0f58f85636c629179",
         "us-west-2": "ami-01102db1f2f623e36",

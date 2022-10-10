@@ -14,9 +14,14 @@ from typing import Any, Callable
 
 
 async def send_message(
-    writer: asyncio.StreamWriter, msg: Any, pickle_protocol: int
+    writer: asyncio.StreamWriter, state: str, result: Any, pickle_protocol: int
 ) -> None:
-    msg_bs = pickle.dumps(msg, protocol=pickle_protocol)
+    # it's important here that the result is pickled separately. If not, the agent's
+    # receive_message will unpickle result. This is not only unnecessary, but also
+    # potentially doesn't work because the agent doesn't run in the worker's
+    # environment.
+    result_bs = pickle.dumps(result, protocol=pickle_protocol)
+    msg_bs = pickle.dumps((state, result_bs), protocol=pickle_protocol)
     msg_len = struct.pack(">i", len(msg_bs))
     writer.write(msg_len)
     writer.write(msg_bs)
@@ -59,12 +64,13 @@ async def do_tasks(
                 tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
                 await send_message(
                     writer,
-                    ("PYTHON_EXCEPTION", (str(type(e)), str(e), tb)),
+                    "PYTHON_EXCEPTION",
+                    (str(type(e)), str(e), tb),
                     pickle_protocol,
                 )
             else:
                 # send back results
-                await send_message(writer, ("SUCCEEDED", result), pickle_protocol)
+                await send_message(writer, "SUCCEEDED", result, pickle_protocol)
     finally:
         # close connection
         writer.close()

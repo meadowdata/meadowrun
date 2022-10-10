@@ -3,7 +3,6 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import pickle
 import time
 import traceback
 from typing import (
@@ -281,7 +280,7 @@ async def _worker_iteration(
             if state == "SUCCEEDED"
             else ProcessState.ProcessStateEnum.PYTHON_EXCEPTION,
             pid=pid,
-            pickled_result=pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL),
+            pickled_result=result,
             return_code=0,
             log_file_name=log_file_name,
             max_memory_used_gb=stats.max_memory_used_gb,

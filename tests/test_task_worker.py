@@ -71,11 +71,11 @@ async def send_receive(agent_server: TaskWorkerServer) -> None:
     for msg, expected_state, expected_result in messages:
 
         await agent_server.send_message(pickle.dumps(msg))
-        result = await agent_server.receive_message()
+        actual_state, actual_result_bs = await agent_server.receive_message()
 
-        assert expected_state == result[0]
+        assert expected_state == actual_state
         if expected_result is not None:
-            assert expected_result == result[1]
+            assert expected_result == pickle.loads(actual_result_bs)
 
 
 @pytest.mark.asyncio
@@ -90,6 +90,29 @@ async def test_call_process(
     ) as (monitor, io_path):
         await _check_start(agent_server, monitor, io_path)
         assert monitor.pid is not None
+
+
+@pytest.mark.asyncio
+async def test_process_does_not_unpickle_result(
+    agent_server: TaskWorkerServer,
+    task_worker_process_monitor: Callable[
+        [str, str], AsyncContextManager[Tuple[WorkerProcessMonitor, Path]]
+    ],
+) -> None:
+    # This test checks that the task worker sends the state and result in such
+    # a way that receive_message does NOT unpickle the result. See comment
+    # on __meadowrun_task_worker.send_message for reasons.
+    async with task_worker_process_monitor("example_package.example", "the_same"):
+        await agent_server.wait_for_task_worker_connection(timeout=2)
+
+        arg = {"a": 3, "b": 3.12}
+        args: Tuple = ((arg,), {})
+        await agent_server.send_message(pickle.dumps(args))
+        actual_state, actual_result = await agent_server.receive_message()
+        assert actual_state == "SUCCEEDED"
+        assert isinstance(actual_result, bytes)
+        res = pickle.loads(actual_result)
+        assert arg == res
 
 
 async def _check_start(

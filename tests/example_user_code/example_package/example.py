@@ -29,3 +29,7 @@ def tetration(x: float) -> float:
 
 def crash(_: Any) -> None:
     sys.exit(123)
+
+
+def the_same(inp: Any) -> Any:
+    return inp

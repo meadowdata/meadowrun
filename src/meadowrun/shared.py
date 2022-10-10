@@ -4,11 +4,17 @@ import asyncio
 import contextlib
 import pickle
 import shutil
+import sys
 import traceback
-import typing
-from typing import Optional, Tuple, TypeVar
+import zipfile
+from typing import Optional, Tuple, TypeVar, IO, AsyncIterator, TYPE_CHECKING
+
 
 from meadowrun.meadowrun_pb2 import ProcessState
+
+if TYPE_CHECKING:
+    from os import PathLike
+    from typing_extensions import Literal
 
 
 def pickle_exception(e: Exception, pickle_protocol: int) -> bytes:
@@ -59,7 +65,7 @@ def remove_corrupted_environment(path: str) -> None:
 
 
 @contextlib.asynccontextmanager
-async def none_async_context() -> typing.AsyncIterator:
+async def none_async_context() -> AsyncIterator:
     yield None
 
 
@@ -70,3 +76,20 @@ async def cancel_task(task: asyncio.Task) -> None:
         await task
     except asyncio.CancelledError:
         pass
+
+
+def create_zipfile(
+    file: str | PathLike[str] | IO[bytes],
+    mode: Literal["r", "w", "x", "a"],
+    compression: int,
+) -> zipfile.ZipFile:
+    """
+    Equivalent to zipfile.ZipFile(...) but passes strict_timestamps=False if that
+    parameter is available in the current version of python
+    """
+    if sys.version_info < (3, 8):
+        # strict_timestamps parameter was addded in 3.8:
+        # https://docs.python.org/3/library/zipfile.html#zipfile.ZipFile
+        return zipfile.ZipFile(file, mode, compression)
+    else:
+        return zipfile.ZipFile(file, mode, compression, strict_timestamps=False)

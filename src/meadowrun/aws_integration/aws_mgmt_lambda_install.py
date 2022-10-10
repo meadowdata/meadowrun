@@ -19,7 +19,7 @@ from meadowrun.aws_integration.aws_permissions_install import _MANAGEMENT_LAMBDA
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
 )
-
+from meadowrun.shared import create_zipfile
 
 _T = TypeVar("_T")
 
@@ -47,7 +47,7 @@ def _get_zipped_lambda_code(overrides: Dict[str, str]) -> bytes:
     )
 
     with io.BytesIO() as buffer:
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        with create_zipfile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for module_name in module_names:
                 if module_name == "config" and overrides:
                     with open(

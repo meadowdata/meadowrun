@@ -24,6 +24,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
     azure_rest_api_poll,
     wait_for_poll,
 )
+from meadowrun.shared import create_zipfile
 
 if TYPE_CHECKING:
     from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (  # noqa: E501
@@ -197,7 +198,7 @@ def _zip_azure_mgmt_function_code() -> bytes:
     first_root_len = None
 
     with io.BytesIO() as buffer:
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        with create_zipfile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(zip_path):
                 to_remove = [d for d in dirs if d in _IGNORE_FOR_ZIP]
                 for d in to_remove:

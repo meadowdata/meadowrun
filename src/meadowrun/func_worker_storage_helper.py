@@ -42,12 +42,12 @@ class FuncWorkerClientObjectStorage(ObjectStorage):
 
     async def __aexit__(
         self,
-        exc_typ: Type[BaseException],
-        exc_val: BaseException,
-        exc_tb: TracebackType,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
     ) -> None:
         if self.storage_client is not None:
-            await self.storage_client.__aexit__(exc_typ, exc_val, exc_tb)
+            await self.storage_client.__aexit__(exc_type, exc_val, exc_tb)
 
     @classmethod
     def get_url_scheme(cls) -> str:

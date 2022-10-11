@@ -98,9 +98,9 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
     @abc.abstractmethod
     async def __aexit__(
         self,
-        exc_typ: Type[BaseException],
-        exc_val: BaseException,
-        exc_tb: TracebackType,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
     ) -> None:
         pass
 

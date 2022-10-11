@@ -538,21 +538,29 @@ class TaskResult(Generic[_T]):
     @staticmethod
     def from_process_state(task: TaskProcessState) -> TaskResult:
         if task.result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-
-            def _safe_pickle_loads(pickled: bytes) -> Any:
-                try:
-                    return pickle.loads(pickled)
-                except:  # noqa: E722
-                    return (
-                        "Task was successfully executed, but pickle.loads of result "
-                        f"failed. Error: {traceback.format_exc()}"
-                    )
+            try:
+                unpickled_result = pickle.loads(task.result.pickled_result)
+            except asyncio.CancelledError:
+                raise
+            except BaseException as e:
+                # the task was successful but now the result cannot be unpickled. This
+                # is usually because there is a dependency available on the remote side
+                # that is not available locally.
+                return TaskResult(
+                    task.task_id,
+                    is_success=False,
+                    state="RESULT_CANNOT_BE_UNPICKLED",
+                    exception=(str(type(e)), str(e), traceback.format_exc()),
+                    result=task.result.pickled_result,
+                    attempt=task.attempt,
+                    log_file_name=task.result.log_file_name,
+                )
 
             return TaskResult(
                 task.task_id,
                 is_success=True,
                 state=ProcessState.ProcessStateEnum.Name(task.result.state),
-                result=_safe_pickle_loads(task.result.pickled_result),
+                result=unpickled_result,
                 attempt=task.attempt,
                 log_file_name=task.result.log_file_name,
             )
@@ -1194,7 +1202,10 @@ class GridJobDriver:
                     num_tasks_done += 1
                     arg_to_queue_index[task.task_id] = -1
                     yield task_result
-                elif task.attempt < max_num_task_attempts:
+                elif (
+                    task.attempt < max_num_task_attempts
+                    and task_result.state != "RESULT_CANNOT_BE_UNPICKLED"
+                ):
                     prev_queue_index = arg_to_queue_index[task.task_id]
                     prev_memory_requirement = _memory_gb_for_queue_index(
                         prev_queue_index, self._resources_required_per_task
@@ -1230,10 +1241,21 @@ class GridJobDriver:
                             task.task_id, task.attempt, prev_queue_index
                         )
                 else:
-                    print(
-                        f"Task {task.task_id} failed at attempt {task.attempt}, max "
-                        f"attempts is {max_num_task_attempts}, not retrying."
-                    )
+                    if (
+                        task.attempt < max_num_task_attempts
+                        and task_result.state == "RESULT_CANNOT_BE_UNPICKLED"
+                    ):
+                        print(
+                            f"Task {task.task_id} failed at attempt {task.attempt}, max"
+                            f" attempts is {max_num_task_attempts}, but not retrying "
+                            "because the failure happened when trying to unpickle the "
+                            "result on the client."
+                        )
+                    else:
+                        print(
+                            f"Task {task.task_id} failed at attempt {task.attempt}, max"
+                            f" attempts is {max_num_task_attempts}, not retrying."
+                        )
                     num_tasks_done += 1
                     arg_to_queue_index[task.task_id] = -1
                     yield task_result

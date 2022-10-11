@@ -10,18 +10,17 @@ import argparse  # available in python 3.2+
 import pickle
 import struct
 import traceback
-from typing import Any, Callable
+from typing import Callable
 
 
 async def send_message(
-    writer: asyncio.StreamWriter, state: str, result: Any, pickle_protocol: int
+    writer: asyncio.StreamWriter, state: str, result_bytes: bytes, pickle_protocol: int
 ) -> None:
     # it's important here that the result is pickled separately. If not, the agent's
     # receive_message will unpickle result. This is not only unnecessary, but also
     # potentially doesn't work because the agent doesn't run in the worker's
     # environment.
-    result_bs = pickle.dumps(result, protocol=pickle_protocol)
-    msg_bs = pickle.dumps((state, result_bs), protocol=pickle_protocol)
+    msg_bs = pickle.dumps((state, result_bytes), protocol=pickle_protocol)
     msg_len = struct.pack(">i", len(msg_bs))
     writer.write(msg_len)
     writer.write(msg_bs)
@@ -56,6 +55,7 @@ async def do_tasks(
                     function_args, function_kwargs = (), {}
                 # run the function
                 result = function(*(function_args or ()), **(function_kwargs or {}))
+                result_bytes = pickle.dumps(result, protocol=pickle_protocol)
             except Exception as e:
                 # first print the exception for the local log file
                 traceback.print_exc()
@@ -65,12 +65,12 @@ async def do_tasks(
                 await send_message(
                     writer,
                     "PYTHON_EXCEPTION",
-                    (str(type(e)), str(e), tb),
+                    pickle.dumps((str(type(e)), str(e), tb), protocol=pickle_protocol),
                     pickle_protocol,
                 )
             else:
                 # send back results
-                await send_message(writer, "SUCCEEDED", result, pickle_protocol)
+                await send_message(writer, "SUCCEEDED", result_bytes, pickle_protocol)
     finally:
         # close connection
         writer.close()

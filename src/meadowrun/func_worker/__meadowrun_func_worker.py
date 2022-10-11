@@ -72,6 +72,8 @@ def main() -> None:
 
         # run the function
         result = function(*(function_args or ()), **(function_kwargs or {}))
+        with open(result_filename, "wb") as f:
+            pickle.dump(result, f, protocol=result_pickle_protocol)
     except Exception as e:
         # first print the exception for the local log file
         traceback.print_exc()
@@ -87,8 +89,7 @@ def main() -> None:
         # send back results
         with open(state_filename, "w", encoding="utf-8") as state_text_writer:
             state_text_writer.write("SUCCEEDED")
-        with open(result_filename, "wb") as f:
-            pickle.dump(result, f, protocol=result_pickle_protocol)
+        # result already pickled above in the try block
 
 
 if __name__ == "__main__":

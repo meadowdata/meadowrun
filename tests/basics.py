@@ -662,6 +662,47 @@ class ErrorsSuite(HostProvider, abc.ABC):
             in pickle.loads(exc_info.value.process_state.pickled_result)[1]
         )
 
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_result_cannot_be_unpickled(self) -> None:
+        """
+        Runs a "real" run_map in a container, returning a result that is not a meadowrun
+        dependency. This is to avoid a regression - meadowrun was trying to unpickle the
+        result from the worker in the agent, which fails if the result has a dependency
+        on e.g. numpy. This also checks that despite that the result can't be unpickled
+        on the client, the tasks still succeed, and have an appropriate error message.
+        """
+
+        def remote_function(i: int) -> Any:
+            import importlib
+
+            # we could just do import numpy, but that messes with mypy
+            np = importlib.import_module("numpy")  # from myenv.yml
+
+            array = np.array([i + 1, i + 2, i + 3], dtype=np.int32)
+            return array
+
+        with pytest.raises(RunMapTasksFailedException) as exc_info:
+            await run_map(
+                remote_function,
+                [1, 2, 3, 4],
+                self.get_host(),
+                self.get_resources_required(),
+                num_concurrent_tasks=self.get_num_concurrent_tasks(),
+                deployment=Deployment.git_repo(
+                    repo_url=self.get_test_repo_url(),
+                    branch="main",
+                    path_to_source="example_package",
+                    interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
+                ),
+            )
+
+        assert len(exc_info.value.failed_tasks) == 4
+        assert all(
+            failed_task.state == "RESULT_CANNOT_BE_UNPICKLED"
+            for failed_task in exc_info.value.failed_tasks
+        )
+
 
 class MapSuite(HostProvider, abc.ABC):
     @pytest.mark.skipif("sys.version_info < (3, 8)")
@@ -697,45 +738,6 @@ class MapSuite(HostProvider, abc.ABC):
         )
 
         assert results == [1, 4, 27, 256], str(results)
-
-    def _get_remote_function(self) -> Callable[[int], Any]:
-        def remote_function(i: int) -> Any:
-            import importlib
-
-            # we could just do import requests, but that messes with mypy
-            np = importlib.import_module("numpy")  # from myenv.yml
-
-            array = np.array([i + 1, i + 2, i + 3], dtype=np.int32)
-            return array
-
-        return remote_function
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_run_map_in_container_numpy(self) -> None:
-        """Runs a "real" run_map in a container, returning a result that is
-        not a meadowrun dependency. This is to avoid a regression - meadowrun
-        was trying to unpickle the result from the worker in the agent, which
-        fails if the result has a dependency on e.g. numpy.
-        This also checks that despite that the result can't be unpickled on
-        the client, the tasks still succeed, and have an appropriate error
-        message."""
-        results = await run_map(
-            self._get_remote_function(),
-            [1, 2, 3, 4],
-            self.get_host(),
-            self.get_resources_required(),
-            num_concurrent_tasks=self.get_num_concurrent_tasks(),
-            deployment=Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                branch="main",
-                path_to_source="example_package",
-                interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
-            ),
-        )
-        assert results is not None
-        assert len(results) == 4
-        assert "pickle.loads of result failed" in results[0]
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio

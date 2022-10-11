@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, AsyncContextManager, Callable, List, Optional,
 import aiobotocore
 import aiobotocore.session
 import pytest
-from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.aws_core import _get_default_region_name, get_bucket_name
 from meadowrun.aws_integration.ec2_instance_allocation import (
     AllocEC2Instance,
     EC2GridJobInterface,
@@ -19,10 +19,9 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     add_worker_shutdown_messages,
     create_request_queue,
 )
-from meadowrun.aws_integration.s3 import _get_bucket_name
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import TaskResult
-from meadowrun.s3_grid_job import complete_task, receive_results
+from meadowrun.storage_grid_job import complete_task, receive_results, S3ClientWrapper
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,10 +45,14 @@ class TestGridWorker:
         session = aiobotocore.session.get_session()
         async with session.create_client(
             "sqs", region_name=region_name
-        ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
+        ) as sqs, S3ClientWrapper(
+            session.create_client("s3", region_name=region_name)
+        ) as s3_client:
 
             request_queue_url = await create_request_queue(job_id, sqs)
-            _ = await add_tasks(job_id, request_queue_url, s3c, sqs, task_arguments)
+            _ = await add_tasks(
+                job_id, request_queue_url, s3_client, sqs, task_arguments
+            )
             print("added tasks ")
 
             async def complete_tasks() -> None:
@@ -65,8 +68,8 @@ class TestGridWorker:
 
                 async def complete_task_wrapper(index: int) -> None:
                     await complete_task(
-                        s3c,
-                        _get_bucket_name(region_name),
+                        s3_client,
+                        get_bucket_name(region_name),
                         job_id,
                         tasks[index][0],
                         tasks[index][1],
@@ -77,9 +80,7 @@ class TestGridWorker:
                     )
 
                 async def get_next_task() -> Optional[Tuple[int, int, bytes]]:
-                    return await _get_task(
-                        sqs, s3c, request_queue_url, job_id, region_name, 0
-                    )
+                    return await _get_task(sqs, s3_client, request_queue_url, job_id, 0)
 
                 print("completing tasks")
                 # get some tasks and complete them
@@ -112,8 +113,8 @@ class TestGridWorker:
             results: List = [None] * len(task_arguments)
             received = 0
             async for batch, _ in receive_results(
-                s3c,
-                _get_bucket_name(region_name),
+                s3_client,
+                get_bucket_name(region_name),
                 job_id,
                 stop_receiving=stop_receiving,
                 all_workers_exited=asyncio.Event(),

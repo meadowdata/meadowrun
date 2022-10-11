@@ -49,12 +49,12 @@ from meadowrun.k8s_integration.k8s_core import (
     wait_for_pod,
     wait_for_pod_running,
 )
-from meadowrun.s3_grid_job import (
+from meadowrun.storage_grid_job import (
+    S3ClientWrapper,
     complete_task,
     download_task_arg,
     get_job_completion_from_process_state,
     get_storage_client_from_args,
-    read_storage,
     receive_results,
     upload_task_args,
 )
@@ -90,7 +90,6 @@ from meadowrun.version import __version__
 
 if TYPE_CHECKING:
     from asyncio import Task
-    import types_aiobotocore_s3
 
     from meadowrun.instance_selection import ResourcesInternal
     from meadowrun.object_storage import ObjectStorage
@@ -148,7 +147,7 @@ async def _indexed_map_worker(
     log_file_name = f"{pod_name}:/var/meadowrun/job_logs/{job_id}.log"
 
     byte_ranges = pickle.loads(
-        await read_storage(storage_client, storage_bucket, storage_key_ranges(job_id))
+        await storage_client.get_bytes(storage_bucket, storage_key_ranges(job_id))
     )
 
     i = current_worker_index
@@ -374,7 +373,7 @@ class Kubernetes(Host):
 
     async def _get_storage_client(
         self,
-    ) -> AsyncContextManager[Optional[types_aiobotocore_s3.S3Client]]:
+    ) -> AsyncContextManager[Optional[S3ClientWrapper]]:
         # get the storage client
 
         # this is kind of weird, this should be called before any Kubernetes function,
@@ -581,10 +580,8 @@ class Kubernetes(Host):
 
                 job_to_run_key = storage_key_job_to_run(job.job_id)
                 storage_keys_used.append(job_to_run_key)
-                await storage_client.put_object(
-                    Bucket=self.storage_bucket,
-                    Key=job_to_run_key,
-                    Body=job.SerializeToString(),
+                await storage_client.write_bytes(
+                    job.SerializeToString(), self.storage_bucket, job_to_run_key
                 )
 
                 try:
@@ -661,7 +658,7 @@ class Kubernetes(Host):
                     await asyncio.gather(
                         *(
                             storage_client.delete_object(
-                                Bucket=self.storage_bucket, Key=storage_key
+                                self.storage_bucket, storage_key
                             )
                             for storage_key in storage_keys_used
                         ),
@@ -730,9 +727,7 @@ class Kubernetes(Host):
                 ]
                 await asyncio.gather(
                     *(
-                        storage_client.delete_object(
-                            Bucket=self.storage_bucket, Key=key
-                        )
+                        storage_client.delete_object(self.storage_bucket, key)
                         for key in keys_to_delete
                     ),
                     return_exceptions=True,
@@ -769,7 +764,7 @@ class KubernetesGridJobDriver:
         self,
         kubernetes: Kubernetes,
         num_concurrent_tasks: int,
-        storage_client: types_aiobotocore_s3.S3Client,
+        storage_client: S3ClientWrapper,
     ):
         self._kubernetes = kubernetes
 
@@ -807,10 +802,10 @@ class KubernetesGridJobDriver:
         # this is a hack--"normally" this would get sent with the "task assignment"
         # message, but we don't have the infrastructure for that in the case of Indexed
         # Jobs (static task-to-worker assignment)
-        await self._storage_client.put_object(
-            Bucket=self._kubernetes.storage_bucket,
-            Key=storage_key_ranges(self._job_id),
-            Body=pickle.dumps(ranges),
+        await self._storage_client.write_bytes(
+            pickle.dumps(ranges),
+            self._kubernetes.storage_bucket,
+            storage_key_ranges(self._job_id),
         )
 
     async def _receive_task_results(
@@ -902,10 +897,10 @@ class KubernetesGridJobDriver:
                     modified_job,
                 ) = await _image_name_from_job(job)
 
-                await self._storage_client.put_object(
-                    Bucket=self._kubernetes.storage_bucket,
-                    Key=storage_key_job_to_run(self._job_id),
-                    Body=modified_job.SerializeToString(),
+                await self._storage_client.write_bytes(
+                    modified_job.SerializeToString(),
+                    self._kubernetes.storage_bucket,
+                    storage_key_job_to_run(self._job_id),
                 )
 
                 core_api = kubernetes_client.CoreV1Api(api_client)
@@ -1005,8 +1000,8 @@ class KubernetesGridJobDriver:
 
                     if self._kubernetes.storage_bucket is not None:
                         await self._storage_client.delete_object(
-                            Bucket=self._kubernetes.storage_bucket,
-                            Key=storage_key_job_to_run(self._job_id),
+                            self._kubernetes.storage_bucket,
+                            storage_key_job_to_run(self._job_id),
                         )
                 except asyncio.CancelledError:
                     raise

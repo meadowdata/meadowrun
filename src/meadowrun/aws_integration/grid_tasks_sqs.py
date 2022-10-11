@@ -21,13 +21,16 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TAG,
     _EC2_ALLOC_TAG_VALUE,
 )
-from meadowrun.aws_integration.s3 import _get_bucket_name
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.s3_grid_job import upload_task_args, download_task_arg, complete_task
+from meadowrun.storage_grid_job import (
+    S3ClientWrapper,
+    complete_task,
+    download_task_arg,
+    upload_task_args,
+)
 from meadowrun.run_job_local import restart_worker
 
 if TYPE_CHECKING:
-    from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_sqs.client import SQSClient
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
 
@@ -83,7 +86,7 @@ MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
 async def add_tasks(
     job_id: str,
     request_queue_url: str,
-    s3c: S3Client,
+    s3_client: S3ClientWrapper,
     sqs: SQSClient,
     run_map_args: Iterable[Any],
 ) -> List[Tuple[int, int]]:
@@ -94,7 +97,7 @@ async def add_tasks(
     """
 
     byte_ranges = await upload_task_args(
-        s3c, _get_bucket_name(s3c.meta.region_name), job_id, run_map_args
+        s3_client, s3_client.get_aws_meadowrun_bucket_name(), job_id, run_map_args
     )
 
     for byte_ranges_chunk in _chunker(enumerate(byte_ranges), 10):
@@ -178,10 +181,9 @@ _GET_TASK_TIMEOUT_SECONDS = 60 * 2  # 2 minutes
 
 async def _get_task(
     sqs: SQSClient,
-    s3c: S3Client,
+    s3_client: S3ClientWrapper,
     request_queue_url: str,
     job_id: str,
-    region_name: str,
     receive_message_wait_seconds: int,
 ) -> Optional[Tuple[int, int, bytes]]:
     """
@@ -222,7 +224,10 @@ async def _get_task(
             task["range_end"],
         )
         arg = await download_task_arg(
-            s3c, _get_bucket_name(region_name), job_id, (range_from, range_end)
+            s3_client,
+            s3_client.get_aws_meadowrun_bucket_name(),
+            job_id,
+            (range_from, range_end),
         )
 
         # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
@@ -245,10 +250,9 @@ async def _get_task(
 
 async def _worker_iteration(
     sqs: SQSClient,
-    s3c: S3Client,
+    s3_client: S3ClientWrapper,
     request_queue_url: str,
     job_id: str,
-    region_name: str,
     log_file_name: str,
     pid: int,
     worker_server: TaskWorkerServer,
@@ -256,10 +260,9 @@ async def _worker_iteration(
 ) -> bool:
     task = await _get_task(
         sqs,
-        s3c,
+        s3_client,
         request_queue_url,
         job_id,
-        region_name,
         3,
     )
     if not task:
@@ -311,8 +314,8 @@ async def _worker_iteration(
     )
 
     await complete_task(
-        s3c,
-        _get_bucket_name(region_name),
+        s3_client,
+        s3_client.get_aws_meadowrun_bucket_name(),
         job_id,
         task_id,
         attempt,
@@ -340,14 +343,15 @@ async def worker_function(
     session = aiobotocore.session.get_session()
     async with session.create_client(
         "sqs", region_name=region_name
-    ) as sqs, session.create_client("s3", region_name=region_name) as s3c:
+    ) as sqs, S3ClientWrapper(
+        session.create_client("s3", region_name=region_name)
+    ) as s3_client:
         await worker_server.wait_for_task_worker_connection()
         while await _worker_iteration(
             sqs,
-            s3c,
+            s3_client,
             request_queue_url,
             job_id,
-            region_name,
             log_file_name,
             pid,
             worker_server,

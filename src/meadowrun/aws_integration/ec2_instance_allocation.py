@@ -26,7 +26,7 @@ from typing import (
 
 import aiobotocore.session
 import boto3
-from meadowrun.aws_integration.aws_core import _get_default_region_name
+from meadowrun.aws_integration.aws_core import _get_default_region_name, get_bucket_name
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
 from meadowrun.aws_integration.ec2 import (
     LaunchEC2InstanceSettings,
@@ -61,7 +61,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
-from meadowrun.aws_integration.s3 import S3ObjectStorage, _get_bucket_name
+from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
@@ -77,7 +77,7 @@ from meadowrun.run_job_core import (
     SshHost,
     WaitOption,
 )
-from meadowrun.s3_grid_job import receive_results
+from meadowrun.storage_grid_job import receive_results, S3ClientWrapper
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -86,7 +86,6 @@ if TYPE_CHECKING:
     from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
-    from types_aiobotocore_s3 import S3Client
     from types_aiobotocore_sqs import SQSClient
     from typing_extensions import Literal
 
@@ -100,7 +99,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-02cb932ead54f2c81",
+        "us-east-2": "ami-07742deec20dbdf4a",
         "us-east-1": "ami-0c4f30064b16cac99",
         "us-west-1": "ami-012fbb53effdd0f6f",
         "us-west-2": "ami-039fa3adc59d9335b",
@@ -735,15 +734,15 @@ class EC2GridJobInterface(GridJobCloudInterface):
         self._job_id = str(uuid.uuid4())
 
         self._sqs_client: Optional[SQSClient] = None
-        self._s3_client: Optional[S3Client] = None
+        self._s3_client: Optional[S3ClientWrapper] = None
 
     async def __aenter__(self) -> EC2GridJobInterface:
         session = aiobotocore.session.get_session()
         self._sqs_client = await session.create_client(
             "sqs", region_name=self._region_name
         ).__aenter__()
-        self._s3_client = await session.create_client(
-            "s3", region_name=self._region_name
+        self._s3_client = await S3ClientWrapper(
+            session.create_client("s3", region_name=self._region_name)
         ).__aenter__()
         return self
 
@@ -852,7 +851,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
         return receive_results(
             self._s3_client,
-            _get_bucket_name(self._region_name),
+            get_bucket_name(self._region_name),
             self._job_id,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,

@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import argparse
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List
 import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
@@ -7,6 +9,7 @@ import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_core import (
     _MEADOWRUN_USER_GROUP_NAME,
     _get_current_ip_for_ssh,
+    get_bucket_name,
 )
 from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     _CLEAN_UP_LAMBDA_NAME,
@@ -48,7 +51,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     ignore_boto3_error_code,
 )
-from meadowrun.aws_integration.s3 import ensure_bucket
 
 
 def add_management_lambda_override_arguments(parser: argparse.ArgumentParser) -> None:
@@ -231,7 +233,7 @@ def delete_meadowrun_resources(region_name: str) -> None:
         region_name
     )
 
-    meadowrun.aws_integration.s3.delete_bucket(region_name)
+    delete_bucket(region_name)
 
     iam = boto3.client("iam", region_name=region_name)
 
@@ -318,3 +320,85 @@ def delete_meadowrun_resources(region_name: str) -> None:
     )
 
     clear_prices_cache()
+
+
+def delete_bucket(region_name: str) -> None:
+    """Deletes the meadowrun bucket"""
+    s3 = boto3.resource("s3", region_name=region_name)
+
+    bucket = s3.Bucket(get_bucket_name(region_name))
+    success, _ = ignore_boto3_error_code(
+        lambda: list(bucket.objects.limit(1)),
+        "NoSuchBucket",
+    )
+    if success:
+        # S3 doesn't allow deleting a bucket with anything in it, so delete all objects
+        # in chunks of up to 1000, which is the maximum allowed.
+        key_chunk: List[Dict[str, str]] = []
+        for s3object in bucket.objects.all():
+            if len(key_chunk) == 1000:
+                bucket.delete_objects(Delete=dict(Objects=key_chunk))
+                key_chunk.clear()
+            key_chunk.append(dict(Key=s3object.key))
+        if key_chunk:
+            bucket.delete_objects(Delete=dict(Objects=key_chunk))
+
+        bucket.delete()
+
+
+def ensure_bucket(
+    region_name: str,
+    expire_days: int = 14,
+) -> None:
+    """
+    Create an S3 bucket in a specified region if it does not exist yet.
+
+    If a region is not specified, the bucket is created in the configured default
+    region.
+
+    The bucket is created with a default lifecycle policy of 14 days.
+
+    Since bucket names must be globally unique, the name is bucket_prefix + region +
+    account number
+
+    :param bucket_name: Bucket to create
+    :param region_name: String region to create bucket in, e.g., 'us-west-2'
+    :param expire_days: int number of days after which keys are deleted by lifecycle
+        policy.
+    :return: the full bucket name
+    """
+
+    s3 = boto3.client("s3", region_name=region_name)
+
+    bucket_name = get_bucket_name(region_name)
+
+    # us-east-1 cannot be specified as a LocationConstraint because it is the default
+    # region
+    # https://stackoverflow.com/questions/51912072/invalidlocationconstraint-error-while-creating-s3-bucket-when-the-used-command-i
+    if region_name == "us-east-1":
+        additional_parameters = {}
+    else:
+        additional_parameters = {
+            "CreateBucketConfiguration": {"LocationConstraint": region_name}
+        }
+
+    success, _ = ignore_boto3_error_code(
+        lambda: s3.create_bucket(Bucket=bucket_name, **additional_parameters),
+        "BucketAlreadyOwnedByYou",
+    )
+    s3.put_bucket_lifecycle_configuration(
+        Bucket=bucket_name,
+        LifecycleConfiguration=dict(
+            Rules=[
+                dict(
+                    Expiration=dict(
+                        Days=expire_days,
+                    ),
+                    ID="meadowrun-lifecycle-policy",
+                    # Filter is mandatory, but we don't want one:
+                    Filter=dict(Prefix=""),
+                    Status="Enabled",
+                )
+            ]
+        ),
+    )

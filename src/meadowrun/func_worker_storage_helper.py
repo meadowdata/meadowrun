@@ -13,23 +13,23 @@ import dataclasses
 
 from typing import Optional, Tuple, TYPE_CHECKING, Type
 
-from meadowrun.aws_integration.s3 import (
+from meadowrun.object_storage import ObjectStorage
+from meadowrun.storage_grid_job import (
+    S3ClientWrapper,
     download_chunked_file,
     ensure_uploaded_incremental,
 )
-from meadowrun.object_storage import ObjectStorage
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
     from types import TracebackType
-    import types_aiobotocore_s3
 
 MEADOWRUN_STORAGE_USERNAME = "MEADOWRUN_STORAGE_USERNAME"
 MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 
 # This is a global variable that will be updated with the storage client if it's
 # available in func_worker_storage
-FUNC_WORKER_STORAGE_CLIENT: Optional[types_aiobotocore_s3.S3Client] = None
+FUNC_WORKER_STORAGE_CLIENT: Optional[S3ClientWrapper] = None
 FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 
 
@@ -37,7 +37,7 @@ FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
 class FuncWorkerClientObjectStorage(ObjectStorage):
     # this really belongs in k8s.py but can't put it there because of
     # circular imports
-    storage_client: Optional[types_aiobotocore_s3.S3Client] = None
+    storage_client: Optional[S3ClientWrapper] = None
     bucket_name: Optional[str] = None
 
     async def __aexit__(

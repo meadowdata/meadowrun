@@ -17,7 +17,7 @@ from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
 )
-from meadowrun.s3_grid_job import get_storage_client_from_args, read_storage
+from meadowrun.storage_grid_job import get_storage_client_from_args
 from meadowrun.storage_keys import storage_key_job_to_run, storage_key_process_state
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.k8s_integration.is_job_running import _JOB_IS_RUNNING_FILE
@@ -65,10 +65,8 @@ async def main() -> None:
             # run the job
             try:
                 job = Job.FromString(
-                    await read_storage(
-                        storage_client,
-                        storage_bucket,
-                        storage_key_job_to_run(job_id),
+                    await storage_client.get_bytes(
+                        storage_bucket, storage_key_job_to_run(job_id)
                     )
                 )
                 # hypothetically we should make sure MEADOWRUN_STORAGE_USERNAME and
@@ -88,18 +86,18 @@ async def main() -> None:
                     first_state.state != ProcessState.ProcessStateEnum.RUNNING
                     or continuation is None
                 ):
-                    await storage_client.put_object(
-                        Bucket=storage_bucket,
-                        Key=storage_key_process_state(job_id, suffix),
-                        Body=first_state.SerializeToString(),
+                    await storage_client.write_bytes(
+                        first_state.SerializeToString(),
+                        storage_bucket,
+                        storage_key_process_state(job_id, suffix),
                     )
                 else:
                     final_process_state = await continuation
 
-                    await storage_client.put_object(
-                        Bucket=storage_bucket,
-                        Key=storage_key_process_state(job_id, suffix),
-                        Body=final_process_state.SerializeToString(),
+                    await storage_client.write_bytes(
+                        final_process_state.SerializeToString(),
+                        storage_bucket,
+                        storage_key_process_state(job_id, suffix),
                     )
             except:  # noqa: E722
                 # so we know what's wrong

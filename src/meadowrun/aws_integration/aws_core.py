@@ -172,3 +172,11 @@ async def _get_current_ip_for_ssh() -> str:
 def _get_account_number() -> str:
     # weird that we have to do this to get the account number to construct the ARN
     return boto3.client("sts").get_caller_identity().get("Account")
+
+
+BUCKET_PREFIX = "meadowrun"
+
+
+def get_bucket_name(region_name: str) -> str:
+    # s3 bucket names must be globally unique across all accounts and regions.
+    return f"{BUCKET_PREFIX}-{region_name}-{_get_account_number()}"

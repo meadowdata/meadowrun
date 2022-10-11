@@ -8,12 +8,13 @@ import aiobotocore
 import aiobotocore.session
 import pytest
 from botocore.exceptions import ClientError
-from meadowrun.aws_integration.s3 import (
+from meadowrun.storage_grid_job import (
     _existing_keys,
-    _get_bucket_name,
-    download_chunked_file,
     ensure_uploaded_incremental,
+    download_chunked_file,
+    S3ClientWrapper,
 )
+from meadowrun.aws_integration.aws_core import get_bucket_name
 from types_aiobotocore_s3.client import S3Client
 
 if TYPE_CHECKING:
@@ -26,9 +27,10 @@ if TYPE_CHECKING:
 async def test_incremental_fresh_upload(tmp_path: Path, mocker: MockerFixture) -> None:
     _existing_keys.clear()
 
-    s3c = mocker.create_autospec(S3Client)
+    s3_client_mock = mocker.create_autospec(S3Client)
+    s3_client = S3ClientWrapper(s3_client_mock)
     # head_object is used to check if an object exists. 404 means it doesn't exist.
-    s3c.head_object = mocker.AsyncMock(
+    s3_client_mock.head_object = mocker.AsyncMock(
         side_effect=ClientError(
             error_response={"Error": {"Code": "404"}}, operation_name="head_object"
         )
@@ -39,29 +41,29 @@ async def test_incremental_fresh_upload(tmp_path: Path, mocker: MockerFixture) -
     key_prefix = "key_prefix/"
     bucket_name = "test_bucket"
     await ensure_uploaded_incremental(
-        s3c, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=1000
+        s3_client, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=1000
     )
 
     # even though all chunks need to be uploaded, some chunks are repeated.
     # De-duping makes the call count for head and put is less than the number of chunks.
     expected_call_count = 4
-    assert s3c.head_object.call_count == expected_call_count
-    assert s3c.head_object.await_count == expected_call_count
-    for head_object_call in s3c.head_object.call_args_list:
+    assert s3_client_mock.head_object.call_count == expected_call_count
+    assert s3_client_mock.head_object.await_count == expected_call_count
+    for head_object_call in s3_client_mock.head_object.call_args_list:
         assert head_object_call.kwargs["Bucket"] == bucket_name
         assert head_object_call.kwargs["Key"].startswith(key_prefix)
 
-    assert s3c.put_object.call_count == expected_call_count
-    assert s3c.put_object.await_count == expected_call_count
+    assert s3_client_mock.put_object.call_count == expected_call_count
+    assert s3_client_mock.put_object.await_count == expected_call_count
 
     # keep the length of each chunk here for later.
     key_len = {}
-    for put_object_call in s3c.put_object.call_args_list[:-1]:
+    for put_object_call in s3_client_mock.put_object.call_args_list[:-1]:
         assert put_object_call.kwargs["Bucket"] == bucket_name
         assert put_object_call.kwargs["Key"].startswith(key_prefix)
         key_len[put_object_call.kwargs["Key"]] = len(put_object_call.kwargs["Body"])
 
-    last_put = s3c.put_object.call_args_list[-1]
+    last_put = s3_client_mock.put_object.call_args_list[-1]
     assert last_put.kwargs["Bucket"] == bucket_name
     assert last_put.kwargs["Key"].startswith(key_prefix)
     assert last_put.kwargs["Key"].endswith("json")
@@ -78,24 +80,25 @@ async def test_incremental_fresh_upload(tmp_path: Path, mocker: MockerFixture) -
 @pytest.mark.asyncio
 async def test_incremental_no_upload(tmp_path: Path, mocker: MockerFixture) -> None:
     _existing_keys.clear()
-    s3c = mocker.create_autospec(S3Client)
+    s3_client_mock = mocker.create_autospec(S3Client)
+    s3_client = S3ClientWrapper(s3_client_mock)
     # no side_effect means all chunks will appear as "already existing"
-    s3c.head_object = mocker.AsyncMock()
+    s3_client_mock.head_object = mocker.AsyncMock()
     file_size = 8000
     local_file_path = _make_big_file(tmp_path, size_bytes=file_size)
     assert local_file_path.stat().st_size == file_size
     key_prefix = "key_prefix/"
     bucket_name = "test_bucket"
     await ensure_uploaded_incremental(
-        s3c, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=1000
+        s3_client, str(local_file_path), bucket_name, key_prefix, avg_chunk_size=1000
     )
 
     expected_call_count = 4
-    assert s3c.head_object.call_count == expected_call_count
-    assert s3c.head_object.await_count == expected_call_count
+    assert s3_client_mock.head_object.call_count == expected_call_count
+    assert s3_client_mock.head_object.await_count == expected_call_count
 
-    assert s3c.put_object.call_count == 0
-    assert s3c.put_object.await_count == 0
+    assert s3_client_mock.put_object.call_count == 0
+    assert s3_client_mock.put_object.await_count == 0
 
 
 @pytest.mark.asyncio
@@ -104,17 +107,23 @@ async def test_incremental_roundtrip(tmp_path: Path) -> None:
 
     _existing_keys.clear()
     region_name = "us-east-2"
-    bucket_name = _get_bucket_name(region_name)
+    bucket_name = get_bucket_name(region_name)
     source_file = _make_big_file(tmp_path, size_bytes=8000)
-    async with aiobotocore.session.get_session().create_client(
-        "s3", region_name=region_name
-    ) as s3c:
+    async with S3ClientWrapper(
+        aiobotocore.session.get_session().create_client("s3", region_name=region_name)
+    ) as s3_client:
         chunks_json_key = await ensure_uploaded_incremental(
-            s3c, str(source_file), bucket_name, avg_chunk_size=1000, key_prefix="test/"
+            s3_client,
+            str(source_file),
+            bucket_name,
+            avg_chunk_size=1000,
+            key_prefix="test/",
         )
 
         target_file = tmp_path / "target"
-        await download_chunked_file(s3c, bucket_name, chunks_json_key, str(target_file))
+        await download_chunked_file(
+            s3_client, bucket_name, chunks_json_key, str(target_file)
+        )
 
         assert target_file.exists()
         assert filecmp.cmp(source_file, target_file, shallow=False)

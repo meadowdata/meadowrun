@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import os
+import pickle
 import subprocess
 import sys
 from typing import TYPE_CHECKING, Any, Callable, List, Tuple, Union
@@ -627,6 +628,39 @@ class ErrorsSuite(HostProvider, abc.ABC):
             == ProcessState.ProcessStateEnum.NON_ZERO_RETURN_CODE
         )
         assert exc_info.value.process_state.return_code == 101
+
+    @pytest.mark.asyncio
+    async def test_result_cannot_be_pickled(self) -> None:
+        def remote_func(x: Any) -> Any:
+            class UnpicklableClass:
+                pass
+
+            return UnpicklableClass()
+
+        with pytest.raises(RunMapTasksFailedException) as exc_info:
+            await run_map(
+                remote_func, [1], self.get_host(), self.get_resources_required()
+            )
+
+        assert exc_info.value.failed_tasks[0].state == "PYTHON_EXCEPTION"
+        assert (
+            exc_info.value.failed_tasks[0].exception is not None
+            and "Can't pickle" in exc_info.value.failed_tasks[0].exception[1]
+        )
+
+        with pytest.raises(MeadowrunException) as exc_info:
+            await run_function(
+                lambda: remote_func(1), self.get_host(), self.get_resources_required()
+            )
+
+        assert (
+            exc_info.value.process_state.state
+            == ProcessState.ProcessStateEnum.PYTHON_EXCEPTION
+        )
+        assert (
+            "Can't pickle"
+            in pickle.loads(exc_info.value.process_state.pickled_result)[1]
+        )
 
 
 class MapSuite(HostProvider, abc.ABC):

@@ -76,7 +76,7 @@ async def main() -> None:
                 # case the environment variables should just get inherited by the child
                 # process that we start.
                 first_state, continuation = await meadowrun.run_job_local.run_local(
-                    job, None, False
+                    job, None, compile_environment_in_container=False
                 )
                 # TODO to be analogous to run_job_local_main.py we should write
                 # f"{storage_file_prefix}.initial_process_state to the storage bucket

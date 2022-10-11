@@ -186,9 +186,9 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
 
     async def __aexit__(
         self,
-        exc_typ: Type[BaseException],
-        exc_val: BaseException,
-        exc_tb: TracebackType,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
     ) -> None:
         pass
 
@@ -749,14 +749,14 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
     async def __aexit__(
         self,
-        exc_typ: Type[BaseException],
-        exc_val: BaseException,
-        exc_tb: TracebackType,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
     ) -> None:
         if self._sqs_client is not None:
-            await self._sqs_client.__aexit__(exc_typ, exc_val, exc_tb)
+            await self._sqs_client.__aexit__(exc_type, exc_val, exc_tb)
         if self._s3_client is not None:
-            await self._s3_client.__aexit__(exc_typ, exc_val, exc_tb)
+            await self._s3_client.__aexit__(exc_type, exc_val, exc_tb)
 
     def create_instance_registrar(self) -> InstanceRegistrar:
         return EC2InstanceRegistrar(self._region_name, "create")

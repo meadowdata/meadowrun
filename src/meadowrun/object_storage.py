@@ -6,7 +6,7 @@ import shutil
 import sys
 import urllib.parse
 import zipfile
-from typing import TYPE_CHECKING, Tuple, Type
+from typing import TYPE_CHECKING, Tuple, Type, Optional
 
 import filelock
 
@@ -22,9 +22,9 @@ class ObjectStorage(abc.ABC):
 
     async def __aexit__(
         self,
-        exc_typ: Type[BaseException],
-        exc_val: BaseException,
-        exc_tb: TracebackType,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
     ) -> None:
         pass
 

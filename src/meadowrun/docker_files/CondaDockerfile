@@ -20,15 +20,28 @@ RUN if [[ -n "$APT_PACKAGES" ]]; then \
     rm -rf /var/lib/apt \
     ; fi
 
-# See PipAptDockerfile for comments
+# See PipDockerfile for comments
 RUN git config --global --add safe.directory '*'; exit 0
 
-WORKDIR /tmp/
+WORKDIR /tmp/__meadowrun_marker__
 
+ARG ENV_COPY
 ARG ENV_FILE
 
-COPY $ENV_FILE ./
+COPY $ENV_COPY ./
 # we would rather not assume that the name of the environment in $ENV_NAME.yml is the
 # same as the filename, so we just hardcode a name here
 RUN conda env create -f $ENV_FILE -n the_env
+
+# delete everything from the workdir (copied repository or code) except:
+# - the src folder. We need to keep this for "pip -e git" installs in conda requirements files. 
+#   Normally pip checks the source for git repos out in the virtual env, but despite the "conda
+#   env create" pip does not seem to think it's in a virtual env, so it checks it out in the current
+#   directory, src folder instead. We just leave them there so things work.
+# - a few items to support editable installs:
+#   - egg-info directory (legacy setuptools mechanism)
+#   - pyproject.toml (modern mechanism)
+#   - poetry.lock (for poetry, not 100% sure we need this, but can't hurt)
+RUN find . -path ./src -prune -o -path ./*.egg-info -prune -o -path ./.venv -prune -o -path ./pyproject.toml -prune -o -path ./poetry.lock -o -exec rm -rfv {} \; || true
+
 ENV PATH /opt/conda/envs/the_env/bin:$PATH

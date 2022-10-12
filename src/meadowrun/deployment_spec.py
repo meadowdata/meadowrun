@@ -737,6 +737,7 @@ class Deployment:
         ] = None,
         environment_variables: Optional[Dict[str, str]] = None,
         ssh_key_secret: Optional[Secret] = None,
+        editable_install: bool = True,
     ) -> Deployment:
         """
         A deployment based on a git repo.
@@ -760,6 +761,10 @@ class Deployment:
                 that has read access to `repo_url`, e.g. `AwsSecret("my_ssh_key")`. See
                 How to use a private git repo for [AWS](/how_to/private_git_repo_aws)
                 or [Azure](/how_to/private_git_repo_azure)
+            editable_install: Execute editable installs in the project (e.g. -e in pip).
+                If True (the default), the interpreter environment executes an install,
+                which makes entry points, registered plugins and metadata work. If
+                False, editable installs are filtered out.
 
         Returns:
             A `Deployment` object that can be passed to the `run_*` functions.
@@ -802,6 +807,7 @@ class Deployment:
                 additional_software=_additional_software_to_dict(
                     interpreter.additional_software
                 ),
+                editable_install=editable_install,
             )
         elif isinstance(interpreter, PipRequirementsFile):
             interpreter_spec = EnvironmentSpecInCode(
@@ -811,6 +817,7 @@ class Deployment:
                 additional_software=_additional_software_to_dict(
                     interpreter.additional_software
                 ),
+                editable_install=editable_install,
             )
         elif isinstance(interpreter, PipRequirementsString):
             interpreter_spec = EnvironmentSpec(
@@ -829,6 +836,7 @@ class Deployment:
                 additional_software=_additional_software_to_dict(
                     interpreter.additional_software
                 ),
+                editable_install=editable_install,
             )
         elif isinstance(interpreter, ContainerInterpreterBase):
             interpreter_spec = interpreter.get_interpreter_spec()

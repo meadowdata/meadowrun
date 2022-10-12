@@ -124,6 +124,9 @@ message EnvironmentSpecInCode {
     string python_version = 3;
     // right now just cuda is supported, maps software -> version requirement
     map<string, string> additional_software = 5;
+    // whether to support editable install of the code in the environment, e.g. register
+    // cmd line scripts, or build metadata.
+    bool editable_install = 6;
 }
 
 // Represents an environment spec represented as a string.
@@ -139,6 +142,11 @@ message EnvironmentSpec {
     string python_version = 4;
     // right now just cuda is supported, maps software -> version requirement
     map<string, string> additional_software = 5;
+    // whether to support editable install of the code in the environment, e.g. register
+    // cmd line scripts, or build metadata.
+    // TODO this is not supported yet for EnvironmentSpec, but not adding it here
+    // leads to a bunch more of annoying if/thens.
+    bool editable_install = 6;
 }
 
 

@@ -44,13 +44,25 @@ RUN if [[ -n "$ENVIRONMENT_PREREQUISITES" ]]; then \
     /root/.local/bin/poetry self add $ENVIRONMENT_PREREQUISITES \
     ; fi
 
-WORKDIR /tmp/
+WORKDIR /tmp/__meadowrun_marker__
+
+ARG ENV_COPY
+ARG POETRY_INSTALL_ARGS
+
 COPY pyproject.toml ./
 COPY poetry.lock ./
+COPY $ENV_COPY ./
 
-RUN /root/.local/bin/poetry install --no-root
+RUN /root/.local/bin/poetry install $POETRY_INSTALL_ARGS 
+
+# delete everything from the workdir (copied repository or code) except:
+# - the .venv folder
+# - a few items to support editable installs:
+#   - pyproject.toml
+#   - poetry.lock (for poetry, not 100% sure we need this, but can't hurt)
+RUN find . -path ./.venv -prune -o -path ./pyproject.toml -prune -o -path ./poetry.lock -o -exec rm -rfv {} \; || true
 # make sure setuptools and wheel are installed. Poetry does not install these by default
 # for --no-root
-RUN /tmp/.venv/bin/python -m pip install setuptools wheel
+RUN /tmp/__meadowrun_marker__/.venv/bin/python -m pip install setuptools wheel 
 
-ENV PATH /tmp/.venv/bin:$PATH
+ENV PATH /tmp/__meadowrun_marker__/.venv/bin:$PATH 

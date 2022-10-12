@@ -11,6 +11,7 @@ import tempfile
 import urllib.parse
 import zipfile
 from typing import (
+    Any,
     Awaitable,
     Callable,
     List,
@@ -34,8 +35,14 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 )
 from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
-from meadowrun.deployment.conda import get_cached_or_create_conda_environment
-from meadowrun.deployment.pip import get_cached_or_create_pip_environment
+from meadowrun.deployment.conda import (
+    get_cached_or_create_conda_environment,
+    filter_editable_installs_from_conda_env_yml,
+)
+from meadowrun.deployment.pip import (
+    get_cached_or_create_pip_environment,
+    filter_editable_installs_from_pip_reqs,
+)
 from meadowrun.deployment.poetry import get_cached_or_create_poetry_environment
 from meadowrun.deployment.prerequisites import (
     EnvironmentSpecPrerequisites,
@@ -390,9 +397,15 @@ async def compile_environment_spec_to_container(
 
     if environment_spec.environment_type == EnvironmentType.CONDA:
         docker_file_name = "CondaDockerfile"
-        spec_filename = os.path.basename(path_to_spec)
+        if environment_spec.editable_install:
+            spec_filename = os.path.relpath(path_to_spec, interpreter_spec_path)
+            files_to_copy.append((interpreter_spec_path, "."))
+        else:
+            path_to_spec = filter_editable_installs_from_conda_env_yml(path_to_spec)
+            spec_filename = os.path.basename(path_to_spec)
+            files_to_copy.append((path_to_spec, spec_filename))
         build_args["ENV_FILE"] = spec_filename
-        files_to_copy.append((path_to_spec, spec_filename))
+        build_args["ENV_COPY"] = "."
         if "cuda" in environment_spec.additional_software:
             build_args[
                 "CONDA_IMAGE"
@@ -413,17 +426,31 @@ async def compile_environment_spec_to_container(
 
         if environment_spec.environment_type == EnvironmentType.PIP:
             docker_file_name = "PipDockerfile"
-            spec_filename = os.path.basename(path_to_spec)
-            files_to_copy.append((path_to_spec, spec_filename))
+            if environment_spec.editable_install:
+                spec_filename = os.path.relpath(path_to_spec, interpreter_spec_path)
+                files_to_copy.append((interpreter_spec_path, "."))
+            else:
+                path_to_spec = filter_editable_installs_from_pip_reqs(path_to_spec)
+                spec_filename = os.path.basename(path_to_spec)
+                files_to_copy.append((path_to_spec, spec_filename))
             build_args["ENV_FILE"] = spec_filename
+            build_args["ENV_COPY"] = "."
         elif environment_spec.environment_type == EnvironmentType.POETRY:
             docker_file_name = "PoetryDockerfile"
-            files_to_copy.append(
-                (os.path.join(path_to_spec, "pyproject.toml"), "pyproject.toml")
-            )
-            files_to_copy.append(
-                (os.path.join(path_to_spec, "poetry.lock"), "poetry.lock")
-            )
+            if environment_spec.editable_install:
+                files_to_copy.append((path_to_spec, "."))
+                build_args["ENV_COPY"] = "."
+                build_args["POETRY_INSTALL_ARGS"] = ""
+            else:
+                files_to_copy.append(
+                    (os.path.join(path_to_spec, "pyproject.toml"), "pyproject.toml")
+                )
+                files_to_copy.append(
+                    (os.path.join(path_to_spec, "poetry.lock"), "poetry.lock")
+                )
+                # arbitrary, one of pyproject or poetry
+                build_args["ENV_COPY"] = "pyproject.toml"
+                build_args["POETRY_INSTALL_ARGS"] = "--no-root"
         else:
             raise ValueError(
                 f"Unexpected environment_type {environment_spec.environment_type}"
@@ -475,48 +502,68 @@ async def compile_environment_spec_locally(
     #     p for p in environment_spec.additional_software.keys() if p != "cuda"
     # ]
 
-    if environment_spec.environment_type == EnvironmentType.CONDA:
-        get_cached_or_create: Callable[
-            [
-                str,
-                str,
-                EnvironmentSpecPrerequisites,
-                str,
-                Callable[[str, str], Awaitable[bool]],
-                Callable[[str, str], Awaitable[None]],
-            ],
-            Awaitable[str],
-        ] = get_cached_or_create_conda_environment
-    elif environment_spec.environment_type == EnvironmentType.PIP:
-        get_cached_or_create = get_cached_or_create_pip_environment
-    elif environment_spec.environment_type == EnvironmentType.POETRY:
-        get_cached_or_create = get_cached_or_create_poetry_environment
-    else:
-        raise ValueError(
-            f"Unexpected environment_type {environment_spec.environment_type}"
-        )
+    get_cached_or_create = _get_cached_or_create_func_for(
+        environment_spec.environment_type
+    )
 
+    try_get_file, write_file = _get_storage_funcs()
+    return ServerAvailableInterpreter(
+        interpreter_path=await get_cached_or_create(
+            spec_hash,
+            interpreter_spec_path if environment_spec.editable_install else None,
+            path_to_spec,
+            prerequisites,
+            os.path.join(built_interpreters_folder, spec_hash),
+            try_get_file,
+            write_file,
+            environment_spec.editable_install,
+        )
+    )
+
+
+def _get_cached_or_create_func_for(
+    environment_type: Any,
+) -> Callable[
+    [
+        str,
+        Optional[str],
+        str,
+        EnvironmentSpecPrerequisites,
+        str,
+        Callable[[str, str], Awaitable[bool]],
+        Callable[[str, str], Awaitable[None]],
+        bool,
+    ],
+    Awaitable[str],
+]:
+    if environment_type == EnvironmentType.CONDA:
+        return get_cached_or_create_conda_environment
+    elif environment_type == EnvironmentType.PIP:
+        return get_cached_or_create_pip_environment
+    elif environment_type == EnvironmentType.POETRY:
+        return get_cached_or_create_poetry_environment
+    else:
+        raise ValueError(f"Unexpected environment_type {environment_type}")
+
+
+def _get_storage_funcs() -> Tuple[
+    Callable[[str, str], Awaitable[bool]], Callable[[str, str], Awaitable[None]]
+]:
     # TODO this isn't the right way to do this--the storage client should be
     # getting passed in from higher up. For now this works because this code
     # path is only being hit from Kubernetes
     storage_bucket = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET
     if storage_bucket is None:
         raise ValueError("FUNC_WORKER_STORAGE_BUCKET was not set")
-    return ServerAvailableInterpreter(
-        interpreter_path=await get_cached_or_create(
-            spec_hash,
-            path_to_spec,
-            prerequisites,
-            os.path.join(built_interpreters_folder, spec_hash),
-            # try_get_file(remote_file_name: str, local_file_name: str) -> bool. Tries
-            # to download the specified remote file to the specified local file name.
-            # Returns True if the file is available, False if the file is not available.
-            functools.partial(storage_bucket.try_get_file),
-            # upload_file(local_file_name: str, remote_file_name: str) -> None. Uploads
-            # the specified file, overwrites any existing remote file.
-            functools.partial(storage_bucket.write_file),
-        )
-    )
+
+    # try_get_file(remote_file_name: str, local_file_name: str) -> bool. Tries
+    # to download the specified remote file to the specified local file name.
+    # Returns True if the file is available, False if the file is not available.
+    try_get_file = functools.partial(storage_bucket.try_get_file)
+    # upload_file(local_file_name: str, remote_file_name: str) -> None. Uploads
+    # the specified file, overwrites any existing remote file.
+    write_file = functools.partial(storage_bucket.write_file)
+    return try_get_file, write_file
 
 
 def _hash_spec(spec_contents: bytes) -> str:
@@ -538,7 +585,7 @@ def _get_path_and_hash(
     """
     Returns path_to_spec, spec_hash, has_git_dependency. spec_hash is a hash that
     uniquely identifies the environment. path_to_spec is used slightly differently for
-    each environment type's Dockerfile. has_git_dependency is also specific to each
+    each environment type's Dockerfile. has_git_dependency is also specific to each.
     """
 
     if isinstance(environment_spec, EnvironmentSpecInCode):
@@ -555,10 +602,26 @@ def _get_path_and_hash(
             file_to_hash = path_to_spec
         with open(file_to_hash, "rb") as spec:
             spec_contents_bytes = spec.read()
+
+        spec_contents_to_hash = spec_contents_bytes
+        if environment_spec.editable_install:
+            # Additionally search for some extra files that influence how the resulting
+            # env is built, at least when it's using an editable install. If not, this
+            # may trigger an unnecessary rebuild in rare cases.
+
+            # TODO: search in other paths? This only works if these files live in the
+            # same place as the requirements file.
+            file_to_hash_folder = os.path.dirname(file_to_hash)
+            for extra_file in ("setup.py", "setup.cfg", "pyproject.toml"):
+                check = os.path.join(file_to_hash_folder, extra_file)
+                if os.path.exists(check):
+                    with open(check, "rb") as f:
+                        spec_contents_to_hash += f.read()
+
         return (
             path_to_spec,
             _hash_spec(
-                spec_contents_bytes
+                spec_contents_to_hash
                 + _format_additional_software(
                     environment_spec.additional_software
                 ).encode("utf-8")

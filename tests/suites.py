@@ -38,9 +38,7 @@ from meadowrun import (
     run_map_as_completed,
 )
 from meadowrun.config import MEADOWRUN_INTERPRETER
-from meadowrun.meadowrun_pb2 import (
-    ProcessState,
-)
+from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException, Resources
 
 
@@ -147,7 +145,9 @@ async def _test_all_entry_points(
         host_provider.get_resources_required(),
         deployment,
     )
-    assert results == expected_results[0]
+    assert (
+        results == expected_results[0]
+    ), f"results={results} expected={expected_results[0]}"
 
     job_completion = await run_command(
         "pip --version",
@@ -307,7 +307,77 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 path_to_source="example_package",
                 interpreter=CondaEnvironmentYmlFile("myenv.yml"),
             ),
+            True,
         )
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.parametrize(argnames="editable_install", argvalues=(True, False))
+    @pytest.mark.asyncio
+    async def test_git_repo_pip_with_editable_install(
+        self, editable_install: bool
+    ) -> None:
+        commit = "15153cb5afeb650944b26f963ceff9b42c309d20"
+        result = await run_command(
+            args=("main",)
+            if editable_install
+            else ("python", "example_package/main.py"),
+            host=self.get_host(),
+            resources=self.get_resources_required(),
+            deployment=Deployment.git_repo(
+                self.get_test_repo_url(),
+                commit=commit,
+                interpreter=PipRequirementsFile(
+                    "requirements_with_editable.txt", python_version="3.9"
+                ),
+                editable_install=editable_install,
+            ),
+        )
+        assert result.return_code == 0
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.parametrize(argnames="editable_install", argvalues=(True, False))
+    @pytest.mark.asyncio
+    async def test_git_repo_conda_with_editable_install(
+        self, editable_install: bool
+    ) -> None:
+        commit = "15153cb5afeb650944b26f963ceff9b42c309d20"
+        result = await run_command(
+            args=("main",)
+            if editable_install
+            else ("python", "example_package/main.py"),
+            host=self.get_host(),
+            resources=self.get_resources_required(),
+            deployment=Deployment.git_repo(
+                self.get_test_repo_url(),
+                commit=commit,
+                interpreter=CondaEnvironmentYmlFile("myenv-editable-install.yml"),
+                editable_install=editable_install,
+            ),
+        )
+        assert result.return_code == 0
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.parametrize(argnames="editable_install", argvalues=(True, False))
+    @pytest.mark.asyncio
+    async def test_git_repo_poetry_with_editable_install(
+        self, editable_install: bool
+    ) -> None:
+        commit = "d2fdbb5821950d344f39182c525398940a9623e4"
+        result = await run_command(
+            args=("main",)
+            if editable_install
+            else ("python", "poetry_editable/foo_package/main.py"),
+            host=self.get_host(),
+            resources=self.get_resources_required(),
+            deployment=Deployment.git_repo(
+                self.get_test_repo_url(),
+                commit=commit,
+                path_to_source="poetry_editable",
+                interpreter=PoetryProjectPath("poetry_editable", python_version="3.9"),
+                editable_install=editable_install,
+            ),
+        )
+        assert result.return_code == 0
 
     @pytest.mark.asyncio
     async def test_git_repo_poetry(self) -> None:

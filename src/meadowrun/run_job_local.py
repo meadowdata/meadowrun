@@ -14,6 +14,7 @@ import struct
 import sys
 import traceback
 from decimal import InvalidOperation
+from pathlib import PurePath
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -945,7 +946,11 @@ async def _launch_container_job(
     # leave that as it is. But if the working directory is "/tmp/", we use that as a
     # placeholder to mean that we don't care about the container image's working
     # directory. In that case, we set it to cwd_path, if given.
-    if working_dir in ("/tmp/", "/tmp") and cwd_path is not None:
+    if (
+        PurePath(working_dir)
+        in (PurePath("/tmp"), PurePath("/tmp/__meadowrun_marker__"))
+        and cwd_path is not None
+    ):
         (working_dir,) = tuple(
             mounted_path for (host_path, mounted_path) in binds if host_path == cwd_path
         )

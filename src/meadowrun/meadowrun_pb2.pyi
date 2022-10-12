@@ -334,6 +334,7 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
     PATH_TO_SPEC_FIELD_NUMBER: builtins.int
     PYTHON_VERSION_FIELD_NUMBER: builtins.int
     ADDITIONAL_SOFTWARE_FIELD_NUMBER: builtins.int
+    EDITABLE_INSTALL_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     path_to_spec: builtins.str
     python_version: builtins.str
@@ -343,6 +344,10 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
         self,
     ) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.str]:
         """right now just cuda is supported, maps software -> version requirement"""
+    editable_install: builtins.bool
+    """whether to support editable install of the code in the environment, e.g. register
+    cmd line scripts, or build metadata.
+    """
     def __init__(
         self,
         *,
@@ -351,12 +356,15 @@ class EnvironmentSpecInCode(google.protobuf.message.Message):
         python_version: builtins.str = ...,
         additional_software: collections.abc.Mapping[builtins.str, builtins.str]
         | None = ...,
+        editable_install: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "additional_software",
             b"additional_software",
+            "editable_install",
+            b"editable_install",
             "environment_type",
             b"environment_type",
             "path_to_spec",
@@ -400,6 +408,7 @@ class EnvironmentSpec(google.protobuf.message.Message):
     SPEC_LOCK_FIELD_NUMBER: builtins.int
     PYTHON_VERSION_FIELD_NUMBER: builtins.int
     ADDITIONAL_SOFTWARE_FIELD_NUMBER: builtins.int
+    EDITABLE_INSTALL_FIELD_NUMBER: builtins.int
     environment_type: global___EnvironmentType.ValueType
     spec: builtins.str
     spec_lock: builtins.str
@@ -411,6 +420,12 @@ class EnvironmentSpec(google.protobuf.message.Message):
         self,
     ) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.str]:
         """right now just cuda is supported, maps software -> version requirement"""
+    editable_install: builtins.bool
+    """whether to support editable install of the code in the environment, e.g. register
+    cmd line scripts, or build metadata.
+    TODO this is not supported yet for EnvironmentSpec, but not adding it here
+    leads to a bunch more of annoying if/thens.
+    """
     def __init__(
         self,
         *,
@@ -420,12 +435,15 @@ class EnvironmentSpec(google.protobuf.message.Message):
         python_version: builtins.str = ...,
         additional_software: collections.abc.Mapping[builtins.str, builtins.str]
         | None = ...,
+        editable_install: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "additional_software",
             b"additional_software",
+            "editable_install",
+            b"editable_install",
             "environment_type",
             b"environment_type",
             "python_version",

@@ -31,14 +31,25 @@ RUN if [[ -n "$APT_PACKAGES" ]]; then \
 # repository" error, even though this isn't actually a git repository
 RUN git config --global --add safe.directory '*'; exit 0
 
-WORKDIR /tmp/
+# Meadowrun copies code to this folder, which gets linked into path and other files if
+# an editable install happens. Adding this "unique" marker string allows us to identify
+# those paths in the site-packages folder, e.g. in pth and egg-link files.
+WORKDIR /tmp/__meadowrun_marker__
 
 ARG ENVIRONMENT_PREREQUISITES
 RUN if [[ -n "$ENVIRONMENT_PREREQUISITES" ]]; then \
     python -m pip install $ENVIRONMENT_PREREQUISITES \
     ; fi
 
+ARG ENV_COPY
 ARG ENV_FILE
 
-COPY $ENV_FILE ./
-RUN python -m pip install -r $ENV_FILE
+COPY $ENV_COPY ./
+
+RUN python -m pip install -r $ENV_FILE 
+# delete everything from the workdir (copied repository or code) except a few items to
+# support editable installs:
+# - egg-info directory (legacy setuptools mechanism)
+# - pyproject.toml (modern mechanism)
+# - poetry.lock (for poetry, not 100% sure we need this, but can't hurt)
+RUN find . -path ./*.egg-info -prune -o -path ./pyproject.toml -prune -o -path ./poetry.lock -o -exec rm -rfv {} \; || true

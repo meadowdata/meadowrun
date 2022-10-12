@@ -12,6 +12,7 @@ from meadowrun.deployment.prerequisites import (
     GOOGLE_AUTH_PACKAGE,
 )
 from meadowrun.shared import remove_corrupted_environment
+from meadowrun.deployment.pack_envs import pack_venv
 from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
 
 
@@ -175,11 +176,13 @@ _PIP_ENVIRONMENT_TIMEOUT = 10 * 60
 
 async def get_cached_or_create_pip_environment(
     environment_hash: str,
+    working_directory: Optional[str],
     requirements_file_path: str,
     prerequisites: EnvironmentSpecPrerequisites,
     new_environment_path: str,
     try_get_file: Callable[[str, str], Awaitable[bool]],
     upload_file: Callable[[str, str], Awaitable[None]],
+    editable_install: bool,
 ) -> str:
     """
     If the desired pip environment exists, does nothing. If the environment has been
@@ -240,29 +243,22 @@ async def get_cached_or_create_pip_environment(
         print("Creating the pip environment")
         try:
             await create_pip_environment(
-                requirements_file_path, new_environment_path, prerequisites
+                requirements_file_path,
+                new_environment_path,
+                prerequisites,
+                working_directory,
+                filter_editable_install=not editable_install,
             )
         except BaseException:
             remove_corrupted_environment(new_environment_path)
             raise
 
-        try:
-            import venv_pack  # see note on reference in pyproject.toml
-        except ImportError:
-            print(
-                "Warning unable to cache pip environment because venv_pack is missing"
-            )
+        is_packed = pack_venv(
+            new_environment_path, local_cached_file, "pip", editable_install
+        )
+        if not is_packed:
             return new_environment_interpreter
 
-        # TODO we shouldn't wait for this to start running the job but we also shouldn't
-        # kill the container until this finishes
-        print("Caching the pip environment")
-        try:
-            # there might be an old file from a failed attempt
-            os.remove(local_cached_file)
-        except OSError:
-            pass
-        venv_pack.pack(new_environment_path, output=local_cached_file)
         await upload_file(local_cached_file, remote_cached_file_name)
 
         return new_environment_interpreter
@@ -272,12 +268,18 @@ async def create_pip_environment(
     requirements_file_path: str,
     new_environment_path: str,
     prerequisites: EnvironmentSpecPrerequisites,
+    working_directory: Optional[str],
+    filter_editable_install: bool,
 ) -> None:
     """
     Creates a pip environment in new_environment_path. requirements_file_path should
     point to a requirements.txt file that will determine what packages are installed.
 
     There should usually be a filelock around this function.
+
+    If filter_editable_install is False, and there are editable installs in the
+    requirements file, working_directory must be set to where the source is, because
+    editable installs are specified relative to it.
     """
     # this code is roughly equivalent to the code in PipDockerfile and PipDockerfile
     return_code = await (
@@ -316,12 +318,18 @@ async def create_pip_environment(
             f"{new_environment_path} failed with return code {return_code}"
         )
 
+    if filter_editable_install:
+        requirements_file_path = filter_editable_installs_from_pip_reqs(
+            requirements_file_path
+        )
+
     return_code = await (
         await asyncio.create_subprocess_exec(
             *pip_install,
             "-r",
             requirements_file_path,
             env=disable_pip_version_check,
+            cwd=working_directory,
         )
     ).wait()
     if return_code != 0:
@@ -329,3 +337,17 @@ async def create_pip_environment(
             f"Installing requirements from {requirements_file_path} in "
             f"{new_environment_path} failed with return code {return_code}"
         )
+
+
+def filter_editable_installs_from_pip_reqs(requirements_file_path: str) -> str:
+    with open(requirements_file_path, "r", encoding="utf-8") as orig:
+        orig_lines = orig.readlines()
+    path, file = os.path.split(requirements_file_path)
+    requirements_file_path = os.path.join(path, "filtered-" + file)
+    with open(requirements_file_path, "w", encoding="utf-8") as flt:
+        for orig_line in orig_lines:
+            line = orig_line.strip()
+            if line.startswith("-e") and "git+" not in line:
+                continue
+            flt.write(orig_line)
+    return requirements_file_path

@@ -25,8 +25,10 @@ RUN python -c 'import urllib.request; urllib.request.urlretrieve("https://repo.a
 # this should be -c defaults -c conda-forge, but for some reason the version of
 # libarchive in the defaults channel has a problem:
 # https://github.com/mamba-org/mamba/issues/1728
-RUN /opt/conda/bin/conda install -y mamba -n base -c conda-forge -c defaults
-RUN pip install venv-pack conda-pack
+RUN /opt/conda/bin/conda install -y -n base -c conda-forge -c defaults mamba 
+# conda-pack 0.7 (which fixes a bug in 0.6 we run into) is not available on pypi. 
+# setuptools is needed to build it.
+RUN pip install venv-pack setuptools conda-pack@git+https://github.com/conda/conda-pack.git@0.7.0
 
 ARG MEADOWRUN_VERSION
 COPY meadowrun-$MEADOWRUN_VERSION-py3-none-any.whl meadowrun-$MEADOWRUN_VERSION-py3-none-any.whl

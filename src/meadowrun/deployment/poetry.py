@@ -4,7 +4,7 @@ import asyncio
 import os
 import shutil
 import sys
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Optional, Tuple
 
 import filelock
 
@@ -14,17 +14,20 @@ from meadowrun.deployment.prerequisites import (
     EnvironmentSpecPrerequisites,
     GOOGLE_AUTH_PACKAGE,
 )
+from meadowrun.deployment.pack_envs import pack_venv
 
 _POETRY_ENVIRONMENT_TIMEOUT = 10 * 60
 
 
 async def get_cached_or_create_poetry_environment(
     environment_hash: str,
+    working_directory: Optional[str],
     project_file_path: str,
     prerequisites: EnvironmentSpecPrerequisites,
     new_environment_path: str,
     try_get_file: Callable[[str, str], Awaitable[bool]],
     upload_file: Callable[[str, str], Awaitable[None]],
+    allow_editable_install: bool,
 ) -> str:
     """
     If the desired poetry environment exists, does nothing. If the environment has been
@@ -86,30 +89,22 @@ async def get_cached_or_create_poetry_environment(
         print("Creating the poetry environment")
         try:
             await create_poetry_environment(
-                project_file_path, new_environment_path, prerequisites
+                project_file_path,
+                new_environment_path,
+                prerequisites,
+                allow_editable_install,
             )
         except BaseException:
             remove_corrupted_environment(new_environment_path)
             raise
 
-        try:
-            import venv_pack  # see note on reference in pyproject.toml
-        except ImportError:
-            print(
-                "Warning unable to cache poetry environment because venv_pack is "
-                "missing"
-            )
-            return new_environment_interpreter
-
         # TODO we shouldn't wait for this to start running the job but we also shouldn't
         # kill the container until this finishes
-        print("Caching the poetry environment")
-        try:
-            # there might be an old file from a failed attempt
-            os.remove(local_cached_file)
-        except OSError:
-            pass
-        venv_pack.pack(venv_path, output=local_cached_file)
+        is_packed = pack_venv(
+            venv_path, local_cached_file, "poetry", allow_editable_install
+        )
+        if not is_packed:
+            return new_environment_interpreter
         await upload_file(local_cached_file, remote_cached_file_name)
 
         return new_environment_interpreter
@@ -124,14 +119,33 @@ async def create_poetry_environment(
     project_file_path: str,
     new_environment_path: str,
     prerequisites: EnvironmentSpecPrerequisites,
+    allow_editable_install: bool,
 ) -> None:
     os.makedirs(new_environment_path, exist_ok=True)
 
-    for file in ("pyproject.toml", "poetry.lock"):
-        shutil.copyfile(
-            os.path.join(project_file_path, file),
-            os.path.join(new_environment_path, file),
-        )
+    if allow_editable_install:
+        # not supported on py3.7, dir_exist_ok is new in 3.8
+        # shutil.copytree(project_file_path, new_environment_path, dirs_exist_ok=True)
+        # This is ridiculous though.
+        files = os.listdir(project_file_path)
+        for fname in files:
+            to_copy = os.path.join(project_file_path, fname)
+            if os.path.isdir(to_copy):
+                shutil.copytree(
+                    to_copy,
+                    os.path.join(new_environment_path, fname),
+                )
+            else:
+                shutil.copy2(
+                    to_copy,
+                    new_environment_path,
+                )
+    else:
+        for file in ("pyproject.toml", "poetry.lock"):
+            shutil.copyfile(
+                os.path.join(project_file_path, file),
+                os.path.join(new_environment_path, file),
+            )
 
     if prerequisites & EnvironmentSpecPrerequisites.GOOGLE_AUTH:
         return_code = await (
@@ -150,9 +164,14 @@ async def create_poetry_environment(
 
     # this code is roughly equivalent to the code in PoetryDockerfile and
     # PoetryDockerfile
+    args: Tuple[str, ...] = (_POETRY_PATH, "install")
+    if not allow_editable_install:
+        args += ("--no-root",)
     return_code = await (
         await asyncio.create_subprocess_exec(
-            _POETRY_PATH, "install", "--no-root", cwd=new_environment_path
+            *args,
+            cwd=new_environment_path,
+            env={"POETRY_VIRTUALENVS_IN_PROJECT": "true"},
         )
     ).wait()
     if return_code != 0:

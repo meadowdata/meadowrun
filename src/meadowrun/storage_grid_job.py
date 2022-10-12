@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
-class AbstractStorageClient(abc.ABC):
+class AbstractStorageBucket(abc.ABC):
     """
     A wrapper around S3, Azure Storage, Google Cloud Storage, or other similar object
     storage systems.
@@ -73,7 +73,7 @@ class AbstractStorageClient(abc.ABC):
     username/password.
     """
 
-    async def __aenter__(self) -> AbstractStorageClient:
+    async def __aenter__(self) -> AbstractStorageBucket:
         return self
 
     async def __aexit__(
@@ -85,69 +85,80 @@ class AbstractStorageClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get_bytes(self, bucket: str, key: str) -> bytes:
+    def get_cache_key(self) -> str:
+        """
+        The cache key uniquely identifies this storage bucket. E.g. we need to be able
+        to disambiguate between an AWS S3 bucket called "foo" and a Google Cloud Storage
+        bucket called "foo"
+        """
         ...
 
     @abc.abstractmethod
-    async def try_get_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    async def get_bytes(self, key: str) -> bytes:
         ...
 
-    async def get_bytes_and_key(self, bucket: str, key: str) -> Tuple[bytes, str]:
+    @abc.abstractmethod
+    async def try_get_bytes(self, key: str) -> Optional[bytes]:
+        ...
+
+    async def get_bytes_and_key(self, key: str) -> Tuple[bytes, str]:
         """
         A thin wrapper around get_bytes that also returns the key. Wouldn't be necessary
         if asyncio was easier to work with
         """
-        return await self.get_bytes(bucket, key), key
+        return await self.get_bytes(key), key
 
     @abc.abstractmethod
-    async def get_byte_range(
-        self, bucket: str, key: str, byte_range: Tuple[int, int]
-    ) -> bytes:
+    async def get_byte_range(self, key: str, byte_range: Tuple[int, int]) -> bytes:
         ...
 
     @abc.abstractmethod
-    async def write_bytes(self, data: bytes, bucket: str, key: str) -> None:
+    async def write_bytes(self, data: bytes, key: str) -> None:
         ...
 
     @abc.abstractmethod
-    async def write_bytes_if_not_exists(
-        self, data: bytes, bucket: str, key: str
-    ) -> None:
+    async def exists(self, key: str) -> bool:
+        ...
+
+    async def write_bytes_if_not_exists(self, data: bytes, key: str) -> None:
+        if not await self.exists(key):
+            await self.write_bytes(data, key)
+
+    @abc.abstractmethod
+    async def get_file(self, key: str, local_filename: str) -> None:
         ...
 
     @abc.abstractmethod
-    async def get_file(self, bucket: str, key: str, local_filename: str) -> None:
+    async def try_get_file(self, key: str, local_filename: str) -> bool:
         ...
 
     @abc.abstractmethod
-    async def try_get_file(self, bucket: str, key: str, local_filename: str) -> bool:
+    async def write_file(self, local_filename: str, key: str) -> None:
         ...
 
     @abc.abstractmethod
-    async def write_file(self, local_filename: str, bucket: str, key: str) -> None:
+    async def list_objects(self, key_prefix: str) -> List[str]:
         ...
 
     @abc.abstractmethod
-    async def list_objects(
-        self, bucket: str, key_prefix: str, start_after: str
-    ) -> List[str]:
-        ...
-
-    @abc.abstractmethod
-    async def delete_object(self, bucket: str, key: str) -> None:
+    async def delete_object(self, key: str) -> None:
         ...
 
 
-class S3ClientWrapper(AbstractStorageClient):
+class S3Bucket(AbstractStorageBucket):
     """
     This should be used for accessing AWS S3 as well as any other
     username/password-based S3-compatible object storage systems (e.g. Minio)
     """
 
-    def __init__(self, s3_client: types_aiobotocore_s3.S3Client):
+    def __init__(
+        self, s3_client: types_aiobotocore_s3.S3Client, bucket: str, cache_key: str
+    ):
         self._s3_client = s3_client
+        self._bucket = bucket
+        self._cache_key = cache_key
 
-    async def __aenter__(self) -> S3ClientWrapper:
+    async def __aenter__(self) -> S3Bucket:
         self._s3_client = await self._s3_client.__aenter__()
         return self
 
@@ -159,35 +170,36 @@ class S3ClientWrapper(AbstractStorageClient):
     ) -> None:
         await self._s3_client.__aexit__(exc_type, exc_val, exc_tb)
 
-    async def get_bytes(self, bucket: str, key: str) -> bytes:
-        response = await self._s3_client.get_object(Bucket=bucket, Key=key)
+    def get_cache_key(self) -> str:
+        return self._cache_key
+
+    async def get_bytes(self, key: str) -> bytes:
+        response = await self._s3_client.get_object(Bucket=self._bucket, Key=key)
         async with response["Body"] as stream:
             return await stream.read()
 
-    async def try_get_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    async def try_get_bytes(self, key: str) -> Optional[bytes]:
         try:
-            return await self.get_bytes(bucket, key)
+            return await self.get_bytes(key)
         except botocore.exceptions.ClientError as error:
             if error.response["Error"]["Code"] not in ("404", "NoSuchKey"):
                 raise
             return None
 
-    async def get_byte_range(
-        self, bucket: str, key: str, byte_range: Tuple[int, int]
-    ) -> bytes:
+    async def get_byte_range(self, key: str, byte_range: Tuple[int, int]) -> bytes:
         response = await self._s3_client.get_object(
-            Bucket=bucket, Key=key, Range=f"bytes={byte_range[0]}-{byte_range[1]}"
+            Bucket=self._bucket, Key=key, Range=f"bytes={byte_range[0]}-{byte_range[1]}"
         )
 
         async with response["Body"] as stream:
             return await stream.read()
 
-    async def write_bytes(self, data: bytes, bucket: str, key: str) -> None:
-        await self._s3_client.put_object(Bucket=bucket, Key=key, Body=data)
+    async def write_bytes(self, data: bytes, key: str) -> None:
+        await self._s3_client.put_object(Bucket=self._bucket, Key=key, Body=data)
 
-    async def _exists(self, bucket: str, key: str) -> bool:
+    async def exists(self, key: str) -> bool:
         try:
-            await self._s3_client.head_object(Bucket=bucket, Key=key)
+            await self._s3_client.head_object(Bucket=self._bucket, Key=key)
             return True
         except ClientError as error:
             # don't raise an error saying the file doesn't exist
@@ -195,21 +207,15 @@ class S3ClientWrapper(AbstractStorageClient):
                 raise error
         return False
 
-    async def write_bytes_if_not_exists(
-        self, data: bytes, bucket: str, key: str
-    ) -> None:
-        if not await self._exists(bucket, key):
-            await self.write_bytes(data, bucket, key)
-
-    async def get_file(self, bucket: str, key: str, local_filename: str) -> None:
-        response = await self._s3_client.get_object(Bucket=bucket, Key=key)
+    async def get_file(self, key: str, local_filename: str) -> None:
+        response = await self._s3_client.get_object(Bucket=self._bucket, Key=key)
         async with response["Body"] as stream:
             with open(local_filename, "wb") as f:
                 f.write(await stream.read())
 
-    async def try_get_file(self, bucket: str, key: str, local_filename: str) -> bool:
+    async def try_get_file(self, key: str, local_filename: str) -> bool:
         try:
-            await self.get_file(bucket, key, local_filename)
+            await self.get_file(key, local_filename)
             return True
         except botocore.exceptions.ClientError as error:
             # don't raise an error saying the file doesn't exist
@@ -218,41 +224,33 @@ class S3ClientWrapper(AbstractStorageClient):
 
             return False
 
-    async def write_file(self, local_filename: str, bucket: str, key: str) -> None:
+    async def write_file(self, local_filename: str, key: str) -> None:
         with open(local_filename, "rb") as f:
-            await self._s3_client.put_object(Bucket=bucket, Key=key, Body=f)
+            await self._s3_client.put_object(Bucket=self._bucket, Key=key, Body=f)
 
-    async def list_objects(
-        self, bucket: str, key_prefix: str, start_after: str
-    ) -> List[str]:
+    async def list_objects(self, key_prefix: str) -> List[str]:
         """Returns keys with the matching prefix in the bucket"""
         paginator = self._s3_client.get_paginator("list_objects_v2")
         results = []
-        async for result in paginator.paginate(
-            Bucket=bucket, Prefix=key_prefix, StartAfter=start_after
-        ):
+        async for result in paginator.paginate(Bucket=self._bucket, Prefix=key_prefix):
             for c in result.get("Contents", []):
                 results.append(c["Key"])
         return results
 
-    async def delete_object(self, bucket: str, key: str) -> None:
-        await self._s3_client.delete_object(Bucket=bucket, Key=key)
-
-    def get_aws_meadowrun_bucket_name(self) -> str:
-        """
-        This is for S3 clients where we are connecting to the real S3 using the default
-        Meadowrun infrastructure for EC2/AWS. In that case, the name of the bucket we
-        use can be constructed from the region name. This function should NOT be used if
-        we are using an S3 client pointing to a non-S3 object storage.
-        """
-        return get_bucket_name(self._s3_client.meta.region_name)
+    async def delete_object(self, key: str) -> None:
+        await self._s3_client.delete_object(Bucket=self._bucket, Key=key)
 
 
-def get_storage_client_from_args(
+def get_generic_username_password_bucket(
     storage_endpoint_url: Optional[str],
     storage_access_key_id: Optional[str],
     storage_secret_access_key: Optional[str],
-) -> S3ClientWrapper:
+    storage_bucket: str,
+) -> S3Bucket:
+    """
+    This can be used with any S3-compatible object storage system that requires a
+    username/password
+    """
     kwargs = {}
     if storage_access_key_id is not None:
         kwargs["aws_access_key_id"] = storage_access_key_id
@@ -264,12 +262,29 @@ def get_storage_client_from_args(
     # TODO if all the parameters are None then we're implicitly falling back on AWS
     # S3, which we should make explicit
     session = aiobotocore.session.get_session()
-    return S3ClientWrapper(session.create_client("s3", **kwargs))  # type: ignore
+    s3_client = session.create_client("s3", **kwargs)  # type: ignore
+    return S3Bucket(
+        s3_client, storage_bucket, f"{storage_endpoint_url}/{storage_bucket}"
+    )
+
+
+def get_aws_s3_bucket(region_name: str) -> S3Bucket:
+    """
+    This is for S3 clients where we are connecting to the real S3 using the default
+    Meadowrun infrastructure for EC2/AWS. In that case, the name of the bucket we
+    use can be constructed from the region name. This function should NOT be used if
+    we are using an S3 client pointing to a non-S3 object storage.
+    """
+    bucket_name = get_bucket_name(region_name)
+    return S3Bucket(
+        aiobotocore.session.get_session().create_client("s3", region_name=region_name),
+        bucket_name,
+        f"s3/{bucket_name}",
+    )
 
 
 async def upload_task_args(
-    storage_client: AbstractStorageClient,
-    bucket_name: str,
+    storage_bucket: AbstractStorageBucket,
     job_id: str,
     args: Iterable[Any],
 ) -> List[Tuple[int, int]]:
@@ -282,45 +297,39 @@ async def upload_task_args(
             ranges.append((range_from, range_to))
             range_from = range_to + 1
 
-        await storage_client.write_bytes(
-            buffer.getvalue(),
-            bucket_name,
-            storage_key_task_args(job_id),
+        await storage_bucket.write_bytes(
+            buffer.getvalue(), storage_key_task_args(job_id)
         )
 
     return ranges
 
 
 async def download_task_arg(
-    storage_client: AbstractStorageClient,
-    bucket_name: str,
+    storage_bucket: AbstractStorageBucket,
     job_id: str,
     byte_range: Tuple[int, int],
 ) -> Any:
-    return await storage_client.get_byte_range(
-        bucket_name, storage_key_task_args(job_id), byte_range
+    return await storage_bucket.get_byte_range(
+        storage_key_task_args(job_id), byte_range
     )
 
 
 async def complete_task(
-    storage_client: AbstractStorageClient,
-    bucket_name: str,
+    storage_bucket: AbstractStorageBucket,
     job_id: str,
     task_id: int,
     attempt: int,
     process_state: ProcessState,
 ) -> None:
     """Uploads the result of the task to S3."""
-    await storage_client.write_bytes(
+    await storage_bucket.write_bytes(
         process_state.SerializeToString(),
-        bucket_name,
         storage_key_task_result(job_id, task_id, attempt),
     )
 
 
 async def receive_results(
-    storage_client: AbstractStorageClient,
-    bucket_name: str,
+    storage_bucket: AbstractStorageBucket,
     job_id: str,
     stop_receiving: asyncio.Event,
     all_workers_exited: asyncio.Event,
@@ -374,15 +383,13 @@ async def receive_results(
                 if stop_receiving.is_set():
                     break
 
-            keys = await storage_client.list_objects(bucket_name, results_prefix, "")
+            keys = await storage_bucket.list_objects(results_prefix)
 
             download_tasks = []
             for key in keys:
                 if key not in download_keys_received:
                     download_tasks.append(
-                        asyncio.create_task(
-                            storage_client.get_bytes_and_key(bucket_name, key)
-                        )
+                        asyncio.create_task(storage_bucket.get_bytes_and_key(key))
                     )
 
             download_keys_received.update(keys)
@@ -422,9 +429,7 @@ async def receive_results(
                         continue  # don't delete if we can't parse the key
 
                     delete_tasks.append(
-                        asyncio.create_task(
-                            storage_client.delete_object(bucket_name, key)
-                        )
+                        asyncio.create_task(storage_bucket.delete_object(key))
                     )
                 yield task_results, worker_results
     finally:
@@ -432,8 +437,7 @@ async def receive_results(
 
 
 async def get_job_completion_from_process_state(
-    storage_client: AbstractStorageClient,
-    storage_bucket: str,
+    storage_bucket: AbstractStorageBucket,
     job_id: str,
     worker_index: str,
     job_spec_type: Literal["py_command", "py_function", "py_agent"],
@@ -453,9 +457,7 @@ async def get_job_completion_from_process_state(
     process_state_key = storage_key_process_state(job_id, worker_index)
     wait = 1
     while time.time() - t0 < timeout_seconds:
-        process_state_bytes = await storage_client.try_get_bytes(
-            storage_bucket, process_state_key
-        )
+        process_state_bytes = await storage_bucket.try_get_bytes(process_state_key)
         if process_state_bytes is not None:
             break
         await asyncio.sleep(wait)
@@ -492,9 +494,8 @@ _CHUNKS_KEY = "chunks"
 
 
 async def ensure_uploaded_incremental(
-    storage_client: AbstractStorageClient,
+    storage_bucket: AbstractStorageBucket,
     local_file_path: str,
-    bucket_name: str,
     key_prefix: str = "",
     avg_chunk_size: int = 1000_000,
 ) -> str:
@@ -523,13 +524,11 @@ async def ensure_uploaded_incremental(
     ):
         key = f"{key_prefix}{chunk.hash}.part"
         keys.append(key)
-        cache_key = (bucket_name, key)
-        if (bucket_name, key) not in _existing_keys:
+        cache_key = (storage_bucket.get_cache_key(), key)
+        if (storage_bucket.get_cache_key(), key) not in _existing_keys:
             chunk_upload_tasks.append(
                 asyncio.create_task(
-                    storage_client.write_bytes_if_not_exists(
-                        chunk.data, bucket_name, key
-                    )
+                    storage_bucket.write_bytes_if_not_exists(chunk.data, key)
                 )
             )
             _existing_keys.add(cache_key)
@@ -543,25 +542,22 @@ async def ensure_uploaded_incremental(
 
     chunks_json = json.dumps({_CHUNKS_KEY: keys}).encode("utf-8")
     chunks_json_key = f"{key_prefix}{hashlib.blake2b(chunks_json).hexdigest()}.json"
-    await storage_client.write_bytes_if_not_exists(
-        chunks_json, bucket_name, chunks_json_key
-    )
+    await storage_bucket.write_bytes_if_not_exists(chunks_json, chunks_json_key)
 
     return chunks_json_key
 
 
 async def download_chunked_file(
-    storage_client: AbstractStorageClient,
-    bucket_name: str,
+    storage_bucket: AbstractStorageBucket,
     object_name: str,
     file_name: str,
 ) -> None:
     """Download a file that was uploaded in chunks via ensure_uploaded_incremental"""
-    chunk_list_bs = await storage_client.get_bytes(bucket_name, object_name)
+    chunk_list_bs = await storage_bucket.get_bytes(object_name)
     chunks = json.loads(chunk_list_bs.decode("utf-8"))[_CHUNKS_KEY]
 
     with tempfile.TemporaryDirectory() as tmp:
-        await _download_files(storage_client, bucket_name, chunks, tmp)
+        await _download_files(storage_bucket, chunks, tmp)
         _concat_chunks(tmp, chunks, file_name)
 
 
@@ -577,8 +573,7 @@ def _concat_chunks(
 
 
 async def _download_files(
-    storage_client: AbstractStorageClient,
-    bucket_name: str,
+    storage_bucket: AbstractStorageBucket,
     keys: Iterable[str],
     target_folder: str,
 ) -> None:
@@ -589,8 +584,8 @@ async def _download_files(
     for key in set(keys):
         download_tasks.append(
             asyncio.create_task(
-                storage_client.get_file(
-                    bucket_name, key, os.path.join(target_folder, os.path.basename(key))
+                storage_bucket.get_file(
+                    key, os.path.join(target_folder, os.path.basename(key))
                 )
             )
         )

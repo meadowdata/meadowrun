@@ -23,9 +23,10 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 )
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.storage_grid_job import (
-    S3ClientWrapper,
+    S3Bucket,
     complete_task,
     download_task_arg,
+    get_aws_s3_bucket,
     upload_task_args,
 )
 from meadowrun.run_job_local import restart_worker
@@ -86,7 +87,7 @@ MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
 async def add_tasks(
     job_id: str,
     request_queue_url: str,
-    s3_client: S3ClientWrapper,
+    s3_bucket: S3Bucket,
     sqs: SQSClient,
     run_map_args: Iterable[Any],
 ) -> List[Tuple[int, int]]:
@@ -96,9 +97,7 @@ async def add_tasks(
     task_ids
     """
 
-    byte_ranges = await upload_task_args(
-        s3_client, s3_client.get_aws_meadowrun_bucket_name(), job_id, run_map_args
-    )
+    byte_ranges = await upload_task_args(s3_bucket, job_id, run_map_args)
 
     for byte_ranges_chunk in _chunker(enumerate(byte_ranges), 10):
         # this function can only take 10 messages at a time, so we chunk into
@@ -181,7 +180,7 @@ _GET_TASK_TIMEOUT_SECONDS = 60 * 2  # 2 minutes
 
 async def _get_task(
     sqs: SQSClient,
-    s3_client: S3ClientWrapper,
+    s3_bucket: S3Bucket,
     request_queue_url: str,
     job_id: str,
     receive_message_wait_seconds: int,
@@ -223,12 +222,7 @@ async def _get_task(
             task["range_from"],
             task["range_end"],
         )
-        arg = await download_task_arg(
-            s3_client,
-            s3_client.get_aws_meadowrun_bucket_name(),
-            job_id,
-            (range_from, range_end),
-        )
+        arg = await download_task_arg(s3_bucket, job_id, (range_from, range_end))
 
         # TODO store somewhere (DynamoDB?) that this worker has picked up the task.
 
@@ -250,7 +244,7 @@ async def _get_task(
 
 async def _worker_iteration(
     sqs: SQSClient,
-    s3_client: S3ClientWrapper,
+    s3_bucket: S3Bucket,
     request_queue_url: str,
     job_id: str,
     log_file_name: str,
@@ -260,7 +254,7 @@ async def _worker_iteration(
 ) -> bool:
     task = await _get_task(
         sqs,
-        s3_client,
+        s3_bucket,
         request_queue_url,
         job_id,
         3,
@@ -313,14 +307,7 @@ async def _worker_iteration(
         f"memory {process_state.max_memory_used_gb}GB "
     )
 
-    await complete_task(
-        s3_client,
-        s3_client.get_aws_meadowrun_bucket_name(),
-        job_id,
-        task_id,
-        attempt,
-        process_state,
-    )
+    await complete_task(s3_bucket, job_id, task_id, attempt, process_state)
 
     return True
 
@@ -343,13 +330,11 @@ async def worker_function(
     session = aiobotocore.session.get_session()
     async with session.create_client(
         "sqs", region_name=region_name
-    ) as sqs, S3ClientWrapper(
-        session.create_client("s3", region_name=region_name)
-    ) as s3_client:
+    ) as sqs, get_aws_s3_bucket(region_name) as s3_bucket:
         await worker_server.wait_for_task_worker_connection()
         while await _worker_iteration(
             sqs,
-            s3_client,
+            s3_bucket,
             request_queue_url,
             job_id,
             log_file_name,

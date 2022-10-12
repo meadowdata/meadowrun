@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import dataclasses
 
-from typing import Optional, Tuple, TYPE_CHECKING, Type
+from typing import Optional, TYPE_CHECKING, Type
 
 from meadowrun.object_storage import ObjectStorage
 from meadowrun.storage_grid_job import (
-    S3ClientWrapper,
+    AbstractStorageBucket,
     download_chunked_file,
     ensure_uploaded_incremental,
 )
@@ -29,16 +29,14 @@ MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"
 
 # This is a global variable that will be updated with the storage client if it's
 # available in func_worker_storage
-FUNC_WORKER_STORAGE_CLIENT: Optional[S3ClientWrapper] = None
-FUNC_WORKER_STORAGE_BUCKET: Optional[str] = None
+FUNC_WORKER_STORAGE_BUCKET: Optional[AbstractStorageBucket] = None
 
 
 @dataclasses.dataclass
 class FuncWorkerClientObjectStorage(ObjectStorage):
     # this really belongs in k8s.py but can't put it there because of
     # circular imports
-    storage_client: Optional[S3ClientWrapper] = None
-    bucket_name: Optional[str] = None
+    storage_bucket: Optional[AbstractStorageBucket] = None
 
     async def __aexit__(
         self,
@@ -46,30 +44,27 @@ class FuncWorkerClientObjectStorage(ObjectStorage):
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
-        if self.storage_client is not None:
-            await self.storage_client.__aexit__(exc_type, exc_val, exc_tb)
+        if self.storage_bucket is not None:
+            await self.storage_bucket.__aexit__(exc_type, exc_val, exc_tb)
 
     @classmethod
     def get_url_scheme(cls) -> str:
         return "meadowrunfuncworkerstorage"
 
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
+    async def _upload(self, file_path: str) -> str:
         # TODO these will never get cleaned up
 
-        if self.storage_client is None or self.bucket_name is None:
+        if self.storage_bucket is None:
             raise Exception(
                 "Can't use _upload without a bucket_name and a storage endpoint"
             )
 
-        s3_key = await ensure_uploaded_incremental(
-            self.storage_client, file_path, self.bucket_name, STORAGE_CODE_CACHE_PREFIX
+        return await ensure_uploaded_incremental(
+            self.storage_bucket, file_path, STORAGE_CODE_CACHE_PREFIX
         )
-        return self.bucket_name, s3_key
 
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        storage_client = FUNC_WORKER_STORAGE_CLIENT
-        if storage_client is None:
+    async def _download(self, object_name: str, file_name: str) -> None:
+        storage_bucket = FUNC_WORKER_STORAGE_BUCKET
+        if storage_bucket is None:
             raise Exception("FUNC_WORKER_STORAGE_CLIENT is not available")
-        await download_chunked_file(storage_client, bucket_name, object_name, file_name)
+        await download_chunked_file(storage_bucket, object_name, file_name)

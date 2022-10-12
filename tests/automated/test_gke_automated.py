@@ -55,7 +55,7 @@ def _get_gke_host() -> meadowrun.Kubernetes:
     """
 
     return meadowrun.Kubernetes(
-        storage_bucket="meadowrunbucket",
+        storage_bucket_name="meadowrunbucket",
         storage_endpoint_url=_MINIO_PUBLIC_URL,
         storage_endpoint_url_in_cluster="http://minio-service:9000",
         storage_username_password_secret="minio-credentials",

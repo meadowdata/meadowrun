@@ -15,7 +15,6 @@ from typing import Optional, TYPE_CHECKING, Type
 
 from meadowrun.object_storage import ObjectStorage
 from meadowrun.storage_grid_job import (
-    AbstractStorageBucket,
     download_chunked_file,
     ensure_uploaded_incremental,
 )
@@ -23,6 +22,7 @@ from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
     from types import TracebackType
+    from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 
 MEADOWRUN_STORAGE_USERNAME = "MEADOWRUN_STORAGE_USERNAME"
 MEADOWRUN_STORAGE_PASSWORD = "MEADOWRUN_STORAGE_PASSWORD"

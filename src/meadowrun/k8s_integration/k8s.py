@@ -50,7 +50,6 @@ from meadowrun.k8s_integration.k8s_core import (
     wait_for_pod_running,
 )
 from meadowrun.storage_grid_job import (
-    AbstractStorageBucket,
     complete_task,
     download_task_arg,
     get_generic_username_password_bucket,
@@ -91,6 +90,7 @@ from meadowrun.version import __version__
 if TYPE_CHECKING:
     from asyncio import Task
 
+    from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.instance_selection import ResourcesInternal
     from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import WorkerProcessState, TaskProcessState

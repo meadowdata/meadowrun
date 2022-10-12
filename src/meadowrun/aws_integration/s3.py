@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional, Tuple
+from typing import Optional
 
-import aiobotocore.session
-from botocore.exceptions import ClientError
 import boto3.exceptions
+from botocore.exceptions import ClientError
 from meadowrun.aws_integration.aws_core import (
     MeadowrunAWSAccessError,
     MeadowrunNotInstalledError,
     _get_default_region_name,
-    get_bucket_name,
 )
 from meadowrun.object_storage import ObjectStorage
 from meadowrun.storage_grid_job import (
-    S3ClientWrapper,
     download_chunked_file,
     ensure_uploaded_incremental,
+    get_aws_s3_bucket,
 )
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
@@ -34,18 +32,13 @@ class S3ObjectStorage(ObjectStorage):
             self.region_name = await _get_default_region_name()
         return self.region_name
 
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
+    async def _upload(self, file_path: str) -> str:
         region_name = await self.get_region_name()
-        bucket_name = get_bucket_name(region_name)
 
-        async with S3ClientWrapper(
-            aiobotocore.session.get_session().create_client(
-                "s3", region_name=region_name
-            )
-        ) as s3_client:
+        async with get_aws_s3_bucket(region_name) as s3_bucket:
             try:
                 s3_key = await ensure_uploaded_incremental(
-                    s3_client, file_path, bucket_name, STORAGE_CODE_CACHE_PREFIX
+                    s3_bucket, file_path, STORAGE_CODE_CACHE_PREFIX
                 )
             except boto3.exceptions.S3UploadFailedError as e:
                 if len(e.args) >= 1 and "NoSuchBucket" in e.args[0]:
@@ -57,15 +50,8 @@ class S3ObjectStorage(ObjectStorage):
                     raise MeadowrunAWSAccessError("S3 bucket") from error
                 raise
 
-        return bucket_name, s3_key
+        return s3_key
 
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        region_name = await self.get_region_name()
-        async with S3ClientWrapper(
-            aiobotocore.session.get_session().create_client(
-                "s3", region_name=region_name
-            )
-        ) as s3_client:
-            await download_chunked_file(s3_client, bucket_name, object_name, file_name)
+    async def _download(self, object_name: str, file_name: str) -> None:
+        async with get_aws_s3_bucket(await self.get_region_name()) as s3_bucket:
+            await download_chunked_file(s3_bucket, object_name, file_name)

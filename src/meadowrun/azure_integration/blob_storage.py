@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Tuple
 
 from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_storage_account,
@@ -65,7 +64,7 @@ async def ensure_container(
     )
 
 
-async def ensure_uploaded(file_path: str) -> Tuple[str, str]:
+async def ensure_uploaded(file_path: str) -> str:
     hasher = hashlib.blake2b()
     with open(file_path, "rb") as file:
         buf = file.read()
@@ -81,7 +80,7 @@ async def ensure_uploaded(file_path: str) -> Tuple[str, str]:
         _ = await azure_blob_api("HEAD", storage_account, f"{CONTAINER_NAME}/{digest}")
         # CONTAINER_NAME is a constant on Azure, but not AWS. Returning it here for
         # consistency.
-        return CONTAINER_NAME, digest
+        return digest
     except AzureRestApiError as error:
         if error.status != 404:
             raise error
@@ -99,15 +98,15 @@ async def ensure_uploaded(file_path: str) -> Tuple[str, str]:
             },
             binary_content=file,
         )
-    return CONTAINER_NAME, digest
+    return digest
 
 
-async def download_file(container_name: str, object_name: str, file_name: str) -> None:
+async def download_file(object_name: str, file_name: str) -> None:
     # see comment in ensure_uploaded_by_hash regarding empty location
     storage_account = await ensure_meadowrun_storage_account("", on_missing="raise")
 
     result: bytes = await azure_blob_api(
-        "GET", storage_account, f"{container_name}/{object_name}"
+        "GET", storage_account, f"{CONTAINER_NAME}/{object_name}"
     )
     with open(file_name, "wb") as file:
         file.write(result)
@@ -120,10 +119,8 @@ class AzureBlobStorage(ObjectStorage):
     def get_url_scheme(cls) -> str:
         return "azblob"
 
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
+    async def _upload(self, file_path: str) -> str:
         return await ensure_uploaded(file_path)
 
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        return await download_file(bucket_name, object_name, file_name)
+    async def _download(self, object_name: str, file_name: str) -> None:
+        return await download_file(object_name, file_name)

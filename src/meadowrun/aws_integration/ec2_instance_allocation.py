@@ -26,7 +26,7 @@ from typing import (
 
 import aiobotocore.session
 import boto3
-from meadowrun.aws_integration.aws_core import _get_default_region_name, get_bucket_name
+from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
 from meadowrun.aws_integration.ec2 import (
     LaunchEC2InstanceSettings,
@@ -77,7 +77,11 @@ from meadowrun.run_job_core import (
     SshHost,
     WaitOption,
 )
-from meadowrun.storage_grid_job import receive_results, S3ClientWrapper
+from meadowrun.storage_grid_job import (
+    S3Bucket,
+    get_aws_s3_bucket,
+    receive_results,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -99,7 +103,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-07742deec20dbdf4a",
+        "us-east-2": "ami-056b37e1c081f6455",
         "us-east-1": "ami-0c4f30064b16cac99",
         "us-west-1": "ami-012fbb53effdd0f6f",
         "us-west-2": "ami-039fa3adc59d9335b",
@@ -734,16 +738,14 @@ class EC2GridJobInterface(GridJobCloudInterface):
         self._job_id = str(uuid.uuid4())
 
         self._sqs_client: Optional[SQSClient] = None
-        self._s3_client: Optional[S3ClientWrapper] = None
+        self._s3_bucket: Optional[S3Bucket] = None
 
     async def __aenter__(self) -> EC2GridJobInterface:
         session = aiobotocore.session.get_session()
         self._sqs_client = await session.create_client(
             "sqs", region_name=self._region_name
         ).__aenter__()
-        self._s3_client = await S3ClientWrapper(
-            session.create_client("s3", region_name=self._region_name)
-        ).__aenter__()
+        self._s3_bucket = await get_aws_s3_bucket(self._region_name).__aenter__()
         return self
 
     async def __aexit__(
@@ -754,8 +756,8 @@ class EC2GridJobInterface(GridJobCloudInterface):
     ) -> None:
         if self._sqs_client is not None:
             await self._sqs_client.__aexit__(exc_type, exc_val, exc_tb)
-        if self._s3_client is not None:
-            await self._s3_client.__aexit__(exc_type, exc_val, exc_tb)
+        if self._s3_bucket is not None:
+            await self._s3_bucket.__aexit__(exc_type, exc_val, exc_tb)
 
     def create_instance_registrar(self) -> InstanceRegistrar:
         return EC2InstanceRegistrar(self._region_name, "create")
@@ -775,7 +777,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
         return index
 
     async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
-        if self._sqs_client is None or self._s3_client is None:
+        if self._sqs_client is None or self._s3_bucket is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 
         # create SQS queues and add tasks to the request queue
@@ -790,7 +792,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
             add_tasks(
                 self._job_id,
                 await self._request_queue_urls[queue_index],
-                self._s3_client,
+                self._s3_bucket,
                 self._sqs_client,
                 tasks,
             )
@@ -834,7 +836,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
     async def receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
-        if self._s3_client is None:
+        if self._s3_bucket is None:
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 
         # Note: download here is all via S3. It's important that downloads are fast
@@ -850,8 +852,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
         # bucket.
 
         return receive_results(
-            self._s3_client,
-            get_bucket_name(self._region_name),
+            self._s3_bucket,
             self._job_id,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,

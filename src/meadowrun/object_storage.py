@@ -6,7 +6,7 @@ import shutil
 import sys
 import urllib.parse
 import zipfile
-from typing import TYPE_CHECKING, Tuple, Type, Optional
+from typing import TYPE_CHECKING, Type, Optional
 
 import filelock
 
@@ -46,10 +46,12 @@ class ObjectStorage(abc.ABC):
         the URL of the remote file.
         """
         file_path = self._file_path_from_url(file_url)
-        bucket_name, object_name = await self._upload(file_path)
+        object_name = await self._upload(file_path)
         shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+        # the actual bucket name will already exist on the other end, "bucket" is just a
+        # placeholder
         return urllib.parse.urlunparse(
-            (self.get_url_scheme(), bucket_name, object_name, "", "", "")
+            (self.get_url_scheme(), "bucket", object_name, "", "", "")
         )
 
     def _file_path_from_url(self, file_url: str) -> str:
@@ -73,7 +75,6 @@ class ObjectStorage(abc.ABC):
         to local_copies_folder if it has not already been extracted.
         """
         decoded_url = urllib.parse.urlparse(remote_url)
-        bucket_name = decoded_url.netloc
         object_name = decoded_url.path.lstrip("/")
         extracted_folder = os.path.join(
             local_copies_folder, os.path.basename(object_name)
@@ -82,22 +83,19 @@ class ObjectStorage(abc.ABC):
         with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
             if not os.path.exists(extracted_folder):
                 zip_file_path = extracted_folder + ".zip"
-                await self._download(bucket_name, object_name, zip_file_path)
+                await self._download(object_name, zip_file_path)
                 with zipfile.ZipFile(zip_file_path) as zip_file:
                     zip_file.extractall(extracted_folder)
 
         return extracted_folder
 
     @abc.abstractmethod
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
+    async def _upload(self, file_path: str) -> str:
         """Ensure the file at the given file path is uploaded to storage. Returns where
-        the file was uploaded as a tuple of bucket name and object name."""
+        the file was uploaded"""
         pass
 
     @abc.abstractmethod
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
-        """Download the file at given bucket and object name locally to the given file
-        name."""
+    async def _download(self, object_name: str, file_name: str) -> None:
+        """Download the file locally to the given file name."""
         pass

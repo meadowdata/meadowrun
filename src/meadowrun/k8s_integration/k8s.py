@@ -50,11 +50,11 @@ from meadowrun.k8s_integration.k8s_core import (
     wait_for_pod_running,
 )
 from meadowrun.storage_grid_job import (
-    S3ClientWrapper,
+    AbstractStorageBucket,
     complete_task,
     download_task_arg,
+    get_generic_username_password_bucket,
     get_job_completion_from_process_state,
-    get_storage_client_from_args,
     receive_results,
     upload_task_args,
 )
@@ -113,7 +113,7 @@ async def _indexed_map_worker(
     This is a worker function to help with running a run_map. This worker assumes that
     JOB_COMPLETION_INDEX is set, which Kubernetes will set for indexed completion jobs.
     This worker assumes task arguments are accessible via
-    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT and will just
+    meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET and will just
     complete all of the tasks where task_index % num_workers == current worker index.
     """
 
@@ -130,9 +130,8 @@ async def _indexed_map_worker(
 
     # we're always being called from run_job_local_storage_main which sets these
     # variables for us
-    storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
     storage_bucket = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET
-    if storage_client is None or storage_bucket is None:
+    if storage_bucket is None:
         raise ValueError(
             "Programming error--_indexed_map_worker must be called from "
             "run_job_local_storage_main"
@@ -147,14 +146,12 @@ async def _indexed_map_worker(
     log_file_name = f"{pod_name}:/var/meadowrun/job_logs/{job_id}.log"
 
     byte_ranges = pickle.loads(
-        await storage_client.get_bytes(storage_bucket, storage_key_ranges(job_id))
+        await storage_bucket.get_bytes(storage_key_ranges(job_id))
     )
 
     i = current_worker_index
     while i < total_num_tasks:
-        arg = await download_task_arg(
-            storage_client, storage_bucket, job_id, byte_ranges[i]
-        )
+        arg = await download_task_arg(storage_bucket, job_id, byte_ranges[i])
 
         try:
             worker_monitor.start_stats()
@@ -182,7 +179,7 @@ async def _indexed_map_worker(
             await restart_worker(worker_server, worker_monitor)
 
         # we don't support retries yet so we're always on attempt 1
-        await complete_task(storage_client, storage_bucket, job_id, i, 1, process_state)
+        await complete_task(storage_bucket, job_id, i, 1, process_state)
 
         print(
             f"Meadowrun agent: Completed task #{i}, "
@@ -289,7 +286,7 @@ class Kubernetes(Host):
     optional with the Kubernetes Host.
 
     Attributes:
-        storage_bucket: Together, the storage_* arguments specify an S3-compatible
+        storage_bucket_name: Together, the storage_* arguments specify an S3-compatible
             object store that Meadowrun will use for sending inputs/outputs from the
             Kubernetes job and back. For run_command, the S3-compatible object store is
             not used (even if it is specified). For run_function on a pickled function
@@ -353,7 +350,7 @@ class Kubernetes(Host):
             V1PodTemplateSpec and return that.
     """
 
-    storage_bucket: Optional[str] = None
+    storage_bucket_name: Optional[str] = None
     storage_endpoint_url: Optional[str] = None
     storage_endpoint_url_in_cluster: Optional[str] = None
     storage_username_password_secret: Optional[str] = None
@@ -371,16 +368,16 @@ class Kubernetes(Host):
             return self.storage_endpoint_url_in_cluster
         return self.storage_endpoint_url
 
-    async def _get_storage_client(
+    async def _get_storage_bucket(
         self,
-    ) -> AsyncContextManager[Optional[S3ClientWrapper]]:
+    ) -> AsyncContextManager[Optional[AbstractStorageBucket]]:
         # get the storage client
 
         # this is kind of weird, this should be called before any Kubernetes function,
-        # but for now, _get_storage_client is always the first thing that's called
+        # but for now, _get_storage_bucket is always the first thing that's called
         await kubernetes_config.load_kube_config(context=self.kube_config_context)
 
-        if self.storage_bucket is not None:
+        if self.storage_bucket_name is not None:
             if self.storage_username_password_secret is not None:
                 secret_data = await get_kubernetes_secret(
                     self.kubernetes_namespace,
@@ -389,10 +386,11 @@ class Kubernetes(Host):
             else:
                 secret_data = {}
 
-            return get_storage_client_from_args(
+            return get_generic_username_password_bucket(
                 self.storage_endpoint_url,
                 secret_data.get("username", None),
                 secret_data.get("password", None),
+                self.storage_bucket_name,
             )
 
         return none_async_context()
@@ -546,7 +544,7 @@ class Kubernetes(Host):
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
         # This is the "normal" way to run jobs on Kubernetes. We assume that the image
-        # specified by image_name has Meadowrun set up in it. We use the storage_client
+        # specified by image_name has Meadowrun set up in it. We use the storage_bucket
         # to send a Job object via S3-compatible object storage and run
         # run_job_local_storage_main which will actually run our job. The results will
         # also come back via the object storage.
@@ -560,7 +558,7 @@ class Kubernetes(Host):
         else:
             process = SingleUsePodRemoteProcesses()
 
-        async with await self._get_storage_client() as storage_client, kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
+        async with await self._get_storage_bucket() as storage_bucket, kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
             core_api = kubernetes_client.CoreV1Api(api_client)
             ws_core_api = kubernetes_client.CoreV1Api(ws_api_client)
             batch_api = kubernetes_client.BatchV1Api(api_client)
@@ -568,8 +566,8 @@ class Kubernetes(Host):
             try:
                 storage_endpoint_url = self.get_storage_endpoint_url_in_cluster()
                 if (
-                    storage_client is None
-                    or self.storage_bucket is None
+                    storage_bucket is None
+                    or self.storage_bucket_name is None
                     or storage_endpoint_url is None
                 ):
                     raise ValueError(
@@ -580,8 +578,8 @@ class Kubernetes(Host):
 
                 job_to_run_key = storage_key_job_to_run(job.job_id)
                 storage_keys_used.append(job_to_run_key)
-                await storage_client.write_bytes(
-                    job.SerializeToString(), self.storage_bucket, job_to_run_key
+                await storage_bucket.write_bytes(
+                    job.SerializeToString(), job_to_run_key
                 )
 
                 try:
@@ -596,7 +594,7 @@ class Kubernetes(Host):
                             [int(p) for p in expand_ports(job.ports)],
                             resources_required,
                             storage_endpoint_url,
-                            self.storage_bucket,
+                            self.storage_bucket_name,
                             self.storage_username_password_secret,
                             job.job_id,
                             1,
@@ -640,8 +638,7 @@ class Kubernetes(Host):
                 if job_spec_type is None:
                     raise ValueError("Unexpected, job.job_spec is None")
                 result = await get_job_completion_from_process_state(
-                    storage_client,
-                    self.storage_bucket,
+                    storage_bucket,
                     job.job_id,
                     "0",
                     job_spec_type,
@@ -654,12 +651,10 @@ class Kubernetes(Host):
                 await process.kill_all()
                 # TODO we should separately periodically clean up these files in case we
                 # aren't able to execute this finally block
-                if storage_client is not None and self.storage_bucket is not None:
+                if storage_bucket is not None:
                     await asyncio.gather(
                         *(
-                            storage_client.delete_object(
-                                self.storage_bucket, storage_key
-                            )
+                            storage_bucket.delete_object(storage_key)
                             for storage_key in storage_keys_used
                         ),
                         return_exceptions=True,
@@ -685,9 +680,8 @@ class Kubernetes(Host):
         if max_num_task_attempts != 1:
             raise NotImplementedError("max_num_task_attempts must be 1 on Kubernetes")
 
-        async with await self._get_storage_client() as storage_client:
-            # extra storage_bucket check is for mypy
-            if storage_client is None or self.storage_bucket is None:
+        async with await self._get_storage_bucket() as storage_bucket:
+            if storage_bucket is None:
                 raise ValueError(
                     "storage_bucket and other storage_* parameters must be specified to"
                     " use Kubernetes with run_map"
@@ -695,7 +689,7 @@ class Kubernetes(Host):
 
             # pretty much copied from AllocVM.run_map_as_completed
 
-            driver = KubernetesGridJobDriver(self, num_concurrent_tasks, storage_client)
+            driver = KubernetesGridJobDriver(self, num_concurrent_tasks, storage_bucket)
 
             # this should be in get_results, but with indexed workers we need to make
             # sure the tasks are uploaded before we can start workers
@@ -726,10 +720,7 @@ class Kubernetes(Host):
                     storage_key_ranges(driver._job_id),
                 ]
                 await asyncio.gather(
-                    *(
-                        storage_client.delete_object(self.storage_bucket, key)
-                        for key in keys_to_delete
-                    ),
+                    *(storage_bucket.delete_object(key) for key in keys_to_delete),
                     return_exceptions=True,
                 )
 
@@ -743,16 +734,14 @@ class Kubernetes(Host):
             )
 
     async def get_object_storage(self) -> ObjectStorage:
-        storage_client = await self._get_storage_client()
+        storage_bucket = await self._get_storage_bucket()
 
-        if storage_client is None or self.storage_bucket is None:
+        if storage_bucket is None:
             raise ValueError(
                 "Cannot use mirror_local without providing a storage_bucket. Please "
                 "either use a different Deployment method or provide a storage_bucket"
             )
-        return FuncWorkerClientObjectStorage(
-            await storage_client.__aenter__(), self.storage_bucket
-        )
+        return FuncWorkerClientObjectStorage(await storage_bucket.__aenter__())
 
 
 class KubernetesGridJobDriver:
@@ -764,13 +753,13 @@ class KubernetesGridJobDriver:
         self,
         kubernetes: Kubernetes,
         num_concurrent_tasks: int,
-        storage_client: S3ClientWrapper,
+        storage_bucket: AbstractStorageBucket,
     ):
         self._kubernetes = kubernetes
 
         # properties of the job
         self._num_concurrent_tasks = num_concurrent_tasks
-        self._storage_client = storage_client
+        self._storage_bucket = storage_bucket
 
         self._job_id = str(uuid.uuid4())
         print(f"GridJob id is {self._job_id}")
@@ -794,28 +783,20 @@ class KubernetesGridJobDriver:
     # these three functions are effectively the GridJobCloudInterface
 
     async def _add_tasks(self, args: Sequence[Any]) -> None:
-        assert self._kubernetes.storage_bucket is not None  # just for mypy
-
-        ranges = await upload_task_args(
-            self._storage_client, self._kubernetes.storage_bucket, self._job_id, args
-        )
+        ranges = await upload_task_args(self._storage_bucket, self._job_id, args)
         # this is a hack--"normally" this would get sent with the "task assignment"
         # message, but we don't have the infrastructure for that in the case of Indexed
         # Jobs (static task-to-worker assignment)
-        await self._storage_client.write_bytes(
+        await self._storage_bucket.write_bytes(
             pickle.dumps(ranges),
-            self._kubernetes.storage_bucket,
             storage_key_ranges(self._job_id),
         )
 
     async def _receive_task_results(
         self, *, stop_receiving: asyncio.Event, workers_done: asyncio.Event
     ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
-        assert self._kubernetes.storage_bucket is not None  # just for mypy
-
         return receive_results(
-            self._storage_client,
-            self._kubernetes.storage_bucket,
+            self._storage_bucket,
             self._job_id,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
@@ -879,13 +860,13 @@ class KubernetesGridJobDriver:
                 storage_endpoint = (
                     self._kubernetes.get_storage_endpoint_url_in_cluster()
                 )
-
-                if self._kubernetes.storage_bucket is None or storage_endpoint is None:
-                    raise ValueError(
-                        "Cannot use an environment_spec without providing a "
-                        "storage_bucket. Please either provide a pre-built container "
-                        "image for the interpreter or provide a storage_bucket"
-                    )
+                # just for mypy--if storage_endpoint will not be None, as otherwise we
+                # wouldn't be able to construct a storage_bucket to instantiate this
+                # class
+                assert (
+                    self._kubernetes.storage_bucket_name is not None
+                    and storage_endpoint is not None
+                )
 
                 job = self._worker_function_job(
                     function, num_args, job_fields, pickle_protocol
@@ -897,9 +878,8 @@ class KubernetesGridJobDriver:
                     modified_job,
                 ) = await _image_name_from_job(job)
 
-                await self._storage_client.write_bytes(
+                await self._storage_bucket.write_bytes(
                     modified_job.SerializeToString(),
-                    self._kubernetes.storage_bucket,
                     storage_key_job_to_run(self._job_id),
                 )
 
@@ -917,7 +897,7 @@ class KubernetesGridJobDriver:
                     [int(p) for p in expand_ports(job_fields["ports"])],
                     resources_required_per_task,
                     storage_endpoint,
-                    self._kubernetes.storage_bucket,
+                    self._kubernetes.storage_bucket_name,
                     self._kubernetes.storage_username_password_secret,
                     self._job_id,
                     self._num_concurrent_tasks,
@@ -998,11 +978,9 @@ class KubernetesGridJobDriver:
                     if worker_launch_task is not None:
                         worker_launch_task.cancel()
 
-                    if self._kubernetes.storage_bucket is not None:
-                        await self._storage_client.delete_object(
-                            self._kubernetes.storage_bucket,
-                            storage_key_job_to_run(self._job_id),
-                        )
+                    await self._storage_bucket.delete_object(
+                        storage_key_job_to_run(self._job_id)
+                    )
                 except asyncio.CancelledError:
                     raise
                 except BaseException:

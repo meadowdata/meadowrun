@@ -479,12 +479,9 @@ async def compile_environment_spec_locally(
     # TODO this isn't the right way to do this--the storage client should be
     # getting passed in from higher up. For now this works because this code
     # path is only being hit from Kubernetes
-    storage_client = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_CLIENT
     storage_bucket = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET
-    if storage_client is None or storage_bucket is None:
-        raise ValueError(
-            "FUNC_WORKER_STORAGE_CLIENT and/or FUNC_WORKER_STORAGE_BUCKET were not set"
-        )
+    if storage_bucket is None:
+        raise ValueError("FUNC_WORKER_STORAGE_BUCKET was not set")
     return ServerAvailableInterpreter(
         interpreter_path=await get_cached_or_create(
             spec_hash,
@@ -494,10 +491,10 @@ async def compile_environment_spec_locally(
             # try_get_file(remote_file_name: str, local_file_name: str) -> bool. Tries
             # to download the specified remote file to the specified local file name.
             # Returns True if the file is available, False if the file is not available.
-            functools.partial(storage_client.try_get_file, storage_bucket),
+            functools.partial(storage_bucket.try_get_file),
             # upload_file(local_file_name: str, remote_file_name: str) -> None. Uploads
             # the specified file, overwrites any existing remote file.
-            functools.partial(storage_client.write_file, bucket=storage_bucket),
+            functools.partial(storage_bucket.write_file),
         )
     )
 

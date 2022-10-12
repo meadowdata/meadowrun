@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,12 +18,10 @@ class MockObjectStorage(ObjectStorage):
     def get_url_scheme(cls) -> str:
         return "mock"
 
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
+    async def _upload(self, file_path: str) -> str:
         raise NotImplementedError()
 
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
+    async def _download(self, object_name: str, file_name: str) -> None:
         raise NotImplementedError()
 
 

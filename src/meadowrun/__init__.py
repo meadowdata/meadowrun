@@ -79,7 +79,7 @@ from meadowrun.run_job_core import (
     TaskException,
 )
 from meadowrun.run_job_core import Host
-from meadowrun.run_job_local import LocalHost, MACHINE_CACHE_FOLDER
+from meadowrun.run_job_local import MACHINE_CACHE_FOLDER
 from meadowrun.version import __version__
 
 __all__ = [
@@ -109,7 +109,6 @@ __all__ = [
     "PreinstalledInterpreter",
     "Secret",
     "Host",
-    "LocalHost",
     "MACHINE_CACHE_FOLDER",
     "Resources",
     "SshHost",

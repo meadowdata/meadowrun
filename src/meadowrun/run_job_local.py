@@ -17,8 +17,6 @@ from decimal import InvalidOperation
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterable,
-    Callable,
     Coroutine,
     Dict,
     Iterable,
@@ -34,18 +32,6 @@ import psutil
 
 from meadowrun.aws_integration.ecr import get_ecr_username_password
 from meadowrun.azure_integration.acr import get_acr_username_password
-
-if TYPE_CHECKING:
-    from typing_extensions import Literal
-
-    JobSpecType = Literal["py_command", "py_function", "py_agent"]
-
-    from meadowrun._vendor import aiodocker
-
-    from meadowrun._vendor.aiodocker.containers import DockerContainer
-    from meadowrun.instance_selection import ResourcesInternal
-    from meadowrun.object_storage import ObjectStorage
-
 from meadowrun.config import (
     MEADOWRUN_AGENT_PID,
     MEADOWRUN_CODE_MOUNT_LINUX,
@@ -78,15 +64,16 @@ from meadowrun.meadowrun_pb2 import (
     PyFunctionJob,
     StringPair,
 )
-from meadowrun.run_job_core import (
-    CloudProviderType,
-    Host,
-    JobCompletion,
-    MeadowrunException,
-    TaskResult,
-    WaitOption,
-)
 from meadowrun.shared import cancel_task, pickle_exception
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
+
+    JobSpecType = Literal["py_command", "py_function", "py_agent"]
+
+    from meadowrun._vendor import aiodocker
+    from meadowrun._vendor.aiodocker.containers import DockerContainer
+    from meadowrun.run_job_core import CloudProviderType
 
 ProcessStateEnum = ProcessState.ProcessStateEnum
 
@@ -1616,81 +1603,3 @@ async def run_local(
             ),
             None,
         )
-
-
-@dataclasses.dataclass(frozen=True)
-class LocalHost(Host):
-    async def run_job(
-        self,
-        resources_required: Optional[ResourcesInternal],
-        job: Job,
-        wait_for_result: WaitOption,
-    ) -> JobCompletion[Any]:
-        if wait_for_result != WaitOption.WAIT_SILENTLY:
-            raise NotImplementedError(
-                f"{wait_for_result} is not supported for LocalHost yet"
-            )
-
-        if resources_required is not None:
-            raise ValueError("Specifying Resources for LocalHost is not supported")
-
-        initial_update, continuation = await run_local(job)
-        if (
-            initial_update.state != ProcessState.ProcessStateEnum.RUNNING
-            or continuation is None
-        ):
-            result = initial_update
-        else:
-            result = await continuation
-
-        if result.state == ProcessState.ProcessStateEnum.SUCCEEDED:
-            job_spec_type = job.WhichOneof("job_spec")
-            # we must have a result from functions, in other cases we can optionally
-            # have a result
-            if job_spec_type == "py_function" or result.pickled_result:
-                unpickled_result = pickle.loads(result.pickled_result)
-            else:
-                unpickled_result = None
-
-            return JobCompletion(
-                unpickled_result,
-                result.state,
-                result.log_file_name,
-                result.return_code,
-                "localhost",
-            )
-        else:
-            raise MeadowrunException(result)
-
-    async def run_map(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
-        job_fields: Dict[str, Any],
-        num_concurrent_tasks: int,
-        pickle_protocol: int,
-        wait_for_result: WaitOption,
-        max_num_tasks_attempts: int,
-        retry_with_more_memory: bool,
-    ) -> Optional[Sequence[_U]]:
-        raise NotImplementedError("run_map on LocalHost is not implemented")
-
-    def run_map_as_completed(
-        self,
-        function: Callable[[_T], _U],
-        args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
-        job_fields: Dict[str, Any],
-        num_concurrent_tasks: int,
-        pickle_protocol: int,
-        wait_for_result: WaitOption,
-        max_num_tasks_attempts: int,
-        retry_with_more_memory: bool,
-    ) -> AsyncIterable[TaskResult[_U]]:
-        raise NotImplementedError(
-            "run_map_as_completed is not implemented for LocalHost"
-        )
-
-    async def get_object_storage(self) -> ObjectStorage:
-        raise NotImplementedError("LocalHost has no object storage")

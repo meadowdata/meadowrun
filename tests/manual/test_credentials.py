@@ -19,7 +19,7 @@ from meadowrun.meadowrun_pb2 import (
     GitRepoBranch,
     ServerAvailableFile,
 )
-from meadowrun.run_job_local import LocalHost
+from automated.test_local_automated import LocalHost
 
 _PRIVATE_DOCKER_REPOSITORY = "hrichardlee/test1"
 

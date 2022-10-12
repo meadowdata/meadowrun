@@ -5,7 +5,7 @@ import os
 import pickle
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Any, Callable, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
 import meadowrun.docker_controller
 import pytest
@@ -56,7 +56,7 @@ class HostProvider(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_resources_required(self) -> Resources:
+    def get_resources_required(self) -> Optional[Resources]:
         pass
 
     @abc.abstractmethod

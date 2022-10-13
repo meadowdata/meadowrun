@@ -29,12 +29,17 @@ from typing import (
 )
 
 import aiobotocore.session
+import boto3.exceptions
 import botocore.exceptions
 from botocore.exceptions import ClientError
 
 from meadowrun._vendor.fastcdc.fastcdc_py import fastcdc_py
 from meadowrun.abstract_storage_bucket import AbstractStorageBucket
-from meadowrun.aws_integration.aws_core import get_bucket_name
+from meadowrun.aws_integration.aws_core import (
+    MeadowrunAWSAccessError,
+    MeadowrunNotInstalledError,
+    get_bucket_name,
+)
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import (
     JobCompletion,
@@ -59,7 +64,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
-class S3Bucket(AbstractStorageBucket):
+class GenericStorageBucket(AbstractStorageBucket):
     """
     This should be used for accessing AWS S3 as well as any other
     username/password-based S3-compatible object storage systems (e.g. Minio)
@@ -72,7 +77,7 @@ class S3Bucket(AbstractStorageBucket):
         self._bucket = bucket
         self._cache_key = cache_key
 
-    async def __aenter__(self) -> S3Bucket:
+    async def __aenter__(self) -> GenericStorageBucket:
         self._s3_client = await self._s3_client.__aenter__()
         return self
 
@@ -155,12 +160,44 @@ class S3Bucket(AbstractStorageBucket):
         await self._s3_client.delete_object(Bucket=self._bucket, Key=key)
 
 
+class S3Bucket(GenericStorageBucket):
+    """
+    This should be used for accessing AWS S3 as well as any other
+    username/password-based S3-compatible object storage systems (e.g. Minio)
+    """
+
+    def __init__(
+        self, s3_client: types_aiobotocore_s3.S3Client, bucket: str, cache_key: str
+    ):
+        super().__init__(s3_client, bucket, cache_key)
+
+    async def __aenter__(self) -> S3Bucket:
+        # annoying, only needed for type checking
+        await super().__aenter__()
+        return self
+
+    async def write_bytes_if_not_exists(self, data: bytes, key: str) -> None:
+        # this override just provides some nicer error messages. This function is
+        # usually called before other functions
+        try:
+            await super().write_bytes_if_not_exists(data, key)
+        except boto3.exceptions.S3UploadFailedError as e:
+            if len(e.args) >= 1 and "NoSuchBucket" in e.args[0]:
+                raise MeadowrunNotInstalledError("S3 bucket")
+            raise
+        except ClientError as error:
+            if error.response["Error"]["Code"] == "403":
+                # if we don't have permissions to the bucket, throw a helpful error
+                raise MeadowrunAWSAccessError("S3 bucket") from error
+            raise
+
+
 def get_generic_username_password_bucket(
-    storage_endpoint_url: Optional[str],
+    storage_endpoint_url: str,
     storage_access_key_id: Optional[str],
     storage_secret_access_key: Optional[str],
     storage_bucket: str,
-) -> S3Bucket:
+) -> GenericStorageBucket:
     """
     This can be used with any S3-compatible object storage system that requires a
     username/password
@@ -170,14 +207,12 @@ def get_generic_username_password_bucket(
         kwargs["aws_access_key_id"] = storage_access_key_id
     if storage_secret_access_key is not None:
         kwargs["aws_secret_access_key"] = storage_secret_access_key
-    if storage_endpoint_url is not None:
-        kwargs["endpoint_url"] = storage_endpoint_url
 
-    # TODO if all the parameters are None then we're implicitly falling back on AWS
-    # S3, which we should make explicit
     session = aiobotocore.session.get_session()
-    s3_client = session.create_client("s3", **kwargs)  # type: ignore
-    return S3Bucket(
+    s3_client = session.create_client(  # type: ignore
+        "s3", endpoint_url=storage_endpoint_url, **kwargs
+    )
+    return GenericStorageBucket(
         s3_client, storage_bucket, f"{storage_endpoint_url}/{storage_bucket}"
     )
 
@@ -195,6 +230,14 @@ def get_aws_s3_bucket(region_name: str) -> S3Bucket:
         bucket_name,
         f"s3/{bucket_name}",
     )
+
+
+async def get_aws_s3_bucket_async(region_name: str) -> S3Bucket:
+    """
+    A bit silly, but sometimes we want an Awaitable[S3Bucket] rather than an S3Bucket
+    because other StorageBucket constructors are async
+    """
+    return get_aws_s3_bucket(region_name)
 
 
 async def upload_task_args(

@@ -28,7 +28,7 @@ from meadowrun.azure_integration.azure_meadowrun_core import (
     get_default_location,
 )
 from meadowrun.azure_integration.azure_ssh_keys import ensure_meadowrun_key_pair
-from meadowrun.azure_integration.blob_storage import AzureBlobStorage
+from meadowrun.azure_integration.blob_storage import get_azure_blob_container
 from meadowrun.azure_integration.grid_tasks_queue import (
     Queue,
     add_tasks,
@@ -81,8 +81,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     import asyncssh
+    from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.meadowrun_pb2 import Job
-    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from typing_extensions import Literal
@@ -492,8 +492,8 @@ class AllocAzureVM(AllocVM):
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         return AzureVMGridJobInterface(self)
 
-    async def get_object_storage(self) -> ObjectStorage:
-        return AzureBlobStorage()
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
+        return await get_azure_blob_container(self._get_location())
 
 
 async def run_job_azure_vm_instance_registrar(

@@ -78,17 +78,26 @@ Some details about point 3:
 
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
+import functools
 import logging
 import os
 import sys
 import traceback
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
 
 import meadowrun.run_job_local
+from meadowrun.azure_integration.blob_storage import get_azure_blob_container
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.run_job_core import CloudProvider, CloudProviderType
+from meadowrun.storage_grid_job import get_aws_s3_bucket_async
+import meadowrun.func_worker_storage_helper
+
+if TYPE_CHECKING:
+    from meadowrun.deployment_manager import StorageBucketFactoryType
 
 
 async def main_async(
@@ -107,8 +116,23 @@ async def main_async(
             bytes_job_to_run = f.read()
         job = Job()
         job.ParseFromString(bytes_job_to_run)
+
+        if cloud is None:
+            storage_bucket_factory: StorageBucketFactoryType = None
+        elif cloud[0] == "EC2":
+            storage_bucket_factory = functools.partial(
+                get_aws_s3_bucket_async, cloud[1]
+            )
+        elif cloud[0] == "AzureVM":
+            storage_bucket_factory = functools.partial(
+                get_azure_blob_container, cloud[1]
+            )
+        else:
+            print(f"Warning: unknown value for cloud {cloud}")
+            storage_bucket_factory = None
+
         first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, cloud, compile_environment_in_container=True
+            job, cloud, storage_bucket_factory, compile_environment_in_container=True
         )
         with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:
             f.write(first_state.SerializeToString())

@@ -12,7 +12,6 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncContextManager,
     AsyncIterable,
     Awaitable,
     Callable,
@@ -38,7 +37,6 @@ from meadowrun.docker_controller import expand_ports
 from meadowrun.func_worker_storage_helper import (
     MEADOWRUN_STORAGE_PASSWORD,
     MEADOWRUN_STORAGE_USERNAME,
-    FuncWorkerClientObjectStorage,
 )
 from meadowrun.k8s_integration.k8s_core import (
     get_kubernetes_secret,
@@ -79,7 +77,6 @@ from meadowrun.run_job_local import (
     _string_pairs_to_dict,
     restart_worker,
 )
-from meadowrun.shared import none_async_context
 from meadowrun.storage_keys import (
     storage_key_job_to_run,
     storage_key_ranges,
@@ -92,7 +89,6 @@ if TYPE_CHECKING:
 
     from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.instance_selection import ResourcesInternal
-    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import WorkerProcessState, TaskProcessState
 
 MEADOWRUN_POD_NAME = "MEADOWRUN_POD_NAME"
@@ -368,32 +364,34 @@ class Kubernetes(Host):
             return self.storage_endpoint_url_in_cluster
         return self.storage_endpoint_url
 
-    async def _get_storage_bucket(
-        self,
-    ) -> AsyncContextManager[Optional[AbstractStorageBucket]]:
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
         # get the storage client
 
         # this is kind of weird, this should be called before any Kubernetes function,
         # but for now, _get_storage_bucket is always the first thing that's called
         await kubernetes_config.load_kube_config(context=self.kube_config_context)
 
-        if self.storage_bucket_name is not None:
-            if self.storage_username_password_secret is not None:
-                secret_data = await get_kubernetes_secret(
-                    self.kubernetes_namespace,
-                    self.storage_username_password_secret,
-                )
-            else:
-                secret_data = {}
-
-            return get_generic_username_password_bucket(
-                self.storage_endpoint_url,
-                secret_data.get("username", None),
-                secret_data.get("password", None),
-                self.storage_bucket_name,
+        if self.storage_bucket_name is None or self.storage_endpoint_url is None:
+            raise ValueError(
+                "The functionality you are trying to use requires specifying a "
+                "storage_bucket. Please specify storage_bucket_name and "
+                "storage_endpoint_url"
             )
 
-        return none_async_context()
+        if self.storage_username_password_secret is not None:
+            secret_data = await get_kubernetes_secret(
+                self.kubernetes_namespace,
+                self.storage_username_password_secret,
+            )
+        else:
+            secret_data = {}
+
+        return get_generic_username_password_bucket(
+            self.storage_endpoint_url,
+            secret_data.get("username", None),
+            secret_data.get("password", None),
+            self.storage_bucket_name,
+        )
 
     async def run_job(
         self,
@@ -558,23 +556,18 @@ class Kubernetes(Host):
         else:
             process = SingleUsePodRemoteProcesses()
 
-        async with await self._get_storage_bucket() as storage_bucket, kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
+        async with await self.get_storage_bucket() as storage_bucket, kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
             core_api = kubernetes_client.CoreV1Api(api_client)
             ws_core_api = kubernetes_client.CoreV1Api(ws_api_client)
             batch_api = kubernetes_client.BatchV1Api(api_client)
 
             try:
                 storage_endpoint_url = self.get_storage_endpoint_url_in_cluster()
-                if (
-                    storage_bucket is None
-                    or self.storage_bucket_name is None
-                    or storage_endpoint_url is None
-                ):
-                    raise ValueError(
-                        "Cannot use an environment_spec without providing a "
-                        "storage_bucket. Please either provide a pre-built container "
-                        "image for the interpreter or provide a storage_bucket"
-                    )
+                # just for mypy, get_storage_bucket would fail if these were None
+                assert (
+                    self.storage_bucket_name is not None
+                    and storage_endpoint_url is not None
+                )
 
                 job_to_run_key = storage_key_job_to_run(job.job_id)
                 storage_keys_used.append(job_to_run_key)
@@ -680,13 +673,7 @@ class Kubernetes(Host):
         if max_num_task_attempts != 1:
             raise NotImplementedError("max_num_task_attempts must be 1 on Kubernetes")
 
-        async with await self._get_storage_bucket() as storage_bucket:
-            if storage_bucket is None:
-                raise ValueError(
-                    "storage_bucket and other storage_* parameters must be specified to"
-                    " use Kubernetes with run_map"
-                )
-
+        async with await self.get_storage_bucket() as storage_bucket:
             # pretty much copied from AllocVM.run_map_as_completed
 
             driver = KubernetesGridJobDriver(self, num_concurrent_tasks, storage_bucket)
@@ -732,16 +719,6 @@ class Kubernetes(Host):
                 "Gave up retrieving task results, most likely due to worker failures. "
                 f"Received {num_tasks_done}/{len(args)} task results."
             )
-
-    async def get_object_storage(self) -> ObjectStorage:
-        storage_bucket = await self._get_storage_bucket()
-
-        if storage_bucket is None:
-            raise ValueError(
-                "Cannot use mirror_local without providing a storage_bucket. Please "
-                "either use a different Deployment method or provide a storage_bucket"
-            )
-        return FuncWorkerClientObjectStorage(await storage_bucket.__aenter__())
 
 
 class KubernetesGridJobDriver:

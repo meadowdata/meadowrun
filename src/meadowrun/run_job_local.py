@@ -73,6 +73,7 @@ if TYPE_CHECKING:
 
     from meadowrun._vendor import aiodocker
     from meadowrun._vendor.aiodocker.containers import DockerContainer
+    from meadowrun.deployment_manager import StorageBucketFactoryType
     from meadowrun.run_job_core import CloudProviderType
 
 ProcessStateEnum = ProcessState.ProcessStateEnum
@@ -1343,6 +1344,7 @@ async def _get_credentials_for_job(
 async def run_local(
     job: Job,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
+    storage_bucket_factory: StorageBucketFactoryType = None,
     compile_environment_in_container: bool = True,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """
@@ -1394,7 +1396,11 @@ async def run_local(
 
         # first, get the code paths
         code_paths, interpreter_spec_path, cwd_path = await get_code_paths(
-            git_repos_folder, local_copies_folder, job, code_deployment_credentials
+            git_repos_folder,
+            local_copies_folder,
+            job,
+            code_deployment_credentials,
+            storage_bucket_factory,
         )
 
         # next, if we have a environment_spec_in_code, turn into a container

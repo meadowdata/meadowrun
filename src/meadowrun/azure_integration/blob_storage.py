@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import os
+import xml.dom.minidom
+from typing import Optional, Tuple, List, Any, Coroutine
 
+from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 from meadowrun.azure_integration.azure_meadowrun_core import (
     ensure_meadowrun_storage_account,
+)
+from meadowrun.azure_integration.mgmt_functions.azure_constants import (
+    MEADOWRUN_RESOURCE_GROUP_NAME,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_exceptions import (
     AzureRestApiError,
@@ -15,11 +21,8 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_rest_api import
 from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api import (
     StorageAccount,
     azure_blob_api,
+    azure_blob_api_binary,
 )
-from meadowrun.azure_integration.mgmt_functions.azure_constants import (
-    MEADOWRUN_RESOURCE_GROUP_NAME,
-)
-from meadowrun.object_storage import ObjectStorage
 
 CONTAINER_NAME = "meadowrun"
 
@@ -112,15 +115,128 @@ async def download_file(object_name: str, file_name: str) -> None:
         file.write(result)
 
 
-class AzureBlobStorage(ObjectStorage):
-    # TODO this should have a region_name property also
+async def get_azure_blob_container(location: str) -> AzureBlobContainer:
+    return AzureBlobContainer(
+        await ensure_meadowrun_storage_account(location, on_missing="create"),
+        CONTAINER_NAME,
+    )
 
-    @classmethod
-    def get_url_scheme(cls) -> str:
-        return "azblob"
 
-    async def _upload(self, file_path: str) -> str:
-        return await ensure_uploaded(file_path)
+class AzureBlobContainer(AbstractStorageBucket):
+    def __init__(self, storage_account: StorageAccount, container_name: str):
+        self._storage_account = storage_account
+        self._container_name = container_name
+        self._cache_key = f"azure/{storage_account.name}"
 
-    async def _download(self, object_name: str, file_name: str) -> None:
-        return await download_file(object_name, file_name)
+    def get_cache_key(self) -> str:
+        return self._cache_key
+
+    def get_bytes(self, key: str) -> Coroutine[Any, Any, bytes]:
+        return azure_blob_api_binary(
+            "GET", self._storage_account, f"{self._container_name}/{key}"
+        )
+
+    async def try_get_bytes(self, key: str) -> Optional[bytes]:
+        try:
+            return await self.get_bytes(key)
+        except AzureRestApiError as error:
+            if error.status == 404:
+                return None
+            raise
+
+    def get_byte_range(
+        self, key: str, byte_range: Tuple[int, int]
+    ) -> Coroutine[Any, Any, bytes]:
+        return azure_blob_api_binary(
+            "GET",
+            self._storage_account,
+            f"{self._container_name}/{key}",
+            additional_headers={"x-ms-range": f"bytes={byte_range[0]}-{byte_range[1]}"},
+        )
+
+    async def write_bytes(self, data: bytes, key: str) -> None:
+        await azure_blob_api(
+            "PUT",
+            self._storage_account,
+            f"{self._container_name}/{key}",
+            additional_headers={
+                "Content-Length": str(len(data)),
+                "x-ms-blob-type": "BlockBlob",
+            },
+            binary_content=data,
+        )
+
+    async def exists(self, key: str) -> bool:
+        try:
+            await azure_blob_api(
+                "HEAD", self._storage_account, f"{self._container_name}/{key}"
+            )
+            return True
+        except AzureRestApiError as error:
+            if error.status == 404:
+                return False
+            raise
+
+    async def get_file(self, key: str, local_filename: str) -> None:
+        # TODO we should stream this from the response object
+        data = await self.get_bytes(key)
+        with open(local_filename, "wb") as f:
+            f.write(data)
+
+    async def try_get_file(self, key: str, local_filename: str) -> bool:
+        try:
+            await self.get_file(key, local_filename)
+            return True
+        except AzureRestApiError as error:
+            if error.status == 404:
+                return False
+            raise
+
+    async def write_file(self, local_filename: str, key: str) -> None:
+        content_length = os.path.getsize(local_filename)
+        with open(local_filename, "rb") as file:
+            _ = await azure_blob_api(
+                "PUT",
+                self._storage_account,
+                f"{self._container_name}/{key}",
+                additional_headers={
+                    "Content-Length": str(content_length),
+                    "x-ms-blob-type": "BlockBlob",
+                },
+                binary_content=file,
+            )
+
+    async def list_objects(self, key_prefix: str) -> List[str]:
+        response = await azure_blob_api(
+            "GET",
+            self._storage_account,
+            self._container_name,
+            query_parameters={
+                "restype": "container",
+                "comp": "list",
+                "prefix": key_prefix,
+            },
+        )
+
+        message = xml.dom.minidom.parseString(response)
+        root_node = message.documentElement
+        if root_node.nodeName != "EnumerationResults":
+            raise ValueError("Expected root element to be EnumerationResults")
+        results = []
+        for node in root_node.childNodes:
+            if node.nodeName == "Blobs":
+                for blob_node in node.childNodes:
+                    for blob_child in blob_node.childNodes:
+                        if blob_child.nodeName == "Name":
+                            if len(blob_child.childNodes) != 1:
+                                raise ValueError("Unexpected XML format")
+                            results.append(blob_child.childNodes[0].nodeValue)
+        return results
+
+    async def delete_object(self, key: str) -> None:
+        await azure_blob_api(
+            "DELETE",
+            self._storage_account,
+            f"{self._container_name}/{key}",
+            additional_headers={"x-ms-delete-snapshots": "include"},
+        )

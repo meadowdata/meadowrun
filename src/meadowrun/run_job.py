@@ -4,6 +4,9 @@ import os
 import os.path
 import pickle
 import shlex
+import shutil
+import sys
+import urllib.parse
 import uuid
 from typing import (
     Any,
@@ -62,6 +65,8 @@ from meadowrun.run_job_core import (
     TaskResult,
     WaitOption,
 )
+from meadowrun.storage_grid_job import ensure_uploaded_incremental
+from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
     from meadowrun.deployment_internal_types import (
@@ -142,14 +147,44 @@ async def _add_defaults_to_deployment(
     )
 
 
+def _file_path_from_url(file_url: str) -> str:
+    decoded_url = urllib.parse.urlparse(file_url)
+    if decoded_url.scheme != "file":
+        raise ValueError(f"Expected file URI: {file_url}")
+    if sys.platform == "win32" and decoded_url.path.startswith("/"):
+        # on Windows, file:///C:\foo turns into file_url.path = /C:\foo so we need
+        # to remove the forward slash at the beginning
+        file_path = decoded_url.path[1:]
+    else:
+        file_path = decoded_url.path
+    return file_path
+
+
 async def _prepare_code_deployment(
     code_deploy: Union[CodeDeployment, VersionedCodeDeployment],
     host: Host,
 ) -> None:
     """Modifies code_deploy in place!"""
     if isinstance(code_deploy, CodeZipFile):
-        async with await host.get_object_storage() as object_storage:
-            code_deploy.url = await object_storage.upload_from_file_url(code_deploy.url)
+        # CodeZipFile is not usable as is. mirror_local produces a CodeZipFile where the
+        # "url" is on the local file system. mirror_local doesn't have access to a
+        # host/storage_bucket, so it can't do the upload, so we "finish off" that part
+        # here
+        async with await host.get_storage_bucket() as storage_bucket:
+            # TODO don't do this if this is not a file:/// url. The current behavior
+            # means that mirror_local isn't reusable
+            file_url = code_deploy.url
+            file_path = _file_path_from_url(file_url)
+
+            key = await ensure_uploaded_incremental(
+                storage_bucket, file_path, STORAGE_CODE_CACHE_PREFIX
+            )
+            # this "url" is a bit silly, we just want to be able to distinguish from a
+            # file url. The only information we really care about is the key
+            code_deploy.url = urllib.parse.urlunparse(
+                ("mdrstorage", "_", key, "", "", "")
+            )
+            shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:

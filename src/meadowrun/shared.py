@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import pickle
 import shutil
 import sys
 import traceback
 import zipfile
-from typing import Optional, Tuple, TypeVar, IO, AsyncIterator, TYPE_CHECKING
+from typing import Optional, Tuple, TypeVar, IO, TYPE_CHECKING
 
 
 from meadowrun.meadowrun_pb2 import ProcessState
@@ -62,11 +61,6 @@ def remove_corrupted_environment(path: str) -> None:
             f"Warning, exception trying to delete {path}, this environment is corrupted"
         )
         traceback.print_exc()
-
-
-@contextlib.asynccontextmanager
-async def none_async_context() -> AsyncIterator:
-    yield None
 
 
 async def cancel_task(task: asyncio.Task) -> None:

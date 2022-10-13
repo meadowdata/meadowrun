@@ -104,6 +104,11 @@ async def get_cached_or_create_poetry_environment(
         # TODO we shouldn't wait for this to start running the job but we also shouldn't
         # kill the container until this finishes
         print("Caching the poetry environment")
+        try:
+            # there might be an old file from a failed attempt
+            os.remove(local_cached_file)
+        except OSError:
+            pass
         venv_pack.pack(venv_path, output=local_cached_file)
         await upload_file(local_cached_file, remote_cached_file_name)
 

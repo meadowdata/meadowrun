@@ -32,17 +32,17 @@ def _get_gke_host() -> meadowrun.Kubernetes:
     repository you created
 
     - Create a GKE autopilot cluster
-    - Follow the instructions for setting up Minio here:
-    https://docs.meadowrun.io/en/stable/how_to/kubernetes/
-    - Replace _MINIO_PUBLIC_URL above with the public URL for Minio
-    (Eventually we will replace this with Google Storage)
     - Configure your kubectl to make your GKE your default
 
-    - Create a Google Cloud Service Account and give it read permissions to the
-    repository you created.
-    - Create a Kubernetes Service Account and bind it to the Google Cloud Service
-    Account your created. Replace _KUBERNETES_SERVICE_ACCOUNT_NAME if you need to
+    - Create a Google Storage bucket named "meadowrun-gke-test" or something similar
 
+    - Create a Google Cloud Service Account called "test-service-account" and give it
+    read permissions to the repository you created (e.g. give it the Artifact Registry
+    Reader) and to read/write the Google Storage bucket you created (e.g. give it the
+    Storage Admin role).
+
+    - Create a Kubernetes Service Account and bind it to the Google Cloud Service
+    Account your created. Replace _KUBERNETES_SERVICE_ACCOUNT_NAME if you need to.
     Example command line:
         kubectl create serviceaccount myserviceaccount --namespace default
         gcloud iam service-accounts add-iam-policy-binding \
@@ -55,10 +55,7 @@ def _get_gke_host() -> meadowrun.Kubernetes:
     """
 
     return meadowrun.Kubernetes(
-        storage_bucket_name="meadowrunbucket",
-        storage_endpoint_url=_MINIO_PUBLIC_URL,
-        storage_endpoint_url_in_cluster="http://minio-service:9000",
-        storage_username_password_secret="minio-credentials",
+        meadowrun.GoogleBucketSpec("meadowrun-gke-test"),
         reusable_pods=True,
         pod_customization=pod_customization,
     )
@@ -74,7 +71,7 @@ def _get_remote_function_for_deployment() -> Callable[[], str]:
     return remote_function
 
 
-async def manual_test_pip_google_repository() -> None:
+async def test_pip_google_repository() -> None:
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),
@@ -89,7 +86,7 @@ async def manual_test_pip_google_repository() -> None:
     assert results == "Hello from py_simple_package!"
 
 
-async def manual_test_poetry_google_repository() -> None:
+async def test_poetry_google_repository() -> None:
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),

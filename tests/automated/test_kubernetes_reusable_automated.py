@@ -1,15 +1,17 @@
 import pytest
 
 from basics import BasicsSuite, HostProvider, MapSuite, ErrorsSuite
-from meadowrun import Host, Resources, Kubernetes
+from meadowrun import Host, Resources, Kubernetes, GenericStorageBucketSpec
 
 
 def _kubernetes_host() -> Kubernetes:
     return Kubernetes(
-        "meadowrunbucket",
-        storage_endpoint_url="http://127.0.0.1:9000",
-        storage_endpoint_url_in_cluster="http://minio-service:9000",
-        storage_username_password_secret="minio-credentials",
+        GenericStorageBucketSpec(
+            "meadowrunbucket",
+            endpoint_url="http://127.0.0.1:9000",
+            endpoint_url_in_cluster="http://minio-service:9000",
+            username_password_secret="minio-credentials",
+        ),
         kube_config_context="minikube",
         reusable_pods=True,
     )

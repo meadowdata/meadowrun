@@ -13,11 +13,10 @@ import traceback
 import filelock
 
 import meadowrun.run_job_local
-from meadowrun.func_worker_storage_helper import (
-    MEADOWRUN_STORAGE_PASSWORD,
-    MEADOWRUN_STORAGE_USERNAME,
+from meadowrun.k8s_integration.storage_spec import (
+    add_storage_spec_arguments_to_parser,
+    storage_bucket_from_parsed_args,
 )
-from meadowrun.storage_grid_job import get_generic_username_password_bucket
 from meadowrun.storage_keys import storage_key_job_to_run, storage_key_process_state
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.k8s_integration.is_job_running import _JOB_IS_RUNNING_FILE
@@ -37,27 +36,19 @@ async def main() -> None:
 
         # arguments for finding the storage bucket (i.e. S3-compatible store) where we
         # can find inputs and put outputs
-        parser.add_argument("--storage-bucket", required=True)
         parser.add_argument("--job-id", required=True)
-        parser.add_argument("--storage-endpoint-url", required=True)
+        add_storage_spec_arguments_to_parser(parser)
 
         args = parser.parse_args()
 
-        storage_bucket_name: str = args.storage_bucket
         job_id: str = args.job_id
         suffix = os.environ.get(
             "MEADOWRUN_WORKER_INDEX", os.environ["JOB_COMPLETION_INDEX"]
         )
 
-        # prepare storage client, filenames and pickle protocol for the result
-        storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
-        storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
-        async with get_generic_username_password_bucket(
-            args.storage_endpoint_url,
-            storage_username,
-            storage_password,
-            storage_bucket_name,
-        ) as storage_bucket:
+        # prepare storage bucket, filenames and pickle protocol for the result
+        storage_bucket = await storage_bucket_from_parsed_args(args)
+        async with storage_bucket:
             meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET = (
                 storage_bucket
             )

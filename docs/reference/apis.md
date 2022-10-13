@@ -35,6 +35,15 @@
 ::: meadowrun.Kubernetes
 
 
+## StorageBucketSpecs for Kubernetes
+
+::: meadowrun.StorageBucketSpec
+
+::: meadowrun.GenericStorageBucketSpec
+
+::: meadowrun.GoogleBucketSpec
+
+
 ## Specifying deployments
 
 ::: meadowrun.Deployment

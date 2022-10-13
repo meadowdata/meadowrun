@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import abc
+import argparse
 import asyncio
 import dataclasses
 import math
 import os
 import pickle
 import platform
+import shlex
 import time
 import uuid
 from typing import (
@@ -17,6 +19,7 @@ from typing import (
     Callable,
     Coroutine,
     Dict,
+    Iterable,
     List,
     Optional,
     Sequence,
@@ -34,26 +37,13 @@ import meadowrun.func_worker_storage_helper
 from meadowrun.config import GPU, LOGICAL_CPU, MEMORY_GB, MEADOWRUN_INTERPRETER
 from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.docker_controller import expand_ports
-from meadowrun.func_worker_storage_helper import (
-    MEADOWRUN_STORAGE_PASSWORD,
-    MEADOWRUN_STORAGE_USERNAME,
-)
 from meadowrun.k8s_integration.k8s_core import (
-    get_kubernetes_secret,
     get_main_container_is_ready,
     get_pods_for_job,
     run_command_on_pod,
     set_main_container_ready,
     wait_for_pod,
     wait_for_pod_running,
-)
-from meadowrun.storage_grid_job import (
-    complete_task,
-    download_task_arg,
-    get_generic_username_password_bucket,
-    get_job_completion_from_process_state,
-    receive_results,
-    upload_task_args,
 )
 from meadowrun.meadowrun_pb2 import (
     Job,
@@ -76,6 +66,13 @@ from meadowrun.run_job_local import (
     _get_credentials_sources,
     _string_pairs_to_dict,
     restart_worker,
+)
+from meadowrun.storage_grid_job import (
+    complete_task,
+    download_task_arg,
+    get_job_completion_from_process_state,
+    receive_results,
+    upload_task_args,
 )
 from meadowrun.storage_keys import (
     storage_key_job_to_run,
@@ -118,11 +115,6 @@ async def _indexed_map_worker(
     current_worker_index = int(
         os.environ.get("MEADOWRUN_WORKER_INDEX", os.environ["JOB_COMPLETION_INDEX"])
     )
-
-    storage_username = os.environ.get(MEADOWRUN_STORAGE_USERNAME, None)
-    storage_password = os.environ.get(MEADOWRUN_STORAGE_PASSWORD, None)
-    if storage_username is None and storage_password is None:
-        raise ValueError("Cannot call _indexed_map_worker without a storage client")
 
     # we're always being called from run_job_local_storage_main which sets these
     # variables for us
@@ -275,6 +267,49 @@ async def _image_name_from_job(job: Job) -> Tuple[bool, str, Optional[str], Job]
     return is_custom_container_image, image_name, image_pull_secret_name, modified_job
 
 
+class StorageBucketSpec(abc.ABC):
+    """
+    An abstract class that specifies an object storage system that Meadowrun can use to
+    send data back and forth from remote workers
+    """
+
+    @abc.abstractmethod
+    async def get_storage_bucket(
+        self, kubernetes_namespace: str
+    ) -> AbstractStorageBucket:
+        ...
+
+    @abc.abstractmethod
+    def get_command_line_arguments(self) -> List[str]:
+        # Returns command line arguments that can be parsed via add_arguments_to_parser
+        # and from_parsed_args to re-create the storage spec in a remote process
+        ...
+
+    @abc.abstractmethod
+    def get_environment_variables(self) -> Iterable[kubernetes_client.V1EnvVar]:
+        # Environment variables returned here will be added to the pod spec
+        ...
+
+    @classmethod
+    @abc.abstractmethod
+    def get_storage_type(cls) -> str:
+        # This is used together with get_command_line_arguments so that a remote process
+        # knows what sub-class of StorageBucketSpec to use to re-create the storage spec
+        ...
+
+    @classmethod
+    @abc.abstractmethod
+    def add_arguments_to_parser(cls, parser: argparse.ArgumentParser) -> None:
+        # See get_command_line_arguments
+        ...
+
+    @classmethod
+    @abc.abstractmethod
+    async def from_parsed_args(cls, args: argparse.Namespace) -> AbstractStorageBucket:
+        # See get_command_line_arguments
+        ...
+
+
 @dataclasses.dataclass(frozen=True)
 class Kubernetes(Host):
     """
@@ -282,55 +317,10 @@ class Kubernetes(Host):
     optional with the Kubernetes Host.
 
     Attributes:
-        storage_bucket_name: Together, the storage_* arguments specify an S3-compatible
-            object store that Meadowrun will use for sending inputs/outputs from the
-            Kubernetes job and back. For run_command, the S3-compatible object store is
-            not used (even if it is specified). For run_function on a pickled function
-            (e.g. a reference to a python function or a lambda) or where args/kwargs is
-            specified, the object store is required, which means that storage_bucket
-            must be specified. For run_function on a string referencing a function, the
-            object store is optional, which means that if storage_bucket is provided,
-            then it will be used to return results. If storage_bucket is not provided,
-            the result of the function will not be available.
-
-            In all cases, if storage_bucket is None, all of the other storage_*
-            arguments will be ignored.
-
-            Together, the storage_* arguments should be configured so that:
-
-            ```python
-            import boto3
-            boto3.Session(
-                aws_access_key_id=storage_username,
-                aws_secret_access_key=storage_password
-            ).client(
-                "s3", endpoint_url=storage_endpoint_url
-            ).download_file(
-                Bucket=storage_bucket, Key="test.file", Filename="test.file"
-            )
-            ```
-
-            works. `storage_username` and `storage_password` should be the values
-            provided by `storage_username_password_secret`. (boto3 is built to be used
-            with AWS S3, but it should work with any S3-compatible object store like
-            Minio, Ceph, etc.)
-        storage_file_prefix: Part of the specification of the S3-compatible object store
-            to use (see storage_bucket). The prefix will be used when naming the
-            Meadowrun-generated files in the object store. Defaults to "". For non empty
-            string values, this should usually end with "/". If you leave off the "/",
-            the job_id will just be concatenated to the string, e.g. "foo12345..."
-            rather than "foo/12345"
-        storage_endpoint_url: Part of the specification of the S3-compatible object
-            store to use (see storage_bucket).
-        storage_endpoint_url_in_cluster: Part of the specification of the S3-compatible
-            object store to use (see storage_bucket). Defaults to None which means use
-            storage_endpoint_url. You can set this to a different URL if you need to use
-            a different URL from inside the Kubernetes cluster to access the storage
-            endpoint
-        storage_username_password_secret: Part of the specification of the S3-compatible
-            object store to use (see storage_bucket). This should be the name of a
-            Kubernetes secret that has a "username" and "password" key, where the
-            username and password can be used to authenticate with the storage API.
+        storage_spec: Specifies the object storage system to use. See derived classes of
+            [StorageBucketSpec][meadowrun.StorageBucketSpec]. This can only be omitted
+            if you are only using run_command and you've specified a specific container
+            image to run on (i.e. rather than an EnvironmentSpec of some sort)
         kube_config_context: Specifies the kube config context to use. Default is None
             which means use the current context (i.e. `kubectl config current-context`)
         kubernetes_namespace: The Kubernetes namespace that Meadowrun will create Jobs
@@ -346,10 +336,7 @@ class Kubernetes(Host):
             V1PodTemplateSpec and return that.
     """
 
-    storage_bucket_name: Optional[str] = None
-    storage_endpoint_url: Optional[str] = None
-    storage_endpoint_url_in_cluster: Optional[str] = None
-    storage_username_password_secret: Optional[str] = None
+    storage_spec: Optional[StorageBucketSpec]
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
     reusable_pods: bool = False
@@ -359,11 +346,6 @@ class Kubernetes(Host):
         ]
     ] = None
 
-    def get_storage_endpoint_url_in_cluster(self) -> Optional[str]:
-        if self.storage_endpoint_url_in_cluster is not None:
-            return self.storage_endpoint_url_in_cluster
-        return self.storage_endpoint_url
-
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         # get the storage client
 
@@ -371,27 +353,13 @@ class Kubernetes(Host):
         # but for now, _get_storage_bucket is always the first thing that's called
         await kubernetes_config.load_kube_config(context=self.kube_config_context)
 
-        if self.storage_bucket_name is None or self.storage_endpoint_url is None:
+        if self.storage_spec is None:
             raise ValueError(
                 "The functionality you are trying to use requires specifying a "
-                "storage_bucket. Please specify storage_bucket_name and "
-                "storage_endpoint_url"
+                "storage_bucket. Please specify a storage_spec."
             )
 
-        if self.storage_username_password_secret is not None:
-            secret_data = await get_kubernetes_secret(
-                self.kubernetes_namespace,
-                self.storage_username_password_secret,
-            )
-        else:
-            secret_data = {}
-
-        return get_generic_username_password_bucket(
-            self.storage_endpoint_url,
-            secret_data.get("username", None),
-            secret_data.get("password", None),
-            self.storage_bucket_name,
-        )
+        return await self.storage_spec.get_storage_bucket(self.kubernetes_namespace)
 
     async def run_job(
         self,
@@ -493,7 +461,7 @@ class Kubernetes(Host):
                     image_name,
                     command,
                     environment_variables,
-                    self.storage_username_password_secret,
+                    self.storage_spec,
                     image_pull_secret_name,
                     1,
                     [int(p) for p in expand_ports(job.ports)],
@@ -557,18 +525,14 @@ class Kubernetes(Host):
             process = SingleUsePodRemoteProcesses()
 
         async with await self.get_storage_bucket() as storage_bucket, kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
+            # just for mypy, get_storage_bucket requires this
+            assert self.storage_spec is not None
+
             core_api = kubernetes_client.CoreV1Api(api_client)
             ws_core_api = kubernetes_client.CoreV1Api(ws_api_client)
             batch_api = kubernetes_client.BatchV1Api(api_client)
 
             try:
-                storage_endpoint_url = self.get_storage_endpoint_url_in_cluster()
-                # just for mypy, get_storage_bucket would fail if these were None
-                assert (
-                    self.storage_bucket_name is not None
-                    and storage_endpoint_url is not None
-                )
-
                 job_to_run_key = storage_key_job_to_run(job.job_id)
                 storage_keys_used.append(job_to_run_key)
                 await storage_bucket.write_bytes(
@@ -586,9 +550,7 @@ class Kubernetes(Host):
                             image_pull_secret_name,
                             [int(p) for p in expand_ports(job.ports)],
                             resources_required,
-                            storage_endpoint_url,
-                            self.storage_bucket_name,
-                            self.storage_username_password_secret,
+                            self.storage_spec,
                             job.job_id,
                             1,
                             wait_for_result,
@@ -834,16 +796,8 @@ class KubernetesGridJobDriver:
 
         async with kubernetes_client.ApiClient() as api_client, kubernetes_stream.WsApiClient() as ws_api_client:  # noqa: E501
             try:
-                storage_endpoint = (
-                    self._kubernetes.get_storage_endpoint_url_in_cluster()
-                )
-                # just for mypy--if storage_endpoint will not be None, as otherwise we
-                # wouldn't be able to construct a storage_bucket to instantiate this
-                # class
-                assert (
-                    self._kubernetes.storage_bucket_name is not None
-                    and storage_endpoint is not None
-                )
+                # just for mypy, get_storage_bucket requires this
+                assert self._kubernetes.storage_spec is not None
 
                 job = self._worker_function_job(
                     function, num_args, job_fields, pickle_protocol
@@ -873,9 +827,7 @@ class KubernetesGridJobDriver:
                     image_pull_secret_name,
                     [int(p) for p in expand_ports(job_fields["ports"])],
                     resources_required_per_task,
-                    storage_endpoint,
-                    self._kubernetes.storage_bucket_name,
-                    self._kubernetes.storage_username_password_secret,
+                    self._kubernetes.storage_spec,
                     self._job_id,
                     self._num_concurrent_tasks,
                     wait_for_result,
@@ -1110,40 +1062,17 @@ def _pod_meets_requirements(
 def _add_meadowrun_variables_to_environment(
     environment: List[kubernetes_client.V1EnvVar],
     environment_variables: Dict[str, str],
-    storage_username_password_secret: Optional[str],
+    storage_spec: Optional[StorageBucketSpec],
 ) -> None:
     """
     Modifies environment in place!! environment_variables is just to make sure we don't
     overwrite an existing environment variable
     """
 
-    if storage_username_password_secret is not None:
-        if MEADOWRUN_STORAGE_USERNAME not in environment_variables:
-            environment.append(
-                kubernetes_client.V1EnvVar(
-                    name=MEADOWRUN_STORAGE_USERNAME,
-                    value_from=kubernetes_client.V1EnvVarSource(
-                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
-                            key="username",
-                            name=storage_username_password_secret,
-                            optional=False,
-                        )
-                    ),
-                )
-            )
-        if MEADOWRUN_STORAGE_PASSWORD not in environment_variables:
-            environment.append(
-                kubernetes_client.V1EnvVar(
-                    name=MEADOWRUN_STORAGE_PASSWORD,
-                    value_from=kubernetes_client.V1EnvVarSource(
-                        secret_key_ref=kubernetes_client.V1SecretKeySelector(
-                            key="password",
-                            name=storage_username_password_secret,
-                            optional=False,
-                        )
-                    ),
-                )
-            )
+    if storage_spec is not None:
+        for env_var in storage_spec.get_environment_variables():
+            if env_var.name not in environment_variables:
+                environment.append(env_var)
 
     if MEADOWRUN_POD_NAME not in environment_variables:
         environment.append(
@@ -1172,9 +1101,7 @@ class KubernetesRemoteProcesses(abc.ABC):
         image_pull_secret_name: Optional[str],
         ports: List[int],
         resources: Optional[ResourcesInternal],
-        storage_endpoint: str,
-        storage_bucket: str,
-        storage_username_password_secret: Optional[str],
+        storage_spec: StorageBucketSpec,
         job_id: str,
         # TODO this will probably eventually need to be replaced with an explicit list
         # of worker indexes if we want to be able to restart workers
@@ -1233,9 +1160,7 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
         image_pull_secret_name: Optional[str],
         ports: List[int],
         resources: Optional[ResourcesInternal],
-        storage_endpoint: str,
-        storage_bucket: str,
-        storage_username_password_secret: Optional[str],
+        storage_spec: StorageBucketSpec,
         job_id: str,
         num_executions: int,
         wait_for_result: WaitOption,
@@ -1250,13 +1175,9 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
             "python",
             "-m",
             "meadowrun.run_job_local_storage_main",
-            "--storage-bucket",
-            storage_bucket,
             "--job-id",
             job_id,
-            "--storage-endpoint-url",
-            storage_endpoint,
-        ]
+        ] + storage_spec.get_command_line_arguments()
 
         self.run_task = asyncio.create_task(
             _run_kubernetes_job(
@@ -1267,7 +1188,7 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
                 image_name,
                 command,
                 {"PYTHONUNBUFFERED": "1"},
-                storage_username_password_secret,
+                storage_spec,
                 image_pull_secret_name,
                 num_executions,
                 ports,
@@ -1302,7 +1223,7 @@ async def _run_kubernetes_job(
     image: str,
     args: List[str],
     environment_variables: Dict[str, str],
-    storage_username_password_secret: Optional[str],
+    storage_spec: Optional[StorageBucketSpec],
     image_pull_secret_name: Optional[str],
     indexed_completions: Optional[int],
     ports: List[int],
@@ -1334,7 +1255,7 @@ async def _run_kubernetes_job(
     ]
 
     _add_meadowrun_variables_to_environment(
-        environment, environment_variables, storage_username_password_secret
+        environment, environment_variables, storage_spec
     )
 
     if indexed_completions:
@@ -1440,9 +1361,7 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
         image_pull_secret_name: Optional[str],
         ports: List[int],
         resources: Optional[ResourcesInternal],
-        storage_endpoint: str,
-        storage_bucket: str,
-        storage_username_password_secret: Optional[str],
+        storage_spec: StorageBucketSpec,
         job_id: str,
         num_executions: int,
         wait_for_result: WaitOption,
@@ -1454,13 +1373,18 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
         ] = None,
     ) -> Task[Optional[Sequence[int]]]:
 
+        storage_spec_args = (
+            f"{STORAGE_TYPE} {storage_spec.get_storage_type()} "
+            + " ".join(
+                shlex.quote(arg) for arg in storage_spec.get_command_line_arguments()
+            )
+        )
         # TODO it's possible that a job will run more than once on the same container,
         # although not in parallel, in that case the job log will be overwritten
         _COMMAND_TEMPLATE = (
             "PYTHONUNBUFFERED=1 MEADOWRUN_WORKER_INDEX={worker_index} python -m "
-            "meadowrun.run_job_local_storage_main --storage-bucket {storage_bucket} "
-            "--job-id {job_id} --storage-endpoint-url {storage_endpoint} "
-            f">/var/meadowrun/job_logs/{job_id}.log 2>&1 & echo $$"
+            f"meadowrun.run_job_local_storage_main --job-id {job_id} "
+            f"{storage_spec_args} >/var/meadowrun/job_logs/{job_id}.log 2>&1 & echo $$"
         )
         # echo $$ gets the process id of the current bash session (we will run
         # inner_command in a bash session). We assume that all processes started in this
@@ -1481,7 +1405,7 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
             num_executions,
             core_api,
             batch_api,
-            storage_username_password_secret,
+            storage_spec,
             pod_customization,
         ):
 
@@ -1489,12 +1413,7 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
                 command = [
                     "/bin/bash",
                     "-c",
-                    _COMMAND_TEMPLATE.format(
-                        worker_index=worker_index,
-                        storage_bucket=storage_bucket,
-                        job_id=job_id,
-                        storage_endpoint=storage_endpoint,
-                    ),
+                    _COMMAND_TEMPLATE.format(worker_index=worker_index),
                 ]
 
                 process_group_id_task = asyncio.create_task(
@@ -1581,7 +1500,7 @@ async def _get_meadowrun_reusable_pods(
     number_of_pods: int,
     core_api: kubernetes_client.CoreV1Api,
     batch_api: kubernetes_client.BatchV1Api,
-    storage_username_password_secret: Optional[str],
+    storage_spec: Optional[StorageBucketSpec],
     pod_customization: Optional[
         Callable[
             [kubernetes_client.V1PodTemplateSpec],
@@ -1642,9 +1561,7 @@ async def _get_meadowrun_reusable_pods(
     if remaining_pods_to_launch > 0:
         environment: List[kubernetes_client.V1EnvVar] = []
 
-        _add_meadowrun_variables_to_environment(
-            environment, {}, storage_username_password_secret
-        )
+        _add_meadowrun_variables_to_environment(environment, {}, storage_spec)
 
         if image_pull_secret_name:
             additional_pod_spec_parameters = {
@@ -1740,3 +1657,6 @@ async def _gather_return_none(tasks: List[Task]) -> None:
     """A workaround because you can't do asyncio.create_task(asyncio.gather(*tasks))"""
     # consider throwing all exceptions not just the first one we get
     await asyncio.gather(*tasks, return_exceptions=False)
+
+
+STORAGE_TYPE = "--storage-type"

@@ -62,7 +62,11 @@ from meadowrun.deployment_spec import (
     PreinstalledInterpreter,
     Secret,
 )
-from meadowrun.k8s_integration.k8s import Kubernetes
+from meadowrun.k8s_integration.k8s import Kubernetes, StorageBucketSpec
+from meadowrun.k8s_integration.storage_spec import (
+    GenericStorageBucketSpec,
+    GoogleBucketSpec,
+)
 from meadowrun.run_job import (
     TaskResult,
     run_command,
@@ -113,6 +117,9 @@ __all__ = [
     "Resources",
     "SshHost",
     "Kubernetes",
+    "StorageBucketSpec",
+    "GenericStorageBucketSpec",
+    "GoogleBucketSpec",
     "RunMapTasksFailedException",
     "TaskResult",
     "TaskException",

@@ -4,31 +4,29 @@ manual intervention beyond some initial setup.
 """
 from __future__ import annotations
 
-import dataclasses
 import os
 import pathlib
 import pickle
-import urllib
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
     Callable,
     Dict,
+    List,
     Optional,
     Sequence,
     Tuple,
     TypeVar,
 )
-import zipfile
 
-import filelock
 import pytest
+
 from basics import BasicsSuite, ErrorsSuite, HostProvider
 from meadowrun import Deployment, Resources, TaskResult, run_command
+from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.deployment_internal_types import get_latest_interpreter_version
-from meadowrun import deployment_manager
 from meadowrun.meadowrun_pb2 import (
     ContainerAtTag,
     ServerAvailableFolder,
@@ -44,7 +42,6 @@ from meadowrun.run_job_core import (
     WaitOption,
 )
 from meadowrun.run_job_local import _set_up_working_folder, run_local
-from meadowrun.object_storage import ObjectStorage
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -58,45 +55,59 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 
 
-class LocalObjectStorage(ObjectStorage):
+class LocalFileBucket(AbstractStorageBucket):
     """
-    This is a "pretend" version of ObjectStorage where we assume that we have the same
-    file system available on both the client and the server. Mostly for testing.
+    Currently nothing on this class is implemented. If we want to be able to test e.g.
+    mirror_local we will need to implement methods on this class.
     """
 
-    @classmethod
-    def get_url_scheme(cls) -> str:
-        return "file"
+    def __init__(self, tmp_path: pathlib.Path) -> None:
+        self.tmp_path = tmp_path
 
-    async def _upload(self, file_path: str) -> Tuple[str, str]:
+    def get_cache_key(self) -> str:
+        return "localfile"
+
+    async def get_bytes(self, key: str) -> bytes:
+        with open(self.tmp_path / key, "rb") as f:
+            return f.read()
+
+    async def try_get_bytes(self, key: str) -> Optional[bytes]:
         raise NotImplementedError()
 
-    async def _download(
-        self, bucket_name: str, object_name: str, file_name: str
-    ) -> None:
+    async def get_byte_range(self, key: str, byte_range: Tuple[int, int]) -> bytes:
         raise NotImplementedError()
 
-    async def upload_from_file_url(self, file_url: str) -> str:
-        # TODO maybe assert that this starts with file://
-        return file_url
+    async def write_bytes(self, data: bytes, key: str) -> None:
+        path = self.tmp_path / key
+        os.makedirs(path.parent, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
 
-    async def download_and_unzip(
-        self, remote_url: str, local_copies_folder: str
-    ) -> str:
-        decoded_url = urllib.parse.urlparse(remote_url)
-        extracted_folder = os.path.join(
-            local_copies_folder, os.path.splitext(os.path.basename(decoded_url.path))[0]
-        )
-        with filelock.FileLock(f"{extracted_folder}.lock", timeout=120):
-            if not os.path.exists(extracted_folder):
-                with zipfile.ZipFile(decoded_url.path) as zip_file:
-                    zip_file.extractall(extracted_folder)
+    async def exists(self, key: str) -> bool:
+        return os.path.exists(self.tmp_path / key)
 
-        return extracted_folder
+    async def get_file(self, key: str, local_filename: str) -> None:
+        data = await self.get_bytes(key)
+        with open(local_filename, "wb") as f:
+            f.write(data)
+
+    async def try_get_file(self, key: str, local_filename: str) -> bool:
+        raise NotImplementedError()
+
+    async def write_file(self, local_filename: str, key: str) -> None:
+        raise NotImplementedError()
+
+    async def list_objects(self, key_prefix: str) -> List[str]:
+        raise NotImplementedError()
+
+    async def delete_object(self, key: str) -> None:
+        raise NotImplementedError()
 
 
-@dataclasses.dataclass(frozen=True)
 class LocalHost(Host):
+    def __init__(self, tmp_path: Optional[pathlib.Path] = None):
+        self.tmp_path = tmp_path
+
     async def run_job(
         self,
         resources_required: Optional[ResourcesInternal],
@@ -169,11 +180,13 @@ class LocalHost(Host):
             "run_map_as_completed is not implemented for LocalHost"
         )
 
-    async def get_object_storage(self) -> ObjectStorage:
-        deployment_manager._ALL_OBJECT_STORAGES[
-            LocalObjectStorage.get_url_scheme()
-        ] = LocalObjectStorage
-        return LocalObjectStorage()
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
+        if self.tmp_path is None:
+            raise ValueError(
+                "In order to use get_storage_bucket, LocalHost must be constructed with"
+                " a path"
+            )
+        return LocalFileBucket(self.tmp_path)
 
 
 class LocalHostProvider(HostProvider):

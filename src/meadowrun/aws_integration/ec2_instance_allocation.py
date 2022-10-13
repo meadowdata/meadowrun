@@ -61,7 +61,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
-from meadowrun.aws_integration.s3 import S3ObjectStorage
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
@@ -86,8 +85,8 @@ from meadowrun.storage_grid_job import (
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.meadowrun_pb2 import Job
-    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types_aiobotocore_sqs import SQSClient
@@ -103,7 +102,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-056b37e1c081f6455",
+        "us-east-2": "ami-05a99deb373cd3f8c",
         "us-east-1": "ami-0c4f30064b16cac99",
         "us-west-1": "ami-012fbb53effdd0f6f",
         "us-west-2": "ami-039fa3adc59d9335b",
@@ -683,8 +682,8 @@ class AllocEC2Instance(AllocVM):
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         return EC2GridJobInterface(self)
 
-    async def get_object_storage(self) -> ObjectStorage:
-        return S3ObjectStorage(self._get_region_name())
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
+        return get_aws_s3_bucket(self._get_region_name())
 
 
 async def run_job_ec2_instance_registrar(

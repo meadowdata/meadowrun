@@ -353,6 +353,7 @@ def _get_default_blob_api_headers(
     storage_account: StorageAccount,
     url_path: str,
     content_type: str,
+    query_parameters: Optional[Dict[str, str]],
     additional_headers: Optional[Dict[str, str]],
 ) -> Dict[str, str]:
     """Creates default headers, including importantly the signed Authorization header"""
@@ -365,6 +366,13 @@ def _get_default_blob_api_headers(
     }
     if additional_headers:
         headers.update(additional_headers)
+
+    canonicalized_resource = f"/{storage_account.name}/{url_path}"
+    if query_parameters and "comp" in query_parameters:
+        # the comp parameter is special and needs to be added to the canonicalized
+        # resource
+        canonicalized_resource += f"?comp={query_parameters['comp']}"
+
     # https://docs.microsoft.com/en-us/rest/api/storageservices/authorize-with-shared-key#blob-queue-and-file-services-shared-key-lite-authorization
     s_str = "\n".join(
         [
@@ -375,7 +383,7 @@ def _get_default_blob_api_headers(
             # CanonicalizedHeaders
             _canonicalized_headers(headers),
             # CanonicalizedResource
-            f"/{storage_account.name}/{url_path}",
+            canonicalized_resource,
         ]
     )
     signature = _sign_string(storage_account.key, s_str)
@@ -394,12 +402,20 @@ async def azure_blob_api(
     additional_headers: Optional[Dict[str, str]] = None,
     ignored_status_codes: Iterable[Tuple[int, str]] = tuple(),
 ) -> Any:
-    """Supports any Azure Blob Storage API"""
+    """
+    Supports any Azure Blob Storage API. Will parse text, json, etc. based on the
+    returned content type so can return any type
+    """
     content_type = (
         "application/octet-stream" if binary_content is not None else "application/json"
     )
     headers = _get_default_blob_api_headers(
-        method, storage_account, url_path, content_type, additional_headers
+        method,
+        storage_account,
+        url_path,
+        content_type,
+        query_parameters,
+        additional_headers,
     )
 
     async with aiohttp.request(
@@ -412,3 +428,39 @@ async def azure_blob_api(
     ) as response:
         await raise_for_status(response, ignored_status_codes=ignored_status_codes)
         return await _return_response(response)
+
+
+async def azure_blob_api_binary(
+    method: str,
+    storage_account: StorageAccount,
+    url_path: str,
+    *,
+    query_parameters: Optional[Dict[str, str]] = None,
+    json_content: Any = None,
+    binary_content: Any = None,
+    additional_headers: Optional[Dict[str, str]] = None,
+    ignored_status_codes: Iterable[Tuple[int, str]] = tuple(),
+) -> bytes:
+    """Supports any Azure Blob Storage API. Always returns bytes"""
+    content_type = (
+        "application/octet-stream" if binary_content is not None else "application/json"
+    )
+    headers = _get_default_blob_api_headers(
+        method,
+        storage_account,
+        url_path,
+        content_type,
+        query_parameters,
+        additional_headers,
+    )
+
+    async with aiohttp.request(
+        method,
+        f"https://{storage_account.name}.blob.core.windows.net/{url_path}",
+        params=query_parameters,
+        headers=headers,
+        json=json_content,
+        data=binary_content,
+    ) as response:
+        await raise_for_status(response, ignored_status_codes=ignored_status_codes)
+        return await response.content.read()

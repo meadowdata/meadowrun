@@ -45,8 +45,8 @@ from meadowrun.meadowrun_pb2 import Job, ProcessState, PyAgentJob
 from meadowrun.shared import unpickle_exception
 
 if TYPE_CHECKING:
+    from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.credentials import UsernamePassword
-    from meadowrun.object_storage import ObjectStorage
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types import TracebackType
 
@@ -223,7 +223,7 @@ class Host(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get_object_storage(self) -> ObjectStorage:
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
         pass
 
 
@@ -445,8 +445,8 @@ class SshHost(Host):
     ) -> AsyncIterable[TaskResult[_U]]:
         raise NotImplementedError("run_map_as_completed is not implemented for SshHost")
 
-    async def get_object_storage(self) -> ObjectStorage:
-        raise NotImplementedError("get_object_storage is not implemented for SshHost")
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
+        raise NotImplementedError("get_storage_bucket is not implemented for SshHost")
 
 
 @dataclasses.dataclass

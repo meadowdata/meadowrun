@@ -10,7 +10,7 @@ import pytest
 from automated.test_local_automated import LocalHost
 from meadowrun.deployment_manager import _get_zip_file_code_paths
 from meadowrun.meadowrun_pb2 import CodeZipFile
-from meadowrun.run_job import _prepare_code_deployment
+from meadowrun.run_job import _upload_code_zip_file
 from meadowrun.storage_keys import STORAGE_CODE_CACHE_PREFIX
 
 if TYPE_CHECKING:
@@ -18,11 +18,11 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.asyncio
-async def test_ensure_uploaded_incremental(tmp_path: Path) -> None:
+async def test_upload_code_zip_file(tmp_path: Path) -> None:
     # prepare a CodeZipFile with a file:// url. This is equivalent to what mirror_local
     # will produce
 
-    # the parent directory of temp.zip will get deleted by _prepare_code_deployment, so
+    # the parent directory of temp.zip will get deleted by _upload_code_zip_file, so
     # we need to create a sub-directory of tmp_path
     os.makedirs(tmp_path / "staging", exist_ok=True)
     zip_file_path = tmp_path / "staging" / "temp.zip"
@@ -31,10 +31,10 @@ async def test_ensure_uploaded_incremental(tmp_path: Path) -> None:
     url = urllib.parse.urlunparse(("file", "", str(zip_file_path), "", "", ""))
     code_zip_file = CodeZipFile(url=url)
 
-    # now call _prepare_code_deployment on our code_zip_file
+    # now call _upload_code_zip_file on our code_zip_file
 
     local_host = LocalHost(tmp_path)
-    await _prepare_code_deployment(code_zip_file, local_host)
+    await _upload_code_zip_file(code_zip_file, local_host)
     assert code_zip_file.url.startswith(f"mdrstorage://_/{STORAGE_CODE_CACHE_PREFIX}")
 
     # now simulate the "remote worker" that unpacks the code_zip_file

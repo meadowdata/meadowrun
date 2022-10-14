@@ -326,8 +326,9 @@ class Kubernetes(Host):
         kubernetes_namespace: The Kubernetes namespace that Meadowrun will create Jobs
             in. This should usually not be left to the default value ("default") for any
             "real" workloads.
-        resuable_pods: When set to True, rather than always starting a new pod for each
-            job, starts generic long-lived pods that can be reused for multiple jobs
+        resuable_pods: When set to True, starts generic long-lived pods that can be
+            reused for multiple jobs. When set to False, starts a new pod(s) for every
+            job
         pod_customization: A function like pod_customization(pod_template_spec) that
             will be called on the PodTemplateSpec just before we submit it to
             Kubernetes. You can make changes like specifying a serviceAccountName,
@@ -339,7 +340,7 @@ class Kubernetes(Host):
     storage_spec: Optional[StorageBucketSpec]
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
-    reusable_pods: bool = False
+    reusable_pods: bool = True
     pod_customization: Optional[
         Callable[
             [kubernetes_client.V1PodTemplateSpec], kubernetes_client.V1PodTemplateSpec

@@ -11,7 +11,7 @@ __pycache__
 /site
 
 # personal vscode settings
-.vscode/settings.json
+.vscode/
 
 # test data
 /test_data/

@@ -644,7 +644,7 @@ class Deployment:
             working_directory_globs=working_directory_globs,
         )
 
-        # see comment on _prepare_code_deployment
+        # see comment on _upload_code_zip_file
         url = urllib.parse.urlunparse(("file", "", zip_file_path, "", "", ""))
         code = CodeZipFile(url=url, code_paths=zip_python_paths, cwd_path=zip_cwd)
 

@@ -13,6 +13,7 @@ def _kubernetes_host() -> Kubernetes:
             username_password_secret="minio-credentials",
         ),
         kube_config_context="minikube",
+        reusable_pods=False,
     )
 
 

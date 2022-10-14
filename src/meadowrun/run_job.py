@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import os.path
 import pickle
@@ -15,7 +16,6 @@ from typing import (
     Callable,
     Dict,
     Iterable,
-    List,
     Optional,
     Sequence,
     TYPE_CHECKING,
@@ -103,33 +103,35 @@ def _credentials_source_message(
     return result
 
 
-async def _add_defaults_to_deployment(
+async def _get_job_fields(
+    host: Host,
+    resources: Resources,
     deployment: Union[Deployment, Awaitable[Deployment], None],
-) -> Tuple[
-    Union[InterpreterDeployment, VersionedInterpreterDeployment],
-    Union[CodeDeployment, VersionedCodeDeployment],
-    Iterable[StringPair],
-    List[CredentialsSourceMessage],
-]:
-    if deployment is None:
-        return (
-            ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
-            ServerAvailableFolder(),
-            {},
-            [],
-        )
+    sidecar_containers: Union[
+        Iterable[ContainerInterpreterBase], ContainerInterpreterBase, None
+    ],
+) -> Dict[str, Any]:
+    """
+    Compiles deployment and sidecar_containers into protobuf messages that can be added
+    to the Job object. Should be used like Job(**(await _get_job_fields(...)))
+    """
 
-    if not isinstance(deployment, Deployment):
+    # this doesn't totally belong here but it's close enough
+    await host.set_defaults()
+
+    # after this deployment will always be Deployment
+    if deployment is None:
+        deployment = await Deployment.mirror_local()
+    elif not isinstance(deployment, Deployment):
         # TODO run this in parallel with e.g. launching instances
         deployment = await deployment
 
-    if deployment.credentials_sources:
-        credentials_sources = [
-            _credentials_source_message(c) for c in deployment.credentials_sources
-        ]
-    else:
-        credentials_sources = []
+    # populate credentials_sources part 1
+    credentials_sources = [
+        _credentials_source_message(c) for c in deployment.credentials_sources
+    ]
 
+    # set environment_variables
     if deployment.environment_variables:
         environment_variables = [
             StringPair(key=key, value=value)
@@ -138,13 +140,40 @@ async def _add_defaults_to_deployment(
     else:
         environment_variables = []
 
-    return (
-        deployment.interpreter
-        or ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
-        deployment.code or ServerAvailableFolder(),
-        environment_variables,
-        credentials_sources,
+    # set interpreter
+    interpreter = deployment.interpreter or ServerAvailableInterpreter(
+        interpreter_path=MEADOWRUN_INTERPRETER
     )
+    if resources.needs_cuda() and isinstance(
+        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
+    ):
+        # we don't want to modify the interpreter in place
+        interpreter = copy.deepcopy(interpreter)
+        interpreter.additional_software["cuda"] = ""
+
+    # set code
+    code = deployment.code or ServerAvailableFolder()
+    if isinstance(code, CodeZipFile):
+        # we don't want to modify the CodeZipFile in place
+        code = copy.deepcopy(code)
+        await _upload_code_zip_file(code, host)
+
+    # prepare sidecar_containers
+    (
+        sidecar_containers_prepared,
+        additional_credentials_sources,
+    ) = _prepare_sidecar_containers(sidecar_containers)
+    credentials_sources.extend(additional_credentials_sources)
+
+    return {
+        "result_highest_pickle_protocol": pickle.HIGHEST_PROTOCOL,
+        "environment_variables": environment_variables,
+        "sidecar_containers": sidecar_containers_prepared,
+        "credentials_sources": credentials_sources,
+        "uses_gpu": resources.uses_gpu(),
+        _job_field_for_code_deployment(code): code,
+        _job_field_for_interpreter_deployment(interpreter): interpreter,
+    }
 
 
 def _file_path_from_url(file_url: str) -> str:
@@ -160,31 +189,26 @@ def _file_path_from_url(file_url: str) -> str:
     return file_path
 
 
-async def _prepare_code_deployment(
-    code_deploy: Union[CodeDeployment, VersionedCodeDeployment],
-    host: Host,
-) -> None:
-    """Modifies code_deploy in place!"""
-    if isinstance(code_deploy, CodeZipFile):
-        # CodeZipFile is not usable as is. mirror_local produces a CodeZipFile where the
-        # "url" is on the local file system. mirror_local doesn't have access to a
-        # host/storage_bucket, so it can't do the upload, so we "finish off" that part
-        # here
-        async with await host.get_storage_bucket() as storage_bucket:
-            # TODO don't do this if this is not a file:/// url. The current behavior
-            # means that mirror_local isn't reusable
-            file_url = code_deploy.url
-            file_path = _file_path_from_url(file_url)
+async def _upload_code_zip_file(code_deploy: CodeZipFile, host: Host) -> None:
+    """
+    Modifies code_deploy in place!
 
-            key = await ensure_uploaded_incremental(
-                storage_bucket, file_path, STORAGE_CODE_CACHE_PREFIX
-            )
-            # this "url" is a bit silly, we just want to be able to distinguish from a
-            # file url. The only information we really care about is the key
-            code_deploy.url = urllib.parse.urlunparse(
-                ("mdrstorage", "_", key, "", "", "")
-            )
-            shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+    CodeZipFile is not usable as is. mirror_local produces a CodeZipFile where the "url"
+    is on the local file system. mirror_local doesn't have access to a
+    host/storage_bucket, so it can't do the upload, so we "finish off" that part here
+    """
+    async with await host.get_storage_bucket() as storage_bucket:
+        file_url = code_deploy.url
+        file_path = _file_path_from_url(file_url)
+
+        key = await ensure_uploaded_incremental(
+            storage_bucket, file_path, STORAGE_CODE_CACHE_PREFIX
+        )
+        # this "url" is a bit silly, we just want to be able to distinguish from a
+        # file url. The only information we really care about is the key
+        code_deploy.url = urllib.parse.urlunparse(("mdrstorage", "_", key, "", "", ""))
+        # TODO this won't work if we ever want to reuse the output of a mirror_local
+        shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
 
 
 def _pickle_protocol_for_deployed_interpreter() -> int:
@@ -319,7 +343,8 @@ async def run_function(
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run this command. This can be an
             actual Deployment object, or it can be an Awaitable that will produce a
-            Deployment object.
+            Deployment object. The default, None, is equivalent to
+            [mirror_local][meadowrun.Deployment.mirror_local]
         args: Passed to the function like `function(*args)`
         kwargs: Passed to the function like `function(**kwargs)`
         sidecar_containers: Additional containers that will be available from the main
@@ -336,13 +361,9 @@ async def run_function(
             result of calling `function`. If wait_for_result is False, the return value
             will always be None.
     """
-
-    if resources is None:
-        resources = Resources()
+    # first, construct the PyFunctionJob
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
-
-    # first pickle the function arguments from job_run_spec
 
     # TODO add support for compressions, pickletools.optimize, possibly cloudpickle?
     # TODO also add the ability to write this to a shared location so that we don't need
@@ -355,9 +376,6 @@ async def run_function(
         # according to docs, None is translated to empty anyway
         pickled_function_arguments = b""
 
-    # now, construct the PyFunctionJob
-
-    job_id = str(uuid.uuid4())
     if isinstance(function, str):
         friendly_name = function
         module_name, separator, function_name = function.rpartition(".")
@@ -383,42 +401,16 @@ async def run_function(
             pickled_function=pickled_function,
         )
 
-    # now create the Job
-
-    (
-        interpreter,
-        code,
-        environment_variables,
-        credentials_sources,
-    ) = await _add_defaults_to_deployment(deployment)
-    if resources.needs_cuda() and isinstance(
-        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
-    ):
-        interpreter.additional_software["cuda"] = ""
-
-    await host.set_defaults()
-    await _prepare_code_deployment(code, host)
-
-    (
-        sidecar_containers_prepared,
-        additional_credentials_sources,
-    ) = _prepare_sidecar_containers(sidecar_containers)
-    credentials_sources.extend(additional_credentials_sources)
+    # now create the Job and run it
+    if resources is None:
+        resources = Resources()
 
     job = Job(
-        job_id=job_id,
+        job_id=str(uuid.uuid4()),
         job_friendly_name=friendly_name,
-        environment_variables=environment_variables,
-        result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
         py_function=py_function,
-        sidecar_containers=sidecar_containers_prepared,
-        credentials_sources=credentials_sources,
         ports=_prepare_ports(ports),
-        uses_gpu=resources.uses_gpu(),
-        **{  # type: ignore
-            _job_field_for_code_deployment(code): code,
-            _job_field_for_interpreter_deployment(interpreter): interpreter,
-        },
+        **(await _get_job_fields(host, resources, deployment, sidecar_containers)),
     )
 
     job_completion = await host.run_job(
@@ -456,7 +448,8 @@ async def run_command(
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run this command. This can be an
             actual Deployment object, or it can be an Awaitable that will produce a
-            Deployment object.
+            Deployment object. The default, None, is equivalent to
+            [mirror_local][meadowrun.Deployment.mirror_local]
         context_variables: Experimental feature
         sidecar_containers: Additional containers that will be available from the main
             job as sidecar-container-0 sidecar-container-1, etc.
@@ -471,30 +464,13 @@ async def run_command(
         A JobCompletion object that contains metadata about the running of the job.
     """
 
-    if resources is None:
-        resources = Resources()
+    # construct the PyCommandJob
 
-    job_id = str(uuid.uuid4())
     if isinstance(args, str):
         args = shlex.split(args)
     # this is kind of a silly way to get a friendly name--treat the first three
     # elements of args as if they're paths and take the last part of each path
     friendly_name = "-".join(os.path.basename(arg) for arg in args[:3])
-
-    (
-        interpreter,
-        code,
-        environment_variables,
-        credentials_sources,
-    ) = await _add_defaults_to_deployment(deployment)
-
-    if resources.needs_cuda() and isinstance(
-        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
-    ):
-        interpreter.additional_software["cuda"] = ""
-
-    await host.set_defaults()
-    await _prepare_code_deployment(code, host)
 
     if context_variables:
         pickled_context_variables = pickle.dumps(
@@ -503,28 +479,20 @@ async def run_command(
     else:
         pickled_context_variables = b""
 
-    (
-        sidecar_containers_prepared,
-        additional_credentials_sources,
-    ) = _prepare_sidecar_containers(sidecar_containers)
-    credentials_sources.extend(additional_credentials_sources)
+    py_command = PyCommandJob(
+        command_line=args, pickled_context_variables=pickled_context_variables
+    )
 
+    # create the job and run it
+
+    if resources is None:
+        resources = Resources()
     job = Job(
-        job_id=job_id,
+        job_id=str(uuid.uuid4()),
         job_friendly_name=_make_valid_friendly_name(friendly_name),
-        environment_variables=environment_variables,
-        result_highest_pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        py_command=PyCommandJob(
-            command_line=args, pickled_context_variables=pickled_context_variables
-        ),
-        sidecar_containers=sidecar_containers_prepared,
-        credentials_sources=credentials_sources,
+        py_command=py_command,
         ports=_prepare_ports(ports),
-        uses_gpu=resources.uses_gpu(),
-        **{  # type: ignore
-            _job_field_for_code_deployment(code): code,
-            _job_field_for_interpreter_deployment(interpreter): interpreter,
-        },
+        **(await _get_job_fields(host, resources, deployment, sidecar_containers)),
     )
 
     return await host.run_job(
@@ -568,7 +536,8 @@ async def run_map(
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
             (code and libraries) that are needed to run this command. This can be an
             actual Deployment object, or it can be an Awaitable that will produce a
-            Deployment object.
+            Deployment object. The default, None, is equivalent to
+            [mirror_local][meadowrun.Deployment.mirror_local]
         sidecar_containers: Additional containers that will be available from the main
             job as sidecar-container-0 sidecar-container-1, etc.
         ports: A specification of ports to make available on the machines that runs
@@ -592,52 +561,22 @@ async def run_map(
             the return value will always be None.
     """
 
-    if resources_per_task is None:
-        resources_per_task = Resources()
-
     if not num_concurrent_tasks:
         num_concurrent_tasks = len(args) // 2 + 1
     else:
         num_concurrent_tasks = min(num_concurrent_tasks, len(args))
 
     # prepare some variables for constructing the worker jobs
-    friendly_name = _get_friendly_name(function)
-    (
-        interpreter,
-        code,
-        environment_variables,
-        credentials_sources,
-    ) = await _add_defaults_to_deployment(deployment)
-
-    if resources_per_task.needs_cuda() and isinstance(
-        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
-    ):
-        interpreter.additional_software["cuda"] = ""
-
-    await host.set_defaults()
-    await _prepare_code_deployment(code, host)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
-    (
-        sidecar_containers_prepared,
-        additional_credentials_sources,
-    ) = _prepare_sidecar_containers(sidecar_containers)
-    credentials_sources.extend(additional_credentials_sources)
-
-    prepared_ports = _prepare_ports(ports)
-
-    job_fields = {
-        "job_friendly_name": friendly_name,
-        "environment_variables": environment_variables,
-        "result_highest_pickle_protocol": pickle.HIGHEST_PROTOCOL,
-        "sidecar_containers": sidecar_containers_prepared,
-        "credentials_sources": credentials_sources,
-        "ports": prepared_ports,
-        "uses_gpu": resources_per_task.uses_gpu(),
-        _job_field_for_code_deployment(code): code,
-        _job_field_for_interpreter_deployment(interpreter): interpreter,
-    }
+    if resources_per_task is None:
+        resources_per_task = Resources()
+    job_fields = await _get_job_fields(
+        host, resources_per_task, deployment, sidecar_containers
+    )
+    job_fields["job_friendly_name"] = _get_friendly_name(function)
+    job_fields["ports"] = _prepare_ports(ports)
 
     if not wait_for_result:
         wait_option = WaitOption.DO_NOT_WAIT
@@ -702,9 +641,9 @@ async def run_map_as_completed(
             equal to the number of args/tasks. Will default to half the total number of
             tasks plus one, rounded down if set to None.
         deployment: See [Deployment][meadowrun.Deployment]. Specifies the environment
-            (code and libraries) that are needed to run this command. This can be an
-            actual Deployment object, or it can be an Awaitable that will produce a
-            Deployment object.
+            (code and libraries) that are needed to be an Awaitable that will produce a
+            Deployment object. The default, None, is equivalent to
+            [mirror_local][meadowrun.Deployment.mirror_local]
         sidecar_containers: Additional containers that will be available from the main
             job as sidecar-container-0 sidecar-container-1, etc.
         ports: A specification of ports to make available on the machines that runs
@@ -724,9 +663,6 @@ async def run_map_as_completed(
         An async iterable returning [TaskResult][meadowrun.TaskResult] objects.
     """
 
-    if resources_per_task is None:
-        resources_per_task = Resources()
-
     if not num_concurrent_tasks:
         num_concurrent_tasks = len(args) // 2 + 1
     else:
@@ -734,42 +670,16 @@ async def run_map_as_completed(
 
     # prepare some variables for constructing the worker jobs
     friendly_name = _get_friendly_name(function)
-    (
-        interpreter,
-        code,
-        environment_variables,
-        credentials_sources,
-    ) = await _add_defaults_to_deployment(deployment)
-
-    if resources_per_task.needs_cuda() and isinstance(
-        interpreter, (EnvironmentSpec, EnvironmentSpecInCode)
-    ):
-        interpreter.additional_software["cuda"] = ""
-
-    await host.set_defaults()
-    await _prepare_code_deployment(code, host)
 
     pickle_protocol = _pickle_protocol_for_deployed_interpreter()
 
-    (
-        sidecar_containers_prepared,
-        additional_credentials_sources,
-    ) = _prepare_sidecar_containers(sidecar_containers)
-    credentials_sources.extend(additional_credentials_sources)
-
-    prepared_ports = _prepare_ports(ports)
-
-    job_fields = {
-        "job_friendly_name": friendly_name,
-        "environment_variables": environment_variables,
-        "result_highest_pickle_protocol": pickle.HIGHEST_PROTOCOL,
-        "sidecar_containers": sidecar_containers_prepared,
-        "credentials_sources": credentials_sources,
-        "ports": prepared_ports,
-        "uses_gpu": resources_per_task.uses_gpu(),
-        _job_field_for_code_deployment(code): code,
-        _job_field_for_interpreter_deployment(interpreter): interpreter,
-    }
+    if resources_per_task is None:
+        resources_per_task = Resources()
+    job_fields = await _get_job_fields(
+        host, resources_per_task, deployment, sidecar_containers
+    )
+    job_fields["job_friendly_name"] = friendly_name
+    job_fields["ports"] = _prepare_ports(ports)
 
     return host.run_map_as_completed(
         function,

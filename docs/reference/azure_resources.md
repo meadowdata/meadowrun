@@ -1,4 +1,4 @@
-# Azure resources created by meadowrun
+# Azure resources created by Meadowrun
 
 This page lists all Azure resources created by using Meadowrun or running
 `meadowrun-manage-azure-vm install`. All of these resources can be deleted automatically

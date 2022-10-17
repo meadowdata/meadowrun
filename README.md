@@ -6,48 +6,29 @@
 
 
 
-Meadowrun automates the tedious details of running your python code on AWS. Meadowrun
-will
-- choose the optimal set of EC2 on-demand or spot instances and turn them off when
-  they're no longer needed
-- deploy your code and libraries to the EC2 instances, so you don't have to worry about
-  creating packages and building Docker images
-- scale from a single function to thousands of parallel tasks
+Meadowrun is a library for data scientists and data engineers who run python code on
+AWS, Azure, or Kubernetes. Meadowrun:
 
-For more information see Meadowrun's [documentation](https://docs.meadowrun.io), the
-[project homepage](https://meadowrun.io), or [join the chat on
-Gitter](https://gitter.im/meadowdata/meadowrun)
+- scales from a single function to thousands of distributed tasks.
+- syncs your local code and libraries for a faster, easier iteration loop. Edit your
+  code and rerun your analysis without worrying about building packages or Docker
+  images.
+- optimizes for cost, choosing the cheapest instance types and turning them off when
+  they're no longer needed.
+  
+For more context, see our [case
+studes](https://docs.meadowrun.io/en/stable/case_studies/) of how Meadowrun is used in
+real life, or see the [project homepage](https://meadowrun.io)
 
-## When would I use Meadowrun?
-
-- You want to run distributed computations in python in AWS with as little fuss as
-  possible. You don't want to build docker images as part of your iteration cycle, and
-  you want to be able to take advantage of spot pricing without having to manage a
-  cluster.
-- You can't/don't want to run tests or analysis on your laptop and you want a better
-  experience than SSHing into an EC2 machine.
-
-See [case studes](https://docs.meadowrun.io/en/stable/case_studies/) for fully worked
-examples.
+To get started, go to our [documentation](https://docs.meadowrun.io), or [join the chat
+on Gitter](https://gitter.im/meadowdata/meadowrun)
 
 ## Quickstart
 
-First, install Meadowrun using pip: 
+First, install Meadowrun using pip:
 
 ```
 pip install meadowrun
-```
-
-conda:
-
-```
-conda install -c defaults -c conda-forge -c meadowdata meadowrun
-```
-
-or poetry:
-
-```
-poetry add meadowrun
 ```
 
 Next, assuming you've [configured the AWS
@@ -63,9 +44,12 @@ print(
         meadowrun.run_function(
             lambda: sum(range(1000)) / 1000,
             meadowrun.AllocEC2Instance(),
-            meadowrun.Resources(logical_cpu=4, memory_gb=32, max_eviction_rate=15),
+            meadowrun.Resources(logical_cpu=1, memory_gb=8, max_eviction_rate=80),
             meadowrun.Deployment.mirror_local()
         )
     )
 )
 ```
+
+[The documentation](https://docs.meadowrun.io) has examples of how to use other package
+managers (conda, poetry), and other platforms (Azure, GKE, Kubernetes).

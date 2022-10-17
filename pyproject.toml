@@ -2,6 +2,7 @@
 name = "meadowrun"
 version = "0.2.12a1"
 description = "The easiest way to run python code on one or more remote machines"
+readme = "README.md"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]
 homepage = "https://github.com/meadowdata/meadowrun"
 repository = "https://github.com/meadowdata/meadowrun"
@@ -30,7 +31,7 @@ asyncssh = "^2.11.0"
 kubernetes-asyncio = "^24.2.0"
 gcloud-aio-storage = "^7.0.1"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = "^7.0.1"
 mypy = "0.*"
 black = {version = "^22.1", allow-prereleases = true}
@@ -64,6 +65,9 @@ types-PyYAML = "^6.0.11"
 venv-pack = "^0.2.0"
 conda-pack = "^0.6.0"
 flake8-builtins = "^1.5.3"
+mkdocs-redirects = "^1.2.0"
+mkdocs-include-markdown-plugin = "^3.9.0"
+mkdocs-linkcheck = "^1.0.6"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

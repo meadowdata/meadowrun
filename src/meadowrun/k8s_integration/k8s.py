@@ -334,7 +334,8 @@ class Kubernetes(Host):
             Kubernetes. You can make changes like specifying a serviceAccountName,
             adding ephemeral storage, etc. You can either modify the pod_template_spec
             argument in place and return it as the result, or construct a new
-            V1PodTemplateSpec and return that.
+            [V1PodTemplateSpec](https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1PodTemplateSpec.md)
+            and return that.
     """
 
     storage_spec: Optional[StorageBucketSpec]

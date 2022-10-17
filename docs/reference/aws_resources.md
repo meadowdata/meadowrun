@@ -1,4 +1,4 @@
-# AWS resources created by meadowrun
+# AWS resources created by Meadowrun
 
 This page lists all AWS resources created by using meadowrun or running
 `meadowrun-manage-ec2 install`. All of these resources can be deleted automatically by

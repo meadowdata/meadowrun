@@ -1070,6 +1070,34 @@ natsort = ">=8.1.0"
 wcmatch = ">=7"
 
 [[package]]
+name = "mkdocs-include-markdown-plugin"
+version = "3.9.0"
+description = "Mkdocs Markdown includer plugin."
+category = "dev"
+optional = false
+python-versions = ">=3.6"
+
+[package.extras]
+dev = ["bump2version (==1.0.1)", "mkdocs (==1.4.0)", "pre-commit", "pytest (==7.1.3)", "pytest-cov (==3.0.0)", "tox"]
+test = ["mkdocs (==1.4.0)", "pytest (==7.1.3)", "pytest-cov (==3.0.0)"]
+
+[[package]]
+name = "mkdocs-linkcheck"
+version = "1.0.6"
+description = "Check links for Mkdocs-based sites, as well as any markdown-based website"
+category = "dev"
+optional = false
+python-versions = ">=3.7"
+
+[package.dependencies]
+aiohttp = ">=3.3"
+
+[package.extras]
+lint = ["flake8", "flake8-blind-except", "flake8-bugbear", "flake8-builtins", "mypy"]
+requests = ["requests"]
+tests = ["pytest"]
+
+[[package]]
 name = "mkdocs-material"
 version = "8.4.2"
 description = "Documentation that simply works"
@@ -1092,6 +1120,22 @@ description = "Extension pack for Python Markdown."
 category = "dev"
 optional = false
 python-versions = ">=3.6"
+
+[[package]]
+name = "mkdocs-redirects"
+version = "1.2.0"
+description = "A MkDocs plugin for dynamic page redirects to prevent broken links."
+category = "dev"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+mkdocs = ">=1.1.1"
+
+[package.extras]
+dev = ["autoflake", "black", "isort", "pytest", "twine (>=1.13.0)"]
+release = ["twine (>=1.13.0)"]
+test = ["autoflake", "black", "isort", "pytest"]
 
 [[package]]
 name = "mkdocstrings"
@@ -2141,7 +2185,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "21b36c106b202930007ef4969b223a0594e42e75d9c524865294ea36bce59db9"
+content-hash = "1b71674a91657ea736f653274bd64ec8acf9a516cd2c385db5efed00510f7cfe"
 
 [metadata.files]
 aiobotocore = [
@@ -2736,6 +2780,14 @@ mkdocs-awesome-pages-plugin = [
     {file = "mkdocs-awesome-pages-plugin-2.8.0.tar.gz", hash = "sha256:af7e327e14b2eea3b2735c37428e33a528ecd2d9ae2296dc0f1632f0f3bc28f7"},
     {file = "mkdocs_awesome_pages_plugin-2.8.0-py3-none-any.whl", hash = "sha256:6b21ad4f41aecbe89e3a9a51f8837892cc7ce8ca0f9f4e0a355d56159ace3d68"},
 ]
+mkdocs-include-markdown-plugin = [
+    {file = "mkdocs_include_markdown_plugin-3.9.0-py3-none-any.whl", hash = "sha256:ed0f3c510f3ed3dad0b841125b447b725b588a356dc78000d40d140eddf7ddc5"},
+    {file = "mkdocs_include_markdown_plugin-3.9.0.tar.gz", hash = "sha256:c265bef5c811a61e400fb8638da0fe026c299c207090dfc2300bb96080a25c85"},
+]
+mkdocs-linkcheck = [
+    {file = "mkdocs_linkcheck-1.0.6-py3-none-any.whl", hash = "sha256:70dceae090101778002d949dc7b55f56eeb0c294bd9053fb6b197c26591665b1"},
+    {file = "mkdocs_linkcheck-1.0.6.tar.gz", hash = "sha256:908ca6f370eee0b55b5337142e2f092f1a0af9e50ab3046712b4baefdc989672"},
+]
 mkdocs-material = [
     {file = "mkdocs-material-8.4.2.tar.gz", hash = "sha256:704c64c3fff126a3923c2961d95f26b19be621342a6a4e49ed039f0bb7a5c540"},
     {file = "mkdocs_material-8.4.2-py2.py3-none-any.whl", hash = "sha256:166287bb0e4197804906bf0389a852d5ced43182c30127ac8b48a4e497ecd7e5"},
@@ -2743,6 +2795,9 @@ mkdocs-material = [
 mkdocs-material-extensions = [
     {file = "mkdocs-material-extensions-1.0.3.tar.gz", hash = "sha256:bfd24dfdef7b41c312ede42648f9eb83476ea168ec163b613f9abd12bbfddba2"},
     {file = "mkdocs_material_extensions-1.0.3-py3-none-any.whl", hash = "sha256:a82b70e533ce060b2a5d9eb2bc2e1be201cf61f901f93704b4acf6e3d5983a44"},
+]
+mkdocs-redirects = [
+    {file = "mkdocs-redirects-1.2.0.tar.gz", hash = "sha256:ddd38267d49fdfa19fb2f25b4aed2fb53f0496c818bf3018009c8eaf6676a327"},
 ]
 mkdocstrings = [
     {file = "mkdocstrings-0.18.1-py3-none-any.whl", hash = "sha256:4053929356df8cd69ed32eef71d8f676a472ef72980c9ffd4f933ead1debcdad"},

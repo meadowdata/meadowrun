@@ -1,6 +1,8 @@
 nav:
-- install.md
-- run_function.md
-- run_map.md
-- run_function_git_conda.md
-- run_command_in_container.md
+- aws_ec2.md
+- azure_vm.md
+- gke.md
+- kubernetes.md
+- entry_points.md
+- jupyter_notebook.md
+- deployment.md

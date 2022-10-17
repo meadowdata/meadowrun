@@ -1,6 +1,6 @@
 # Use a private container on Kubernetes
 
-[Run Meadowrun on Kubernetes](../kubernetes) walks through the basics of using Meadowrun
+[Run Meadowrun on Kubernetes](../../tutorial/kubernetes) walks through the basics of using Meadowrun
 with Kubernetes. This article is a small extension that shows how to use a container
 from a private registry.
 

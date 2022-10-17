@@ -1,6 +1,9 @@
-# Deploy your code and libraries using Meadowrun
+# How deployment works
 
-Meadowrun makes it easy to get your code and libraries, which we'll refer to as your
+This page gives a deep dive into how deployment in Meadowrun works. For a quick overview
+and examples, see the [Meadowrun deployment tutorial](../../tutorial/deployment).
+
+Meadowrun makes it easy to get your **code** and libraries, which we'll refer to as your
 **interpreter**, into the cloud.
 
 The main entry points ([`run_function`][meadowrun.run_function],
@@ -40,11 +43,15 @@ images that haven't been used recently.)
 
 Finally, you can use `interpreter=ContainerInterpreter(repository_name)` to tell
 Meadowrun to use a pre-built container rather than any local environment on your
-machine. In this case,the Meadowrun worker will pull the specified image from the
-specified container registry. For images that require authentication, see [Use a private
-container on AWS](../../how_to/private_container_aws) or [Use a private container on
-Azure](../../how_to/private_container_azure). With this option, your local code will still be
-available on the remote machine as well.
+machine. In this case, the Meadowrun worker will pull the specified image from the
+specified container registry.
+
+{%
+include-markdown "../tutorial/deployment.md"
+start="<!--containerauth-start-->"
+end="<!--containerauth-end-->"
+%} With this option, your local
+code will still be available on the remote machine as well.
 
 If you're not running on a Linux machine, Meadowrun will only be able to replicate local
 pip and poetry environments on the remote machine--conda environments are
@@ -55,9 +62,14 @@ environment specification file or a container for your interpreter.
 ## [`Deployment.git_repo`][meadowrun.Deployment.git_repo]
 
 Use `git_repo` when you want to run with code that's been deployed to a git repo. The
-Meadowrun worker will pull the specified branch/commit. For git repos that require
-authentication, see [Use a private git repo on AWS](../../how_to/private_git_repo_aws) or
-[Use a private git repo on Azure](../../how_to/private_git_repo_azure).
+Meadowrun worker will pull the specified branch/commit.
+
+{%
+include-markdown "../tutorial/deployment.md"
+start="<!--gitrepoauth-start-->"
+end="<!--gitrepoauth-end-->"
+%}
+
 
 This function requires you to specify the type of interpreter you want to use with your
 git repo.
@@ -74,11 +86,14 @@ registry. (One of the AWS Lambdas/Azure Functions that run periodically will cle
 images that haven't been used recently.)
 
 You can also use `interpreter=ContainerInterpreter(repository_name)` to use a pre-built
-container. In this case,the Meadowrun worker will pull the specified image from the
-specified container registry. For images that require authentication, see [Use a private
-container on AWS](../../how_to/private_container_aws) or [Use a private container on
-Azure](../../how_to/private_container_azure). The code in your git repo will still be
-available on the remote machine.
+container. In this case, the Meadowrun worker will pull the specified image from the
+specified container registry.
+
+{%
+include-markdown "../tutorial/deployment.md"
+start="<!--containerauth-start-->"
+end="<!--containerauth-end-->"
+%}
 
 
 ## Cross-platform compatibility

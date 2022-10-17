@@ -1,4 +1,4 @@
-# Access resources from Meadowrun jobs
+# Access resources from Meadowrun jobs on AWS or Azure
 
 For most non-trivial applications, you'll need to access resources in your cloud account
 from code that is running on Meadowrun-managed machines, like an S3 bucket, a DynamoDB

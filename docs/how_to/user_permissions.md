@@ -1,4 +1,4 @@
-# Grant permissions to use Meadowrun
+# Grant permissions to use Meadowrun on AWS or Azure
 
 This page describes how to grant users permissions to use Meadowrun. If you want to
 grant permissions to Meadowrun jobs to access resources, go to [Access resources from
@@ -9,8 +9,8 @@ Meadowrun jobs](../access_resources).
 ### For users
 
 Meadowrun will usually be used from a developer machine where a developer or data
-scientist has logged into the AWS CLI via `aws configure` (see [Installing
-Meadowrun](../../tutorial/install)).
+scientist has logged into the AWS CLI via `aws configure` (see [the AWS EC2
+tutorial](../../tutorial/aws_ec2)).
 
 In this case, the logged in user must have at least the permissions granted by the
 `meadowrun_user_group`. This group is created when you run `meadowrun-manage-ec2

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from basics import BasicsSuite, ErrorsSuite, HostProvider, MapSuite
+from suites import DeploymentSuite, EdgeCasesSuite, HostProvider, MapSuite
 from meadowrun import Resources, ssh
 from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER, AllocEC2Instance
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
@@ -41,11 +41,11 @@ class AwsHostProvider(HostProvider):
             return await ssh.read_text_from_file(conn, job_completion.log_file_name)
 
 
-class TestBasicsAws(AwsHostProvider, BasicsSuite):
+class TestDeploymentsAws(AwsHostProvider, DeploymentSuite):
     pass
 
 
-class TestErrorsAws(AwsHostProvider, ErrorsSuite):
+class TestEdgeCasesAws(AwsHostProvider, EdgeCasesSuite):
     pass
 
 

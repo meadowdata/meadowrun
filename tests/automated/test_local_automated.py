@@ -22,7 +22,7 @@ from typing import (
 
 import pytest
 
-from basics import BasicsSuite, ErrorsSuite, HostProvider
+from suites import DeploymentSuite, EdgeCasesSuite, HostProvider
 from meadowrun import Deployment, Resources, TaskResult, run_command
 from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 from meadowrun.config import MEADOWRUN_INTERPRETER
@@ -247,7 +247,7 @@ def patch_working_folder(tmp_path: pathlib.Path, mocker: MockerFixture) -> None:
 
 
 @pytest.mark.usefixtures(patch_working_folder.__qualname__)
-class TestBasicsLocal(LocalHostProvider, BasicsSuite):
+class TestDeploymentsLocal(LocalHostProvider, DeploymentSuite):
     # TODO we should move these tests that use ServerAvailable into BasicsSuite and make
     # them work for TestBasicsAws. I think the best way to do that is to add
     # support for mounting an EBS volume, create one with the code in EXAMPLE_CODE and
@@ -306,5 +306,5 @@ class TestBasicsLocal(LocalHostProvider, BasicsSuite):
             assert "hello there: bar" in await self.get_log_file_text(job_completion2)
 
 
-class TestErrorsLocal(LocalHostProvider, ErrorsSuite):
+class TestEdgeCasesLocal(LocalHostProvider, EdgeCasesSuite):
     pass

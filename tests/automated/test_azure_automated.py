@@ -5,7 +5,13 @@ from typing import TYPE_CHECKING
 
 import meadowrun.ssh as ssh
 
-from suites import HostProvider, DeploymentSuite, MapSuite, EdgeCasesSuite
+from suites import (
+    DeploymentSuite,
+    DeploymentSuite2,
+    EdgeCasesSuite,
+    HostProvider,
+    MapSuite,
+)
 from instance_registrar_suite import (
     InstanceRegistrarProvider,
     InstanceRegistrarSuite,
@@ -59,6 +65,10 @@ class AzureHostProvider(HostProvider):
 
 
 class TestDeploymentsAzure(AzureHostProvider, DeploymentSuite):
+    pass
+
+
+class TestDeployments2Azure(AzureHostProvider, DeploymentSuite2):
     pass
 
 

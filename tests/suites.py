@@ -85,10 +85,40 @@ def _path_from_here(path: str) -> str:
     return os.path.join(os.path.dirname(__file__), path)
 
 
+async def _test_meadowrun(
+    host_provider: HostProvider,
+    code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
+    interpreter_deployment: Union[
+        InterpreterDeployment, VersionedInterpreterDeployment
+    ],
+) -> None:
+    results: str = await run_function(
+        "example_package.example.example_runner",
+        host_provider.get_host(),
+        host_provider.get_resources_required(),
+        Deployment(interpreter_deployment, code_deployment),
+        args=["foo"],
+    )
+    assert results == "hello foo"
+
+    job_completion = await run_command(
+        "pip --version",
+        host_provider.get_host(),
+        host_provider.get_resources_required(),
+        Deployment(interpreter_deployment, code_deployment),
+    )
+
+    if host_provider.can_get_log_file():
+        assert "pip" in await host_provider.get_log_file_text(job_completion)
+    else:
+        print("Warning get_log_file_text is not implemented")
+
+
 class DeploymentSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
     async def test_meadowrun_git_repo_commit(self) -> None:
-        await self._test_meadowrun(
+        await _test_meadowrun(
+            self,
             GitRepoCommit(
                 repo_url=self.get_test_repo_url(),
                 commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
@@ -98,51 +128,11 @@ class DeploymentSuite(HostProvider, abc.ABC):
 
     @pytest.mark.asyncio
     async def test_meadowrun_git_repo_branch(self) -> None:
-        await self._test_meadowrun(
+        await _test_meadowrun(
+            self,
             GitRepoBranch(repo_url=self.get_test_repo_url(), branch="main"),
             ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
         )
-
-    @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_commit_container(self) -> None:
-        # TODO first make sure the image we're looking for is NOT already cached on this
-        # system, then run it again after it has been cached, as this works different
-        # code paths
-        await self._test_meadowrun(
-            GitRepoCommit(
-                repo_url=self.get_test_repo_url(),
-                commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
-            ),
-            ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
-        )
-
-    async def _test_meadowrun(
-        self,
-        code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
-        interpreter_deployment: Union[
-            InterpreterDeployment, VersionedInterpreterDeployment
-        ],
-    ) -> None:
-        results: str = await run_function(
-            "example_package.example.example_runner",
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment(interpreter_deployment, code_deployment),
-            args=["foo"],
-        )
-        assert results == "hello foo"
-
-        job_completion = await run_command(
-            "pip --version",
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment(interpreter_deployment, code_deployment),
-        )
-
-        if self.can_get_log_file():
-            assert "pip" in await self.get_log_file_text(job_completion)
-        else:
-            print("Warning get_log_file_text is not implemented")
 
     @pytest.mark.asyncio
     async def test_meadowrun_path_in_git_repo(self) -> None:
@@ -212,27 +202,6 @@ class DeploymentSuite(HostProvider, abc.ABC):
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_conda_file_in_git_repo_with_apt_dependency(self) -> None:
-        def remote_function() -> int:
-            return subprocess.run(["curl", "--help"]).returncode
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                branch="main",
-                path_to_source="example_package",
-                interpreter=CondaEnvironmentYmlFile(
-                    "myenv.yml", additional_software=["curl"]
-                ),
-            ),
-        )
-        assert results == 0
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
     async def test_pip_file_in_git_repo(self) -> None:
         results = await run_function(
             self._get_remote_function_for_deployment(),
@@ -264,52 +233,6 @@ class DeploymentSuite(HostProvider, abc.ABC):
         # the version number will keep changing, but we know it will be > 2.28.0
         assert [int(part) for part in results[0].split(".")] > [2, 28, 0]
         assert results[1:] == ("1.4.2", "a, b")
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
-        def remote_function() -> str:
-            import importlib
-
-            # cv2 will only work correctly if libgl1 and libglib2.0-0 are installed
-            cv2 = importlib.import_module("cv2")
-            return cv2.__version__
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                path_to_source="example_package",
-                interpreter=PipRequirementsFile(
-                    "requirements_with_cv2.txt", "3.9", ["libgl1", "libglib2.0-0"]
-                ),
-            ),
-        )
-        assert results == "4.6.0"
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_sidecar_container(self) -> None:
-        def remote_function() -> str:
-            import requests
-
-            return requests.get("http://sidecar-container-0").text
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                path_to_source="example_package",
-                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
-            ),
-            # this is just a random example of a container with a service in it
-            sidecar_containers=ContainerInterpreter("okteto/sample-app"),
-        )
-        assert results.startswith("<h3>Hello okteto!</h3>")
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
@@ -375,24 +298,6 @@ class DeploymentSuite(HostProvider, abc.ABC):
         assert [int(part) for part in results[0].split(".")] > [2, 28, 0]
         print(results)
         assert results[1:] == ("1.4.3", "a, b")
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_poetry_project_in_git_repo_with_apt_dependency(self) -> None:
-        def remote_function() -> int:
-            return subprocess.run(["curl", "--help"]).returncode
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                path_to_source="example_package",
-                interpreter=PoetryProjectPath("", "3.9", additional_software=["curl"]),
-            ),
-        )
-        assert results == 0
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
@@ -594,6 +499,117 @@ class DeploymentSuite(HostProvider, abc.ABC):
             )
 
         return remote_function
+
+
+class DeploymentSuite2(HostProvider, abc.ABC):
+    """These tests currently do not work on Kubernetes."""
+
+    # Kubernetes doesn't support (and may never support) an environment spec with an apt
+    # dependency at the same time
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
+        def remote_function() -> str:
+            import importlib
+
+            # cv2 will only work correctly if libgl1 and libglib2.0-0 are installed
+            cv2 = importlib.import_module("cv2")
+            return cv2.__version__
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                path_to_source="example_package",
+                interpreter=PipRequirementsFile(
+                    "requirements_with_cv2.txt", "3.9", ["libgl1", "libglib2.0-0"]
+                ),
+            ),
+        )
+        assert results == "4.6.0"
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_conda_file_in_git_repo_with_apt_dependency(self) -> None:
+        def remote_function() -> int:
+            return subprocess.run(["curl", "--help"]).returncode
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=CondaEnvironmentYmlFile(
+                    "myenv.yml", additional_software=["curl"]
+                ),
+            ),
+        )
+        assert results == 0
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_poetry_project_in_git_repo_with_apt_dependency(self) -> None:
+        def remote_function() -> int:
+            return subprocess.run(["curl", "--help"]).returncode
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                path_to_source="example_package",
+                interpreter=PoetryProjectPath("", "3.9", additional_software=["curl"]),
+            ),
+        )
+        assert results == 0
+
+    # We have not yet implemented sidecar containers on Kubernetes
+
+    @pytest.mark.skipif("sys.version_info < (3, 8)")
+    @pytest.mark.asyncio
+    async def test_pip_file_in_git_repo_with_sidecar_container(self) -> None:
+        def remote_function() -> str:
+            import requests
+
+            return requests.get("http://sidecar-container-0").text
+
+        results = await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                path_to_source="example_package",
+                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
+            ),
+            # this is just a random example of a container with a service in it
+            sidecar_containers=ContainerInterpreter("okteto/sample-app"),
+        )
+        assert results.startswith("<h3>Hello okteto!</h3>")
+
+    # this test uses a vanilla python container (without meadowrun installed). This
+    # isn't supported on Kubernetes
+
+    @pytest.mark.asyncio
+    async def test_meadowrun_git_repo_commit_vanilla_container(self) -> None:
+        # TODO first make sure the image we're looking for is NOT already cached on this
+        # system, then run it again after it has been cached, as this works different
+        # code paths
+        await _test_meadowrun(
+            self,
+            GitRepoCommit(
+                repo_url=self.get_test_repo_url(),
+                commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
+            ),
+            ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
+        )
 
 
 class EdgeCasesSuite(HostProvider, abc.ABC):

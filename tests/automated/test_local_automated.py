@@ -22,7 +22,13 @@ from typing import (
 
 import pytest
 
-from suites import DeploymentSuite, EdgeCasesSuite, HostProvider
+from suites import (
+    DeploymentSuite,
+    EdgeCasesSuite,
+    HostProvider,
+    DeploymentSuite2,
+    _test_meadowrun,
+)
 from meadowrun import Deployment, Resources, TaskResult, run_command
 from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 from meadowrun.config import MEADOWRUN_INTERPRETER
@@ -255,14 +261,16 @@ class TestDeploymentsLocal(LocalHostProvider, DeploymentSuite):
 
     @pytest.mark.asyncio
     async def test_meadowrun_server_available_folder(self) -> None:
-        await self._test_meadowrun(
+        await _test_meadowrun(
+            self,
             ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
         )
 
     @pytest.mark.asyncio
     async def test_meadowrun_server_available_folder_container_digest(self) -> None:
-        await self._test_meadowrun(
+        await _test_meadowrun(
+            self,
             ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             await get_latest_interpreter_version(
                 ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), {}
@@ -271,7 +279,8 @@ class TestDeploymentsLocal(LocalHostProvider, DeploymentSuite):
 
     @pytest.mark.asyncio
     async def test_meadowrun_server_available_folder_container_tag(self) -> None:
-        await self._test_meadowrun(
+        await _test_meadowrun(
+            self,
             ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
         )
@@ -304,6 +313,11 @@ class TestDeploymentsLocal(LocalHostProvider, DeploymentSuite):
                 job_completion1
             )
             assert "hello there: bar" in await self.get_log_file_text(job_completion2)
+
+
+@pytest.mark.usefixtures(patch_working_folder.__qualname__)
+class TestDeployments2Local(LocalHostProvider, DeploymentSuite2):
+    pass
 
 
 class TestEdgeCasesLocal(LocalHostProvider, EdgeCasesSuite):

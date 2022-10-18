@@ -18,11 +18,11 @@ boto3 = ["boto3 (>=1.24.59,<1.24.60)"]
 
 [[package]]
 name = "aiofiles"
-version = "0.8.0"
+version = "0.6.0"
 description = "File support for asyncio."
 category = "main"
 optional = false
-python-versions = ">=3.6,<4.0"
+python-versions = "*"
 
 [[package]]
 name = "aiohttp"
@@ -826,37 +826,6 @@ optional = false
 python-versions = ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*"
 
 [[package]]
-name = "gcloud-aio-auth"
-version = "4.0.1"
-description = "Python Client for Google Cloud Auth"
-category = "main"
-optional = false
-python-versions = ">=3.6,<4.0"
-
-[package.dependencies]
-aiohttp = ">=3.3.0,<4.0.0"
-backoff = ">=1.0.0,<3.0.0"
-chardet = {version = ">=2.0,<4.1", markers = "python_version >= \"3.6\""}
-cryptography = ">=2.0.0,<37.0.0"
-future = ">=0.17.0,<0.18.3"
-pyjwt = ">=1.5.3,<3.0.0"
-six = ">=1.11.0,<2.0.0"
-
-[[package]]
-name = "gcloud-aio-storage"
-version = "7.0.1"
-description = "Python Client for Google Cloud Storage"
-category = "main"
-optional = false
-python-versions = ">=3.6,<4.0"
-
-[package.dependencies]
-aiofiles = ">=0.6.0,<1.0.0"
-gcloud-aio-auth = ">=3.6.0,<5.0.0"
-pyasn1-modules = ">=0.2.1,<0.3.0"
-rsa = {version = ">=3.1.4,<5.0.0", markers = "python_version >= \"3.6\""}
-
-[[package]]
 name = "ghp-import"
 version = "2.1.0"
 description = "Copy your docs directly to the gh-pages branch."
@@ -1326,14 +1295,14 @@ python-versions = "*"
 
 [[package]]
 name = "pyasn1-modules"
-version = "0.2.8"
+version = "0.2.1"
 description = "A collection of ASN.1-based protocols modules."
 category = "main"
 optional = false
 python-versions = "*"
 
 [package.dependencies]
-pyasn1 = ">=0.4.6,<0.5.0"
+pyasn1 = ">=0.4.1,<0.5.0"
 
 [[package]]
 name = "pycodestyle"
@@ -2185,7 +2154,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "1b71674a91657ea736f653274bd64ec8acf9a516cd2c385db5efed00510f7cfe"
+content-hash = "f7f7ba3d30c5f597a0031c0bc6aed66f5e02021ac8207963c302474cb7bcdf91"
 
 [metadata.files]
 aiobotocore = [
@@ -2193,8 +2162,8 @@ aiobotocore = [
     {file = "aiobotocore-2.4.0.tar.gz", hash = "sha256:f9fe0698cc497861bdb54cd16161c804031f758ada9480c35540f20c0c078385"},
 ]
 aiofiles = [
-    {file = "aiofiles-0.8.0-py3-none-any.whl", hash = "sha256:7a973fc22b29e9962d0897805ace5856e6a566ab1f0c8e5c91ff6c866519c937"},
-    {file = "aiofiles-0.8.0.tar.gz", hash = "sha256:8334f23235248a3b2e83b2c3a78a22674f39969b96397126cc93664d9a901e59"},
+    {file = "aiofiles-0.6.0-py3-none-any.whl", hash = "sha256:bd3019af67f83b739f8e4053c6c0512a7f545b9a8d91aaeab55e6e0f9d123c27"},
+    {file = "aiofiles-0.6.0.tar.gz", hash = "sha256:e0281b157d3d5d59d803e3f4557dcc9a3dff28a4dd4829a9ff478adae50ca092"},
 ]
 aiohttp = [
     {file = "aiohttp-3.8.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:1ed0b6477896559f17b9eaeb6d38e07f7f9ffe40b9f0f9627ae8b9926ae260a8"},
@@ -2577,14 +2546,6 @@ frozenlist = [
 ]
 future = [
     {file = "future-0.18.2.tar.gz", hash = "sha256:b1bead90b70cf6ec3f0710ae53a525360fa360d306a86583adc6bf83a4db537d"},
-]
-gcloud-aio-auth = [
-    {file = "gcloud-aio-auth-4.0.1.tar.gz", hash = "sha256:c621d67bf327b3870c49abb25cc8ac66091ddb31548033d72979caf7f95803e6"},
-    {file = "gcloud_aio_auth-4.0.1-py3-none-any.whl", hash = "sha256:e3d845e44eaba31c9f3482cba0b34d9ef82d4c7e4b14edccb11ff4ad4cc2475f"},
-]
-gcloud-aio-storage = [
-    {file = "gcloud-aio-storage-7.0.1.tar.gz", hash = "sha256:3224b3db462352498e989ffb810e95cddff924376fab530e6edb2e609eadc814"},
-    {file = "gcloud_aio_storage-7.0.1-py3-none-any.whl", hash = "sha256:0442f709a718cbc8f7200f877c95682c70416e84b2b42d3af190f2aa99e62ab7"},
 ]
 ghp-import = [
     {file = "ghp-import-2.1.0.tar.gz", hash = "sha256:9c535c4c61193c2df8871222567d7fd7e5014d835f97dc7b7439069e2413d343"},
@@ -2994,8 +2955,8 @@ pyasn1 = [
     {file = "pyasn1-0.4.8.tar.gz", hash = "sha256:aef77c9fb94a3ac588e87841208bdec464471d9871bd5050a287cc9a475cd0ba"},
 ]
 pyasn1-modules = [
-    {file = "pyasn1-modules-0.2.8.tar.gz", hash = "sha256:905f84c712230b2c592c19470d3ca8d552de726050d1d1716282a1f6146be65e"},
-    {file = "pyasn1_modules-0.2.8-py2.py3-none-any.whl", hash = "sha256:a50b808ffeb97cb3601dd25981f6b016cbb3d31fbf57a8b8a87428e6158d0c74"},
+    {file = "pyasn1-modules-0.2.1.tar.gz", hash = "sha256:af00ea8f2022b6287dc375b2c70f31ab5af83989fc6fe9eacd4976ce26cd7ccc"},
+    {file = "pyasn1_modules-0.2.1-py2.py3-none-any.whl", hash = "sha256:47fb6757ab78fe966e7c58b2030b546854f78416d653163f0ce9290cf2278e8b"},
 ]
 pycodestyle = [
     {file = "pycodestyle-2.7.0-py2.py3-none-any.whl", hash = "sha256:514f76d918fcc0b55c6680472f0a37970994e07bbb80725808c17089be302068"},

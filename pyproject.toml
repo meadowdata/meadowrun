@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meadowrun"
-version = "0.2.12a1"
+version = "0.2.12"
 description = "The easiest way to run python code on one or more remote machines"
 readme = "README.md"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]
@@ -40,7 +40,7 @@ future = ">=0.17.0,<0.18.3"
 pyjwt = ">=1.5.3,<3.0.0"
 six = ">=1.11.0,<2.0.0"
 
-[tool.poetry.group.dev.dependencies]
+[tool.poetry.dev-dependencies]
 pytest = "^7.0.1"
 mypy = "0.*"
 black = {version = "^22.1", allow-prereleases = true}

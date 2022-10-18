@@ -25,6 +25,8 @@ def translate_poetry_version_to_conda(v: str) -> str:
     elif v[0] in string.digits:
         # strings like 1.21.21 need to be translated to ==1.21.21
         return f"=={v}"
+    elif v.startswith(">=") and ",<" in v:
+        return v
     else:
         raise NotImplementedError(
             f"Version strings of the format {v} are not yet supported"

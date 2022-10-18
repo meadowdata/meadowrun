@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Tuple, Optional, Type, Coroutine, Any, TYPE_CHECKING
 
 import aiohttp
-import gcloud.aio.storage
+import meadowrun._vendor.gcloud.aio.storage as gcloud_storage
 from meadowrun.storage_grid_job import AbstractStorageBucket
 
 if TYPE_CHECKING:
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class GoogleStorageBucket(AbstractStorageBucket):
-    def __init__(self, storage: gcloud.aio.storage.Storage, bucket: str):
+    def __init__(self, storage: gcloud_storage.Storage, bucket: str):
         self._storage = storage
         self._bucket = bucket
 
@@ -88,4 +88,4 @@ class GoogleStorageBucket(AbstractStorageBucket):
 
 
 def get_google_storage_bucket(bucket: str) -> GoogleStorageBucket:
-    return GoogleStorageBucket(gcloud.aio.storage.Storage(), bucket)
+    return GoogleStorageBucket(gcloud_storage.Storage(), bucket)

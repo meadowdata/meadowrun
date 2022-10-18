@@ -85,7 +85,7 @@ def _path_from_here(path: str) -> str:
     return os.path.join(os.path.dirname(__file__), path)
 
 
-class BasicsSuite(HostProvider, abc.ABC):
+class DeploymentSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
     async def test_meadowrun_git_repo_commit(self) -> None:
         await self._test_meadowrun(
@@ -596,7 +596,7 @@ class BasicsSuite(HostProvider, abc.ABC):
         return remote_function
 
 
-class ErrorsSuite(HostProvider, abc.ABC):
+class EdgeCasesSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
     async def test_run_request_failed(self) -> None:
         with pytest.raises(MeadowrunException) as exc_info:

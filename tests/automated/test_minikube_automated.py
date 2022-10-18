@@ -1,6 +1,6 @@
 import pytest
 
-from basics import BasicsSuite, HostProvider, MapSuite, ErrorsSuite
+from suites import DeploymentSuite, HostProvider, MapSuite, EdgeCasesSuite
 from meadowrun import Host, Resources, Kubernetes, GenericStorageBucketSpec
 
 
@@ -13,7 +13,7 @@ def _kubernetes_host() -> Kubernetes:
             username_password_secret="minio-credentials",
         ),
         kube_config_context="minikube",
-        reusable_pods=False,
+        reusable_pods=True,
     )
 
 
@@ -40,7 +40,7 @@ class MinikubeHostProvider(HostProvider):
         return False
 
 
-class TestBasicsKubernetes(MinikubeHostProvider, BasicsSuite):
+class TestDeploymentsMinikube(MinikubeHostProvider, DeploymentSuite):
     @pytest.mark.skip
     @pytest.mark.asyncio
     async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
@@ -62,11 +62,11 @@ class TestBasicsKubernetes(MinikubeHostProvider, BasicsSuite):
         pass
 
 
-class TestErrorsKubernetes(MinikubeHostProvider, ErrorsSuite):
+class TestEdgeCasesMinikube(MinikubeHostProvider, EdgeCasesSuite):
     pass
 
 
-class TestMapKubernetes(MinikubeHostProvider, MapSuite):
+class TestMapMinikube(MinikubeHostProvider, MapSuite):
     @pytest.mark.skip
     @pytest.mark.asyncio
     async def test_run_map_as_completed_with_retries(self) -> None:

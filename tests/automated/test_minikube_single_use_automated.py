@@ -1,6 +1,6 @@
 import pytest
 
-from basics import BasicsSuite, HostProvider, MapSuite, ErrorsSuite
+from suites import DeploymentSuite, HostProvider, MapSuite, EdgeCasesSuite
 from meadowrun import Host, Resources, Kubernetes, GenericStorageBucketSpec
 
 
@@ -13,11 +13,11 @@ def _kubernetes_host() -> Kubernetes:
             username_password_secret="minio-credentials",
         ),
         kube_config_context="minikube",
-        reusable_pods=True,
+        reusable_pods=False,
     )
 
 
-class MinikubeHostProvider(HostProvider):
+class MinikubeSingleUseHostProvider(HostProvider):
     """
     In order to run these tests, you'll need to configure Minikube and Minio as per
     docs/how_to/kubernetes.md.
@@ -40,7 +40,7 @@ class MinikubeHostProvider(HostProvider):
         return False
 
 
-class TestBasicsKubernetesReusable(MinikubeHostProvider, BasicsSuite):
+class TestDeploymentsMinikubeSingleUse(MinikubeSingleUseHostProvider, DeploymentSuite):
     @pytest.mark.skip
     @pytest.mark.asyncio
     async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
@@ -62,11 +62,11 @@ class TestBasicsKubernetesReusable(MinikubeHostProvider, BasicsSuite):
         pass
 
 
-class TestErrorsKubernetesReusable(MinikubeHostProvider, ErrorsSuite):
+class TestEdgeCasesMinikubeSingleUse(MinikubeSingleUseHostProvider, EdgeCasesSuite):
     pass
 
 
-class TestMapKubernetesReusable(MinikubeHostProvider, MapSuite):
+class TestMapMinikubeSingleUse(MinikubeSingleUseHostProvider, MapSuite):
     @pytest.mark.skip
     @pytest.mark.asyncio
     async def test_run_map_as_completed_with_retries(self) -> None:

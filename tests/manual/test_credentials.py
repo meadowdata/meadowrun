@@ -6,7 +6,7 @@ uploading an image to it.
 import subprocess
 
 from meadowrun import run_function, Deployment, KubernetesSecret
-from automated.test_kubernetes_automated import _kubernetes_host
+from automated.test_minikube_automated import _kubernetes_host
 from meadowrun.azure_integration.azure_meadowrun_core import get_subscription_id
 from meadowrun.azure_integration.azure_ssh_keys import get_meadowrun_vault_name
 from meadowrun.credentials import CredentialsSource, CredentialsSourceForService

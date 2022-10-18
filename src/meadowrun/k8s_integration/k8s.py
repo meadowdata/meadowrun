@@ -338,7 +338,7 @@ class Kubernetes(Host):
             and return that.
     """
 
-    storage_spec: Optional[StorageBucketSpec]
+    storage_spec: Optional[StorageBucketSpec] = None
     kube_config_context: Optional[str] = None
     kubernetes_namespace: str = "default"
     reusable_pods: bool = True
@@ -348,13 +348,12 @@ class Kubernetes(Host):
         ]
     ] = None
 
-    async def get_storage_bucket(self) -> AbstractStorageBucket:
-        # get the storage client
-
-        # this is kind of weird, this should be called before any Kubernetes function,
-        # but for now, _get_storage_bucket is always the first thing that's called
+    async def set_defaults(self) -> None:
+        # this function needs to be called before anything else happens with the
+        # Kubernetes object
         await kubernetes_config.load_kube_config(context=self.kube_config_context)
 
+    async def get_storage_bucket(self) -> AbstractStorageBucket:
         if self.storage_spec is None:
             raise ValueError(
                 "The functionality you are trying to use requires specifying a "

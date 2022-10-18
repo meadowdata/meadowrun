@@ -41,25 +41,7 @@ class MinikubeSingleUseHostProvider(HostProvider):
 
 
 class TestDeploymentsMinikubeSingleUse(MinikubeSingleUseHostProvider, DeploymentSuite):
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
-        # Kubernetes doesn't support (and may never support) an environment spec with an
-        # apt dependency at the same time
-        pass
-
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_sidecar_container(self) -> None:
-        # We have not yet implemented sidecar containers on Kubernetes
-        pass
-
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_commit_container(self) -> None:
-        # this test uses a vanilla python container (without meadowrun installed). This
-        # isn't supported on Kubernetes
-        pass
+    pass
 
 
 class TestEdgeCasesMinikubeSingleUse(MinikubeSingleUseHostProvider, EdgeCasesSuite):

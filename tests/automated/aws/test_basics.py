@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from suites import DeploymentSuite, EdgeCasesSuite, HostProvider, MapSuite
+from suites import (
+    DeploymentSuite,
+    DeploymentSuite2,
+    EdgeCasesSuite,
+    HostProvider,
+    MapSuite,
+)
 from meadowrun import Resources, ssh
 from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER, AllocEC2Instance
 from meadowrun.aws_integration.ec2_ssh_keys import get_meadowrun_ssh_key
@@ -42,6 +48,10 @@ class AwsHostProvider(HostProvider):
 
 
 class TestDeploymentsAws(AwsHostProvider, DeploymentSuite):
+    pass
+
+
+class TestDeployments2Aws(AwsHostProvider, DeploymentSuite2):
     pass
 
 

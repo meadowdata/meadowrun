@@ -14,7 +14,7 @@ from suites import (
     DeploymentSuite2,
     EdgeCasesSuite,
     HostProvider,
-    MapSuite,
+    MapRetriesSuite,
 )
 from meadowrun import Resources, ssh
 from meadowrun.aws_integration.ec2_instance_allocation import SSH_USER, AllocEC2Instance
@@ -59,5 +59,5 @@ class TestEdgeCasesAws(AwsHostProvider, EdgeCasesSuite):
     pass
 
 
-class TestMapAws(AwsHostProvider, MapSuite):
+class TestMapRetriesAws(AwsHostProvider, MapRetriesSuite):
     pass

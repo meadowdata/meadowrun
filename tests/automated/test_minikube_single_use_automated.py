@@ -1,6 +1,4 @@
-import pytest
-
-from suites import DeploymentSuite, HostProvider, MapSuite, EdgeCasesSuite
+from suites import DeploymentSuite, HostProvider, EdgeCasesSuite
 from meadowrun import Host, Resources, Kubernetes, GenericStorageBucketSpec
 
 
@@ -46,23 +44,3 @@ class TestDeploymentsMinikubeSingleUse(MinikubeSingleUseHostProvider, Deployment
 
 class TestEdgeCasesMinikubeSingleUse(MinikubeSingleUseHostProvider, EdgeCasesSuite):
     pass
-
-
-class TestMapMinikubeSingleUse(MinikubeSingleUseHostProvider, MapSuite):
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_run_map_as_completed_with_retries(self) -> None:
-        # Kubernetes does not support task retries yet
-        pass
-
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_run_map_as_completed_in_container_with_retries(self) -> None:
-        # Kubernetes does not support task retries yet
-        pass
-
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_run_map_as_completed_unexpected_exit(self) -> None:
-        # Kubernetes does not support task retries yet
-        pass

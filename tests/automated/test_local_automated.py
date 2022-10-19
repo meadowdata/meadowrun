@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import pathlib
 import pickle
+import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -20,14 +21,15 @@ from typing import (
     TypeVar,
 )
 
+import cloudpickle
 import pytest
 
 from suites import (
     DeploymentSuite,
+    DeploymentSuite2,
     EdgeCasesSuite,
     HostProvider,
-    DeploymentSuite2,
-    _test_meadowrun,
+    _test_code_available,
 )
 from meadowrun import Deployment, Resources, TaskResult, run_command
 from meadowrun.abstract_storage_bucket import AbstractStorageBucket
@@ -35,6 +37,7 @@ from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.deployment_internal_types import get_latest_interpreter_version
 from meadowrun.meadowrun_pb2 import (
     ContainerAtTag,
+    PyFunctionJob,
     ServerAvailableFolder,
     ServerAvailableInterpreter,
 )
@@ -45,6 +48,7 @@ from meadowrun.run_job_core import (
     MeadowrunException,
     ProcessState,
     ResourcesInternal,
+    TaskProcessState,
     WaitOption,
 )
 from meadowrun.run_job_local import _set_up_working_folder, run_local
@@ -112,7 +116,10 @@ class LocalFileBucket(AbstractStorageBucket):
 
 class LocalHost(Host):
     def __init__(self, tmp_path: Optional[pathlib.Path] = None):
-        self.tmp_path = tmp_path
+        if tmp_path is None:
+            self.tmp_path: pathlib.Path = pathlib.Path(".").resolve()
+        else:
+            self.tmp_path = tmp_path
 
     async def run_job(
         self,
@@ -121,9 +128,7 @@ class LocalHost(Host):
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
         if wait_for_result != WaitOption.WAIT_AND_TAIL_STDOUT:
-            raise NotImplementedError(
-                f"{wait_for_result} is not supported for LocalHost yet"
-            )
+            print(f"Warning: {wait_for_result} is not supported for LocalHost yet")
 
         if resources_required is not None:
             raise ValueError("Specifying Resources for LocalHost is not supported")
@@ -165,12 +170,25 @@ class LocalHost(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
-        max_num_tasks_attempts: int,
+        max_num_task_attempts: int,
         retry_with_more_memory: bool,
     ) -> Optional[Sequence[_U]]:
-        raise NotImplementedError("run_map on LocalHost is not implemented")
+        return [
+            result.result_or_raise()
+            async for result in self.run_map_as_completed(
+                function,
+                args,
+                resources_required_per_task,
+                job_fields,
+                num_concurrent_tasks,
+                pickle_protocol,
+                wait_for_result,
+                max_num_task_attempts,
+                retry_with_more_memory,
+            )
+        ]
 
-    def run_map_as_completed(
+    async def run_map_as_completed(
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
@@ -179,19 +197,38 @@ class LocalHost(Host):
         num_concurrent_tasks: int,
         pickle_protocol: int,
         wait_for_result: WaitOption,
-        max_num_tasks_attempts: int,
+        max_num_task_attempts: int,
         retry_with_more_memory: bool,
     ) -> AsyncIterable[TaskResult[_U]]:
-        raise NotImplementedError(
-            "run_map_as_completed is not implemented for LocalHost"
-        )
+        for i, arg in enumerate(args):
+            result = await self.run_job(
+                resources_required_per_task,
+                Job(
+                    job_id=str(uuid.uuid4()),
+                    py_function=PyFunctionJob(
+                        pickled_function=cloudpickle.dumps(
+                            function, protocol=pickle_protocol
+                        ),
+                        pickled_function_arguments=pickle.dumps(((arg,), {})),
+                    ),
+                    **job_fields,
+                ),
+                wait_for_result,
+            )
+
+            yield TaskResult.from_process_state(
+                TaskProcessState(
+                    i,
+                    1,
+                    ProcessState(
+                        state=result.process_state,
+                        pickled_result=pickle.dumps(result.result),
+                        return_code=result.return_code,
+                    ),
+                )
+            )
 
     async def get_storage_bucket(self) -> AbstractStorageBucket:
-        if self.tmp_path is None:
-            raise ValueError(
-                "In order to use get_storage_bucket, LocalHost must be constructed with"
-                " a path"
-            )
         return LocalFileBucket(self.tmp_path)
 
 
@@ -261,28 +298,37 @@ class TestDeploymentsLocal(LocalHostProvider, DeploymentSuite):
 
     @pytest.mark.asyncio
     async def test_meadowrun_server_available_folder(self) -> None:
-        await _test_meadowrun(
+        await _test_code_available(
+            "example_package.example",
             self,
-            ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
-            ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
+            Deployment(
+                ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
+            ),
         )
 
     @pytest.mark.asyncio
     async def test_meadowrun_server_available_folder_container_digest(self) -> None:
-        await _test_meadowrun(
+        await _test_code_available(
+            "example_package.example",
             self,
-            ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
-            await get_latest_interpreter_version(
-                ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), {}
+            Deployment(
+                await get_latest_interpreter_version(
+                    ContainerAtTag(repository="python", tag="3.9.8-slim-buster"), {}
+                ),
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
             ),
         )
 
     @pytest.mark.asyncio
     async def test_meadowrun_server_available_folder_container_tag(self) -> None:
-        await _test_meadowrun(
+        await _test_code_available(
+            "example_package.example",
             self,
-            ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
-            ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
+            Deployment(
+                ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
+                ServerAvailableFolder(code_paths=[EXAMPLE_CODE]),
+            ),
         )
 
     @pytest.mark.asyncio

@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 import abc
+import importlib
 import os
 import pickle
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
+
+import pytest
 
 import meadowrun.docker_controller
-import pytest
 from meadowrun import (
     CondaEnvironmentYmlFile,
     ContainerInterpreter,
@@ -17,6 +28,7 @@ from meadowrun import (
     LocalPipInterpreter,
     PipRequirementsFile,
     PoetryProjectPath,
+    PreinstalledInterpreter,
     RunMapTasksFailedException,
     TaskResult,
     run_command,
@@ -25,23 +37,8 @@ from meadowrun import (
     run_map_as_completed,
 )
 from meadowrun.config import MEADOWRUN_INTERPRETER
-
-if TYPE_CHECKING:
-    from meadowrun.deployment_internal_types import (
-        CodeDeployment,
-        InterpreterDeployment,
-        VersionedCodeDeployment,
-        VersionedInterpreterDeployment,
-    )
-
 from meadowrun.meadowrun_pb2 import (
-    ContainerAtDigest,
-    ContainerAtTag,
-    GitRepoBranch,
-    GitRepoCommit,
     ProcessState,
-    ServerAvailableContainer,
-    ServerAvailableInterpreter,
 )
 from meadowrun.run_job_core import Host, JobCompletion, MeadowrunException, Resources
 
@@ -85,18 +82,21 @@ def _path_from_here(path: str) -> str:
     return os.path.join(os.path.dirname(__file__), path)
 
 
-async def _test_meadowrun(
+async def _test_code_available(
+    example_package_path: str,
     host_provider: HostProvider,
-    code_deployment: Union[CodeDeployment, VersionedCodeDeployment],
-    interpreter_deployment: Union[
-        InterpreterDeployment, VersionedInterpreterDeployment
-    ],
+    deployment: Union[Deployment, Awaitable[Deployment]],
+    include_run_map: bool = True,
 ) -> None:
+    """Makes sure the example package is available at the example_package_path"""
+
+    # doesn't use _test_all_entry_points so we can test referencing functions with a
+    # string
     results: str = await run_function(
-        "example_package.example.example_runner",
+        f"{example_package_path}.example_runner",
         host_provider.get_host(),
         host_provider.get_resources_required(),
-        Deployment(interpreter_deployment, code_deployment),
+        deployment,
         args=["foo"],
     )
     assert results == "hello foo"
@@ -105,7 +105,7 @@ async def _test_meadowrun(
         "pip --version",
         host_provider.get_host(),
         host_provider.get_resources_required(),
-        Deployment(interpreter_deployment, code_deployment),
+        deployment,
     )
 
     if host_provider.can_get_log_file():
@@ -113,84 +113,195 @@ async def _test_meadowrun(
     else:
         print("Warning get_log_file_text is not implemented")
 
+    def remote_function(arg: str) -> str:
+        # could do import example_package.example, but mypy will complain
+        example = importlib.import_module(example_package_path)
+        return example.example_runner(arg)
+
+    if include_run_map:
+        await run_map(
+            remote_function,
+            ["foo", "bar", "baz"],
+            host_provider.get_host(),
+            host_provider.get_resources_required(),
+            deployment,
+        )
+
+
+_T = TypeVar("_T")
+_U = TypeVar("_U")
+
+
+async def _test_all_entry_points(
+    function: Callable[[_T], _U],
+    args: List[_T],
+    expected_results: List[_U],
+    host_provider: HostProvider,
+    deployment: Union[Deployment, Awaitable[Deployment]],
+    include_run_map_as_completed: bool = False,
+) -> None:
+    results = await run_function(
+        lambda: function(args[0]),
+        host_provider.get_host(),
+        host_provider.get_resources_required(),
+        deployment,
+    )
+    print(results, expected_results[0])
+    assert results == expected_results[0]
+
+    job_completion = await run_command(
+        "pip --version",
+        host_provider.get_host(),
+        host_provider.get_resources_required(),
+        deployment,
+    )
+    if host_provider.can_get_log_file():
+        assert "pip" in await host_provider.get_log_file_text(job_completion)
+    else:
+        print("Warning get_log_file_text is not implemented")
+
+    map_results = await run_map(
+        function,
+        args,
+        host_provider.get_host(),
+        host_provider.get_resources_required(),
+        deployment,
+    )
+    assert map_results is not None
+    for actual_result, expected_result in zip(map_results, expected_results):
+        assert actual_result == expected_result
+
+    if include_run_map_as_completed:
+        actual = []
+        async for result in await run_map_as_completed(
+            function,
+            args,
+            host_provider.get_host(),
+            host_provider.get_resources_required(),
+            deployment,
+            num_concurrent_tasks=host_provider.get_num_concurrent_tasks(),
+        ):
+            actual.append(result.result_or_raise())
+
+        assert set(actual) == set(expected_results)
+
+
+async def _test_libraries_available(
+    versions: Tuple[str, str],
+    host_provider: HostProvider,
+    deployment: Union[Deployment, Awaitable[Deployment]],
+    include_run_map_as_completed: bool = False,
+) -> None:
+    def remote_function(arg: str) -> Tuple[str, str]:
+        import importlib
+
+        # we could just do import requests, but that messes with mypy
+        pd = importlib.import_module("pandas")  # from myenv.yml
+        requests = importlib.import_module("requests")  # from myenv.yml
+        return requests.__version__, pd.__version__
+
+    args = ["foo", "bar", "baz"]
+    await _test_all_entry_points(
+        remote_function,
+        args,
+        [versions for _ in args],
+        host_provider,
+        deployment,
+        include_run_map_as_completed,
+    )
+
+
+async def _test_libraries_and_code_available(
+    versions: Tuple[str, str],
+    host_provider: HostProvider,
+    deployment: Union[Deployment, Awaitable[Deployment]],
+    include_run_map_as_completed: bool = False,
+) -> None:
+    def remote_function(arg: str) -> Tuple[Tuple[str, str], str]:
+        import importlib
+
+        # we could just do import requests, but that messes with mypy
+        pd = importlib.import_module("pandas")  # from myenv.yml
+        requests = importlib.import_module("requests")  # from myenv.yml
+        example = importlib.import_module("example")  # from example_package
+        return (
+            (requests.__version__, pd.__version__),
+            example.join_strings("hello", arg),
+        )
+
+    args = ["foo", "bar", "baz"]
+    await _test_all_entry_points(
+        remote_function,
+        args,
+        [(versions, f"hello, {arg}") for arg in args],
+        host_provider,
+        deployment,
+        include_run_map_as_completed,
+    )
+
+
+async def _test_data_file_and_machine_cache(
+    host_provider: HostProvider, deployment: Union[Deployment, Awaitable[Deployment]]
+) -> None:
+    # TODO upgrade the Meadowrun referenced in requirements.txt and move this inside
+    # remote_function
+    machine_cache_folder = meadowrun.MACHINE_CACHE_FOLDER
+
+    def remote_function(_: Any) -> str:
+        # make sure the machine cache folder is writable
+        with open(
+            os.path.join(machine_cache_folder, "foo"), "w", encoding="utf-8"
+        ) as f:
+            f.write("test")
+
+        with open("example_package/test.txt", encoding="utf-8") as f:
+            return f.read()
+
+    await _test_all_entry_points(
+        remote_function, [None] * 3, ["Hello world!"] * 3, host_provider, deployment
+    )
+
+
+_E = TypeVar("_E", bound=BaseException)
+
 
 class DeploymentSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_commit(self) -> None:
-        await _test_meadowrun(
+    async def test_git_repo_commit_path_to_source(self) -> None:
+        """Tests GitRepoCommit.path_to_source and commit"""
+
+        await _test_code_available(
+            "example",
             self,
-            GitRepoCommit(
-                repo_url=self.get_test_repo_url(),
+            Deployment.git_repo(
+                self.get_test_repo_url(),
                 commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
+                interpreter=PreinstalledInterpreter(MEADOWRUN_INTERPRETER),
+                path_to_source="example_package",
             ),
-            ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
         )
 
+    # git_repo with various interpreters
+
     @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_branch(self) -> None:
-        await _test_meadowrun(
+    async def test_git_repo_pip(self) -> None:
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.4.2"),
             self,
-            GitRepoBranch(repo_url=self.get_test_repo_url(), branch="main"),
-            ServerAvailableInterpreter(interpreter_path=MEADOWRUN_INTERPRETER),
-        )
-
-    @pytest.mark.asyncio
-    async def test_meadowrun_path_in_git_repo(self) -> None:
-        """Tests GitRepoCommit.path_to_source"""
-
-        results: str = await run_function(
-            "example.example_runner",
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment(
-                code=GitRepoCommit(
-                    repo_url=self.get_test_repo_url(),
-                    commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
-                    path_to_source="example_package",
-                )
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
             ),
-            args=["foo"],
+            True,
         )
-        assert results == "hello foo"
 
     @pytest.mark.asyncio
-    async def test_meadowrun_containers(self) -> None:
-        """
-        Basic test on running with containers, checks that different images behave as
-        expected
-        """
-        for version in ["3.9.8", "3.8.12"]:
-            digest = await (
-                meadowrun.docker_controller.get_latest_digest_from_registry(
-                    "python", f"{version}-slim-buster", None
-                )
-            )
-
-            result = await run_command(
-                "python --version",
-                self.get_host(),
-                self.get_resources_required(),
-                Deployment(ContainerAtDigest(repository="python", digest=digest)),
-            )
-
-            if self.can_get_log_file():
-                actual = await self.get_log_file_text(result)
-                assert f"Python" f" {version}" in actual, actual
-            else:
-                print("Warning get_log_file_text is not implemented")
-
-    @pytest.mark.skipif(
-        "sys.version_info < (3, 8)",
-        reason="cloudpickle issue that prevents lambdas serialized on 3.7 running on "
-        "3.8. Assuming here that this extends to all lambdas serialized on <=3.7 "
-        "running on >=3.8",
-    )
-    @pytest.mark.asyncio
-    async def test_conda_file_in_git_repo(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_git_repo_conda(self) -> None:
+        await _test_libraries_and_code_available(
+            ("2.27.1", "1.4.2"),
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 branch="main",
@@ -198,79 +309,12 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 interpreter=CondaEnvironmentYmlFile("myenv.yml"),
             ),
         )
-        assert results == ("2.27.1", "1.4.2", "a, b")
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                branch="main",
-                path_to_source="example_package",
-                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
-            ),
-        )
-        assert results == ("2.28.0", "1.4.2", "a, b")
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_git_dependency(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                branch="main",
-                path_to_source="example_package",
-                interpreter=PipRequirementsFile("requirements_with_git.txt", "3.9"),
-            ),
-        )
-        # the version number will keep changing, but we know it will be > 2.28.0
-        assert [int(part) for part in results[0].split(".")] > [2, 28, 0]
-        assert results[1:] == ("1.4.2", "a, b")
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_data_file(self) -> None:
-        """This test is doing double-duty, also checking for the machine_cache folder"""
-
-        # TODO upgrade the Meadowrun referenced in requirements.txt and move this inside
-        # remote_function
-        machine_cache_folder = meadowrun.MACHINE_CACHE_FOLDER
-
-        def remote_function() -> str:
-            # make sure the machine cache folder is writable
-            with open(
-                os.path.join(machine_cache_folder, "foo"), "w", encoding="utf-8"
-            ) as f:
-                f.write("test")
-
-            with open("example_package/test.txt", encoding="utf-8") as f:
-                return f.read()
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
-            Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
-            ),
-        )
-        assert results == "Hello world!"
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_poetry_project_in_git_repo(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_git_repo_poetry(self) -> None:
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.4.2"),
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 branch="main",
@@ -278,15 +322,27 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 interpreter=PoetryProjectPath("", "3.9"),
             ),
         )
-        assert results == ("2.28.0", "1.4.2", "a, b")
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_poetry_project_in_git_repo_with_git_dependency(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_git_repo_pip_with_git_dependency(self) -> None:
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.4.2"),
+            self,
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                branch="main",
+                path_to_source="example_package",
+                interpreter=PipRequirementsFile("requirements_with_git.txt", "3.9"),
+            ),
+        )
+
+    # TODO add test_git_repo_conda_with_git_dependency
+
+    @pytest.mark.asyncio
+    async def test_git_repo_poetry_with_git_dependency(self) -> None:
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.5.0"),
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 branch="main",
@@ -294,38 +350,42 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
             ),
         )
-        # the version number will keep changing, but we know it will be > 2.28.0
-        assert [int(part) for part in results[0].split(".")] > [2, 28, 0]
-        print(results)
-        assert results[1:] == ("1.4.3", "a, b")
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_git_repo_with_container(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_git_repo_container(self) -> None:
+        await _test_libraries_available(
+            ("2.28.1", "1.5.0"),
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 branch="main",
                 path_to_source="example_package",
                 interpreter=ContainerInterpreter("meadowrun/meadowrun_test_env"),
             ),
+            True,
         )
-        assert results == ("2.28.1", "1.5.0", "a, b"), results
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_conda_interpreter(self) -> None:
+    async def test_git_repo_data_file_and_machine_cache(self) -> None:
+        await _test_data_file_and_machine_cache(
+            self,
+            Deployment.git_repo(
+                repo_url=self.get_test_repo_url(),
+                interpreter=PipRequirementsFile("requirements.txt", "3.9"),
+            ),
+        )
+
+    # mirror_local with various interpreters
+
+    @pytest.mark.asyncio
+    async def test_mirror_local_conda(self) -> None:
         # this currently needs a conda environment created from the test repo:
         # conda env create -n test_repo_conda_env -f myenv.yml
         exception_raised = False
         try:
-            results = await run_function(
-                self._get_remote_function_for_deployment(),
-                self.get_host(),
-                self.get_resources_required(),
+            await _test_libraries_and_code_available(
+                ("2.27.1", "1.4.3"),
+                self,
                 await Deployment.mirror_local(
                     interpreter=LocalCondaInterpreter("test_repo_conda_env"),
                     additional_python_paths=[
@@ -333,7 +393,6 @@ class DeploymentSuite(HostProvider, abc.ABC):
                     ],
                 ),
             )
-            assert results == ("2.27.1", "1.4.2", "a, b")
         except ValueError:
             if sys.platform == "win32":
                 exception_raised = True
@@ -343,9 +402,28 @@ class DeploymentSuite(HostProvider, abc.ABC):
         if sys.platform == "win32":
             assert exception_raised
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_pip_interpreter(self) -> None:
+    async def test_mirror_local_conda_file(self) -> None:
+        # this requires creating a virtualenv in this git repo's parent directory called
+        # test_venv with the following steps:
+        # - virtualenv test_venv
+        # - test_venv/Scripts/activate.bat OR source test_venv/Scripts/activate,
+        # - pip install -r test_repo/requirements.txt
+        await _test_libraries_and_code_available(
+            ("2.27.1", "1.4.2"),
+            self,
+            await Deployment.mirror_local(
+                interpreter=CondaEnvironmentYmlFile(
+                    _path_from_here("../../test_repo/myenv.yml")
+                ),
+                additional_python_paths=[
+                    _path_from_here("../../test_repo/example_package")
+                ],
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_mirror_local_pip(self) -> None:
         # this requires creating a virtualenv in this git repo's parent directory.
         # For Windows:
         # > python -m virtualenv test_venv_windows
@@ -361,10 +439,10 @@ class DeploymentSuite(HostProvider, abc.ABC):
             )
         else:
             test_venv_interpreter = _path_from_here("../../test_venv_linux/bin/python")
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.4.2"),
+            self,
             await Deployment.mirror_local(
                 interpreter=LocalPipInterpreter(test_venv_interpreter, "3.9"),
                 additional_python_paths=[
@@ -372,43 +450,17 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 ],
             ),
         )
-        assert results == ("2.28.0", "1.4.2", "a, b")
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_conda_file(self) -> None:
+    async def test_mirror_local_pip_file(self) -> None:
         # this requires creating a virtualenv in this git repo's parent directory called
         # test_venv with the following steps:
         # - virtualenv test_venv
         # - test_venv/Scripts/activate.bat OR source test_venv/Scripts/activate,
         # - pip install -r test_repo/requirements.txt
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
-            await Deployment.mirror_local(
-                interpreter=CondaEnvironmentYmlFile(
-                    _path_from_here("../../test_repo/myenv.yml")
-                ),
-                additional_python_paths=[
-                    _path_from_here("../../test_repo/example_package")
-                ],
-            ),
-        )
-        assert results == ("2.27.1", "1.4.2", "a, b")
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_local_pip_file(self) -> None:
-        # this requires creating a virtualenv in this git repo's parent directory called
-        # test_venv with the following steps:
-        # - virtualenv test_venv
-        # - test_venv/Scripts/activate.bat OR source test_venv/Scripts/activate,
-        # - pip install -r test_repo/requirements.txt
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.4.2"),
+            self,
             await Deployment.mirror_local(
                 interpreter=PipRequirementsFile(
                     _path_from_here("../../test_repo/requirements.txt"), "3.9"
@@ -418,44 +470,12 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 ],
             ),
         )
-        assert results == ("2.28.0", "1.4.2", "a, b")
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_pip_file_with_data_file(self) -> None:
-        def remote_function() -> str:
-            print(os.getcwd())
-            print(os.listdir("."))
-
-            with open("example_package/test.txt", encoding="utf-8") as f:
-                return f.read()
-
-        working_dir = os.getcwd()
-        try:
-            os.chdir(_path_from_here("../../test_repo"))
-
-            results = await run_function(
-                remote_function,
-                self.get_host(),
-                self.get_resources_required(),
-                await Deployment.mirror_local(
-                    interpreter=PipRequirementsFile(
-                        _path_from_here("../../test_repo/requirements.txt"), "3.9"
-                    ),
-                    working_directory_globs="**/*.txt",
-                ),
-            )
-            assert results == "Hello world!"
-        finally:
-            os.chdir(working_dir)
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_local_poetry_project(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_mirror_local_poetry(self) -> None:
+        await _test_libraries_and_code_available(
+            ("2.28.0", "1.4.2"),
+            self,
             await Deployment.mirror_local(
                 interpreter=PoetryProjectPath(
                     _path_from_here("../../test_repo/"), "3.9"
@@ -465,15 +485,30 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 ],
             ),
         )
-        assert results == ("2.28.0", "1.4.2", "a, b")
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_local_code_with_container(self) -> None:
-        results = await run_function(
-            self._get_remote_function_for_deployment(),
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_mirror_local_data_file(self) -> None:
+        working_dir = os.getcwd()
+        try:
+            os.chdir(_path_from_here("../../test_repo"))
+
+            await _test_data_file_and_machine_cache(
+                self,
+                await Deployment.mirror_local(
+                    interpreter=PipRequirementsFile(
+                        _path_from_here("../../test_repo/requirements.txt"), "3.9"
+                    ),
+                    working_directory_globs="**/*.txt",
+                ),
+            )
+        finally:
+            os.chdir(working_dir)
+
+    @pytest.mark.asyncio
+    async def test_mirror_local_container(self) -> None:
+        await _test_libraries_available(
+            ("2.28.1", "1.5.0"),
+            self,
             await Deployment.mirror_local(
                 interpreter=ContainerInterpreter("meadowrun/meadowrun_test_env"),
                 additional_python_paths=[
@@ -481,46 +516,69 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 ],
             ),
         )
-        assert results == ("2.28.1", "1.5.0", "a, b"), results
 
-    def _get_remote_function_for_deployment(self) -> Callable[[], Tuple[str, str, str]]:
-        # we have a wrapper around this so that the function gets pickled as a lambda
-        def remote_function() -> Tuple[str, str, str]:
-            import importlib
+    @pytest.mark.asyncio
+    async def test_container(self) -> None:
+        await _test_libraries_available(
+            ("2.28.1", "1.5.0"),
+            self,
+            Deployment.container_image("meadowrun/meadowrun_test_env"),
+        )
 
-            # we could just do import requests, but that messes with mypy
-            pd = importlib.import_module("pandas")  # from myenv.yml
-            requests = importlib.import_module("requests")  # from myenv.yml
-            example = importlib.import_module("example")  # from example_package
-            return (
-                requests.__version__,
-                pd.__version__,
-                example.join_strings("a", "b"),
+    @pytest.mark.asyncio
+    async def test_container_without_meadowrun(self) -> None:
+        for version in ["3.9.8", "3.8.12"]:
+            digest = await (
+                meadowrun.docker_controller.get_latest_digest_from_registry(
+                    "python", f"{version}-slim-buster", None
+                )
             )
 
-        return remote_function
+            result = await run_command(
+                "python --version",
+                self.get_host(),
+                self.get_resources_required(),
+                Deployment.container_image_at_digest("python", digest),
+            )
+
+            if self.can_get_log_file():
+                actual = await self.get_log_file_text(result)
+                assert f"Python" f" {version}" in actual, actual
+            else:
+                print("Warning get_log_file_text is not implemented")
+
+
+async def _test_curl_available(
+    host_provider: HostProvider, deployment: Union[Deployment, Awaitable[Deployment]]
+) -> None:
+    def remote_function(_: Any) -> int:
+        return subprocess.run(["curl", "--help"]).returncode
+
+    await _test_all_entry_points(
+        remote_function, [None] * 3, [0] * 3, host_provider, deployment
+    )
 
 
 class DeploymentSuite2(HostProvider, abc.ABC):
-    """These tests currently do not work on Kubernetes."""
+    """These tests currently do not work on Kubernetes for various reasons"""
 
     # Kubernetes doesn't support (and may never support) an environment spec with an apt
     # dependency at the same time
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_apt_dependency(self) -> None:
-        def remote_function() -> str:
+    async def test_git_repo_pip_apt(self) -> None:
+        def remote_function(_: Any) -> str:
             import importlib
 
             # cv2 will only work correctly if libgl1 and libglib2.0-0 are installed
             cv2 = importlib.import_module("cv2")
             return cv2.__version__
 
-        results = await run_function(
+        await _test_all_entry_points(
             remote_function,
-            self.get_host(),
-            self.get_resources_required(),
+            [None] * 3,
+            ["4.6.0"] * 3,
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 path_to_source="example_package",
@@ -529,18 +587,11 @@ class DeploymentSuite2(HostProvider, abc.ABC):
                 ),
             ),
         )
-        assert results == "4.6.0"
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_conda_file_in_git_repo_with_apt_dependency(self) -> None:
-        def remote_function() -> int:
-            return subprocess.run(["curl", "--help"]).returncode
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_git_repo_conda_apt(self) -> None:
+        await _test_curl_available(
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 branch="main",
@@ -550,31 +601,22 @@ class DeploymentSuite2(HostProvider, abc.ABC):
                 ),
             ),
         )
-        assert results == 0
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_poetry_project_in_git_repo_with_apt_dependency(self) -> None:
-        def remote_function() -> int:
-            return subprocess.run(["curl", "--help"]).returncode
-
-        results = await run_function(
-            remote_function,
-            self.get_host(),
-            self.get_resources_required(),
+    async def test_git_repo_poetry_apt(self) -> None:
+        await _test_curl_available(
+            self,
             Deployment.git_repo(
                 repo_url=self.get_test_repo_url(),
                 path_to_source="example_package",
                 interpreter=PoetryProjectPath("", "3.9", additional_software=["curl"]),
             ),
         )
-        assert results == 0
 
     # We have not yet implemented sidecar containers on Kubernetes
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
-    async def test_pip_file_in_git_repo_with_sidecar_container(self) -> None:
+    async def test_git_sidecar_containers(self) -> None:
         def remote_function() -> str:
             import requests
 
@@ -598,17 +640,20 @@ class DeploymentSuite2(HostProvider, abc.ABC):
     # isn't supported on Kubernetes
 
     @pytest.mark.asyncio
-    async def test_meadowrun_git_repo_commit_vanilla_container(self) -> None:
+    async def test_git_repo_container_without_meadowrun(self) -> None:
         # TODO first make sure the image we're looking for is NOT already cached on this
         # system, then run it again after it has been cached, as this works different
         # code paths
-        await _test_meadowrun(
+        await _test_code_available(
+            "example_package.example",
             self,
-            GitRepoCommit(
-                repo_url=self.get_test_repo_url(),
+            Deployment.git_repo(
+                self.get_test_repo_url(),
                 commit="cb277fa1d35bfb775ed1613b639e6f5a7d2f5bb6",
+                interpreter=ContainerInterpreter("python", "3.9.8-slim-buster"),
             ),
-            ContainerAtTag(repository="python", tag="3.9.8-slim-buster"),
+            # run_map does not work with this deployment
+            False,
         )
 
 
@@ -620,7 +665,7 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
                 lambda: "hello",
                 self.get_host(),
                 self.get_resources_required(),
-                Deployment(ServerAvailableContainer(image_name="does-not-exist")),
+                Deployment.container_image("does-not-exist"),
             )
 
         assert (
@@ -628,7 +673,6 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
             == ProcessState.ProcessStateEnum.RUN_REQUEST_FAILED
         )
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_non_zero_return_code(self) -> None:
         def exit_immediately() -> None:
@@ -636,7 +680,10 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
 
         with pytest.raises(MeadowrunException) as exc_info:
             await run_function(
-                exit_immediately, self.get_host(), self.get_resources_required()
+                exit_immediately,
+                self.get_host(),
+                self.get_resources_required(),
+                Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
             )
 
         assert (
@@ -655,7 +702,11 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
 
         with pytest.raises(RunMapTasksFailedException) as exc_info:
             await run_map(
-                remote_func, [1], self.get_host(), self.get_resources_required()
+                remote_func,
+                [1],
+                self.get_host(),
+                self.get_resources_required(),
+                Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
             )
 
         assert exc_info.value.failed_tasks[0].state == "PYTHON_EXCEPTION"
@@ -666,7 +717,10 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
 
         with pytest.raises(MeadowrunException) as exc_info:
             await run_function(
-                lambda: remote_func(1), self.get_host(), self.get_resources_required()
+                lambda: remote_func(1),
+                self.get_host(),
+                self.get_resources_required(),
+                Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
             )
 
         assert (
@@ -678,7 +732,6 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
             in pickle.loads(exc_info.value.process_state.pickled_result)[1]
         )
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_result_cannot_be_unpickled(self) -> None:
         """
@@ -720,57 +773,7 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
         )
 
 
-class MapSuite(HostProvider, abc.ABC):
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_run_map(self) -> None:
-        """Runs a "real" run_map"""
-        results = await run_map(
-            lambda x: x**x,
-            [1, 2, 3, 4],
-            self.get_host(),
-            self.get_resources_required(),
-            num_concurrent_tasks=self.get_num_concurrent_tasks(),
-        )
-
-        assert results == [1, 4, 27, 256], str(results)
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_run_map_in_container(self) -> None:
-        """Runs a "real" run_map in a container"""
-        results = await run_map(
-            lambda x: x**x,
-            [1, 2, 3, 4],
-            self.get_host(),
-            self.get_resources_required(),
-            num_concurrent_tasks=self.get_num_concurrent_tasks(),
-            deployment=Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                branch="main",
-                path_to_source="example_package",
-                interpreter=PoetryProjectPath("poetry_with_git", "3.9"),
-            ),
-        )
-
-        assert results == [1, 4, 27, 256], str(results)
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.asyncio
-    async def test_run_map_as_completed(self) -> None:
-        actual = []
-        async for result in await run_map_as_completed(
-            lambda x: x**x,
-            [1, 2, 3, 4],
-            self.get_host(),
-            self.get_resources_required(),
-            num_concurrent_tasks=self.get_num_concurrent_tasks(),
-        ):
-            actual.append(result.result_or_raise())
-
-        assert set(actual) == set([1, 4, 27, 256])
-
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
+class MapRetriesSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
     async def test_run_map_as_completed_with_retries(self) -> None:
         actual: List[TaskResult[None]] = []
@@ -783,6 +786,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2, 3, 4],
             self.get_host(),
             self.get_resources_required(),
+            deployment=Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
             num_concurrent_tasks=self.get_num_concurrent_tasks(),
             max_num_task_attempts=3,
         ):
@@ -794,7 +798,6 @@ class MapSuite(HostProvider, abc.ABC):
             assert result.exception is not None
             assert result.attempt == 3
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map_as_completed_in_container_with_retries(self) -> None:
         def fail(x: int) -> None:
@@ -823,7 +826,6 @@ class MapSuite(HostProvider, abc.ABC):
             assert result.exception is not None
             assert result.attempt == 3
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map_as_completed_unexpected_exit(self) -> None:
         def unexpected_exit(_: int) -> None:
@@ -835,6 +837,7 @@ class MapSuite(HostProvider, abc.ABC):
             [1, 2],
             self.get_host(),
             self.get_resources_required(),
+            deployment=Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
             num_concurrent_tasks=self.get_num_concurrent_tasks(),
             max_num_task_attempts=3,
         ):
@@ -846,7 +849,6 @@ class MapSuite(HostProvider, abc.ABC):
             assert result.exception is None
             assert result.attempt == 3
 
-    @pytest.mark.skipif("sys.version_info < (3, 8)")
     @pytest.mark.asyncio
     async def test_run_map_unexpected_exit(self) -> None:
         def unexpected_exit(x: int) -> None:
@@ -858,6 +860,7 @@ class MapSuite(HostProvider, abc.ABC):
                 [1, 2, 3, 4],
                 self.get_host(),
                 self.get_resources_required(),
+                deployment=Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
                 num_concurrent_tasks=self.get_num_concurrent_tasks(),
             )
         assert "UNEXPECTED_WORKER_EXIT" in str(exc)

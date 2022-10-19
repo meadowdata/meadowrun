@@ -146,7 +146,6 @@ async def _test_all_entry_points(
         host_provider.get_resources_required(),
         deployment,
     )
-    print(results, expected_results[0])
     assert results == expected_results[0]
 
     job_completion = await run_command(

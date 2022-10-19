@@ -97,7 +97,7 @@ async def test_poetry_google_repository() -> None:
 
 class GKEHostProvider(HostProvider):
     def get_resources_required(self) -> Resources:
-        return Resources(0, 0)
+        return Resources(1, 4, ephemeral_storage_gb=6)
 
     def get_host(self) -> Host:
         return _get_gke_host()

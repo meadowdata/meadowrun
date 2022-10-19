@@ -16,6 +16,7 @@ from meadowrun.config import (
     LOGICAL_CPU,
     MEMORY_GB,
     avx_from_string,
+    EPHEMERAL_STORAGE_GB,
 )
 
 ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
@@ -226,6 +227,7 @@ class ResourcesInternal:
         gpus: Optional[float] = None,
         gpu_memory: Optional[float] = None,
         flags_required: Union[Iterable[str], str, None] = None,
+        ephemeral_storage_gb: Optional[float] = None,
         *,
         other_consumables: Optional[Dict[str, float]] = None,
         other_non_consumables: Optional[Dict[str, float]] = None,
@@ -259,6 +261,9 @@ class ResourcesInternal:
                     non_consumables[AVX] = float(avx_version)
                 else:
                     non_consumables[flag] = 1.0
+
+        if ephemeral_storage_gb:
+            non_consumables[EPHEMERAL_STORAGE_GB] = ephemeral_storage_gb
 
         return cls(consumables, non_consumables)
 

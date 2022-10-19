@@ -179,7 +179,6 @@ async def _test_all_entry_points(
             host_provider.get_host(),
             host_provider.get_resources_required(),
             deployment,
-            num_concurrent_tasks=host_provider.get_num_concurrent_tasks(),
         ):
             actual.append(result.result_or_raise())
 

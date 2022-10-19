@@ -104,6 +104,8 @@ class Resources:
             this is implied to be 1
         gpu_memory: Total GPU memory (aka VRAM) required across all GPUs
         flags_required: E.g. "intel", "avx512", etc.
+        ephemeral_storage: GB of local storage (aka local disk). Currently only
+            supported on Kubernetes
     """
 
     logical_cpu: Optional[float] = None
@@ -112,6 +114,7 @@ class Resources:
     gpus: Optional[float] = None
     gpu_memory: Optional[float] = None
     flags: Union[Iterable[str], str, None] = None
+    ephemeral_storage_gb: Optional[float] = None
 
     def uses_gpu(self) -> bool:
         return self.gpus is not None or self.gpu_memory is not None
@@ -130,6 +133,7 @@ class Resources:
                 self.gpus,
                 self.gpu_memory,
                 self.flags,
+                self.ephemeral_storage_gb,
             )
 
 

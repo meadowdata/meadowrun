@@ -21,6 +21,7 @@ MEMORY_GB = "memory_gb"
 LOGICAL_CPU = "logical_cpu"
 GPU = "gpu"
 GPU_MEMORY = "gpu_memory"
+EPHEMERAL_STORAGE_GB = "ephemeral_storage_gb"
 # in the resources, we set 100 - eviction rate as a non-consumable resource
 EVICTION_RATE_INVERSE = "eviction_rate_inverse"
 INTEL = "intel"

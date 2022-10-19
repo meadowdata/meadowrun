@@ -34,7 +34,13 @@ import kubernetes_asyncio.config as kubernetes_config
 import kubernetes_asyncio.stream as kubernetes_stream
 
 import meadowrun.func_worker_storage_helper
-from meadowrun.config import GPU, LOGICAL_CPU, MEMORY_GB, MEADOWRUN_INTERPRETER
+from meadowrun.config import (
+    EPHEMERAL_STORAGE_GB,
+    GPU,
+    LOGICAL_CPU,
+    MEADOWRUN_INTERPRETER,
+    MEMORY_GB,
+)
 from meadowrun.credentials import KubernetesSecretRaw
 from meadowrun.docker_controller import expand_ports
 from meadowrun.k8s_integration.k8s_core import (
@@ -980,21 +986,34 @@ class KubernetesGridJobDriver:
             print(f"Received all {len(args)} task results.")
 
 
-def _resources_to_kubernetes(resources: ResourcesInternal) -> Dict[str, int]:
+def _resources_to_kubernetes(resources: ResourcesInternal) -> Dict[str, str]:
     result = {}
 
     if LOGICAL_CPU in resources.consumable:
-        cpu = math.ceil(resources.consumable[LOGICAL_CPU])
-        if cpu > 0:
-            result["cpu"] = cpu
+        # The smallest unit of CPU available is 1m which means 1/1000 of a CPU, aka 1
+        # millicpu:
+        # https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#meaning-of-cpu
+        millicpu = math.ceil(resources.consumable[LOGICAL_CPU] * 1000)
+        if millicpu > 0:
+            result["cpu"] = f"{millicpu}m"
     if MEMORY_GB in resources.consumable:
+        # The smallest unit of memory available is 1 byte
+        # https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#meaning-of-memory
         memory = math.ceil(resources.consumable[MEMORY_GB] * (1024**3))
         if memory > 0:
-            result["memory"] = memory
+            result["memory"] = str(memory)
+    if EPHEMERAL_STORAGE_GB in resources.non_consumable:
+        # The smallest unit of ephemeral storage available is 1 byte
+        # https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#setting-requests-and-limits-for-local-ephemeral-storage
+        ephemeral_storage = math.ceil(
+            resources.non_consumable[EPHEMERAL_STORAGE_GB] * (1024**3)
+        )
+        if ephemeral_storage > 0:
+            result["ephemeral-storage"] = str(ephemeral_storage)
     if GPU in resources.consumable:
         num_gpus = math.ceil(resources.consumable[GPU])
         if "nvidia" in resources.non_consumable:
-            result["nvidia.com/gpu"] = num_gpus
+            result["nvidia.com/gpu"] = str(num_gpus)
         else:
             raise ValueError(
                 "Must specify a type of GPU (e.g. nvidia) if a GPU resource is "
@@ -1023,6 +1042,30 @@ def _get_additional_container_parameters(
             requests=_resources_to_kubernetes(resources)
         )
     return additional_container_parameters
+
+
+_RESOURCE_VALUE_SUFFIXES = {
+    "E": 1000**6,
+    "P": 1000**5,
+    "T": 1000**4,
+    "G": 1000**3,
+    "M": 1000**2,
+    "k": 1000,
+    "m": 1000**-1,
+    "Ei": 1024**6,
+    "Pi": 1024**5,
+    "Ti": 1024**4,
+    "Gi": 1024**3,
+    "Mi": 1024**2,
+    "Ki": 1024,
+}
+
+
+def _parse_resource_value(value: str) -> float:
+    for suffix, factor in _RESOURCE_VALUE_SUFFIXES.items():
+        if value.endswith(suffix):
+            return float(value[: -len(suffix)]) * factor
+    return float(value)
 
 
 def _pod_meets_requirements(
@@ -1058,7 +1101,13 @@ def _pod_meets_requirements(
             # this str conversion is a bit sketchy. Also, we could do a >= check here,
             # but it seems better to just get the exact same resource requirements--the
             # existing pod will just disappear on its own
-            if existing_resources[key] != str(value):
+            if (
+                abs(
+                    _parse_resource_value(existing_resources[key])
+                    - _parse_resource_value(value)
+                )
+                > 1e-3
+            ):
                 return False
             # TODO we should also consider not reusing any pods that have "extra"
             # resources. I.e. don't run a job that doesn't need a GPU on a pod that has

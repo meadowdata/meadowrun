@@ -10,7 +10,7 @@ from suites import (
     DeploymentSuite2,
     EdgeCasesSuite,
     HostProvider,
-    MapSuite,
+    MapRetriesSuite,
 )
 from instance_registrar_suite import (
     InstanceRegistrarProvider,
@@ -76,7 +76,7 @@ class TestEdgeCasesAzure(AzureHostProvider, EdgeCasesSuite):
     pass
 
 
-class TestMapAzure(AzureHostProvider, MapSuite):
+class TestMapRetriesAzure(AzureHostProvider, MapRetriesSuite):
     pass
 
 

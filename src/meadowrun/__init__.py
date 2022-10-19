@@ -44,6 +44,7 @@ if sys.platform == "win32":
 
 from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
 from meadowrun.azure_integration.azure_instance_allocation import AllocAzureVM
+from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.deployment_spec import (
     AwsSecret,
     AzureSecret,
@@ -114,6 +115,7 @@ __all__ = [
     "Secret",
     "Host",
     "MACHINE_CACHE_FOLDER",
+    "MEADOWRUN_INTERPRETER",
     "Resources",
     "SshHost",
     "Kubernetes",

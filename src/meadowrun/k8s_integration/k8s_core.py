@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import enum
+import sys
 import time
 from typing import Callable, List, Dict, Tuple, Optional
 
+import aiohttp
 from kubernetes_asyncio import client as kubernetes_client, watch as kubernetes_watch
 
 from meadowrun.run_job_core import WaitOption
@@ -382,6 +384,36 @@ async def run_command_on_pod(
         stdout=True,
         tty=False,
     )
+
+
+async def run_command_on_pod_and_stream(
+    pod_name: str,
+    kubernetes_namespace: str,
+    command: List[str],
+    ws_core_api: kubernetes_client.CoreV1Api,
+) -> None:
+    """
+    Runs the specified command and streams remote stdout and stderr to the local stdout
+    """
+    result = await ws_core_api.connect_post_namespaced_pod_exec(
+        name=pod_name,
+        namespace=kubernetes_namespace,
+        command=command,
+        stderr=True,
+        stdin=False,
+        stdout=True,
+        tty=False,
+        _preload_content=False,
+    )
+    async for message in result:
+        # this is pretty janky--ideally kubernetes_asyncio would provide this in their
+        # API but it doesn't seem to exist
+        if (
+            message.type == aiohttp.WSMsgType.BINARY
+            and len(message.data) > 1
+            and message.data[0] == 1
+        ):
+            sys.stdout.buffer.write(message.data[1:])
 
 
 def get_main_container_is_ready(pod: kubernetes_client.V1Pod) -> bool:

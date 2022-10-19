@@ -1,11 +1,14 @@
 from typing import Callable
 
-import meadowrun
 import kubernetes_asyncio.client as kubernetes_client
 
+import meadowrun
+from meadowrun import Resources, Host
+from suites import HostProvider, DeploymentSuite, EdgeCasesSuite
 
 _KUBERNETES_SERVICE_ACCOUNT_NAME = "myserviceaccount"
-_MINIO_PUBLIC_URL = "http://35.231.225.155:9000"
+_STORAGE_BUCKET_NAME = "meadowrun-gke-test"
+_KUBE_CONFIG_CONTEXT_NAME = "gke-test-cluster"
 
 
 def pod_customization(
@@ -22,40 +25,17 @@ def pod_customization(
 
 def _get_gke_host() -> meadowrun.Kubernetes:
     """
-    To run these tests:
+    To run these tests, first follow the instructions in
+    https://docs.meadowrun.io/en/stable/tutorial/gke/
 
-    - Create a Google Cloud Artifact Repository for python
-    - Create a python package called py_simple_package such that py_simple_package.foo()
-    returns "Hello from py_simple_package!". Upload this package to the repository you
-    created
-    - Modify test_repo/requirements_google_artifact.txt to reflect the url of the
-    repository you created
-
-    - Create a GKE autopilot cluster
-    - Configure your kubectl to make your GKE your default
-
-    - Create a Google Storage bucket named "meadowrun-gke-test" or something similar
-
-    - Create a Google Cloud Service Account called "test-service-account" and give it
-    read permissions to the repository you created (e.g. give it the Artifact Registry
-    Reader) and to read/write the Google Storage bucket you created (e.g. give it the
-    Storage Admin role).
-
-    - Create a Kubernetes Service Account and bind it to the Google Cloud Service
-    Account your created. Replace _KUBERNETES_SERVICE_ACCOUNT_NAME if you need to.
-    Example command line:
-        kubectl create serviceaccount myserviceaccount --namespace default
-        gcloud iam service-accounts add-iam-policy-binding \
-            test-service-account@meadowrun-playground.iam.gserviceaccount.com \
-            --role roles/iam.workloadIdentityUser \
-            --member \
-            "serviceAccount:meadowrun-playground.svc.id.goog[default/myserviceaccount]"
-        kubectl annotate serviceaccount myserviceaccount --namespace default \
-            iam.gke.io/gcp-service-account=test-service-account@meadowrun-playground.iam.gserviceaccount.com
+    Replace _KUBERNETES_SERVICE_ACCOUNT_NAME above with the name of your Kubernetes
+    service account. Same with _STORAGE_BUCKET_NAME for your Google Cloud Storage
+    bucket, and _KUBE_CONFIG_CONTEXT_NAME for your kubeconfig context name
     """
 
     return meadowrun.Kubernetes(
-        meadowrun.GoogleBucketSpec("meadowrun-gke-test"),
+        meadowrun.GoogleBucketSpec(_STORAGE_BUCKET_NAME),
+        kube_config_context=_KUBE_CONFIG_CONTEXT_NAME,
         reusable_pods=True,
         pod_customization=pod_customization,
     )
@@ -72,6 +52,19 @@ def _get_remote_function_for_deployment() -> Callable[[], str]:
 
 
 async def test_pip_google_repository() -> None:
+    """
+    To run these tests:
+
+    - Create a Google Cloud Artifact Repository for python
+    - Create a python package called py_simple_package such that py_simple_package.foo()
+    returns "Hello from py_simple_package!". Upload this package to the repository you
+    created
+    - Modify test_repo/requirements_google_artifact.txt to reflect the url of the
+    repository you created
+    - Give the Google Cloud Service Account that is linked to your Kubernetes service
+    account read permissions to the repository you created (e.g. give it the Artifact
+    Registry Reader)
+    """
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),
@@ -87,6 +80,7 @@ async def test_pip_google_repository() -> None:
 
 
 async def test_poetry_google_repository() -> None:
+    """See test_pip_google_repository"""
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),
@@ -99,3 +93,25 @@ async def test_poetry_google_repository() -> None:
         ),
     )
     assert results == "Hello from py_simple_package!"
+
+
+class GKEHostProvider(HostProvider):
+    def get_resources_required(self) -> Resources:
+        return Resources(0, 0)
+
+    def get_host(self) -> Host:
+        return _get_gke_host()
+
+    def get_test_repo_url(self) -> str:
+        return "https://github.com/meadowdata/test_repo"
+
+    def can_get_log_file(self) -> bool:
+        return False
+
+
+class TestBasicsGKE(GKEHostProvider, DeploymentSuite):
+    pass
+
+
+class TestErrorsGKE(GKEHostProvider, EdgeCasesSuite):
+    pass

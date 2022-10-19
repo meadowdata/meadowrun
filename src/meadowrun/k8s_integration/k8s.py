@@ -47,6 +47,7 @@ from meadowrun.k8s_integration.k8s_core import (
     get_main_container_is_ready,
     get_pods_for_job,
     run_command_on_pod,
+    run_command_on_pod_and_stream,
     set_main_container_ready,
     wait_for_pod,
     wait_for_pod_running,
@@ -1441,16 +1442,19 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
         _COMMAND_TEMPLATE = (
             "PYTHONUNBUFFERED=1 MEADOWRUN_WORKER_INDEX={worker_index} python -m "
             f"meadowrun.run_job_local_storage_main --job-id {job_id} "
-            f"{storage_spec_args} >/var/meadowrun/job_logs/{job_id}.log 2>&1 & echo $$"
+            f"{storage_spec_args} >/var/meadowrun/job_logs/{job_id}.log 2>&1 "
+            f"& echo $$ $!"
         )
         # echo $$ gets the process id of the current bash session (we will run
         # inner_command in a bash session). We assume that all processes started in this
         # session will get this id as their process group id (it's not clear if this
         # assumption is bulletproof) so that we can kill them all quickly. (100%
-        # reliable would be to do echo $! to get the run_job_local_storage_main PID and
-        # then explicitly ask for its group id and kill all processes in that group)
+        # reliable would be to use the actual pid of run_job_local_storage_main returned
+        # by $! and then explicitly ask for its group id and kill all processes in that
+        # group)
 
-        process_group_id_tasks = []
+        pids_tasks = []
+        last_pod = None
 
         worker_index = 0
         async for pods in _get_meadowrun_reusable_pods(
@@ -1473,25 +1477,52 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
                     _COMMAND_TEMPLATE.format(worker_index=worker_index),
                 ]
 
-                process_group_id_task = asyncio.create_task(
+                pids_task = asyncio.create_task(
                     run_command_on_pod(
                         pod.metadata.name, kubernetes_namespace, command, ws_core_api
                     )
                 )
 
-                process_group_id_tasks.append(process_group_id_task)
+                # pids_task will return "{process group id} {process id}"
+                pids_tasks.append(pids_task)
                 self.all_processes.append(
                     ReusablePodRemoteProcess(
                         core_api,
                         ws_core_api,
                         kubernetes_namespace,
                         pod,
-                        process_group_id_task,
+                        pids_task,
                     )
                 )
                 worker_index += 1
+                last_pod = pod
 
-        return asyncio.create_task(_gather_return_none(process_group_id_tasks))
+        # we silently transform WAIT_AND_TAIL_STDOUT to WAIT_SILENTLY if there are more
+        # than one processes
+        if (
+            wait_for_result != WaitOption.WAIT_AND_TAIL_STDOUT
+            or len(pids_tasks) > 1
+            or last_pod is None
+        ):
+            return asyncio.create_task(_gather_return_none(pids_tasks))
+        else:
+            pids = await pids_tasks[0]
+            pid = pids.split(" ")[1].strip()
+            return asyncio.create_task(
+                run_command_on_pod_and_stream(
+                    last_pod.metadata.name,
+                    kubernetes_namespace,
+                    [
+                        "tail",
+                        "--pid",
+                        pid,
+                        "--retry",
+                        "-F",
+                        f"/var/meadowrun/job_logs/{job_id}.log",
+                    ],
+                    ws_core_api,
+                )
+            )
 
     def received_result(self, worker_index: int) -> None:
         self.deallocation_tasks.append(
@@ -1516,11 +1547,11 @@ class ReusablePodRemoteProcess:
         ws_core_api: kubernetes_client.CoreV1Api,
         kubernetes_namespace: str,
         pod: kubernetes_client.V1Pod,
-        process_group_id_task: Awaitable[str],
+        pids_task: Awaitable[str],
     ):
         self._pod = pod
         self._kubernetes_namespace = kubernetes_namespace
-        self._process_group_id_task = process_group_id_task
+        self.pids_task = pids_task
         self._core_api = core_api
         self._ws_core_api = ws_core_api
 
@@ -1539,10 +1570,12 @@ class ReusablePodRemoteProcess:
     async def kill(self) -> None:
         if not self._has_exited:
             self._has_exited = True
+            pids = await self.pids_task
+            process_group_id = pids.split(" ")[0].strip()
             await run_command_on_pod(
                 self._pod.metadata.name,
                 self._kubernetes_namespace,
-                ["kill", "-9", "--", f"-{await self._process_group_id_task}"],
+                ["kill", "-9", "--", f"-{process_group_id}"],
                 self._ws_core_api,
             )
             await self._deallocate()

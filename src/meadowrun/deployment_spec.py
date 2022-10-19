@@ -518,7 +518,11 @@ class Deployment:
         include_sys_path: bool = True,
         additional_python_paths: Union[Iterable[str], str] = tuple(),
         interpreter: Union[
-            LocalInterpreter, InterpreterSpecFile, ContainerInterpreterBase, None
+            LocalInterpreter,
+            InterpreterSpecFile,
+            ContainerInterpreterBase,
+            PreinstalledInterpreter,
+            None,
         ] = None,
         working_directory_globs: Union[str, Iterable[str], None] = None,
         environment_variables: Optional[Dict[str, str]] = None,
@@ -657,7 +661,9 @@ class Deployment:
         branch: Optional[str] = None,
         commit: Optional[str] = None,
         path_to_source: Optional[str] = None,
-        interpreter: Union[InterpreterSpecFile, ContainerInterpreterBase, None] = None,
+        interpreter: Union[
+            InterpreterSpecFile, ContainerInterpreterBase, PreinstalledInterpreter, None
+        ] = None,
         environment_variables: Optional[Dict[str, str]] = None,
         ssh_key_secret: Optional[Secret] = None,
     ) -> Deployment:
@@ -839,4 +845,31 @@ class Deployment:
             ServerAvailableFolder(),
             environment_variables,
             credentials_sources,
+        )
+
+    @classmethod
+    def preinstalled_interpreter(
+        cls,
+        path_to_interpreter: str,
+        environment_variables: Optional[Dict[str, str]] = None,
+    ) -> Deployment:
+        """
+        A deployment for using an interpreter that is already installed on the remote
+        machine. This makes sense if e.g. you're using a custom AMI.
+
+        Arguments:
+            path_to_interpreter: The path to the python executable you want to use in
+                the Meadowrun AMI. This will usually only make sense if you are
+                specifying a custom AMI. There is also a MEADOWRUN_INTERPRETER constant
+                that you can provide here that will tell Meadowrun to use the same
+                interpreter that is running the Meadowrun agent. You should only use
+                this if you don't care about the version of python or what libraries are
+                installed.
+            environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
+                variables will be set in the remote environment.
+        """
+        return cls(
+            ServerAvailableInterpreter(interpreter_path=path_to_interpreter),
+            ServerAvailableFolder(),
+            environment_variables,
         )

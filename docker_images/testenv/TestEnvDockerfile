@@ -1,0 +1,6 @@
+ARG MEADOWRUN_VERSION
+
+FROM meadowrun/meadowrun:$MEADOWRUN_VERSION-py3.10
+
+WORKDIR /tmp/
+RUN pip install requests pandas

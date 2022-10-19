@@ -1,8 +1,0 @@
-# To be used like:
-# docker build -t meadowrun/meadowrun_test_env -f docker_images/TestEnvDockerfile docker_images
-# docker push meadowrun/meadowrun_test_env
-
-FROM meadowrun/meadowrun-dev:py3.10
-
-WORKDIR /tmp/
-RUN pip install requests pandas

@@ -984,9 +984,13 @@ def _resources_to_kubernetes(resources: ResourcesInternal) -> Dict[str, int]:
     result = {}
 
     if LOGICAL_CPU in resources.consumable:
-        result["cpu"] = math.ceil(resources.consumable[LOGICAL_CPU])
+        cpu = math.ceil(resources.consumable[LOGICAL_CPU])
+        if cpu > 0:
+            result["cpu"] = cpu
     if MEMORY_GB in resources.consumable:
-        result["memory"] = math.ceil(resources.consumable[MEMORY_GB] * (1024**3))
+        memory = math.ceil(resources.consumable[MEMORY_GB] * (1024**3))
+        if memory > 0:
+            result["memory"] = memory
     if GPU in resources.consumable:
         num_gpus = math.ceil(resources.consumable[GPU])
         if "nvidia" in resources.non_consumable:
@@ -1056,6 +1060,9 @@ def _pod_meets_requirements(
             # existing pod will just disappear on its own
             if existing_resources[key] != str(value):
                 return False
+            # TODO we should also consider not reusing any pods that have "extra"
+            # resources. I.e. don't run a job that doesn't need a GPU on a pod that has
+            # a GPU
 
     return True
 

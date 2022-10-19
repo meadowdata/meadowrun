@@ -34,22 +34,27 @@ async def receive_bytes(reader: asyncio.StreamReader, bytes_len: int) -> bytearr
     return result_bs
 
 
-async def do_tasks(
-    function: Callable,
-    pickle_protocol: int,
-    reader: asyncio.StreamReader,
-    writer: asyncio.StreamWriter,
+def connect_and_do_tasks(
+    host: str, port: int, function: Callable, pickle_protocol: int
 ) -> None:
+    # we avoid using asyncio.run here (or in the caller) so that the user `function` can
+    # use asyncio.run
+    event_loop = asyncio.new_event_loop()
+
+    reader, writer = event_loop.run_until_complete(asyncio.open_connection(host, port))
+
     try:
         while True:
-            arg_size_bs = await reader.read(4)
+            arg_size_bs = event_loop.run_until_complete(reader.read(4))
             if len(arg_size_bs) == 0:
                 break
             (arg_size,) = struct.unpack(">i", arg_size_bs)
 
             try:
                 if arg_size > 0:
-                    arg_bs = await receive_bytes(reader, arg_size)
+                    arg_bs = event_loop.run_until_complete(
+                        receive_bytes(reader, arg_size)
+                    )
                     function_args, function_kwargs = pickle.loads(arg_bs)
                 else:
                     function_args, function_kwargs = (), {}
@@ -62,25 +67,24 @@ async def do_tasks(
 
                 # next, send the exception back
                 tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-                await send_message(
-                    writer,
-                    "PYTHON_EXCEPTION",
-                    pickle.dumps((str(type(e)), str(e), tb), protocol=pickle_protocol),
-                    pickle_protocol,
+                event_loop.run_until_complete(
+                    send_message(
+                        writer,
+                        "PYTHON_EXCEPTION",
+                        pickle.dumps(
+                            (str(type(e)), str(e), tb), protocol=pickle_protocol
+                        ),
+                        pickle_protocol,
+                    )
                 )
             else:
                 # send back results
-                await send_message(writer, "SUCCEEDED", result_bytes, pickle_protocol)
+                event_loop.run_until_complete(
+                    send_message(writer, "SUCCEEDED", result_bytes, pickle_protocol)
+                )
     finally:
         # close connection
         writer.close()
-
-
-async def connect_and_do_tasks(
-    host: str, port: int, function: Callable, pickle_protocol: int
-) -> None:
-    reader, writer = await asyncio.open_connection(host, port)
-    await do_tasks(function, pickle_protocol, reader, writer)
 
 
 def get_function(args: argparse.Namespace) -> Callable:
@@ -133,14 +137,7 @@ def main() -> None:
     )
     try:
         function = get_function(args)
-        asyncio.run(
-            connect_and_do_tasks(
-                args.host,
-                args.port,
-                function,
-                result_pickle_protocol,
-            )
-        )
+        connect_and_do_tasks(args.host, args.port, function, result_pickle_protocol)
 
     except Exception as e:
         # first print the exception for the local log file

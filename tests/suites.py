@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 import importlib
 import os
 import pickle
@@ -769,6 +770,30 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
         assert all(
             failed_task.state == "RESULT_CANNOT_BE_UNPICKLED"
             for failed_task in exc_info.value.failed_tasks
+        )
+
+    @pytest.mark.asyncio
+    async def test_asyncio_run(self) -> None:
+        async def remote_async_function(i: int) -> int:
+            await asyncio.sleep(0.1)
+            return i * 2
+
+        def remote_function(i: int = 1) -> int:
+            return asyncio.run(remote_async_function(i))
+
+        await run_function(
+            remote_function,
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
+        )
+
+        await run_map(
+            remote_function,
+            [1, 2],
+            self.get_host(),
+            self.get_resources_required(),
+            Deployment.preinstalled_interpreter(MEADOWRUN_INTERPRETER),
         )
 
 

@@ -154,8 +154,6 @@ async def _get_job_fields(
     # set code
     code = deployment.code or ServerAvailableFolder()
     if isinstance(code, CodeZipFile):
-        # we don't want to modify the CodeZipFile in place
-        code = copy.deepcopy(code)
         await _upload_code_zip_file(code, host)
 
     # prepare sidecar_containers
@@ -197,8 +195,16 @@ async def _upload_code_zip_file(code_deploy: CodeZipFile, host: Host) -> None:
     is on the local file system. mirror_local doesn't have access to a
     host/storage_bucket, so it can't do the upload, so we "finish off" that part here
     """
+
+    # TODO this is pretty janky. Because we modified the code_deploy in place last time,
+    # we assume we can reuse the modified URL. This won't work if e.g. we want to use
+    # this with a different host, or even if the uploaded zip file gets cleaned up. Both
+    # of these scenarios should be unlikely, but we should support them.
+    file_url = code_deploy.url
+    if file_url.startswith("mdrstorage://"):
+        return
+
     async with await host.get_storage_bucket() as storage_bucket:
-        file_url = code_deploy.url
         file_path = _file_path_from_url(file_url)
 
         key = await ensure_uploaded_incremental(
@@ -207,7 +213,6 @@ async def _upload_code_zip_file(code_deploy: CodeZipFile, host: Host) -> None:
         # this "url" is a bit silly, we just want to be able to distinguish from a
         # file url. The only information we really care about is the key
         code_deploy.url = urllib.parse.urlunparse(("mdrstorage", "_", key, "", "", ""))
-        # TODO this won't work if we ever want to reuse the output of a mirror_local
         shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
 
 

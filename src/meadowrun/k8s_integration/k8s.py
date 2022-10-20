@@ -1235,6 +1235,8 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
             "meadowrun.run_job_local_storage_main",
             "--job-id",
             job_id,
+            STORAGE_TYPE,
+            storage_spec.get_storage_type(),
         ] + storage_spec.get_command_line_arguments()
 
         self.run_task = asyncio.create_task(
@@ -1732,6 +1734,9 @@ async def _get_meadowrun_reusable_pods(
             await batch_api.delete_namespaced_job(job_name, kubernetes_namespace)
             raise
 
+        # TODO consider using list_namespaced_pod to reduce the number of API calls we
+        # need to make. Would make sense depending on what percentage of the total
+        # Meadowrun pods we are currently using.
         for pod_future in asyncio.as_completed(
             [
                 wait_for_pod_running(core_api, job_name, kubernetes_namespace, pod)

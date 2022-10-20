@@ -1,0 +1,5 @@
+nav:
+- apis.md
+- aws_resources.md
+- azure_resources.md
+- kubernetes_resources.md

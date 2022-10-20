@@ -579,6 +579,12 @@ class WorkerProcessMonitor(WorkerMonitor):
         return returncode
 
     async def try_get_return_code(self) -> Optional[int]:
+        # give the child process 0.5 second to exit, as it's helpful if we can get the
+        # return code
+        try:
+            await asyncio.wait_for(self.wait_until_exited(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
         return self.process.returncode
 
     async def cleanup(self) -> None:
@@ -626,6 +632,7 @@ class WorkerContainerMonitor(WorkerMonitor):
         extra_hosts: List[Tuple[str, str]],
         uses_gpus: bool,
     ):
+        super().__init__()
         self.docker_client = client
         self.image = image
         self.command_line = cmd
@@ -672,12 +679,18 @@ class WorkerContainerMonitor(WorkerMonitor):
         wait_result = await self.container.wait()
         if self._tail_task is not None:
             await self._tail_task
-        self.tail_task = None
+        self._tail_task = None
         # as per https://docs.docker.com/engine/api/v1.41/#operation/ContainerWait we
         # can get the return code from the result
         return wait_result["StatusCode"]
 
     async def try_get_return_code(self) -> Optional[int]:
+        # give the container 0.5 second to exit, as it's helpful if we can get the
+        # return code
+        try:
+            await self.container.wait(timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
         container_status = (await self.container.show()).get("State", {})
         if container_status.get("Status", "") == "running":
             # container_status will have ExitCode == 0 while the process is running

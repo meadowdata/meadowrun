@@ -38,7 +38,7 @@ kubernetes_watch.watch.Watch.get_watch_argument_name = _new_get_watch_argument_n
 async def get_pods_for_job(
     core_api: kubernetes_client.CoreV1Api,
     kubernetes_namespace: str,
-    job_id: str,
+    job_name: str,
     pod_generate_names: List[str],
 ) -> List[kubernetes_client.V1Pod]:
     """
@@ -47,11 +47,11 @@ async def get_pods_for_job(
     completion jobs, because we always set parallelism = completions, and we've
     configured 0 retries.
 
-    For regular jobs, the pod created will be named <job_id>-<random string>. The pod's
-    metadata has a generate_name, which will be equal to <job_id>-.
+    For regular jobs, the pod created will be named <job_name>-<random string>. The
+    pod's metadata has a generate_name, which will be equal to <job_name>-.
 
     For indexed completion jobs, there will be a pod for each index with a generate_name
-    of <job_id>-<index>-.
+    of <job_name>-<index>-.
 
     pod_generate_names should have the list of generate_names that we expect to see for
     the specified job.
@@ -66,7 +66,7 @@ async def get_pods_for_job(
 
     while True:
         pods = await core_api.list_namespaced_pod(
-            kubernetes_namespace, label_selector=f"job-name={job_id}"
+            kubernetes_namespace, label_selector=f"job-name={job_name}"
         )
         for pod in pods.items:
             generate_name = pod.metadata.generate_name
@@ -101,7 +101,7 @@ async def get_pods_for_job(
             )
 
         if i == 0:
-            print(f"Waiting for pods to be created for the job {job_id}")
+            print(f"Waiting for pods to be created for the job {job_name}")
 
         await asyncio.sleep(1.0)
 
@@ -111,7 +111,7 @@ async def get_pods_for_job(
 
 
 def get_main_container_state(
-    pod: kubernetes_client.V1Pod, job_id: str
+    pod: kubernetes_client.V1Pod, job_name: str
 ) -> Tuple[Optional[kubernetes_client.V1ContainerState], Optional[str]]:
     # first get main container state
     container_statuses = pod.status.container_statuses
@@ -122,13 +122,13 @@ def get_main_container_state(
         main_container_statuses = [s for s in container_statuses if s.name == "main"]
         if len(main_container_statuses) == 0:
             raise ValueError(
-                f"The job {job_id} has a pod {pod.metadata.name} but there is no `main`"
-                " container"
+                f"The job {job_name} has a pod {pod.metadata.name} but there is no "
+                "`main` container"
             )
         if len(main_container_statuses) > 1:
             raise ValueError(
-                f"The job {job_id} has a pod {pod.metadata.name} but there is more than"
-                " one `main` container"
+                f"The job {job_name} has a pod {pod.metadata.name} but there is more "
+                "than one `main` container"
             )
         main_container_state = main_container_statuses[0].state
 
@@ -165,13 +165,13 @@ class PodState(enum.Enum):
     STARTED_RUNNING = 4
 
 
-def _get_pod_state(pod: kubernetes_client.V1Pod, job_id: str) -> Tuple[PodState, str]:
+def _get_pod_state(pod: kubernetes_client.V1Pod, job_name: str) -> Tuple[PodState, str]:
     """
     Returns the internal representation of the pod state (PodState) and a string to
     present to the user about the state of the pod
     """
     main_container_state, latest_condition_reason = get_main_container_state(
-        pod, job_id
+        pod, job_name
     )
     if main_container_state is not None and (
         main_container_state.running is not None
@@ -215,7 +215,7 @@ def _get_pod_state(pod: kubernetes_client.V1Pod, job_id: str) -> Tuple[PodState,
 
 async def wait_for_pod_running(
     core_api: kubernetes_client.CoreV1Api,
-    job_id: str,
+    job_name: str,
     kubernetes_namespace: str,
     pod: kubernetes_client.V1Pod,
 ) -> kubernetes_client.V1Pod:
@@ -236,7 +236,7 @@ async def wait_for_pod_running(
     prev_additional_info = None
     prev_pod_state = PodState.OTHER_HAS_NOT_RUN
     wait_until = _WAIT_FOR_POD_RUNNING_OTHER_SECS
-    pod_state, additional_info = _get_pod_state(pod, job_id)
+    pod_state, additional_info = _get_pod_state(pod, job_name)
     while pod_state != PodState.STARTED_RUNNING:
         if additional_info != prev_additional_info:
             print(f"Waiting for pod {pod_name} to start running{additional_info}")
@@ -257,12 +257,12 @@ async def wait_for_pod_running(
 
         if seconds_waited > wait_until:
             raise TimeoutError(
-                f"Waited >{seconds_waited} seconds for the container of job {job_id} in"
-                " pod {pod_name} to start running"
+                f"Waited >{seconds_waited} seconds for the container of job {job_name} "
+                "in pod {pod_name} to start running"
             )
 
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-        pod_state, additional_info = _get_pod_state(pod, job_id)
+        pod_state, additional_info = _get_pod_state(pod, job_name)
 
     return pod
 
@@ -271,14 +271,14 @@ async def stream_pod_logs(
     core_api: kubernetes_client.CoreV1Api,
     kubernetes_namespace: str,
     pod_name: str,
-    job_id: str,
+    job_name: str,
 ) -> int:
     while True:
         await _stream_pod_log_helper(core_api, kubernetes_namespace, pod_name)
 
         try:
             return await wait_for_pod_exit(
-                core_api, job_id, kubernetes_namespace, pod_name, 15
+                core_api, job_name, kubernetes_namespace, pod_name, 15
             )
         except TimeoutError:
             # this can happen sometimes if e.g. there was a network connectivity issue
@@ -309,7 +309,7 @@ async def _stream_pod_log_helper(
 
 async def wait_for_pod_exit(
     core_api: kubernetes_client.CoreV1Api,
-    job_id: str,
+    job_name: str,
     kubernetes_namespace: str,
     pod_name: str,
     timeout_seconds: int,
@@ -319,24 +319,24 @@ async def wait_for_pod_exit(
     # is reported as terminated.
 
     pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-    main_container_state, _ = get_main_container_state(pod, job_id)
+    main_container_state, _ = get_main_container_state(pod, job_name)
     t0 = time.time()
     while main_container_state is None or main_container_state.running is not None:
         await asyncio.sleep(1.0)
         if time.time() > t0 + timeout_seconds:
             raise TimeoutError(
-                f"The job {job_id} timed out, the pod {pod_name} has been running "
+                f"The job {job_name} timed out, the pod {pod_name} has been running "
                 f"for {timeout_seconds} seconds"
             )
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
-        main_container_state, _ = get_main_container_state(pod, job_id)
+        main_container_state, _ = get_main_container_state(pod, job_name)
 
     return main_container_state.terminated.exit_code
 
 
 async def wait_for_pod(
     core_api: kubernetes_client.CoreV1Api,
-    job_id: str,
+    job_name: str,
     kubernetes_namespace: str,
     pod: kubernetes_client.V1Pod,
     wait_for_result: WaitOption,
@@ -346,7 +346,7 @@ async def wait_for_pod(
     that pod into our local stdout, and then waits for the pod to terminate. Then we
     return the exit code of the pod.
     """
-    await wait_for_pod_running(core_api, job_id, kubernetes_namespace, pod)
+    await wait_for_pod_running(core_api, job_name, kubernetes_namespace, pod)
     if wait_for_result == WaitOption.DO_NOT_WAIT:
         # TODO maybe return None instead? Currently this code path is not used, requires
         # support in the caller
@@ -354,7 +354,7 @@ async def wait_for_pod(
 
     if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
         return await stream_pod_logs(
-            core_api, kubernetes_namespace, pod.metadata.name, job_id
+            core_api, kubernetes_namespace, pod.metadata.name, job_name
         )
     else:
         # TODO this timeout should be configurable and the default should be smaller
@@ -362,7 +362,7 @@ async def wait_for_pod(
         wait_for_pod_exit_timeout_seconds = 60 * 60 * 24 * 2
         return await wait_for_pod_exit(
             core_api,
-            job_id,
+            job_name,
             kubernetes_namespace,
             pod.metadata.name,
             wait_for_pod_exit_timeout_seconds,

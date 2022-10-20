@@ -10,6 +10,7 @@ import pickle
 import platform
 import shlex
 import time
+import traceback
 import uuid
 from typing import (
     TYPE_CHECKING,
@@ -1338,6 +1339,7 @@ async def _run_kubernetes_job(
 
     # https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Job.md
     pod_template_spec = kubernetes_client.V1PodTemplateSpec(
+        metadata=kubernetes_client.V1ObjectMeta(labels={"meadowrun.io": "true"}),
         spec=kubernetes_client.V1PodSpec(
             containers=[
                 kubernetes_client.V1Container(
@@ -1350,12 +1352,15 @@ async def _run_kubernetes_job(
             ],
             restart_policy="Never",
             **additional_pod_spec_parameters,
-        )
+        ),
     )
     if pod_customization:
         pod_template_spec = pod_customization(pod_template_spec)
+    job_name = f"mdr-{job_id}"
     body = kubernetes_client.V1Job(
-        metadata=kubernetes_client.V1ObjectMeta(name=job_id),
+        metadata=kubernetes_client.V1ObjectMeta(
+            name=job_name, labels={"meadowrun.io": "true"}
+        ),
         spec=kubernetes_client.V1JobSpec(
             # we also try to delete manually. This field could be ignored if the TTL
             # controller is not available
@@ -1373,16 +1378,18 @@ async def _run_kubernetes_job(
         # Now that we've created the job, wait for the pods to be created
 
         if indexed_completions:
-            pod_generate_names = [f"{job_id}-{i}-" for i in range(indexed_completions)]
+            pod_generate_names = [
+                f"{job_name}-{i}-" for i in range(indexed_completions)
+            ]
         else:
-            pod_generate_names = [f"{job_id}-"]
+            pod_generate_names = [f"{job_name}-"]
 
         pods = await get_pods_for_job(
-            core_api, kubernetes_namespace, job_id, pod_generate_names
+            core_api, kubernetes_namespace, job_name, pod_generate_names
         )
 
         pod_names = [pod.metadata.name for pod in pods]
-        print(f"Created pod(s) {', '.join(pod_names)} for job {job_id}")
+        print(f"Created pod(s) {', '.join(pod_names)} for job {job_name}")
 
         # Now that the pods have been created, stream their logs and get their exit
         # codes
@@ -1391,7 +1398,7 @@ async def _run_kubernetes_job(
             *[
                 asyncio.create_task(
                     wait_for_pod(
-                        core_api, job_id, kubernetes_namespace, pod, wait_for_result
+                        core_api, job_name, kubernetes_namespace, pod, wait_for_result
                     )
                 )
                 for pod in pods
@@ -1400,10 +1407,10 @@ async def _run_kubernetes_job(
     finally:
         try:
             await batch_api.delete_namespaced_job(
-                job_id, kubernetes_namespace, propagation_policy="Foreground"
+                job_name, kubernetes_namespace, propagation_policy="Foreground"
             )
-        except kubernetes_client_exceptions.ApiException as e:
-            print(f"Warning, error cleaning up job: {e}")
+        except kubernetes_client_exceptions.ApiException:
+            print("Warning, error cleaning up job:\n" + traceback.format_exc())
 
 
 class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
@@ -1674,7 +1681,10 @@ async def _get_meadowrun_reusable_pods(
         )
         pod_template_spec = kubernetes_client.V1PodTemplateSpec(
             metadata=kubernetes_client.V1ObjectMeta(
-                labels={"meadowrun.io/image-name": image_name_label}
+                labels={
+                    "meadowrun.io/image-name": image_name_label,
+                    "meadowrun.io": "true",
+                }
             ),
             spec=kubernetes_client.V1PodSpec(
                 containers=[
@@ -1707,7 +1717,9 @@ async def _get_meadowrun_reusable_pods(
         if pod_customization:
             pod_template_spec = pod_customization(pod_template_spec)
         body = kubernetes_client.V1Job(
-            metadata=kubernetes_client.V1ObjectMeta(name=job_name),
+            metadata=kubernetes_client.V1ObjectMeta(
+                name=job_name, labels={"meadowrun.io": "true"}
+            ),
             spec=kubernetes_client.V1JobSpec(
                 ttl_seconds_after_finished=10,
                 backoff_limit=0,
@@ -1731,7 +1743,10 @@ async def _get_meadowrun_reusable_pods(
             # usually the ttl_seconds_after_finished will take care of deleting the job,
             # but there's a case where the pods can't be created (e.g. if you provide an
             # invalid serviceAccountName), and the job will stick around forever
-            await batch_api.delete_namespaced_job(job_name, kubernetes_namespace)
+            try:
+                await batch_api.delete_namespaced_job(job_name, kubernetes_namespace)
+            except kubernetes_client_exceptions.ApiException:
+                print("Warning, error cleaning up job:\n" + traceback.format_exc())
             raise
 
         # TODO consider using list_namespaced_pod to reduce the number of API calls we

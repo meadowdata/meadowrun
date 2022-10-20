@@ -272,5 +272,7 @@ is doing:
 - By default, Meadowrun will mirror your current local deployment, but there are [other
   ways to specify the code and libraries](../deployment) you want to use when running
   remotely.
+- Learn more about [how Meadowrun uses Kubernetes
+  resources](../../reference/kubernetes_resources)
 
 <!--k8s-output2-next-steps-end-->

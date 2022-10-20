@@ -11,6 +11,7 @@ import base64
 import enum
 import sys
 import time
+import traceback
 from typing import Callable, List, Dict, Tuple, Optional
 
 import aiohttp
@@ -267,17 +268,43 @@ async def wait_for_pod_running(
 
 
 async def stream_pod_logs(
+    core_api: kubernetes_client.CoreV1Api,
+    kubernetes_namespace: str,
+    pod_name: str,
+    job_id: str,
+) -> int:
+    while True:
+        await _stream_pod_log_helper(core_api, kubernetes_namespace, pod_name)
+
+        try:
+            return await wait_for_pod_exit(
+                core_api, job_id, kubernetes_namespace, pod_name, 15
+            )
+        except TimeoutError:
+            # this can happen sometimes if e.g. there was a network connectivity issue
+            # while streaming the logs
+            print(
+                "Log stream stopped, waited for the container to exit for 15 seconds, "
+                "but the container is still running. Restarting the streaming of the "
+                "logs"
+            )
+
+
+async def _stream_pod_log_helper(
     core_api: kubernetes_client.CoreV1Api, kubernetes_namespace: str, pod_name: str
 ) -> None:
-    # Now our pod is running, so we can stream the logs
-
-    async with kubernetes_watch.Watch() as w:
-        async for line in w.stream(
-            core_api.read_namespaced_pod_log,
-            name=pod_name,
-            namespace=kubernetes_namespace,
-        ):
-            print(line, end="")
+    try:
+        async with kubernetes_watch.Watch() as w:
+            async for line in w.stream(
+                core_api.read_namespaced_pod_log,
+                name=pod_name,
+                namespace=kubernetes_namespace,
+            ):
+                print(line, end="")
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        print("Unable to stream logs:\n" + traceback.format_exc())
 
 
 async def wait_for_pod_exit(
@@ -286,7 +313,6 @@ async def wait_for_pod_exit(
     kubernetes_namespace: str,
     pod_name: str,
     timeout_seconds: int,
-    streamed_logs: bool,
 ) -> int:
     # Once this stream ends, we know the pod is completed, but sometimes it takes some
     # time for Kubernetes to report that the pod has completed. So we poll until the pod
@@ -298,17 +324,10 @@ async def wait_for_pod_exit(
     while main_container_state is None or main_container_state.running is not None:
         await asyncio.sleep(1.0)
         if time.time() > t0 + timeout_seconds:
-            if streamed_logs:
-                raise TimeoutError(
-                    f"Unexpected. The job {job_id} has a pod {pod_name}, and the pod "
-                    f"still seems to be running {timeout_seconds} seconds after the log"
-                    " stream ended"
-                )
-            else:
-                raise TimeoutError(
-                    f"The job {job_id} timed out, the pod {pod_name} as been running "
-                    f"for {timeout_seconds} seconds"
-                )
+            raise TimeoutError(
+                f"The job {job_id} timed out, the pod {pod_name} has been running "
+                f"for {timeout_seconds} seconds"
+            )
         pod = await core_api.read_namespaced_pod_status(pod_name, kubernetes_namespace)
         main_container_state, _ = get_main_container_state(pod, job_id)
 
@@ -334,10 +353,8 @@ async def wait_for_pod(
         return 0
 
     if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
-        await stream_pod_logs(core_api, kubernetes_namespace, pod.metadata.name)
-
-        return await wait_for_pod_exit(
-            core_api, job_id, kubernetes_namespace, pod.metadata.name, 15, True
+        return await stream_pod_logs(
+            core_api, kubernetes_namespace, pod.metadata.name, job_id
         )
     else:
         # TODO this timeout should be configurable and the default should be smaller
@@ -349,7 +366,6 @@ async def wait_for_pod(
             kubernetes_namespace,
             pod.metadata.name,
             wait_for_pod_exit_timeout_seconds,
-            False,
         )
 
 

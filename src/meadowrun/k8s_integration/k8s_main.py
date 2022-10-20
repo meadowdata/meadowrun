@@ -5,17 +5,47 @@ kubectl exec on this pod.
 
 Not dissimilar to deallocate_jobs.py
 """
+
+from __future__ import annotations
+
+import os
+import signal
+import sys
 import time
 import traceback
+from typing import TYPE_CHECKING, Any, Optional
 
 from meadowrun.k8s_integration.is_job_running import is_job_running
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 _LAST_JOB_TIMESTAMP_FILE = "/var/meadowrun/job_timestamp"
 
 _IDLE_TIMEOUT_SECS = 60 * 5
 
 
+def _sigchld_handler(signum: int, frame: Optional[FrameType]) -> Any:
+    """
+    Because of the way docker works, this process will eventually become the parent
+    process of every killed process in the container started via exec. We need to handle
+    SIGCHLD so that the killed processes don't become zombies.
+    """
+    try:
+        if sys.platform != "win32":
+            # waits for a child signal
+            while True:
+                os.wait()
+        print("SIGCHLD handled successfully")
+    except BaseException:
+        print("Exception handling SIGCHLD:")
+        traceback.print_exc()
+
+
 def main() -> None:
+    if sys.platform != "win32":
+        signal.signal(signal.SIGCHLD, _sigchld_handler)
+
     last_activity = time.time()
     while True:
         if time.time() - last_activity > _IDLE_TIMEOUT_SECS:

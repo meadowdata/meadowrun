@@ -8,7 +8,7 @@ RUN mkdir -p /var/meadowrun/machine_cache /var/meadowrun/job_logs /var/meadowrun
 
 
 RUN apt update && \
-    apt install -y git && \
+    apt install -y git procps && \
     rm -rf /var/lib/apt
 
 RUN git config --global --add safe.directory '*'; exit 0

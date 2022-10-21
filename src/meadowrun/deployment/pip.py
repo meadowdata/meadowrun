@@ -150,6 +150,26 @@ async def pip_freeze_exclude_editable(
     return await _pip_freeze(python_interpreter, "--exclude-editable")
 
 
+async def get_python_version(python_interpreter: str) -> str:
+    """
+    Not strictly pip related but currently only used in the context of pip environments
+    """
+    p = await asyncio.create_subprocess_exec(
+        python_interpreter,
+        "-c",
+        "import sys; print(sys.version[0:3])",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await p.communicate()
+    if p.returncode != 0:
+        raise ValueError(
+            f"pip freeze failed, return code {p.returncode}: {stderr.decode()}"
+        )
+
+    return stdout.decode("utf-8").strip()
+
+
 _PIP_ENVIRONMENT_TIMEOUT = 10 * 60
 
 

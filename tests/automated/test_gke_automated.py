@@ -110,7 +110,7 @@ async def test_mirror_local_pip_google_repository() -> None:
         _get_remote_function_for_deployment(),
         _get_gke_host(),
         deployment=meadowrun.Deployment.mirror_local(
-            interpreter=meadowrun.LocalPipInterpreter(interpreter, "3.9"),
+            interpreter=meadowrun.LocalPipInterpreter(interpreter),
         ),
     )
     assert results == "Hello from py_simple_package!"

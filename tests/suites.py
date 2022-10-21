@@ -443,7 +443,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
             ("2.28.0", "1.4.2"),
             self,
             await Deployment.mirror_local(
-                interpreter=LocalPipInterpreter(test_venv_interpreter, "3.9"),
+                interpreter=LocalPipInterpreter(test_venv_interpreter),
                 additional_python_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],

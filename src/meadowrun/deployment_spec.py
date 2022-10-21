@@ -54,7 +54,7 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableFolder,
     ServerAvailableInterpreter,
 )
-from meadowrun.deployment.pip import pip_freeze_exclude_editable
+from meadowrun.deployment.pip import pip_freeze_exclude_editable, get_python_version
 
 
 class Secret(abc.ABC):
@@ -488,7 +488,6 @@ class LocalPipInterpreter(LocalInterpreter):
     """
 
     path_to_interpreter: str
-    python_version: str
     additional_software: Union[Sequence[str], str, None] = None
 
     async def get_interpreter_spec(self) -> InterpreterDeployment:
@@ -496,7 +495,7 @@ class LocalPipInterpreter(LocalInterpreter):
             environment_type=EnvironmentType.PIP,
             # TODO this won't work if the specified environment has editable installs
             spec=await pip_freeze_exclude_editable(self.path_to_interpreter),
-            python_version=self.python_version,
+            python_version=await get_python_version(self.path_to_interpreter),
             additional_software=_additional_software_to_dict(self.additional_software),
         )
 

@@ -299,19 +299,22 @@ async def create_pip_environment(
         "install",
     ]
 
+    prerequisite_pip_packages = ["wheel"]
     if prerequisites & EnvironmentSpecPrerequisites.GOOGLE_AUTH:
-        return_code = await (
-            await asyncio.create_subprocess_exec(
-                *pip_install,
-                GOOGLE_AUTH_PACKAGE,
-                env=disable_pip_version_check,
-            )
-        ).wait()
-        if return_code != 0:
-            raise ValueError(
-                f"Installing pre-requirements for {requirements_file_path} in "
-                f"{new_environment_path} failed with return code {return_code}"
-            )
+        prerequisite_pip_packages.append(GOOGLE_AUTH_PACKAGE)
+
+    return_code = await (
+        await asyncio.create_subprocess_exec(
+            *pip_install,
+            *prerequisite_pip_packages,
+            env=disable_pip_version_check,
+        )
+    ).wait()
+    if return_code != 0:
+        raise ValueError(
+            f"Installing pre-requirements for {requirements_file_path} in "
+            f"{new_environment_path} failed with return code {return_code}"
+        )
 
     return_code = await (
         await asyncio.create_subprocess_exec(

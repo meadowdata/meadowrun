@@ -1,10 +1,11 @@
+import sys
 from typing import Callable
 
 import kubernetes_asyncio.client as kubernetes_client
 
 import meadowrun
 from meadowrun import Resources, Host
-from suites import HostProvider, DeploymentSuite, EdgeCasesSuite
+from suites import HostProvider, DeploymentSuite, EdgeCasesSuite, _path_from_here
 
 _KUBERNETES_SERVICE_ACCOUNT_NAME = "myserviceaccount"
 _STORAGE_BUCKET_NAME = "meadowrun-gke-test"
@@ -51,7 +52,7 @@ def _get_remote_function_for_deployment() -> Callable[[], str]:
     return remote_function
 
 
-async def test_pip_google_repository() -> None:
+async def test_git_repo_pip_google_repository() -> None:
     """
     To run these tests:
 
@@ -79,8 +80,44 @@ async def test_pip_google_repository() -> None:
     assert results == "Hello from py_simple_package!"
 
 
-async def test_poetry_google_repository() -> None:
-    """See test_pip_google_repository"""
+async def test_mirror_local_pip_google_repository() -> None:
+    """
+    To run these tests:
+
+    First, do all the same steps described in test_git_repo_pip_google_repository.
+
+    Second, do the steps described in test_mirror_local_pip to create a local venv but
+    use the requirements_with_google_repository.txt file and call the folder
+    "test_venv_google_repository_[linux|windows]". Also, before you run `pip install -r
+    test_repo/requirements_with_google_repository.txt` you'll need to run `pip install
+    keyrings.google-artifactregistry-auth`
+
+    Finally, with the environment still activated, run `pip config set
+    install.extra-index-url
+    https://us-east1-python.pkg.dev/meadowrun-playground/test-py-repo/simple/`
+    """
+
+    if sys.platform == "win32":
+        interpreter = _path_from_here(
+            "../../test_venv_google_repository_windows/Scripts/python.exe"
+        )
+    else:
+        interpreter = _path_from_here(
+            "../../test_venv_google_repository_linux/bin/python"
+        )
+
+    results = await meadowrun.run_function(
+        _get_remote_function_for_deployment(),
+        _get_gke_host(),
+        deployment=meadowrun.Deployment.mirror_local(
+            interpreter=meadowrun.LocalPipInterpreter(interpreter, "3.9"),
+        ),
+    )
+    assert results == "Hello from py_simple_package!"
+
+
+async def test_git_repo_poetry_google_repository() -> None:
+    """See test_git_repo_pip_google_repository"""
     results = await meadowrun.run_function(
         _get_remote_function_for_deployment(),
         _get_gke_host(),

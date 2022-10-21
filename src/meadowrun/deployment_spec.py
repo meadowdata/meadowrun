@@ -515,7 +515,8 @@ class Deployment:
     async def mirror_local(
         cls,
         include_sys_path: bool = True,
-        additional_python_paths: Union[Iterable[str], str] = tuple(),
+        additional_sys_paths: Union[Iterable[str], str] = tuple(),
+        include_sys_path_contents: Union[bool, Iterable[str], str] = True,
         interpreter: Union[
             LocalInterpreter,
             InterpreterSpecFile,
@@ -523,37 +524,68 @@ class Deployment:
             PreinstalledInterpreter,
             None,
         ] = None,
-        working_directory_globs: Union[str, Iterable[str], None] = None,
+        globs: Union[str, Iterable[str], None] = None,
         environment_variables: Optional[Dict[str, str]] = None,
     ) -> Deployment:
         """A deployment that mirrors the local environment and code.
 
         Args:
-            include_sys_path: if True, find python code in the paths in sys.path
-                (effectively "your local code"), copies them to the remote machines, and
-                add them to sys.path there. Ignores any installed packages.
-            additional_python_paths: local code paths to copy and add to python path on
-                the remote machine.
-            interpreter: Specifies the environment/interpreter to use. Defaults to None
-                which will detect the currently activated env. Alternatively, you can
-                explicitly specify a locally installed python environment with
+            include_sys_path: if `True`, syncs the `sys.path` variable to the remote
+                machine. Usually used with `include_python_path_code=True` which is
+                responsible for syncing the contents of the folders specified by
+                `sys.path`. Excludes the paths on `sys.path` which are part of the
+                interpreter, e.g. `site-packages`, as this should be taken care of by
+                the `interpreter` argument. It's also possible to use
+                `include_sys_path=True`, `include_python_path_code=False`, and set
+                `globs` to include code in the `sys.path` directories. Setting `globs`
+                to upload code and setting `include_sys_path=False` will result in the
+                uploaded code not being on `sys.path` (and therefore potentially
+                inaccessible) on the remote machine.
+            additional_sys_paths: local code paths that will be treated as if they were
+                on `sys.path` (see the `include_sys_path` parameter)
+            include_sys_path_contents: If `True`, uploads the python code in
+                `sys.path`/`additional_sys_paths` depending on how you set
+                `include_sys_path` and `additional_sys_paths`. You can also set this
+                parameter to an iterable of strings like `[".py", ".so", ".txt"]` to
+                tell Meadowrun to copy the specified extensions rather than the default
+                of just `.py` and `.so` files. If `sys.path=False` and
+                `additional_sys_paths=None`, this parameter is ignored. If this
+                parameter is `False`, you most likely want to use `globs` to explicitly
+                specify the files on `sys.path` that you want to upload to the remote
+                machine.
+            interpreter: Specifies the environment/interpreter to use. Defaults to
+                `None` which will detect the currently activated env. Alternatively, you
+                can explicitly specify a locally installed python environment with
                 [LocalCondaInterpreter][meadowrun.LocalCondaInterpreter],
                 [LocalPipInterpreter][meadowrun.LocalPipInterpreter],
                 [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
                 [PipRequirementsFile][meadowrun.PipRequirementsFile],
                 [PoetryProjectPath][meadowrun.PoetryProjectPath]
-            working_directory_globs: Most of the time, your current working directory
-                will be on `sys.path`, and so any *.py files from your current working
-                directory will be uploaded by `mirror_local`. However, any other types
-                of files will be ignored by default. You can specify files to include
-                from your current working directory with this argument. Examples:
-                `"foo/bar.txt"` will include the specified file. `"*.txt"` will specify
-                txt files in your current directory (but not recursively). `"**/*.txt"`
-                will specify all txt files in your current directory recursively (e.g.
-                will capture both `1.txt` and `foo/2.txt`). `"foo/**/*.txt"` will
-                capture all txt files in the foo directory. If you specify files like
-                this, you will be able to access them with relative paths in the remote
-                code the same way you reference them locally.
+            globs: This parameter can be used for two main purposes.
+
+                One purpose is to include files from your current working directory that
+                can then be accessed on the remote machine using relative paths. E.g.
+                you can specify `"foo/bar.txt"`, and then your remote code will be able
+                to access that file via the relative path `"foo/bar.txt"`. Other
+                examples are: `"*.txt"` will specify txt files in your current directory
+                (but not recursively). `"**/*.txt"` will specify all txt files in your
+                current directory recursively (e.g. will capture both `1.txt` and
+                `foo/2.txt`). `"foo/**/*.txt"` will capture all txt files in the foo
+                directory. Note that most of the time, your current working directory
+                will be on `sys.path` so any `.py` and `.so` files in your local working
+                directory will be included by default, but any other file extensions
+                will be ignored by default.
+
+                The second purpose is to include an explicit list of files from
+                `sys.path`. So for example, you can set
+                `include_sys_path_contents=False` and then use this variable to pass an
+                explicit list of files that you want to include from `sys.path`.
+
+                In either case, it is okay to specify absolute paths or relative paths,
+                but if `globs` specifies files that are outside of the current working
+                directory's parent and outside of any paths on
+                `sys.path`/`additional_sys_paths`, this function will raise an exception
+                because those files will be inaccessible in the remote process.
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment.
 
@@ -629,13 +661,22 @@ class Deployment:
         else:
             raise ValueError(f"Unexpected type of interpreter {type(interpreter)}")
 
-        if working_directory_globs is None:
-            working_directory_globs = ()
-        elif isinstance(working_directory_globs, str):
-            working_directory_globs = [working_directory_globs]
+        if globs is None:
+            globs = ()
+        elif isinstance(globs, str):
+            globs = [globs]
 
-        if isinstance(additional_python_paths, str):
-            additional_python_paths = [additional_python_paths]
+        if isinstance(additional_sys_paths, str):
+            additional_sys_paths = [additional_sys_paths]
+
+        if include_sys_path_contents is True:
+            sys_path_extensions: Iterable[str] = (".py", ".so")
+        elif include_sys_path_contents is False:
+            sys_path_extensions = ()
+        elif isinstance(include_sys_path_contents, str):
+            sys_path_extensions = [include_sys_path_contents]
+        else:
+            sys_path_extensions = include_sys_path_contents
 
         # annoyingly, this tmp dir now gets deleted in run_local when the file
         # has been uploaded/unpacked depending on the Host implementation
@@ -643,8 +684,9 @@ class Deployment:
         zip_file_path, zip_python_paths, zip_cwd = zip_local_code(
             tmp_dir,
             include_sys_path,
-            additional_python_paths,
-            working_directory_globs=working_directory_globs,
+            additional_sys_paths,
+            sys_path_extensions,
+            globs,
         )
 
         # see comment on _upload_code_zip_file

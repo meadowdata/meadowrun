@@ -13,10 +13,10 @@ from meadowrun.shared import create_zipfile
 
 def zip_local_code(
     result_zip_dir: str,
-    include_sys_path: bool = True,
-    additional_python_paths: Iterable[str] = tuple(),
-    python_paths_extensions: Iterable[str] = (".py", ".so"),
-    working_directory_globs: Iterable[str] = tuple(),
+    include_sys_path: bool,
+    additional_python_paths: Iterable[str],
+    python_paths_extensions: Iterable[str],
+    globs: Iterable[str],
 ) -> Tuple[str, List[str], str]:
     """
     The goal of this function is to zip up "the current local python code excluding the
@@ -26,23 +26,14 @@ def zip_local_code(
     "python paths". Assuming include_sys_path is True, "python paths" will be
     additional_python_paths + paths in sys.path that are NOT part of the interpreter,
     i.e. paths that do NOT start with sys.prefix, etc. The second type are files
-    specified by working_directory_globs which are always relative to the current
-    working directory.
+    specified by globs which can be anywhere.
 
     python paths will only include *.py and *.so files (or whatever is specified in
     python_paths_extensions).
 
     Args:
         result_zip_dir: directory where to put the resulting zip file.
-        include_sys_path: Whether to zip paths on sys.path. Paths that are also in
-            sys.prefix or sys.base_prefix are automatically excluded. Defaults to True.
-        additional_python_paths: Additional python paths to zip. Defaults to empty
-            tuple, i.e. no additional python paths.
-        python_paths_extensions: Only files with these extensions are zipped. Defaults
-            to (".py", ".pyd"), i.e. only python files.
-        working_directory_globs: Globs that will be passed directly to glob.glob to
-            specify any file relative to the current working directory. Globs will only
-            match files.
+        See docstring on mirror_local for explanation of remaining parameters.
 
     Raises:
         ValueError: If there are no paths to zip.
@@ -52,6 +43,8 @@ def zip_local_code(
         the zip file, current working directory in the zip file
     """
     current_working_directory = realpath(os.getcwd())
+
+    python_dirs = _get_python_dirs_to_zip(additional_python_paths, include_sys_path)
 
     # non_python_dirs will be all directories that contain one or more non-python files
     # that we want to include.
@@ -65,25 +58,24 @@ def zip_local_code(
     non_python_files = []
 
     current_working_directory_parent = os.path.dirname(current_working_directory)
-    working_directory_files = (
-        file
-        for file_glob in working_directory_globs
-        for file in glob.glob(file_glob, recursive=True)
-    )
-    for file_path in working_directory_files:
-        if os.path.isfile(file_path):
-            file_real_path = realpath(file_path)
-            if not file_real_path.startswith(current_working_directory_parent):
-                raise ValueError(
-                    "Specifying files outside of the current working directory's parent"
-                    " is not supported. I.e. ../foo is fine, but ../../foo will not "
-                    "work"
-                )
-            dir_real_path = os.path.dirname(file_real_path)
-            non_python_files.append((file_real_path, dir_real_path))
-            non_python_dirs.append(dir_real_path)
-
-    python_dirs = _get_python_dirs_to_zip(additional_python_paths, include_sys_path)
+    for file_glob in globs:
+        for file_path in glob.glob(file_glob, recursive=True):
+            if os.path.isfile(file_path):
+                file_real_path = realpath(file_path)
+                if not file_real_path.startswith(
+                    current_working_directory_parent
+                ) and all(
+                    not file_real_path.startswith(python_dir)
+                    for python_dir in python_dirs
+                ):
+                    raise ValueError(
+                        "Files must either be in the current working directory's parent"
+                        " directory or a sys.path. I.e. ../foo is fine, but "
+                        "../../foo will not work."
+                    )
+                dir_real_path = os.path.dirname(file_real_path)
+                non_python_files.append((file_real_path, dir_real_path))
+                non_python_dirs.append(dir_real_path)
 
     (
         # all directories that need to be added to the python path in the zip file
@@ -100,21 +92,22 @@ def zip_local_code(
     # ZIP_DEFLATED because it's the fastest. All code gets zipped every time, even when
     # it hasn't changed, so this needs to be fast above all else.
     with create_zipfile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for real_path, zip_path in python_root_dirs_and_zip_paths:
-            for dirpath, _, filenames in os.walk(real_path):
-                for filename in filenames:
-                    if splitext(filename)[1].lower() in python_paths_extensions:
-                        full = join(dirpath, filename)
-                        full_zip = full.replace(real_path, zip_path, 1)
-                        try:
-                            zip_file.write(full, full_zip)
-                        except asyncio.CancelledError:
-                            raise
-                        except BaseException:
-                            print(
-                                f"Warning, skipping file {full} that cannot be added to"
-                                f" the zip file as {full_zip}"
-                            )
+        if python_paths_extensions:
+            for real_path, zip_path in python_root_dirs_and_zip_paths:
+                for dirpath, _, filenames in os.walk(real_path):
+                    for filename in filenames:
+                        if splitext(filename)[1].lower() in python_paths_extensions:
+                            full = join(dirpath, filename)
+                            full_zip = full.replace(real_path, zip_path, 1)
+                            try:
+                                zip_file.write(full, full_zip)
+                            except asyncio.CancelledError:
+                                raise
+                            except BaseException:
+                                print(
+                                    f"Warning, skipping file {full} that cannot be "
+                                    f"added to the zip file as {full_zip}"
+                                )
 
         for (file_real_path, dir_real_path), dir_zip_path in zip(
             non_python_files, itertools.islice(non_python_files_as_dirs_in_zip, 1, None)

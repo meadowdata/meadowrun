@@ -95,9 +95,14 @@ def test_consolidate_paths(
     assert expected_other_paths == actual_other_paths
 
 
+_DEFAULT_PYTHON_PATH_EXTENSIONS = (".py", ".so")
+
+
 def test_zip_file() -> None:
     with tempfile.TemporaryDirectory() as temp:
-        result = local_code.zip_local_code(temp)
+        result = local_code.zip_local_code(
+            temp, True, (), _DEFAULT_PYTHON_PATH_EXTENSIONS, ()
+        )
         assert result is not None
         zip_file_path, zip_python_paths, cwd = result
         with zipfile.ZipFile(zip_file_path) as zip_file:
@@ -109,9 +114,9 @@ def test_zip_file() -> None:
 
 
 @pytest.mark.parametrize(
-    "available_files,working_directory,working_directory_globs,python_paths,"
-    "expected_files_in_zip,expected_python_paths_in_zip,"
-    "expected_working_directory_in_zip",
+    "available_files,working_directory,globs,python_paths,"
+    "python_path_extensions,expected_files_in_zip,"
+    "expected_python_paths_in_zip,expected_working_directory_in_zip",
     [
         # root is not on python path, but subdirectories are. Python files outside of
         # the subdirectories should be ignored. Also, non-.py files are ignored
@@ -127,6 +132,7 @@ def test_zip_file() -> None:
             "root",
             (),
             ["root/a/b", "root/a/c"],
+            _DEFAULT_PYTHON_PATH_EXTENSIONS,
             ["root/a/b/x1.py", "root/a/c/x2.py"],
             ["root/a/b", "root/a/c"],
             "root",
@@ -143,6 +149,7 @@ def test_zip_file() -> None:
             "root",
             ["**/*.txt"],
             ["root"],
+            _DEFAULT_PYTHON_PATH_EXTENSIONS,
             [
                 "root/a/x1.py",
                 "root/a/x2.txt",
@@ -165,6 +172,7 @@ def test_zip_file() -> None:
             "root",
             ["b/**/*.txt"],
             ["root"],
+            _DEFAULT_PYTHON_PATH_EXTENSIONS,
             ["root/a/x1.py", "root/b/x3.py", "root/b/x4.txt"],
             ["root"],
             "root",
@@ -175,17 +183,38 @@ def test_zip_file() -> None:
             "root",
             ["../other_root/**/*.txt"],
             ["root"],
+            _DEFAULT_PYTHON_PATH_EXTENSIONS,
             ["root/x1.py", "other_root/x3.txt"],
             ["root"],
             "root",
+        ),
+        # set python_path_extensions to () and explicitly specify some python files but
+        # not others
+        (
+            [
+                "root/a/b/x1.py",
+                "root/a/b/x2.py",
+                "root/a/b/c/x3.py",
+                "root/a/b/c/x4.py",
+                "root/d/e/x5.py",
+                "root/d/e/x6.py",
+            ],
+            "root/a/b",
+            ["x1.py", "c/x3.py", "../../d/e/x5.py"],
+            ["root/a/b", "root/a/b/c", "root/d/e"],
+            (),
+            ["b/x1.py", "b/c/x3.py", "e/x5.py"],
+            ["b", "b/c", "e"],
+            "b",
         ),
     ],
 )
 def test_zip_local_code(
     available_files: Sequence[str],
     working_directory: str,
-    working_directory_globs: Sequence[str],
+    globs: Sequence[str],
     python_paths: Sequence[str],
+    python_path_extensions: Sequence[str],
     expected_files_in_zip: Sequence[str],
     expected_python_paths_in_zip: Sequence[str],
     expected_working_directory_in_zip: str,
@@ -209,10 +238,9 @@ def test_zip_local_code(
             ) = local_code.zip_local_code(
                 temp_dest,
                 False,
-                additional_python_paths=[
-                    os.path.join(temp_source, p) for p in python_paths
-                ],
-                working_directory_globs=working_directory_globs,
+                [os.path.join(temp_source, p) for p in python_paths],
+                python_path_extensions,
+                globs,
             )
 
             with zipfile.ZipFile(result_zip_file, "r") as zf:
@@ -225,13 +253,14 @@ def test_zip_local_code(
 
 
 def test_zip_local_code_exception() -> None:
-    with pytest.raises(ValueError, match="outside of the current working directory"):
+    with pytest.raises(ValueError, match="Files must either be in the current working"):
         # reference files two folders outside of root does not work
         test_zip_local_code(
             ["nested/root/x1.py", "nested/root/x2.txt", "other_root/x3.txt"],
             "nested/root",
             ["../../other_root/**/*.txt"],
             ["nested/root"],
+            _DEFAULT_PYTHON_PATH_EXTENSIONS,
             # this is what would need to be returned to support this scenario
             ["nested/root/x1.py", "other_root/x3.txt"],
             ["nested/root"],

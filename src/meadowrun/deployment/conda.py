@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from typing import List, Optional, Tuple, Callable, Awaitable, TYPE_CHECKING
 
 import filelock
@@ -55,7 +56,11 @@ async def try_get_current_conda_env() -> Optional[str]:
     None if there's no currently active conda environment
     """
     env_path = os.environ.get("CONDA_PREFIX")
-    if env_path is None:
+    # we have to guard against the case where there's a conda environment activated
+    # (e.g. base) but there is also a pip environment activated.
+    if env_path is None or not os.path.realpath(sys.executable).startswith(
+        os.path.realpath(env_path)
+    ):
         return None
     out, _ = await _run(["env", "export", "-p", env_path])
     return out

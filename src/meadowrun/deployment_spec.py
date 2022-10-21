@@ -337,6 +337,27 @@ class PipRequirementsFile(InterpreterSpecFile):
 
 
 @dataclasses.dataclass(frozen=True)
+class PipRequirementsString(InterpreterSpecFile):
+    """
+    Specifies pip packages to install as strings.
+
+    Attributes:
+        packages_to_install: A list of packages to install.
+            `"\n".join(packages_to_install)` will be treated like a requirements.txt
+            file
+        python_version: A python version like "3.9" or "3.9.5". The version must be
+            available on docker: https://hub.docker.com/_/python as
+            python-<python_version>-slim-bullseye.
+        additional_software: apt packages that need to be installed to make the
+            environment work
+    """
+
+    packages_to_install: List[str]
+    python_version: str
+    additional_software: Union[Sequence[str], str, None] = None
+
+
+@dataclasses.dataclass(frozen=True)
 class PoetryProjectPath(InterpreterSpecFile):
     """
     Specifies a poetry project
@@ -619,6 +640,15 @@ class Deployment:
                         interpreter.additional_software
                     ),
                 )
+        elif isinstance(interpreter, PipRequirementsString):
+            interpreter_spec = EnvironmentSpec(
+                environment_type=EnvironmentType.PIP,
+                spec="\n".join(interpreter.packages_to_install),
+                python_version=interpreter.python_version,
+                additional_software=_additional_software_to_dict(
+                    interpreter.additional_software
+                ),
+            )
         elif isinstance(interpreter, PoetryProjectPath):
             with open(
                 os.path.join(interpreter.path_to_project, "pyproject.toml"),
@@ -777,6 +807,15 @@ class Deployment:
             interpreter_spec = EnvironmentSpecInCode(
                 environment_type=EnvironmentType.PIP,
                 path_to_spec=interpreter.path_to_requirements_file,
+                python_version=interpreter.python_version,
+                additional_software=_additional_software_to_dict(
+                    interpreter.additional_software
+                ),
+            )
+        elif isinstance(interpreter, PipRequirementsString):
+            interpreter_spec = EnvironmentSpec(
+                environment_type=EnvironmentType.PIP,
+                spec="\n".join(interpreter.packages_to_install),
                 python_version=interpreter.python_version,
                 additional_software=_additional_software_to_dict(
                     interpreter.additional_software

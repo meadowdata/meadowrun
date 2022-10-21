@@ -562,6 +562,7 @@ def _get_path_and_hash(
                 + _format_additional_software(
                     environment_spec.additional_software
                 ).encode("utf-8")
+                + environment_spec.python_version.encode("utf-8")
             ),
             _get_environment_spec_prerequisites(
                 spec_contents_bytes.decode("utf-8"), environment_spec.environment_type
@@ -578,6 +579,7 @@ def _get_path_and_hash(
                 (
                     spec_contents_str
                     + _format_additional_software(environment_spec.additional_software)
+                    + environment_spec.python_version
                 ).encode("UTF-8")
             )
             path_to_spec = os.path.join(interpreter_spec_path, spec_hash)
@@ -596,6 +598,7 @@ def _get_path_and_hash(
                 (
                     spec_contents_str
                     + _format_additional_software(environment_spec.additional_software)
+                    + environment_spec.python_version
                 ).encode("UTF-8")
             )
 

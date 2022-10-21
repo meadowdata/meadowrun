@@ -3,15 +3,15 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from typing import Callable, Awaitable, Optional
+from typing import Callable, Awaitable, Optional, List
 
 import filelock
 
-from meadowrun.shared import remove_corrupted_environment
 from meadowrun.deployment.prerequisites import (
     EnvironmentSpecPrerequisites,
     GOOGLE_AUTH_PACKAGE,
 )
+from meadowrun.shared import remove_corrupted_environment
 from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
 
 
@@ -19,6 +19,79 @@ from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
 # arbitrary configurations. get_cached_or_create_pip_environment and
 # create_pip_environment run in controlled environments, either in the Meadowrun docker
 # image or a Meadowrun AMI
+
+
+def _parse_pip_config_output(s: str, multi_value_separator: str) -> List[str]:
+    if s is None:
+        return []
+
+    if s.startswith("'") and s.endswith("'"):
+        s = s[1:-1]
+    return [substring for substring in s.split(multi_value_separator) if substring]
+
+
+async def _get_index_urls_for_requirements_file(python_interpreter: str) -> str:
+    # pip freeze doesn't capture the index-url that packages came from. Our best option
+    # is to call pip config list and add any index-url/extra-index-url options to the
+    # output of pip freeze
+
+    # docs on pip.conf: https://pip.pypa.io/en/stable/topics/configuration/
+    # pip config list outputs lines that look like:
+    # global.extra-index-url='https://us-east1-python.pkg.dev/meadowrun-playground/test-py-repo/simple/'
+
+    p = await asyncio.create_subprocess_exec(
+        python_interpreter,
+        "-m",
+        "pip",
+        "config",
+        "list",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await p.communicate()
+    if p.returncode != 0:
+        raise ValueError(
+            f"pip config list failed, return code {p.returncode}: {stderr.decode()}"
+        )
+    # this seems to be the list of possible scopes for the "install" command in order of
+    # priority. :env: comes from environment variables and is highest priority. install
+    # comes from pip.conf and is second priority. global also comes from pip.conf
+    # (applies to all pip commands) and is lowest priority. Higher-priority configs
+    # override lower-priority configs (no merging)
+    scopes = [":env:", "install", "global"]
+    parameters = ["index-url", "extra-index-url"]
+    values = {}
+    for line in stdout.decode("utf-8").splitlines():
+        for parameter in parameters:
+            for scope in scopes:
+                prefix = f"{scope}.{parameter}="
+                if line.startswith(prefix):
+                    if (scope, parameter) in values:
+                        raise ValueError(
+                            "pip config list returned more than one line starting with "
+                            f"{prefix}"
+                        )
+
+                    # For multiple values, :env: splits by whitespace and pip.conf items
+                    # split by newlines
+                    if scope == ":env:":
+                        multi_value_separator = " "
+                    else:
+                        multi_value_separator = "\\n"
+
+                    values[(scope, parameter)] = _parse_pip_config_output(
+                        line[len(prefix) :], multi_value_separator
+                    )
+
+    result = []
+    for parameter in parameters:
+        for scope in scopes:
+            if (scope, parameter) in values:
+                for value in values[(scope, parameter)]:
+                    result.append(f"--{parameter} {value}")
+                # just break out of the scopes loop, move on to the next parameter
+                break
+    return "\n".join(result)
 
 
 async def _pip_freeze(python_interpreter: str, *freeze_opts: str) -> str:
@@ -47,13 +120,19 @@ async def _pip_freeze(python_interpreter: str, *freeze_opts: str) -> str:
         env=env,
     )
     stdout, stderr = await p.communicate()
-
     if p.returncode != 0:
         raise ValueError(
             f"pip freeze failed, return code {p.returncode}: {stderr.decode()}"
         )
 
-    return stdout.decode()
+    freeze_output = stdout.decode("utf-8")
+
+    # add index urls from pip.conf if needed
+    index_urls = await _get_index_urls_for_requirements_file(python_interpreter)
+    if index_urls:
+        return index_urls + "\n" + freeze_output
+    else:
+        return freeze_output
 
 
 async def pip_freeze_exclude_editable(

@@ -24,7 +24,7 @@ meadowrun.run_command(
     "jupyter notebook --ip 0.0.0.0 --port 8888 --allow-root",
     host,
     resources,
-    meadowrun.Deployment.mirror_local(working_directory_globs="**/*.ipynb"),
+    meadowrun.Deployment.mirror_local(globs="**/*.ipynb"),
     ports=8888
 )
 ```
@@ -32,10 +32,9 @@ meadowrun.run_command(
 In prior examples, we haven't seen the
 [`mirror_local`][meadowrun.Deployment.mirror_local] parameter specified explicitly
 because that is the default parameter for `deployment`. In this case, though, we want to
-specify an option: `working_directory_globs="**/*.ipynb`. By default, `mirror_local`
-will only copy `.py` files. The `working_directory_globs` option allows us to tell
-Meadowrun to sync other files, in this case Jupyter notebook files, along with our local
-code to the remote machine.
+specify an option: `globs="**/*.ipynb`. By default, `mirror_local` will only copy `.py`
+files. The `globs` option allows us to tell Meadowrun to sync other files, in this case
+Jupyter notebook files, along with our local code to the remote machine.
 
 The `ports=8888` parameter tells Meadowrun to open the specified port on the EC2
 instance/Azure VM/Kubernetes pod that we're running on.

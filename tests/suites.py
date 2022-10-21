@@ -387,7 +387,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 self,
                 await Deployment.mirror_local(
                     interpreter=LocalCondaInterpreter("test_repo_conda_env"),
-                    additional_python_paths=[
+                    additional_sys_paths=[
                         _path_from_here("../../test_repo/example_package")
                     ],
                 ),
@@ -415,7 +415,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 interpreter=CondaEnvironmentYmlFile(
                     _path_from_here("../../test_repo/myenv.yml")
                 ),
-                additional_python_paths=[
+                additional_sys_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],
             ),
@@ -444,7 +444,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
             self,
             await Deployment.mirror_local(
                 interpreter=LocalPipInterpreter(test_venv_interpreter),
-                additional_python_paths=[
+                additional_sys_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],
             ),
@@ -464,7 +464,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 interpreter=PipRequirementsFile(
                     _path_from_here("../../test_repo/requirements.txt"), "3.9"
                 ),
-                additional_python_paths=[
+                additional_sys_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],
             ),
@@ -479,7 +479,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
                 interpreter=PoetryProjectPath(
                     _path_from_here("../../test_repo/"), "3.9"
                 ),
-                additional_python_paths=[
+                additional_sys_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],
             ),
@@ -497,7 +497,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
                     interpreter=PipRequirementsFile(
                         _path_from_here("../../test_repo/requirements.txt"), "3.9"
                     ),
-                    working_directory_globs="**/*.txt",
+                    globs="**/*.txt",
                 ),
             )
         finally:
@@ -510,7 +510,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
             self,
             await Deployment.mirror_local(
                 interpreter=ContainerInterpreter("meadowrun/meadowrun_test_env"),
-                additional_python_paths=[
+                additional_sys_paths=[
                     _path_from_here("../../test_repo/example_package")
                 ],
             ),

@@ -1,3 +1,4 @@
+import asyncio
 import glob
 import itertools
 import os
@@ -95,7 +96,15 @@ def zip_local_code(
                     if splitext(filename)[1].lower() in python_paths_extensions:
                         full = join(dirpath, filename)
                         full_zip = full.replace(real_path, zip_path, 1)
-                        zip_file.write(full, full_zip)
+                        try:
+                            zip_file.write(full, full_zip)
+                        except asyncio.CancelledError:
+                            raise
+                        except BaseException:
+                            print(
+                                f"Warning, skipping file {full} that cannot be added to"
+                                f" the zip file as {full_zip}"
+                            )
 
         for (file_real_path, dir_real_path), dir_zip_path in zip(
             real_file_paths_to_zip, itertools.islice(non_python_zip_paths, 1, None)
@@ -105,7 +114,16 @@ def zip_local_code(
                 # we have to make the sub-paths compatible with Linux which is our
                 # target OS
                 file_zip_path = file_zip_path.replace(os.path.sep, "/")
-            zip_file.write(file_real_path, file_zip_path)
+
+            try:
+                zip_file.write(file_real_path, file_zip_path)
+            except asyncio.CancelledError:
+                raise
+            except BaseException:
+                print(
+                    f"Warning, skipping file {full} that cannot be added to the zip "
+                    f"file as {full_zip}"
+                )
 
     return zip_file_path, python_zip_paths, non_python_zip_paths[0]
 

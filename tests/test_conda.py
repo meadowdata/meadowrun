@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import TYPE_CHECKING
 import pytest
 
@@ -137,9 +138,25 @@ async def test_conda_env_export_activated(mocker: MockerFixture) -> None:
     mocker.patch.dict(
         os.environ, {"CONDA_PREFIX": "/home/user/anaconda/envs/abc"}, clear=True
     )
+    mocker.patch.object(sys, "executable", "/home/user/anaconda/envs/abc/bin/python")
     result = await conda.try_get_current_conda_env()
     _run_conda.assert_called_once()
     assert result == "some yaml"
+
+
+@pytest.mark.asyncio
+async def test_conda_env_export_activated_but_lower_priority(
+    mocker: MockerFixture,
+) -> None:
+    _run_conda = mocker.patch(_CONDA_RUN_NAME)
+    _run_conda.return_value = ("some yaml", "")
+    mocker.patch.dict(
+        os.environ, {"CONDA_PREFIX": "/home/user/anaconda/envs/abc"}, clear=True
+    )
+    mocker.patch.object(sys, "executable", "/home/user/some_other/venv/python")
+    result = await conda.try_get_current_conda_env()
+    _run_conda.assert_not_called()
+    assert result is None
 
 
 @pytest.mark.asyncio

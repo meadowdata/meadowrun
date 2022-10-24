@@ -619,8 +619,8 @@ async def run_map_as_completed(
 ) -> AsyncIterable[TaskResult[_U]]:
     """
     Equivalent to [run_map][meadowrun.run_map], but returns results from tasks as they
-    are completed. This means that to access the results, you need to iterate using
-    `async for`, and call `result_or_raise`  on the returned
+    are completed as an AsyncIterable. This means that to access the results, you need
+    to iterate using `async for`, and call `result_or_raise`  on the returned
     [TaskResult][meadowrun.TaskResult] objects. Usage for approximating `run_map`
     behavior is:
 
@@ -631,6 +631,11 @@ async def run_map_as_completed(
     )
     results = [task.result_or_raise() for task in sorted_tasks]
     ```
+
+    This will not have exactly the same behavior as `run_map` because `run_map` waits
+    for all of the tasks to execute and then returns a list of results, ordered
+    corresponding to how the `args` parameter was ordered, whereas
+    `run_map_as_completed` returns results as they complete. For simple use cases.
 
     Args:
         function: A reference to a function (e.g. `package.module.function_name`) or a

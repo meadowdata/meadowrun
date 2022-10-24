@@ -79,4 +79,6 @@ The output is:
 3125
 ```
 
-(In general, there's no guarantee what order the results come back in.)
+In general, there's no guarantee what order the results come back in.
+
+`run_map` is recommended for most use cases.

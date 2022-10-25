@@ -19,8 +19,10 @@ from meadowrun.k8s_integration.storage_spec import (
 )
 from meadowrun.storage_keys import storage_key_job_to_run, storage_key_process_state
 from meadowrun.meadowrun_pb2 import ProcessState, Job
-from meadowrun.k8s_integration.is_job_running import _JOB_IS_RUNNING_FILE
-from meadowrun.k8s_integration.k8s_main import _LAST_JOB_TIMESTAMP_FILE
+from meadowrun.k8s_integration.k8s_main import (
+    _JOB_IS_RUNNING_FILE,
+    _LAST_JOB_TIMESTAMP_FILE,
+)
 
 
 async def main() -> None:

@@ -53,6 +53,7 @@ from meadowrun.k8s_integration.k8s_core import (
     wait_for_pods,
     wait_for_pods_running,
 )
+from meadowrun.k8s_integration.k8s_main import IS_JOB_RUNNING_COMMAND
 from meadowrun.meadowrun_pb2 import (
     Job,
     ProcessState,
@@ -1664,13 +1665,6 @@ async def _get_meadowrun_reusable_pods(
             additional_pod_spec_parameters = {}
 
         job_name = f"mdr-reusable-{uuid.uuid4()}"
-        # it would be way more convenient to do -m
-        # meadowrun.k8s_integration.is_job_running, but that is way slower because it
-        # imports everything (i.e. boto3)
-        is_job_running_command = (
-            "import runpy,site;runpy.run_path(site.getsitepackages()[0]"
-            '+"/meadowrun/k8s_integration/is_job_running.py",run_name="__main__")'
-        )
         pod_template_spec = kubernetes_client.V1PodTemplateSpec(
             metadata=kubernetes_client.V1ObjectMeta(
                 labels={
@@ -1683,15 +1677,11 @@ async def _get_meadowrun_reusable_pods(
                     kubernetes_client.V1Container(
                         name="main",
                         image=image_name,
-                        args=[
-                            "python",
-                            "-m",
-                            "meadowrun.k8s_integration.k8s_main",
-                        ],
+                        args=["python", "-m", "meadowrun.k8s_integration.k8s_main"],
                         env=environment,
                         readiness_probe=kubernetes_client.V1Probe(
                             _exec=kubernetes_client.V1ExecAction(
-                                command=["python", "-c", is_job_running_command]
+                                command=IS_JOB_RUNNING_COMMAND
                             ),
                             initial_delay_seconds=15,
                             # TODO this "should" be longer like 15s or so, because jobs
@@ -1699,11 +1689,13 @@ async def _get_meadowrun_reusable_pods(
                             # appropriately. However, there is weird behavior where the
                             # manually updated status will take effect for a few seconds
                             # but then flip back to whatever it was before for no
-                            # apparent reason. It's really hard to know how to even
-                            # investigate this issue, so we just keep this period short.
-                            # This doesn't eliminate the issue entirely but reduces the
-                            # occurrence significantly.
-                            period_seconds=3,
+                            # apparent reason. There's very little documentation on the
+                            # patch_namespaced_pod_status call which is what we're using
+                            # to manually set the status, so it's hard to know if this
+                            # is the correct behavior on the part of Kubernetes or not.
+                            # As a result, we want to run the readiness probe as often
+                            # as possible.
+                            period_seconds=1,
                             timeout_seconds=1,
                             failure_threshold=1,
                             success_threshold=1,

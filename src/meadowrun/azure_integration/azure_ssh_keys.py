@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Tuple, Optional
 
 import asyncssh
@@ -211,3 +212,4 @@ async def download_ssh_key(output_path: str, location: str) -> None:
 
     with open(output_path, "w", encoding="utf-8") as output_file:
         output_file.write(key)
+    os.chmod(output_path, 0o600)  # ignored on Windows

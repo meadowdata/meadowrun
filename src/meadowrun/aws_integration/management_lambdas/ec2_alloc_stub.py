@@ -42,8 +42,8 @@ _RUNNING_JOBS = "running_jobs"
 _JOB_ID = "job_id"
 
 # A tag for EC2 instances that are created using ec2_alloc
-_EC2_ALLOC_TAG = "meadowrun_ec2_alloc"
-_EC2_ALLOC_TAG_VALUE = "TRUE"
+_MEADOWRUN_TAG = "meadowrun"
+_MEADOWRUN_TAG_VALUE = "TRUE"
 
 _MEADOWRUN_GENERATED_DOCKER_REPO = "meadowrun_generated"
 

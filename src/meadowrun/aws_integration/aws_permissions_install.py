@@ -19,8 +19,8 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
-    _EC2_ALLOC_TAG,
     _MEADOWRUN_GENERATED_DOCKER_REPO,
+    _MEADOWRUN_TAG,
     ignore_boto3_error_code,
 )
 
@@ -357,7 +357,7 @@ def _materialize_meadowrun_policy(
         .replace("%MEADOWRUN_SSH_KEY_SECRET%", _MEADOWRUN_KEY_PAIR_SECRET_NAME)
         .replace("%ACCOUNT_NUMBER%", _get_account_number())
         .replace("%MEADOWRUN_ROLE%", _EC2_ROLE_NAME)
-        .replace("%MEADOWRUN_TAG%", _EC2_ALLOC_TAG)
+        .replace("%MEADOWRUN_TAG%", _MEADOWRUN_TAG)
         .replace("%MEADOWRUN_ALLOC_TABLE_NAME%", _EC2_ALLOC_TABLE_NAME)
         .replace("%MEADOWRUN_REPO%", _MEADOWRUN_GENERATED_DOCKER_REPO)
     )

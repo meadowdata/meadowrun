@@ -5,7 +5,7 @@ This page lists all AWS resources created by using meadowrun or running
 running `meadowrun-manage-ec2 uninstall`.
 
 * EC2
-    * Instances: tagged with "meadowrun_ec2_alloc = true"
+    * Instances: tagged with "meadowrun = TRUE"
     * SSH Key Pair: meadowrun_key_pair
     * Security Group: meadowrun_ssh_security_group
 * Secrets

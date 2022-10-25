@@ -10,10 +10,10 @@ import boto3
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
-    _EC2_ALLOC_TAG,
-    _EC2_ALLOC_TAG_VALUE,
     _INSTANCE_ID,
     _LAST_UPDATE_TIME,
+    _MEADOWRUN_TAG,
+    _MEADOWRUN_TAG_VALUE,
     _RUNNING_JOBS,
     ignore_boto3_error_code,
 )
@@ -119,7 +119,7 @@ def _get_non_terminated_instances(ec2_resource: Any) -> Iterable[Any]:
     """Gets all meadowrun-launched EC2 instances that aren't terminated"""
     return ec2_resource.instances.filter(
         Filters=[
-            {"Name": f"tag:{_EC2_ALLOC_TAG}", "Values": [_EC2_ALLOC_TAG_VALUE]},
+            {"Name": f"tag:{_MEADOWRUN_TAG}", "Values": [_MEADOWRUN_TAG_VALUE]},
             {"Name": "instance-state-name", "Values": _NON_TERMINATED_EC2_STATES},
         ]
     )
@@ -128,7 +128,7 @@ def _get_non_terminated_instances(ec2_resource: Any) -> Iterable[Any]:
 def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
     return ec2_resource.instances.filter(
         Filters=[
-            {"Name": f"tag:{_EC2_ALLOC_TAG}", "Values": [_EC2_ALLOC_TAG_VALUE]},
+            {"Name": f"tag:{_MEADOWRUN_TAG}", "Values": [_MEADOWRUN_TAG_VALUE]},
             {"Name": "instance-state-name", "Values": ["running"]},
         ]
     )

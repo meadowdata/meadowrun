@@ -1694,8 +1694,17 @@ async def _get_meadowrun_reusable_pods(
                                 command=["python", "-c", is_job_running_command]
                             ),
                             initial_delay_seconds=15,
-                            period_seconds=15,
-                            timeout_seconds=5,
+                            # TODO this "should" be longer like 15s or so, because jobs
+                            # that exit cleanly will manually update the status
+                            # appropriately. However, there is weird behavior where the
+                            # manually updated status will take effect for a few seconds
+                            # but then flip back to whatever it was before for no
+                            # apparent reason. It's really hard to know how to even
+                            # investigate this issue, so we just keep this period short.
+                            # This doesn't eliminate the issue entirely but reduces the
+                            # occurrence significantly.
+                            period_seconds=3,
+                            timeout_seconds=1,
                             failure_threshold=1,
                             success_threshold=1,
                         ),

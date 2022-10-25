@@ -94,9 +94,9 @@ async def get_pods_for_job(
         if len(results) >= len(pod_generate_names):
             break
 
-        if i > 15:
+        if i > 30:
             raise TimeoutError(
-                "Waited >15s, but pods with the following generate names were not "
+                "Waited >30s, but pods with the following generate names were not "
                 "created: "
                 + ", ".join(p for p in pod_generate_names if p not in results)
             )
@@ -166,7 +166,7 @@ _WAIT_FOR_POD_SECS = {
     PodState.UNSCHEDULABLE: 60 * 7,
     # This is how long we'll wait for a pod to start running for any state other than
     # the ones described above
-    PodState.OTHER_HAS_NOT_RUN: 15,
+    PodState.OTHER_HAS_NOT_RUN: 30,
 }
 
 

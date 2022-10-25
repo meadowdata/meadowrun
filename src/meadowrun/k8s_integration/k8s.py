@@ -50,8 +50,8 @@ from meadowrun.k8s_integration.k8s_core import (
     run_command_on_pod,
     run_command_on_pod_and_stream,
     set_main_container_ready,
-    wait_for_pod,
-    wait_for_pod_running,
+    wait_for_pods,
+    wait_for_pods_running,
 )
 from meadowrun.meadowrun_pb2 import (
     Job,
@@ -1393,16 +1393,8 @@ async def _run_kubernetes_job(
 
         # Now that the pods have been created, stream their logs and get their exit
         # codes
-
-        return await asyncio.gather(
-            *[
-                asyncio.create_task(
-                    wait_for_pod(
-                        core_api, job_name, kubernetes_namespace, pod, wait_for_result
-                    )
-                )
-                for pod in pods
-            ]
+        return await wait_for_pods(
+            core_api, job_name, kubernetes_namespace, pods, wait_for_result
         )
     finally:
         try:
@@ -1749,16 +1741,10 @@ async def _get_meadowrun_reusable_pods(
                 print("Warning, error cleaning up job:\n" + traceback.format_exc())
             raise
 
-        # TODO consider using list_namespaced_pod to reduce the number of API calls we
-        # need to make. Would make sense depending on what percentage of the total
-        # Meadowrun pods we are currently using.
-        for pod_future in asyncio.as_completed(
-            [
-                wait_for_pod_running(core_api, job_name, kubernetes_namespace, pod)
-                for pod in pods
-            ]
+        async for pod_results in wait_for_pods_running(
+            core_api, job_name, kubernetes_namespace, pods
         ):
-            yield [await pod_future]
+            yield pod_results
 
         print(f"Started {remaining_pods_to_launch} new pods")
 

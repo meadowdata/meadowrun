@@ -75,7 +75,26 @@ def _strtobool(val: str) -> int:
 
 
 async def async_main(cloud_provider: CloudProviderType) -> None:
+    if cloud_provider == "EC2":
+        region_name = await _get_default_region_name()
+    elif cloud_provider == "AzureVM":
+        region_name = get_default_location()
+    else:
+        raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
+
     parser = argparse.ArgumentParser()
+
+    if cloud_provider == "EC2":
+        parser.add_argument(
+            "--region",
+            type=str,
+            default=region_name,
+            help=(
+                f"An optional argument to specify a region name, e.g. {region_name}. If"
+                " this is not specified, will use the defaults as specified by `aws "
+                "configure`"
+            ),
+        )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -191,19 +210,12 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
     args = parser.parse_args()
 
-    if cloud_provider == "EC2":
-        region_name = await _get_default_region_name()
-    elif cloud_provider == "AzureVM":
-        region_name = get_default_location()
-    else:
-        raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
-
     t0 = time.perf_counter()
     if args.command == "install":
         print("Creating resources for running meadowrun")
         if cloud_provider == "EC2":
             await aws.install(
-                region_name,
+                args.region,
                 args.allow_authorize_ips,
                 args.vpc_id,
                 aws.get_management_lambda_overrides_from_args(args),
@@ -217,7 +229,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         print("Editing management lambda config")
         if cloud_provider == "EC2":
             await aws.edit_management_lambda_config(
-                aws.get_management_lambda_overrides_from_args(args)
+                aws.get_management_lambda_overrides_from_args(args), args.region
             )
         elif cloud_provider == "AzureVM":
             raise NotImplementedError(
@@ -231,7 +243,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")
         if cloud_provider == "EC2":
-            aws.delete_meadowrun_resources(region_name)
+            aws.delete_meadowrun_resources(args.region)
         elif cloud_provider == "AzureVM":
             await azure.delete_meadowrun_resource_group()
         else:
@@ -253,8 +265,8 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
         if cloud_provider == "EC2":
             if args.clean_active:
-                aws.terminate_all_instances(region_name, False)
-            _deregister_and_terminate_instances(region_name, datetime.timedelta.min)
+                aws.terminate_all_instances(args.region, False)
+            _deregister_and_terminate_instances(args.region, datetime.timedelta.min)
             clear_prices_cache()
         elif cloud_provider == "AzureVM":
             resource_group_path = await ensure_meadowrun_resource_group(region_name)
@@ -277,7 +289,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
         print("Deleting unused grid task queues")
         if cloud_provider == "EC2":
-            aws_delete_old_task_queues(region_name)
+            aws_delete_old_task_queues(args.region)
         elif cloud_provider == "AzureVM":
             # set some environment variables as if we're running in an Azure Function
             storage_account = await ensure_meadowrun_storage_account(
@@ -297,7 +309,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
         print(f"Deleting unused meadowrun-generated {ecr} images")
         if cloud_provider == "EC2":
-            aws_delete_unused_images(region_name)
+            aws_delete_unused_images(args.region)
         elif cloud_provider == "AzureVM":
             for log_line in await azure_delete_unused_images():
                 print(log_line)
@@ -310,7 +322,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     elif args.command == "grant-permission-to-secret":
         print(f"Granting access to the meadowrun {role} to access {args.secret_name}")
         if cloud_provider == "EC2":
-            grant_permission_to_secret(args.secret_name, region_name)
+            grant_permission_to_secret(args.secret_name, args.region)
         elif cloud_provider == "AzureVM":
             raise NotImplementedError(
                 "Granting permission to individual secrets is not implemented for "
@@ -324,7 +336,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     elif args.command == "grant-permission-to-s3-bucket":
         print(f"Granting access to the meadowrun {role} to access {args.bucket_name}")
         if cloud_provider == "EC2":
-            grant_permission_to_s3_bucket(args.bucket_name, region_name)
+            grant_permission_to_s3_bucket(args.bucket_name, args.region)
         elif cloud_provider == "AzureVM":
             raise NotImplementedError(
                 "Granting permission to S3 buckets is not implemented for Azure. The "
@@ -337,7 +349,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
     elif args.command == "grant-permission-to-ecr-repo":
         print(f"Granting access to the meadowrun {role} to access {args.repo_name}")
         if cloud_provider == "EC2":
-            grant_permission_to_ecr_repo(args.repo_name, region_name)
+            grant_permission_to_ecr_repo(args.repo_name, args.region)
         elif cloud_provider == "AzureVM":
             raise NotImplementedError(
                 "Granting permission to ACR repos is not implemented for Azure. The "
@@ -355,7 +367,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             output = args.output
         print(f"Writing meadowrun ssh key to {output}")
         if cloud_provider == "EC2":
-            ec2_download_ssh_key(output, region_name)
+            ec2_download_ssh_key(output, args.region)
         elif cloud_provider == "AzureVM":
             await azure_download_ssh_key(output, region_name)
         else:

@@ -11,10 +11,7 @@ import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
-from meadowrun.aws_integration.aws_core import (
-    _get_account_number,
-    _get_default_region_name,
-)
+from meadowrun.aws_integration.aws_core import _get_account_number
 from meadowrun.aws_integration.aws_permissions_install import _MANAGEMENT_LAMBDA_ROLE
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     ignore_boto3_error_code,
@@ -118,7 +115,7 @@ async def _create_management_lambda(
     )
 
     # now create an EventBridge rule that triggers every 1 minute
-    events_client = boto3.client("events")
+    events_client = boto3.client("events", region_name=region_name)
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/events.html#EventBridge.Client.put_rule
     events_client.put_rule(
         Name=schedule_rule_name, ScheduleExpression=schedule_expression
@@ -177,6 +174,7 @@ async def _ensure_management_lambda(
     schedule_expression: str,
     update_if_exists: bool,
     overrides: Dict[str, str],
+    region_name: str,
 ) -> None:
     """
     Create the specified management lambda if it doesn't exist. If update_if_exists is
@@ -188,7 +186,6 @@ async def _ensure_management_lambda(
     The meadowrun management lambda role must exist already
     """
 
-    region_name = await _get_default_region_name()
     lambda_client = boto3.client("lambda", region_name=region_name)
 
     exists, _ = ignore_boto3_error_code(
@@ -215,7 +212,7 @@ async def _ensure_management_lambda(
 
 
 async def ensure_ec2_alloc_lambda(
-    update_if_exists: bool, overrides: Dict[str, str]
+    update_if_exists: bool, overrides: Dict[str, str], region_name: str
 ) -> None:
     await _ensure_management_lambda(
         meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.lambda_handler,  # noqa: E501
@@ -224,11 +221,12 @@ async def ensure_ec2_alloc_lambda(
         "rate(1 minute)",
         update_if_exists,
         overrides,
+        region_name,
     )
 
 
 async def ensure_clean_up_lambda(
-    update_if_exists: bool, overrides: Dict[str, str]
+    update_if_exists: bool, overrides: Dict[str, str], region_name: str
 ) -> None:
     await _ensure_management_lambda(
         meadowrun.aws_integration.management_lambdas.clean_up.lambda_handler,
@@ -237,6 +235,7 @@ async def ensure_clean_up_lambda(
         "rate(3 hours)",
         update_if_exists,
         overrides,
+        region_name,
     )
 
 

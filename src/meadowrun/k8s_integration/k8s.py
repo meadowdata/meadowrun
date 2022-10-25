@@ -76,6 +76,7 @@ from meadowrun.run_job_local import (
     _string_pairs_to_dict,
     restart_worker,
 )
+from meadowrun.shared import b32_encoded_uuid
 from meadowrun.storage_grid_job import (
     complete_task,
     download_task_arg,
@@ -1664,7 +1665,7 @@ async def _get_meadowrun_reusable_pods(
         else:
             additional_pod_spec_parameters = {}
 
-        job_name = f"mdr-reusable-{uuid.uuid4()}"
+        job_name = f"mdr-reusable-{b32_encoded_uuid().replace('=', '').lower()}"
         pod_template_spec = kubernetes_client.V1PodTemplateSpec(
             metadata=kubernetes_client.V1ObjectMeta(
                 labels={

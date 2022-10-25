@@ -44,6 +44,7 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
     choose_instance_types_for_job,
 )
+from meadowrun.shared import b62_encoded_uuid
 from meadowrun.version import __version__
 
 
@@ -632,6 +633,10 @@ async def launch_ec2_instances(
 
             at_least_one_chosen_instance_type = True
             for _ in range(instance_type.num_instances):
+                if tags is None:
+                    tags = {}
+                if "Name" not in tags:
+                    tags["Name"] = f"mdr-{b62_encoded_uuid()}"
                 launch_ec2_result = await launch_ec2_instance(
                     region_name,
                     instance_type.instance_type.name,

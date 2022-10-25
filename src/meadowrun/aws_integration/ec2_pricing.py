@@ -27,7 +27,8 @@ from meadowrun.instance_selection import CloudInstanceType, ResourcesInternal
 from meadowrun.local_cache import get_cached_json, save_json_to_cache, clear_cache
 
 
-_CACHED_EC2_PRICES_FILENAME = "aws_ec2_prices.json"
+_CACHED_EC2_PRICES_PREFIX = "aws_ec2_prices"
+_CACHED_EC2_PRICES_FILENAME = f"{_CACHED_EC2_PRICES_PREFIX}-{{region_name}}.json"
 
 
 async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
@@ -38,9 +39,13 @@ async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
 
     # TODO at some point add cross-region optimization
 
+    cached_ec2_prices_filename = _CACHED_EC2_PRICES_FILENAME.format(
+        region_name=region_name
+    )
+
     try:
         cached = get_cached_json(
-            _CACHED_EC2_PRICES_FILENAME, datetime.timedelta(hours=4)
+            cached_ec2_prices_filename, datetime.timedelta(hours=4)
         )
         if cached:
             return [CloudInstanceType.from_dict(cit) for cit in cached]
@@ -56,7 +61,7 @@ async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
     }
     result.extend(await _get_ec2_spot_prices(region_name, on_demand_instance_types))
 
-    save_json_to_cache(_CACHED_EC2_PRICES_FILENAME, [cit.to_dict() for cit in result])
+    save_json_to_cache(cached_ec2_prices_filename, [cit.to_dict() for cit in result])
 
     return result
 
@@ -436,4 +441,4 @@ async def _get_ec2_interruption_probabilities(region_name: str) -> Dict[str, flo
 
 
 def clear_prices_cache() -> None:
-    clear_cache(_CACHED_EC2_PRICES_FILENAME)
+    clear_cache(_CACHED_EC2_PRICES_PREFIX)

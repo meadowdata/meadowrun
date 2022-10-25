@@ -1,4 +1,5 @@
 import datetime
+import glob
 import json
 import os
 import time
@@ -46,8 +47,11 @@ def save_json_to_cache(name: str, json_data: Any) -> None:
         json.dump(json_data, f)
 
 
-def clear_cache(name: str) -> None:
+def clear_cache(prefix: str) -> None:
     try:
-        os.remove(os.path.join(MEADOWRUN_DIRS.user_cache_dir, name))
+        for file in glob.glob(
+            os.path.join(MEADOWRUN_DIRS.user_cache_dir, f"{prefix}*")
+        ):
+            os.remove(file)
     except OSError:
         pass

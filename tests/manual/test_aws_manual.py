@@ -6,6 +6,7 @@ the test has passed
 import time
 
 from automated.aws.test_instance_registrar import EC2InstanceRegistrarProvider
+from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_mgmt_lambda_install import (
     ensure_clean_up_lambda,
     ensure_ec2_alloc_lambda,
@@ -71,5 +72,6 @@ async def manual_test_create_management_lambdas() -> None:
     """Tests setting up the ec2_alloc lambda"""
     # 1. delete the lambda and the ec2_alloc_lambda_role, then run this.
     # 2. make a small change to the lambda code then run this again
-    await ensure_ec2_alloc_lambda(True, {})
-    await ensure_clean_up_lambda(True, {})
+    region_name = await _get_default_region_name()
+    await ensure_ec2_alloc_lambda(True, {}, region_name)
+    await ensure_clean_up_lambda(True, {}, region_name)

@@ -75,6 +75,8 @@ async def install(
 ) -> None:
     """Installs resources needed to run Meadowrun jobs"""
 
+    print(f"Installing Meadowrun in {region_name}")
+
     ensure_security_group(_MEADOWRUN_SSH_SECURITY_GROUP, region_name, vpc_id)
 
     if not allow_authorize_ips:
@@ -94,8 +96,8 @@ async def install(
 
     ensure_ec2_alloc_table(region_name)
 
-    await ensure_ec2_alloc_lambda(True, management_lambda_overrides)
-    await ensure_clean_up_lambda(True, management_lambda_overrides)
+    await ensure_ec2_alloc_lambda(True, management_lambda_overrides, region_name)
+    await ensure_clean_up_lambda(True, management_lambda_overrides, region_name)
 
     ensure_meadowrun_key_pair(region_name)
 
@@ -104,9 +106,11 @@ async def install(
     _ensure_repository(_MEADOWRUN_GENERATED_DOCKER_REPO, region_name)
 
 
-async def edit_management_lambda_config(overrides: Dict[str, str]) -> None:
-    await ensure_ec2_alloc_lambda(True, overrides)
-    await ensure_clean_up_lambda(True, overrides)
+async def edit_management_lambda_config(
+    overrides: Dict[str, str], region_name: str
+) -> None:
+    await ensure_ec2_alloc_lambda(True, overrides, region_name)
+    await ensure_clean_up_lambda(True, overrides, region_name)
 
 
 def _delete_user_group(iam: Any, group_name: str) -> None:
@@ -235,30 +239,6 @@ def delete_meadowrun_resources(region_name: str) -> None:
 
     delete_bucket(region_name)
 
-    iam = boto3.client("iam", region_name=region_name)
-
-    ignore_boto3_error_code(
-        lambda: iam.remove_role_from_instance_profile(
-            RoleName=_EC2_ROLE_NAME,
-            InstanceProfileName=_EC2_ROLE_INSTANCE_PROFILE,
-        ),
-        "NoSuchEntity",
-    )
-    ignore_boto3_error_code(
-        lambda: iam.delete_instance_profile(
-            InstanceProfileName=_EC2_ROLE_INSTANCE_PROFILE
-        ),
-        "NoSuchEntity",
-    )
-
-    _delete_user_group(iam, _MEADOWRUN_USER_GROUP_NAME)
-    _delete_iam_role(iam, _EC2_ROLE_NAME)
-    _delete_iam_role(iam, _MANAGEMENT_LAMBDA_ROLE)
-
-    _delete_policy(iam, _MEADOWRUN_USER_POLICY_NAME)
-    _delete_policy(iam, _EC2_ROLE_POLICY_NAME)
-    _delete_policy(iam, _MANAGEMENT_LAMBDA_POLICY_NAME)
-
     lambda_client = boto3.client("lambda", region_name=region_name)
     ignore_boto3_error_code(
         lambda: lambda_client.delete_function(FunctionName=_EC2_ALLOC_LAMBDA_NAME),
@@ -320,6 +300,34 @@ def delete_meadowrun_resources(region_name: str) -> None:
     )
 
     clear_prices_cache()
+
+    print(
+        "Deleting IAM resources. This may fail if you have installed Meadowrun in other"
+        " regions. Non-IAM resources have been successfully deleted"
+    )
+    iam = boto3.client("iam", region_name=region_name)
+
+    ignore_boto3_error_code(
+        lambda: iam.remove_role_from_instance_profile(
+            RoleName=_EC2_ROLE_NAME,
+            InstanceProfileName=_EC2_ROLE_INSTANCE_PROFILE,
+        ),
+        "NoSuchEntity",
+    )
+    ignore_boto3_error_code(
+        lambda: iam.delete_instance_profile(
+            InstanceProfileName=_EC2_ROLE_INSTANCE_PROFILE
+        ),
+        "NoSuchEntity",
+    )
+
+    _delete_user_group(iam, _MEADOWRUN_USER_GROUP_NAME)
+    _delete_iam_role(iam, _EC2_ROLE_NAME)
+    _delete_iam_role(iam, _MANAGEMENT_LAMBDA_ROLE)
+
+    _delete_policy(iam, _MEADOWRUN_USER_POLICY_NAME)
+    _delete_policy(iam, _EC2_ROLE_POLICY_NAME)
+    _delete_policy(iam, _MANAGEMENT_LAMBDA_POLICY_NAME)
 
 
 def delete_bucket(region_name: str) -> None:

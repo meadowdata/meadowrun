@@ -94,7 +94,15 @@ def zip_local_code(
     with create_zipfile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
         if python_paths_extensions:
             for real_path, zip_path in python_root_dirs_and_zip_paths:
-                for dirpath, _, filenames in os.walk(real_path):
+                for dirpath, dir_names, filenames in os.walk(real_path):
+                    for dir_name in dir_names:
+                        # python_dirs (which ultimately populates real_path in this
+                        # loop) should already have excluded any paths that are
+                        # sys.prefix paths. However, a fairly common pattern is to have
+                        # "." as a non-sys.prefix path and ./.venv/lib/ be a sys.prefix
+                        # path. In that case, we want to exclude ./.venv/lib
+                        if _is_sys_prefix_path(os.path.join(dirpath, dir_name)):
+                            dir_names.remove(dir_name)
                     for filename in filenames:
                         if splitext(filename)[1].lower() in python_paths_extensions:
                             full = join(dirpath, filename)
@@ -131,6 +139,10 @@ def zip_local_code(
     return zip_file_path, python_dirs_as_zip_paths, non_python_files_as_dirs_in_zip[0]
 
 
+def _is_sys_prefix_path(path: str) -> bool:
+    return path.startswith((sys.prefix, sys.base_prefix))
+
+
 def _get_python_dirs_to_zip(
     python_dirs_to_zip: Iterable[str],
     include_sys_path: bool,
@@ -138,10 +150,7 @@ def _get_python_dirs_to_zip(
     python_dirs_to_zip = [realpath(path) for path in python_dirs_to_zip]
     if include_sys_path:
         for candidate in sys.path:
-            if not (
-                candidate.startswith(sys.prefix)
-                or candidate.startswith(sys.base_prefix)
-            ):
+            if not _is_sys_prefix_path(candidate):
                 if candidate == "":
                     # empty path on sys.path means cwd
                     python_dirs_to_zip.append(realpath(os.getcwd()))

@@ -15,7 +15,7 @@ import time
 import traceback
 from typing import TYPE_CHECKING, Any, Optional
 
-from meadowrun.k8s_integration.is_job_running import is_job_running
+import filelock
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -23,6 +23,21 @@ if TYPE_CHECKING:
 _LAST_JOB_TIMESTAMP_FILE = "/var/meadowrun/job_timestamp"
 
 _IDLE_TIMEOUT_SECS = 60 * 5
+
+
+def is_job_running() -> bool:
+    try:
+        with filelock.FileLock(_JOB_IS_RUNNING_FILE, 0):
+            pass
+        return False
+    except filelock.Timeout:
+        return True
+
+
+_JOB_IS_RUNNING_FILE = "/var/meadowrun/job_is_running"
+# this is exactly equivalent to is_job_running but is much faster if that's all we want
+# to do because it doesn't require starting a python interpreter
+IS_JOB_RUNNING_COMMAND = ["flock", "-w", "0", _JOB_IS_RUNNING_FILE, "-c", "true"]
 
 
 def _sigchld_handler(signum: int, frame: Optional[FrameType]) -> Any:

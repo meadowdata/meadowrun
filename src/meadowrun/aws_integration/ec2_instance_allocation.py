@@ -49,8 +49,8 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
     _EC2_ALLOC_TABLE_NAME,
-    _EC2_ALLOC_TAG,
-    _EC2_ALLOC_TAG_VALUE,
+    _MEADOWRUN_TAG,
+    _MEADOWRUN_TAG_VALUE,
     _INSTANCE_ID,
     _LAST_UPDATE_TIME,
     _NON_CONSUMABLE_RESOURCES,
@@ -515,7 +515,7 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
             region_name=region_name,
             # assumes that we've already called ensure_meadowrun_key_pair!
             key_name=MEADOWRUN_KEY_PAIR_NAME,
-            tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
+            tags={_MEADOWRUN_TAG: _MEADOWRUN_TAG_VALUE},
             abort=abort,
         )
 

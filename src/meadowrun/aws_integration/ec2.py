@@ -28,8 +28,8 @@ from meadowrun.aws_integration.aws_core import (
 )
 from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _EC2_ALLOC_TAG,
-    _EC2_ALLOC_TAG_VALUE,
+    _MEADOWRUN_TAG,
+    _MEADOWRUN_TAG_VALUE,
     ignore_boto3_error_code,
     ignore_boto3_error_code_async,
 )
@@ -175,7 +175,7 @@ def ensure_security_group(
             TagSpecifications=[
                 {
                     "ResourceType": "security-group",
-                    "Tags": [{"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}],
+                    "Tags": [{"Key": _MEADOWRUN_TAG, "Value": _MEADOWRUN_TAG_VALUE}],
                 }
             ],
             **additional_parameters,
@@ -209,7 +209,7 @@ async def ensure_port_security_group(ports: str, region_name: str) -> str:
                     {
                         "ResourceType": "security-group",
                         "Tags": [
-                            {"Key": _EC2_ALLOC_TAG, "Value": _EC2_ALLOC_TAG_VALUE}
+                            {"Key": _MEADOWRUN_TAG, "Value": _MEADOWRUN_TAG_VALUE}
                         ],
                     }
                 ],

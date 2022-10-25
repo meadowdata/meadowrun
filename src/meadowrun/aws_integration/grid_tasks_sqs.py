@@ -18,8 +18,8 @@ from typing import (
 import aiobotocore.session
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _EC2_ALLOC_TAG,
-    _EC2_ALLOC_TAG_VALUE,
+    _MEADOWRUN_TAG,
+    _MEADOWRUN_TAG_VALUE,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.storage_grid_job import (
@@ -55,7 +55,7 @@ async def create_request_queue(job_id: str, sqs: SQSClient) -> str:
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.create_queue
     request_queue_response = await sqs.create_queue(
         QueueName=f"{_REQUEST_QUEUE_NAME_PREFIX}{job_id}",
-        tags={_EC2_ALLOC_TAG: _EC2_ALLOC_TAG_VALUE},
+        tags={_MEADOWRUN_TAG: _MEADOWRUN_TAG_VALUE},
     )
 
     # FIFO SQS queues would be nice because they give an "at most once" message delivery

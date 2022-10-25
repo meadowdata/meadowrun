@@ -1,3 +1,5 @@
+import os
+
 import asyncssh
 
 import boto3
@@ -101,3 +103,4 @@ def download_ssh_key(output_path: str, region_name: str) -> None:
     private_key_text = _get_meadowrun_ssh_key_text(region_name)
     with open(output_path, "w", encoding="utf-8") as output_file:
         output_file.write(private_key_text)
+    os.chmod(output_path, 0o600)  # ignored on Windows

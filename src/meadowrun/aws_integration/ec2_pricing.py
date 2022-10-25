@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import datetime
 import io
@@ -304,6 +305,10 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
         )
 
 
+# if interruption_probability is missing, just default to 80%
+_DEFAULT_INTERRUPTION_PROBABILITY = 80
+
+
 async def _get_ec2_spot_prices(
     region_name: str, on_demand_instance_types: Dict[str, CloudInstanceType]
 ) -> List[CloudInstanceType]:
@@ -358,10 +363,11 @@ async def _get_ec2_spot_prices(
                 on_demand_or_spot="spot",
                 resources=on_demand_instance_type.resources.copy(),
             )
-            # if interruption_probability is missing, just default to 80%
             spot_instance_type.resources.non_consumable[
                 EVICTION_RATE_INVERSE
-            ] = 100 - interruption_probabilities.get(instance_type, 80)
+            ] = 100 - interruption_probabilities.get(
+                instance_type, _DEFAULT_INTERRUPTION_PROBABILITY
+            )
             results.append(spot_instance_type)
 
     return results
@@ -379,6 +385,21 @@ async def _get_ec2_interruption_probabilities(region_name: str) -> Dict[str, flo
     async with aiohttp.request(
         "GET", "https://spot-bid-advisor.s3.amazonaws.com/spot-advisor-data.json"
     ) as response:
+        if not response.ok:
+            try:
+                response_text = await response.text()
+            except asyncio.CancelledError:
+                raise
+            except BaseException:
+                response_text = ""
+
+            print(
+                f"Error getting interruption probabilities ({response.status}: "
+                f"{response_text}), will default to {_DEFAULT_INTERRUPTION_PROBABILITY}"
+                " for all instance types"
+            )
+            return {}
+
         response.raise_for_status()
         data = await response.json()
 

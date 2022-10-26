@@ -1,4 +1,4 @@
-# Meadowrun deployment tutorial
+# Deployment options overview
 
 This page gives quick examples of how to use the main deployment options in Meadowrun.
 Also see [How deployment works](../../explanation/deployment) for a look at what's

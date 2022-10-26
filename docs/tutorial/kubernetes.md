@@ -1,4 +1,4 @@
-# Run Meadowrun on Kubernetes (Minikube)
+# Run a Python function on Kubernetes (Minikube)
 
 This page shows how to run Meadowrun on Kubernetes using
 [Minikube](https://minikube.sigs.k8s.io/docs/start/). Minikube isn't useful for
@@ -267,10 +267,10 @@ is doing:
 ## Next steps
 
 - In addition to `run_function`, Meadowrun provides [other
-  entrypoints](../entry_points). The most important of these is
+  entry points](../../reference/entry_points). The most important of these is
   [`run_map`][meadowrun.run_map], which allows you to use many pods in parallel.
 - By default, Meadowrun will mirror your current local deployment, but there are [other
-  ways to specify the code and libraries](../deployment) you want to use when running
+  ways to specify the code and libraries](../../reference/deployment) you want to use when running
   remotely.
 - Learn more about [how Meadowrun uses Kubernetes
   resources](../../reference/kubernetes_resources)

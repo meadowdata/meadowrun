@@ -1,4 +1,4 @@
-# Run Meadowrun on Azure VMs
+# Run a Python function on Azure VMs
 
 This page walks you through running a function on an Azure VM using your local code and
 libraries.
@@ -111,7 +111,7 @@ remote output to the local output.
 
 ## Next steps
 
-- In addition to `run_function`, Meadowrun provides [other entrypoints](../entry_points).
+- In addition to `run_function`, Meadowrun provides [other entrypoints](../../reference/entry_points).
   The most important of these is [`run_map`][meadowrun.run_map], which allows you to use
   many VMs in parallel.
 

@@ -28,10 +28,12 @@ plugins:
       redirect_maps:
         'tutorial/install.md': 'index.md'
         'tutorial/run_function.md': 'tutorial/aws_ec2.md'
-        'tutorial/run_function_git_conda.md': 'tutorial/deployment.md'
-        'tutorial/run_command_in_container.md': 'tutorial/deployment.md'
-        'tutorial/run_map.md': 'tutorial/entry_points.md'
+        'tutorial/run_function_git_conda.md': 'reference/deployment.md'
+        'tutorial/run_command_in_container.md': 'reference/deployment.md'
+        'tutorial/run_map.md': 'reference/entry_points.md'
         'how_to/kubernetes.md': 'tutorial/kubernetes.md'
+        'tutorial/entry_points.md': 'reference/entry_points.md'
+        'tutorial/deployment.md': 'reference/deployment.md'
 markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tabbed:

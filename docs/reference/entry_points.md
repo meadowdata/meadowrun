@@ -1,11 +1,11 @@
-# Meadowrun entry points tutorial
+# Entry points overview
 
-This page gives quick examples of how to use each of Meadowrun's entrypoints.
+This page gives quick examples of how to use each of Meadowrun's entry points.
 
 <!--quickstarted-start-->
 We will assume you've gone through either the quickstart or one of the tutorials for a
-specific platform ([AWS EC2](../aws_ec2), [Azure VMs](../azure_vm),
-[GKE](../gke), or [Kubernetes](../kubernetes)). In the examples, we'll use
+specific platform ([AWS EC2](../../tutorial/aws_ec2), [Azure VMs](../../tutorial/azure_vm),
+[GKE](../../tutorial/gke), or [Kubernetes](../../tutorial/kubernetes)). In the examples, we'll use
 `host` and `resources` variables that we don't define here. You will need to define
 these variables as they were defined (as parameters) in the platform-specific tutorials.
 <!--quickstarted-end-->
@@ -23,16 +23,15 @@ Returns `499.5`.
 
 ## [`run_command`][meadowrun.run_command]
 
-Runs a command remotely. See [Run a Jupyter notebook remotely](../jupyter_notebook) for
+Runs a command remotely. See [Run a Jupyter notebook remotely](../../tutorial/jupyter_notebook) for
 a fully worked example of using `run_command`.
 
 ## [`run_map`][meadowrun.run_map]
 
 `run_map` is like the built-in
-[`map`](https://docs.python.org/3/library/functions.html#map) function, but it runs
-in parallel and remotely. This is a powerful tool for scaling computations on the cloud
-that makes it easy to use hundreds or thousands of cores in parallel to process large
-data sets.
+[`map`](https://docs.python.org/3/library/functions.html#map) function, but it runs in
+parallel and remotely. This is a powerful tool for scaling computations: easily use
+hundreds or thousands of cores in parallel to process large data sets.
 
 Example:
 
@@ -81,4 +80,7 @@ The output is:
 
 In general, there's no guarantee what order the results come back in.
 
-`run_map` is recommended for most use cases.
+`run_map` is recommended for most use cases. Consider using `run_map_as_completed` if
+your use case requires further processing of results locally, and you'd like to
+interleave this processing with executing the tasks. This could be beneficial if the
+processing is time-intensive.

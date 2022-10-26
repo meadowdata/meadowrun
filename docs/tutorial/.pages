@@ -3,6 +3,4 @@ nav:
 - azure_vm.md
 - gke.md
 - kubernetes.md
-- entry_points.md
 - jupyter_notebook.md
-- deployment.md

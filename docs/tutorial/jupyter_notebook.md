@@ -4,7 +4,7 @@ This page walks through an example of how to run a Jupyter notebook server using
 Meadowrun.
 
 {%
-include-markdown "entry_points.md"
+include-markdown "../reference/entry_points.md"
 start="<!--quickstarted-start-->"
 end="<!--quickstarted-end-->"
 %}

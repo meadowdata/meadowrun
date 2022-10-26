@@ -10,7 +10,7 @@ AWS, Azure, or Kubernetes. Meadowrun:
 - optimizes for cost, choosing the cheapest instance types and turning them off when
   they're no longer needed.
   
-For more context, see our [case studes](case_studies) of how Meadowrun is used in real
+For more context, see our [case studies](case_studies) of how Meadowrun is used in real
 life, or see the [project homepage](https://meadowrun.io)
 
 ## Quickstart

@@ -1,7 +1,7 @@
 # How deployment works
 
 This page gives a deep dive into how deployment in Meadowrun works. For a quick overview
-and examples, see the [Meadowrun deployment tutorial](../../tutorial/deployment).
+and examples, see the [Meadowrun deployment overview](../../reference/deployment).
 
 Meadowrun makes it easy to get your **code** and libraries, which we'll refer to as your
 **interpreter**, into the cloud.
@@ -47,7 +47,7 @@ machine. In this case, the Meadowrun worker will pull the specified image from t
 specified container registry.
 
 {%
-include-markdown "../tutorial/deployment.md"
+include-markdown "../reference/deployment.md"
 start="<!--containerauth-start-->"
 end="<!--containerauth-end-->"
 %} With this option, your local
@@ -65,7 +65,7 @@ Use `git_repo` when you want to run with code that's been deployed to a git repo
 Meadowrun worker will pull the specified branch/commit.
 
 {%
-include-markdown "../tutorial/deployment.md"
+include-markdown "../reference/deployment.md"
 start="<!--gitrepoauth-start-->"
 end="<!--gitrepoauth-end-->"
 %}
@@ -90,7 +90,7 @@ container. In this case, the Meadowrun worker will pull the specified image from
 specified container registry.
 
 {%
-include-markdown "../tutorial/deployment.md"
+include-markdown "../reference/deployment.md"
 start="<!--containerauth-start-->"
 end="<!--containerauth-end-->"
 %}

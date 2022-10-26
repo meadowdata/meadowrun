@@ -1,4 +1,6 @@
 nav:
+- entry_points.md
+- deployment.md
 - apis.md
 - aws_resources.md
 - azure_resources.md

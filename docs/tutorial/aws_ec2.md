@@ -1,4 +1,4 @@
-# Run Meadowrun on AWS EC2
+# Run a Python function on AWS EC2
 
 This page walks you through running a function on an EC2 instance using your local code
 and libraries.
@@ -112,12 +112,12 @@ remote output to the local output.
 
 ## Next steps
 
-- In addition to `run_function`, Meadowrun provides [other entrypoints](../entry_points).
+- In addition to `run_function`, Meadowrun provides [other entrypoints](../../reference/entry_points).
   The most important of these is [`run_map`][meadowrun.run_map], which allows you to use
   many EC2 instances in parallel.
 <!--aws-azure-generic-next-steps-start-->
 - By default, Meadowrun will mirror your current local deployment, but there are [other
-  ways to specify the code and libraries](../deployment) you want to use when running
+  ways to specify the code and libraries](../../reference/deployment) you want to use when running
   remotely.
 - If you want non-administrator users to use Meadowrun, you'll need to [grant them
   permissions to use Meadowrun](../../how_to/user_permissions).

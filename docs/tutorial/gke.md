@@ -1,4 +1,4 @@
-# Run Meadowrun on GKE (Google Kubernetes Engine)
+# Run a Python function on GKE (Google Kubernetes Engine)
 
 This page walks you through running a function on a GKE cluster using your local code
 and libraries. No need to build any containers!

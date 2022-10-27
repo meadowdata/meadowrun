@@ -18,7 +18,6 @@ from typing import (
     AsyncIterable,
     Awaitable,
     Callable,
-    Coroutine,
     Dict,
     Generic,
     Iterable,
@@ -36,18 +35,16 @@ import asyncssh
 import cloudpickle
 from typing_extensions import Literal
 
-
 import meadowrun.ssh as ssh
 from meadowrun.config import MEMORY_GB
 from meadowrun.instance_allocation import allocate_jobs_to_instances, InstanceRegistrar
 from meadowrun.instance_selection import ResourcesInternal
-from meadowrun.meadowrun_pb2 import Job, ProcessState, PyAgentJob
+from meadowrun.meadowrun_pb2 import Job, ProcessState, PyAgentJob, QualifiedFunctionName
 from meadowrun.shared import unpickle_exception
 
 if TYPE_CHECKING:
     from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.credentials import UsernamePassword
-    from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types import TracebackType
 
 
@@ -789,12 +786,9 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
         ...
 
     @abc.abstractmethod
-    async def get_worker_function(
-        self, queue_index: int
-    ) -> Callable[
-        [str, str, TaskWorkerServer, WorkerMonitor],
-        Coroutine[Any, Any, None],
-    ]:
+    async def get_agent_function(
+        self, queue_index: int, pickle_protocol: int
+    ) -> Tuple[QualifiedFunctionName, Sequence[Any]]:
         """
         Returns a function that will poll/wait for tasks, and communicate to task worker
         via the given streamreader and -writer. The returned function will also exit in
@@ -831,7 +825,9 @@ class WorkerQueue:
     num_workers_launched: int = 0
     num_worker_shutdown_messages_sent: int = 0
     num_workers_exited_unexpectedly: int = 0
-    pickled_worker_function_task: Optional[asyncio.Task[bytes]] = None
+    get_agent_function_task: Optional[
+        asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]]
+    ] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -932,15 +928,9 @@ class GridJobDriver:
             # _cloud_interface.setup_and_add_tasks to complete. We don't want to just
             # run this sequentially, though, because we want to start launching
             # instances before setup_and_add_tasks is complete.
-            async def _get_pickled_worker_function(queue_index: int) -> bytes:
-                return cloudpickle.dumps(
-                    await self._cloud_interface.get_worker_function(queue_index),
-                    protocol=pickle_protocol,
-                )
-
             # initially, we just want the 0th queue
-            self._worker_queues[0].pickled_worker_function_task = asyncio.create_task(
-                _get_pickled_worker_function(0)
+            self._worker_queues[0].get_agent_function_task = asyncio.create_task(
+                self._cloud_interface.get_agent_function(0, pickle_protocol)
             )
 
             # "inner_" on the parameter names is just to avoid name collision with outer
@@ -953,21 +943,31 @@ class GridJobDriver:
                 queue_index: int,
             ) -> JobCompletion:
                 inner_worker_queue = self._worker_queues[queue_index]
-                if inner_worker_queue.pickled_worker_function_task is None:
-                    inner_worker_queue.pickled_worker_function_task = (
-                        asyncio.create_task(_get_pickled_worker_function(queue_index))
+                if inner_worker_queue.get_agent_function_task is None:
+                    inner_worker_queue.get_agent_function_task = asyncio.create_task(
+                        self._cloud_interface.get_agent_function(
+                            queue_index, pickle_protocol
+                        )
                     )
+                (
+                    qualified_agent_function_name,
+                    agent_function_arguments,
+                ) = await inner_worker_queue.get_agent_function_task
                 job = Job(
                     job_id=inner_worker_job_id,
                     py_agent=PyAgentJob(
                         pickled_function=cloudpickle.dumps(
                             user_function, protocol=pickle_protocol
                         ),
-                        pickled_agent_function=(
-                            await inner_worker_queue.pickled_worker_function_task
-                        ),
+                        qualified_agent_function_name=qualified_agent_function_name,
                         pickled_agent_function_arguments=pickle.dumps(
-                            ([inner_ssh_host.address, log_file_name], {}),
+                            (
+                                agent_function_arguments,
+                                {
+                                    "public_address": inner_ssh_host.address,
+                                    "log_file_name": log_file_name,
+                                },
+                            ),
                             protocol=pickle_protocol,
                         ),
                     ),

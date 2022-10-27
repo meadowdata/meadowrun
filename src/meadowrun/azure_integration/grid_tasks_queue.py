@@ -44,7 +44,8 @@ from meadowrun.run_job_core import TaskProcessState
 from meadowrun.run_job_local import WorkerMonitor, restart_worker
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import TaskWorkerServer, WorkerProcessState
+    from meadowrun.run_job_core import WorkerProcessState
+    from meadowrun.run_job_local import TaskWorkerServer
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -257,7 +258,7 @@ async def _worker_iteration(
     return True
 
 
-async def worker_function(
+async def agent_function(
     request_queue: Queue,
     result_queue: Queue,
     public_address: str,

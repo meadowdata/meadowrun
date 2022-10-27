@@ -312,7 +312,7 @@ async def _worker_iteration(
     return True
 
 
-async def worker_function(
+async def agent_function(
     request_queue_url: str,
     job_id: str,
     region_name: str,

@@ -183,7 +183,7 @@ message PyAgentJob {
         QualifiedFunctionName qualified_function_name = 1;
         bytes pickled_function = 2;
     }
-    bytes pickled_agent_function = 3;
+    QualifiedFunctionName qualified_agent_function_name = 5;
     bytes pickled_agent_function_arguments = 4;
 }
 

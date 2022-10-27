@@ -3,15 +3,12 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime
-import functools
 import json
 import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Callable,
-    Coroutine,
     Generic,
     Iterable,
     List,
@@ -33,10 +30,10 @@ from meadowrun.azure_integration.grid_tasks_queue import (
     Queue,
     add_tasks,
     add_worker_shutdown_message,
+    agent_function,
     create_queues_for_job,
     get_results_unordered,
     retry_task,
-    worker_function,
 )
 from meadowrun.azure_integration.mgmt_functions.azure_constants import (
     ALLOCATED_TIME,
@@ -76,6 +73,7 @@ from meadowrun.run_job_core import (
     SshHost,
     WaitOption,
 )
+from meadowrun.meadowrun_pb2 import QualifiedFunctionName
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -84,7 +82,6 @@ if TYPE_CHECKING:
     from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.meadowrun_pb2 import Job
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
-    from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from typing_extensions import Literal
 
 
@@ -599,27 +596,24 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             (await self._request_result_queues)[0], num_workers
         )
 
-    async def get_worker_function(
-        self, queue_index: int
-    ) -> Callable[
-        [str, str, TaskWorkerServer, WorkerMonitor],
-        Coroutine[Any, Any, None],
-    ]:
+    async def get_agent_function(
+        self, queue_index: int, pickle_protocol: int
+    ) -> Tuple[QualifiedFunctionName, Sequence[Any]]:
         if self._request_result_queues is None:
             raise ValueError(
-                "Must call setup_and_add_tasks before calling get_worker_function"
+                "Must call setup_and_add_tasks before calling get_agent_function"
             )
         if queue_index != 0:
             raise NotImplementedError(
                 "Retrying with more resources is not implemented for Azure yet"
             )
 
-        request_queue, result_queue = await self._request_result_queues
-
-        return functools.partial(
-            worker_function,
-            request_queue,
-            result_queue,
+        return (
+            QualifiedFunctionName(
+                module_name=agent_function.__module__,
+                function_name=agent_function.__name__,
+            ),
+            await self._request_result_queues,
         )
 
     async def receive_task_results(

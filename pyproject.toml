@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meadowrun"
-version = "0.2.15"
+version = "0.2.16a1"
 description = "The easiest way to run python code on one or more remote machines"
 readme = "README.md"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]
@@ -19,7 +19,7 @@ meadowrun-manage-azure-vm = "meadowrun.manage:main_azure_vm"
 [tool.poetry.dependencies]
 python = "^3.7"
 protobuf = "^3.18.1"
-cloudpickle = "2.1.0"
+cloudpickle = "*"
 aiobotocore = "^2.1.2"
 aiohttp = "^3.8.0"
 psutil = "^5.8.0"

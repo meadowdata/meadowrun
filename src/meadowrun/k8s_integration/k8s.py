@@ -58,6 +58,7 @@ from meadowrun.meadowrun_pb2 import (
     Job,
     ProcessState,
     PyAgentJob,
+    QualifiedFunctionName,
     ServerAvailableInterpreter,
 )
 from meadowrun.run_job_core import (
@@ -105,7 +106,7 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 
 
-async def _indexed_map_worker(
+async def _indexed_agent_function(
     total_num_tasks: int,
     num_workers: int,
     job_id: str,
@@ -131,7 +132,7 @@ async def _indexed_map_worker(
     storage_bucket = meadowrun.func_worker_storage_helper.FUNC_WORKER_STORAGE_BUCKET
     if storage_bucket is None:
         raise ValueError(
-            "Programming error--_indexed_map_worker must be called from "
+            "Programming error--_indexed_agent_function must be called from "
             "run_job_local_storage_main"
         )
 
@@ -771,10 +772,11 @@ class KubernetesGridJobDriver:
             job_id=self._job_id,
             py_agent=PyAgentJob(
                 pickled_function=cloudpickle.dumps(function, protocol=pickle_protocol),
-                pickled_agent_function=cloudpickle.dumps(
-                    _indexed_map_worker, protocol=pickle_protocol
+                qualified_agent_function_name=QualifiedFunctionName(
+                    module_name=_indexed_agent_function.__module__,
+                    function_name=_indexed_agent_function.__name__,
                 ),
-                pickled_agent_function_arguments=cloudpickle.dumps(
+                pickled_agent_function_arguments=pickle.dumps(
                     (indexed_map_worker_args, {}), protocol=pickle_protocol
                 ),
             ),

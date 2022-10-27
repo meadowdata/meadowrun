@@ -18,7 +18,7 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
     AllocEC2Instance,
     EC2InstanceRegistrar,
 )
-from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
+from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
 from meadowrun.config import EVICTION_RATE_INVERSE, LOGICAL_CPU, MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar
 from meadowrun.instance_selection import (
@@ -82,7 +82,7 @@ async def test_get_ec2_instance_types() -> None:
     # This function makes a lot of assumptions about the format of the data we get from
     # various AWS endpoints, good to check that everything works. Look for unexpected
     # warnings!
-    instance_types = await _get_ec2_instance_types(REGION)
+    instance_types = await get_ec2_instance_types(REGION)
     # the actual number of instance types will fluctuate based on AWS' whims.
     assert len(instance_types) > 600
 

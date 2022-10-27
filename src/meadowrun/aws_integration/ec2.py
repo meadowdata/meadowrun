@@ -26,7 +26,7 @@ from meadowrun.aws_integration.aws_core import (
     _get_current_ip_for_ssh,
     _get_default_region_name,
 )
-from meadowrun.aws_integration.ec2_pricing import _get_ec2_instance_types
+from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
@@ -596,7 +596,7 @@ async def launch_ec2_instances(
     if region_name is None:
         region_name = await _get_default_region_name()
 
-    instance_types = await _get_ec2_instance_types(region_name)
+    instance_types = await get_ec2_instance_types(region_name)
 
     num_jobs_left_to_allocate = num_jobs
     public_dns_name_tasks = []

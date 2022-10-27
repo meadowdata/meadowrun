@@ -31,7 +31,7 @@ _CACHED_EC2_PRICES_PREFIX = "aws_ec2_prices"
 _CACHED_EC2_PRICES_FILENAME = f"{_CACHED_EC2_PRICES_PREFIX}-{{region_name}}.json"
 
 
-async def _get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
+async def get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
     """
     Gets a list of EC2 instance types and their prices in the format expected by
     agent_creator:choose_instance_types_for_job

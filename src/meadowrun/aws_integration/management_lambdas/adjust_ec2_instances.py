@@ -30,8 +30,8 @@ _TERMINATE_INSTANCES_IF_IDLE_FOR = datetime.timedelta(
 )
 # If we see instances running that aren't registered, we assume there is something wrong
 # and they need to be terminated. However, it's possible that we happen to query between
-# when an instance is launched and when it's registered. So for the first 30 seconds
-# after an instance is launched, we don't terminate it even if it's not registered.
+# when an instance is launched and when it's registered. So for some time after an
+# instance is launched, we don't terminate it even if it's not registered.
 _LAUNCH_REGISTER_DELAY = datetime.timedelta(minutes=5)
 
 

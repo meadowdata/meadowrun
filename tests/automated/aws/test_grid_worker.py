@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import pickle
 import uuid
 from typing import TYPE_CHECKING, AsyncContextManager, Callable, List, Optional, Tuple
@@ -150,16 +151,27 @@ class TestGridWorker:
 
         async with await self._create_driver_interface() as interface:
             await interface.setup_and_add_tasks([1, 2, 3, 4])
-            worker_function = await interface.get_worker_function(0)
+            (
+                agent_function_name,
+                agent_function_arguments,
+            ) = await interface.get_agent_function(0, pickle.HIGHEST_PROTOCOL)
+            agent_function = getattr(
+                importlib.import_module(agent_function_name.module_name),
+                agent_function_name.function_name,
+            )
             public_address = "foo"
             log_file_name = "worker_1.log"
 
             async with task_worker_process_monitor(
                 "example_package.example", "tetration"
             ) as (monitor, _):
-                worker_task = asyncio.create_task(
-                    worker_function(
-                        public_address, log_file_name, agent_server, monitor
+                agent_task = asyncio.create_task(
+                    agent_function(
+                        *agent_function_arguments,
+                        public_address,
+                        log_file_name,
+                        agent_server,
+                        monitor,
                     )
                 )
 
@@ -176,7 +188,7 @@ class TestGridWorker:
                             stop_receiving.set()
                             workers_done.set()
                             await interface.shutdown_workers(1, 0)
-                await worker_task
+                await agent_task
                 assert set(results) == {1, 4, 27, 256}
                 await agent_server.close()
 
@@ -191,7 +203,14 @@ class TestGridWorker:
 
         async with await self._create_driver_interface() as interface:
             await interface.setup_and_add_tasks([1, 2, 3, 4])
-            worker_function = await interface.get_worker_function(0)
+            (
+                agent_function_name,
+                agent_function_arguments,
+            ) = await interface.get_agent_function(0, pickle.HIGHEST_PROTOCOL)
+            agent_function = getattr(
+                importlib.import_module(agent_function_name.module_name),
+                agent_function_name.function_name,
+            )
             public_address = "foo"
             log_file_name = "worker_1.log"
 
@@ -199,8 +218,12 @@ class TestGridWorker:
                 "example_package.example", "example_function_raises"
             ) as (monitor, _):
                 worker_task = asyncio.create_task(
-                    worker_function(
-                        public_address, log_file_name, agent_server, monitor
+                    agent_function(
+                        *agent_function_arguments,
+                        public_address,
+                        log_file_name,
+                        agent_server,
+                        monitor,
                     )
                 )
 
@@ -237,7 +260,14 @@ class TestGridWorker:
 
         async with await self._create_driver_interface() as interface:
             await interface.setup_and_add_tasks([1, 2, 3, 4])
-            worker_function = await interface.get_worker_function(0)
+            (
+                agent_function_name,
+                agent_function_arguments,
+            ) = await interface.get_agent_function(0, pickle.HIGHEST_PROTOCOL)
+            agent_function = getattr(
+                importlib.import_module(agent_function_name.module_name),
+                agent_function_name.function_name,
+            )
             public_address = "foo"
             log_file_name = "worker_1.log"
 
@@ -245,8 +275,12 @@ class TestGridWorker:
                 "example_package.example", "crash"
             ) as (monitor, _):
                 worker_task = asyncio.create_task(
-                    worker_function(
-                        public_address, log_file_name, agent_server, monitor
+                    agent_function(
+                        *agent_function_arguments,
+                        public_address,
+                        log_file_name,
+                        agent_server,
+                        monitor,
                     )
                 )
 

@@ -4,15 +4,12 @@ import asyncio
 import dataclasses
 import datetime
 import decimal
-import functools
 import itertools
 import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Callable,
-    Coroutine,
     Dict,
     Iterable,
     List,
@@ -26,6 +23,7 @@ from typing import (
 
 import aiobotocore.session
 import boto3
+
 from meadowrun.aws_integration.aws_core import _get_default_region_name
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
 from meadowrun.aws_integration.ec2 import (
@@ -42,9 +40,9 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
 from meadowrun.aws_integration.grid_tasks_sqs import (
     add_tasks,
     add_worker_shutdown_messages,
+    agent_function,
     create_request_queue,
     retry_task,
-    worker_function,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _ALLOCATED_TIME,
@@ -81,6 +79,7 @@ from meadowrun.storage_grid_job import (
     get_aws_s3_bucket,
     receive_results,
 )
+from meadowrun.meadowrun_pb2 import QualifiedFunctionName
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -88,7 +87,6 @@ if TYPE_CHECKING:
     from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.meadowrun_pb2 import Job
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
-    from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
     from types_aiobotocore_sqs import SQSClient
     from typing_extensions import Literal
 
@@ -102,7 +100,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-08b1819d5bf86c111",
+        "us-east-2": "ami-04622f9863c8936ee",
         "us-east-1": "ami-09c4939788695dce0",
         "us-west-1": "ami-06fbbd5a272f1b533",
         "us-west-2": "ami-0325070b859fda9bc",
@@ -816,20 +814,22 @@ class EC2GridJobInterface(GridJobCloudInterface):
             await self._request_queue_urls[queue_index], num_workers, self._sqs_client
         )
 
-    async def get_worker_function(
-        self, queue_index: int
-    ) -> Callable[
-        [str, str, TaskWorkerServer, WorkerMonitor],
-        Coroutine[Any, Any, None],
-    ]:
+    async def get_agent_function(
+        self, queue_index: int, pickle_protocol: int
+    ) -> Tuple[QualifiedFunctionName, Sequence[Any]]:
         if len(self._request_queue_urls) < queue_index + 1:
             raise ValueError(f"Queue {queue_index} has not been created yet")
 
-        return functools.partial(
-            worker_function,
-            await self._request_queue_urls[queue_index],
-            self._job_id,
-            self._region_name,
+        return (
+            QualifiedFunctionName(
+                module_name=agent_function.__module__,
+                function_name=agent_function.__name__,
+            ),
+            [
+                await self._request_queue_urls[queue_index],
+                self._job_id,
+                self._region_name,
+            ],
         )
 
     async def receive_task_results(

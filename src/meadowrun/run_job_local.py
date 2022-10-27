@@ -4,6 +4,7 @@ import abc
 import asyncio
 import asyncio.subprocess
 import dataclasses
+import importlib
 import itertools
 import os
 import os.path
@@ -1115,7 +1116,10 @@ async def _run_agent(
     # run the agent function. The agent function connects to another
     # process, the task worker, which runs the actual user function.
     assert job_spec_transformed.server is not None
-    agent_func = pickle.loads(job.py_agent.pickled_agent_function)
+    agent_func = getattr(
+        importlib.import_module(job.py_agent.qualified_agent_function_name.module_name),
+        job.py_agent.qualified_agent_function_name.function_name,
+    )
     agent_func_args, agent_func_kwargs = pickle.loads(
         job.py_agent.pickled_agent_function_arguments
     )

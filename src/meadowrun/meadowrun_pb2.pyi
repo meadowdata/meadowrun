@@ -584,19 +584,20 @@ class PyAgentJob(google.protobuf.message.Message):
 
     QUALIFIED_FUNCTION_NAME_FIELD_NUMBER: builtins.int
     PICKLED_FUNCTION_FIELD_NUMBER: builtins.int
-    PICKLED_AGENT_FUNCTION_FIELD_NUMBER: builtins.int
+    QUALIFIED_AGENT_FUNCTION_NAME_FIELD_NUMBER: builtins.int
     PICKLED_AGENT_FUNCTION_ARGUMENTS_FIELD_NUMBER: builtins.int
     @property
     def qualified_function_name(self) -> global___QualifiedFunctionName: ...
     pickled_function: builtins.bytes
-    pickled_agent_function: builtins.bytes
+    @property
+    def qualified_agent_function_name(self) -> global___QualifiedFunctionName: ...
     pickled_agent_function_arguments: builtins.bytes
     def __init__(
         self,
         *,
         qualified_function_name: global___QualifiedFunctionName | None = ...,
         pickled_function: builtins.bytes = ...,
-        pickled_agent_function: builtins.bytes = ...,
+        qualified_agent_function_name: global___QualifiedFunctionName | None = ...,
         pickled_agent_function_arguments: builtins.bytes = ...,
     ) -> None: ...
     def HasField(
@@ -606,6 +607,8 @@ class PyAgentJob(google.protobuf.message.Message):
             b"function_spec",
             "pickled_function",
             b"pickled_function",
+            "qualified_agent_function_name",
+            b"qualified_agent_function_name",
             "qualified_function_name",
             b"qualified_function_name",
         ],
@@ -615,12 +618,12 @@ class PyAgentJob(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "function_spec",
             b"function_spec",
-            "pickled_agent_function",
-            b"pickled_agent_function",
             "pickled_agent_function_arguments",
             b"pickled_agent_function_arguments",
             "pickled_function",
             b"pickled_function",
+            "qualified_agent_function_name",
+            b"qualified_agent_function_name",
             "qualified_function_name",
             b"qualified_function_name",
         ],

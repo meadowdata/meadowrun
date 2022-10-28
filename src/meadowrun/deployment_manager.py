@@ -335,7 +335,7 @@ async def compile_environment_spec_to_container(
     TODO we should also consider creating conda environments locally rather than always
     making a container for them, that might be more efficient.
     """
-    path_to_spec, spec_hash, prerequisites = _get_path_and_hash(
+    path_to_spec, spec_hash, spec_contents = _get_path_and_hash(
         environment_spec, interpreter_spec_path
     )
 
@@ -388,6 +388,9 @@ async def compile_environment_spec_to_container(
     apt_packages = [
         p for p in environment_spec.additional_software.keys() if p != "cuda"
     ]
+    prerequisites = _get_environment_spec_prerequisites(
+        spec_contents, environment_spec.environment_type
+    )
     if prerequisites & EnvironmentSpecPrerequisites.GIT:
         apt_packages.append("git")
     if apt_packages:
@@ -488,7 +491,7 @@ async def compile_environment_spec_locally(
     """
     Turns e.g. a conda_environment.yml file into a locally available python interpreter
     """
-    path_to_spec, spec_hash, prerequisites = _get_path_and_hash(
+    path_to_spec, spec_hash, spec_contents = _get_path_and_hash(
         environment_spec, interpreter_spec_path
     )
     # we don't have to worry about has_git_dependency as we assume we always have git
@@ -512,7 +515,9 @@ async def compile_environment_spec_locally(
             spec_hash,
             interpreter_spec_path if environment_spec.editable_install else None,
             path_to_spec,
-            prerequisites,
+            _get_environment_spec_prerequisites(
+                spec_contents, environment_spec.environment_type
+            ),
             os.path.join(built_interpreters_folder, spec_hash),
             try_get_file,
             write_file,
@@ -581,11 +586,11 @@ def _format_additional_software(additional_software: Mapping[str, str]) -> str:
 def _get_path_and_hash(
     environment_spec: Union[EnvironmentSpecInCode, EnvironmentSpec],
     interpreter_spec_path: str,
-) -> Tuple[str, str, EnvironmentSpecPrerequisites]:
+) -> Tuple[str, str, str]:
     """
-    Returns path_to_spec, spec_hash, has_git_dependency. spec_hash is a hash that
-    uniquely identifies the environment. path_to_spec is used slightly differently for
-    each environment type's Dockerfile. has_git_dependency is also specific to each.
+    Returns path_to_spec, spec_hash, spec_contents. spec_hash is a hash that uniquely
+    identifies the environment. path_to_spec is used slightly differently for each
+    environment type's Dockerfile. spec_contents is the contents of the spec file.
     """
 
     if isinstance(environment_spec, EnvironmentSpecInCode):
@@ -627,9 +632,7 @@ def _get_path_and_hash(
                 ).encode("utf-8")
                 + environment_spec.python_version.encode("utf-8")
             ),
-            _get_environment_spec_prerequisites(
-                spec_contents_bytes.decode("utf-8"), environment_spec.environment_type
-            ),
+            spec_contents_bytes.decode("utf-8"),
         )
     elif isinstance(environment_spec, EnvironmentSpec):
         # in this case, interpreter_spec_path is a path to where we save the spec for
@@ -678,13 +681,7 @@ def _get_path_and_hash(
             with open(path_to_spec, "w", encoding="utf-8") as env_spec:
                 env_spec.write(environment_spec.spec)
 
-        return (
-            path_to_spec,
-            spec_hash,
-            _get_environment_spec_prerequisites(
-                spec_contents_str, environment_spec.environment_type
-            ),
-        )
+        return path_to_spec, spec_hash, spec_contents_str
     else:
         raise ValueError(
             f"Unexpected type of environment_spec {type(environment_spec)}"

@@ -296,7 +296,7 @@ def shrink_ami(
         new_volume.attach_to_instance(
             InstanceId=instance.instance_id, Device="/dev/sdh"
         )
-        while new_volume.state != "in-use":
+        while new_volume.state != "in-use":  # type: ignore[comparison-overlap]
             print(f"Waiting for volume to attach: {new_volume.state}")
             time.sleep(2)
             new_volume.load()

@@ -36,10 +36,10 @@ def replicate_images(source_ami: str) -> None:
     for destination_region in _SUPPORTED_REGIONS:
         if destination_region != _SOURCE_REGION:
             client = boto3.client("ec2", region_name=destination_region)
-            result = client.copy_image(
+            image = client.copy_image(
                 Name=image_name, SourceImageId=source_ami, SourceRegion=_SOURCE_REGION
             )
-            destination_image_id = result["ImageId"]
+            destination_image_id = image["ImageId"]
             created_images.append((destination_region, destination_image_id))
 
     print("Copy this into ec2_instance_allocation.py:_EC2_ALLOC_AMIS")
@@ -52,7 +52,7 @@ def replicate_images(source_ami: str) -> None:
     for destination_region, destination_image_id in created_images:
         client = boto3.client("ec2", region_name=destination_region)
         while True:
-            success, result = ignore_boto3_error_code(
+            success, _ = ignore_boto3_error_code(
                 lambda: client.modify_image_attribute(
                     ImageId=destination_image_id,
                     LaunchPermission={"Add": [{"Group": "all"}]},

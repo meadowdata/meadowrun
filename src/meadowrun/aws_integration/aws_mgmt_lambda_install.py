@@ -75,8 +75,8 @@ def _get_zipped_lambda_code(overrides: Dict[str, str]) -> bytes:
 
 
 async def _create_management_lambda(
-    lambda_client: Any,
-    lambda_handler: Any,
+    lambda_client: LambdaClient,
+    lambda_handler: ModuleType,
     lambda_name: str,
     schedule_rule_name: str,
     schedule_expression: str,

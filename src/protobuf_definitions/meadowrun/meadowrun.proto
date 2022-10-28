@@ -103,13 +103,15 @@ message ContainerAtTag {
     string tag = 2;
 }
 
+
 enum EnvironmentType {
     // Reserved, not used
-    DEFAULT = 0;
-    CONDA = 1;
-    PIP = 2;
-    POETRY = 3;
+    ENV_TYPE_DEFAULT = 0;
+    ENV_TYPE_CONDA = 1;
+    ENV_TYPE_PIP = 2;
+    ENV_TYPE_POETRY = 3;
 }
+
 
 // Represents the path to an environment spec in the code deployment.
 // An environment spec is a list of packages to install, in a format that

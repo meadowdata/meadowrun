@@ -413,7 +413,7 @@ class LocalCurrentInterpreter(LocalInterpreter):
                 )
             print("Mirroring current conda environment")
             return EnvironmentSpec(
-                environment_type=EnvironmentType.CONDA,
+                environment_type=EnvironmentType.ENV_TYPE_CONDA,
                 spec=conda_env_spec,
                 additional_software=_additional_software_to_dict(
                     self.additional_software
@@ -443,7 +443,7 @@ class LocalCurrentInterpreter(LocalInterpreter):
                 lock_file_contents = lock_file.read()
             print("Mirroring current poetry environment")
             return EnvironmentSpec(
-                environment_type=EnvironmentType.POETRY,
+                environment_type=EnvironmentType.ENV_TYPE_POETRY,
                 spec=project_file_contents,
                 spec_lock=lock_file_contents,
                 python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
@@ -455,7 +455,7 @@ class LocalCurrentInterpreter(LocalInterpreter):
         # last resort, assume this is a pip-based environment
         print("Mirroring current pip environment")
         return EnvironmentSpec(
-            environment_type=EnvironmentType.PIP,
+            environment_type=EnvironmentType.ENV_TYPE_PIP,
             spec=await pip_freeze_exclude_editable(),
             python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
             additional_software=_additional_software_to_dict(self.additional_software),
@@ -486,7 +486,7 @@ class LocalCondaInterpreter(LocalInterpreter):
                 "conda environments are not cross-platform."
             )
         return EnvironmentSpec(
-            environment_type=EnvironmentType.CONDA,
+            environment_type=EnvironmentType.ENV_TYPE_CONDA,
             spec=await env_export(self.environment_name_or_path),
             additional_software=_additional_software_to_dict(self.additional_software),
         )
@@ -513,7 +513,7 @@ class LocalPipInterpreter(LocalInterpreter):
 
     async def get_interpreter_spec(self) -> InterpreterDeployment:
         return EnvironmentSpec(
-            environment_type=EnvironmentType.PIP,
+            environment_type=EnvironmentType.ENV_TYPE_PIP,
             # TODO this won't work if the specified environment has editable installs
             spec=await pip_freeze_exclude_editable(self.path_to_interpreter),
             python_version=await get_python_version(self.path_to_interpreter),
@@ -575,13 +575,18 @@ class Deployment:
                 specify the files on `sys.path` that you want to upload to the remote
                 machine.
             interpreter: Specifies the environment/interpreter to use. Defaults to
-                `None` which will detect the currently activated env. Alternatively, you
-                can explicitly specify a locally installed python environment with
-                [LocalCondaInterpreter][meadowrun.LocalCondaInterpreter],
-                [LocalPipInterpreter][meadowrun.LocalPipInterpreter],
-                [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
-                [PipRequirementsFile][meadowrun.PipRequirementsFile],
-                [PoetryProjectPath][meadowrun.PoetryProjectPath]
+                `None` which will detect the currently activated env. Derived classes of
+                [LocalInterpreter][meadowrun.LocalInterpreter] allow you to specify a
+                python interpreter that exists on the local machine to rebuild on the
+                remote machine. Derived classes of
+                [InterpreterSpecFile][meadowrun.InterpreterSpecFile] allow you to
+                specify a file (e.g. conda.yml or requirements.txt) that exists locally
+                that can be used to build an environment. Derived classes of
+                [ContainerInterpreterBase][meadowrun.ContainerInterpreterBase] allow you
+                to specify a custom container image, and Meadowrun will not build/cache
+                the environment for you.
+                [PreinstalledInterpreter][meadowrun.PreinstalledInterpreter] specifies
+                an interpreter that is already available on the remote machine.
             globs: This parameter can be used for two main purposes.
 
                 One purpose is to include files from your current working directory that
@@ -624,7 +629,7 @@ class Deployment:
                 interpreter_spec: Union[
                     InterpreterDeployment, VersionedInterpreterDeployment
                 ] = EnvironmentSpec(
-                    environment_type=EnvironmentType.CONDA,
+                    environment_type=EnvironmentType.ENV_TYPE_CONDA,
                     spec=f.read(),
                     additional_software=_additional_software_to_dict(
                         interpreter.additional_software
@@ -633,7 +638,7 @@ class Deployment:
         elif isinstance(interpreter, PipRequirementsFile):
             with open(interpreter.path_to_requirements_file, encoding="utf-8") as f:
                 interpreter_spec = EnvironmentSpec(
-                    environment_type=EnvironmentType.PIP,
+                    environment_type=EnvironmentType.ENV_TYPE_PIP,
                     spec=f.read(),
                     python_version=interpreter.python_version,
                     additional_software=_additional_software_to_dict(
@@ -642,7 +647,7 @@ class Deployment:
                 )
         elif isinstance(interpreter, PipRequirementsString):
             interpreter_spec = EnvironmentSpec(
-                environment_type=EnvironmentType.PIP,
+                environment_type=EnvironmentType.ENV_TYPE_PIP,
                 spec="\n".join(interpreter.packages_to_install),
                 python_version=interpreter.python_version,
                 additional_software=_additional_software_to_dict(
@@ -663,7 +668,7 @@ class Deployment:
             ) as spec_lock_file:
                 spec_lock = spec_lock_file.read()
             interpreter_spec = EnvironmentSpec(
-                environment_type=EnvironmentType.POETRY,
+                environment_type=EnvironmentType.ENV_TYPE_POETRY,
                 spec=spec,
                 spec_lock=spec_lock,
                 python_version=interpreter.python_version,
@@ -748,13 +753,15 @@ class Deployment:
             commit: can be provided instead of branch to use a specific commit hash,
                 e.g. `"d018b54"`
             path_to_source: e.g. `"src/python"` to use a subdirectory of the repo
-            interpreter: specifies either a Conda environment.yml or requirements.txt
-                file in the Git repo (relative to the repo, note that this IGNORES
-                `path_to_source`) This file will be used to generate the environment to
-                run in. See
-                [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile],
-                [PipRequirementsFile][meadowrun.PipRequirementsFile], and
-                [PoetryProjectPath][meadowrun.PoetryProjectPath]
+            interpreter: Specifies the python interpreter and libraries to use. Derived
+                classes of [InterpreterSpecFile][meadowrun.InterpreterSpecFile] allow
+                you to specify a file (e.g. conda.yml or requirements.txt) in the git
+                repo that can be used to build an environment. Derived classes of
+                [ContainerInterpreterBase][meadowrun.ContainerInterpreterBase] allow you
+                to specify a custom container image, and Meadowrun will not build/cache
+                the environment for you.
+                [PreinstalledInterpreter][meadowrun.PreinstalledInterpreter] specifies
+                an interpreter that is already available on the remote machine.
             environment_variables: e.g. `{"PYTHONHASHSEED": "0"}`. These environment
                 variables will be set in the remote environment
             ssh_key_secret: A secret that contains the contents of a private SSH key
@@ -802,7 +809,7 @@ class Deployment:
             ] = None
         elif isinstance(interpreter, CondaEnvironmentYmlFile):
             interpreter_spec = EnvironmentSpecInCode(
-                environment_type=EnvironmentType.CONDA,
+                environment_type=EnvironmentType.ENV_TYPE_CONDA,
                 path_to_spec=interpreter.path_to_yml_file,
                 additional_software=_additional_software_to_dict(
                     interpreter.additional_software
@@ -811,7 +818,7 @@ class Deployment:
             )
         elif isinstance(interpreter, PipRequirementsFile):
             interpreter_spec = EnvironmentSpecInCode(
-                environment_type=EnvironmentType.PIP,
+                environment_type=EnvironmentType.ENV_TYPE_PIP,
                 path_to_spec=interpreter.path_to_requirements_file,
                 python_version=interpreter.python_version,
                 additional_software=_additional_software_to_dict(
@@ -821,7 +828,7 @@ class Deployment:
             )
         elif isinstance(interpreter, PipRequirementsString):
             interpreter_spec = EnvironmentSpec(
-                environment_type=EnvironmentType.PIP,
+                environment_type=EnvironmentType.ENV_TYPE_PIP,
                 spec="\n".join(interpreter.packages_to_install),
                 python_version=interpreter.python_version,
                 additional_software=_additional_software_to_dict(
@@ -830,7 +837,7 @@ class Deployment:
             )
         elif isinstance(interpreter, PoetryProjectPath):
             interpreter_spec = EnvironmentSpecInCode(
-                environment_type=EnvironmentType.POETRY,
+                environment_type=EnvironmentType.ENV_TYPE_POETRY,
                 path_to_spec=interpreter.path_to_project,
                 python_version=interpreter.python_version,
                 additional_software=_additional_software_to_dict(

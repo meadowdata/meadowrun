@@ -53,7 +53,7 @@ flake8 = "3.9.2"
 pytest-asyncio = "^0.19.0"
 types-psutil = "^5.8.22"
 flake8-noqa = "^1.2.1"
-boto3-stubs = "^1.24.64"
+boto3-stubs = {extras = ["essential", "events", "logs", "sts", "secretsmanager", "iam", "ecr"],  version = "^1.24.64"}
 types-aiobotocore = {extras = ["essential"], version = "^2.1.1"}
 types-setuptools = "^65.3.0"
 mkdocs = "^1.3.0"
@@ -68,6 +68,7 @@ toml = "^0.10.2"
 PyYAML = "^6.0"
 types-toml = "^0.10.8"
 types-PyYAML = "^6.0.11"
+types-boto3 = "^1.0.2"
 # venv-pack and conda-pack are a weird dependency--we will actually depend on these in
 # production but only inside of the meadowrun container or the meadowrun AMI which we
 # fully control. We don't want to cause it to be downloaded when there's no need for it
@@ -113,7 +114,6 @@ strict_equality = true
 
 [[tool.mypy.overrides]]
 module = [
-    "boto3",
     "cloudpickle",
     "conda_pack",
     "kubernetes_asyncio",

@@ -179,7 +179,7 @@ def ensure_security_group(
                     "Tags": [{"Key": _MEADOWRUN_TAG, "Value": _MEADOWRUN_TAG_VALUE}],
                 }
             ],
-            **additional_parameters,
+            **additional_parameters,  # type: ignore[arg-type]
         )
     return security_group.id
 

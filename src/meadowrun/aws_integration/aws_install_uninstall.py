@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Optional, Dict, List
+from typing import TYPE_CHECKING, Any, Optional, Dict, List
 import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
@@ -51,6 +51,9 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     ignore_boto3_error_code,
 )
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3.type_defs import ObjectIdentifierTypeDef
 
 
 def add_management_lambda_override_arguments(parser: argparse.ArgumentParser) -> None:
@@ -342,7 +345,7 @@ def delete_bucket(region_name: str) -> None:
     if success:
         # S3 doesn't allow deleting a bucket with anything in it, so delete all objects
         # in chunks of up to 1000, which is the maximum allowed.
-        key_chunk: List[Dict[str, str]] = []
+        key_chunk: List[ObjectIdentifierTypeDef] = []
         for s3object in bucket.objects.all():
             if len(key_chunk) == 1000:
                 bucket.delete_objects(Delete=dict(Objects=key_chunk))
@@ -391,7 +394,10 @@ def ensure_bucket(
         }
 
     success, _ = ignore_boto3_error_code(
-        lambda: s3.create_bucket(Bucket=bucket_name, **additional_parameters),
+        lambda: s3.create_bucket(
+            Bucket=bucket_name,
+            **additional_parameters,  # type: ignore[arg-type]
+        ),
         "BucketAlreadyOwnedByYou",
     )
     s3.put_bucket_lifecycle_configuration(

@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import re
 import traceback
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -34,6 +37,9 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
 from meadowrun.run_job_core import _retry
 from meadowrun.ssh import connect, run_and_capture
 
+if TYPE_CHECKING:
+    from mypy_boto3_ec2 import EC2Client
+    from mypy_boto3_ec2.type_defs import ImageTypeDef
 
 REGION_TO_INSTANCE_TYPE = {
     "us-east-2": "t2.micro",
@@ -131,6 +137,7 @@ async def _build_ami(
         if not isinstance(launch_result, LaunchEC2InstanceSuccess):
             raise ValueError(f"Failed to launch EC2 instance: {launch_result}")
         public_address = await launch_result.public_address_continuation
+        assert public_address is not None
         print(f"Launched EC2 instance {public_address}")
 
         # get the instance id of our EC2 instance
@@ -302,7 +309,7 @@ def _check_for_existing_amis(
     nicely formatted string of the regions/AMI ids)
     """
     # contains (region, client, existing_image)
-    regions_with_existing_images: List[Tuple[str, Any, Dict[str, Any]]] = []
+    regions_with_existing_images: List[Tuple[str, EC2Client, ImageTypeDef]] = []
     for region in regions:
         client = boto3.client("ec2", region_name=region)
         existing_images = client.describe_images(

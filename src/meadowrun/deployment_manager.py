@@ -395,7 +395,7 @@ async def compile_environment_spec_to_container(
     if prerequisites & EnvironmentSpecPrerequisites.GOOGLE_AUTH:
         build_args["ENVIRONMENT_PREREQUISITES"] = GOOGLE_AUTH_PACKAGE
 
-    if environment_spec.environment_type == EnvironmentType.CONDA:
+    if environment_spec.environment_type == EnvironmentType.ENV_TYPE_CONDA:
         docker_file_name = "CondaDockerfile"
         if environment_spec.editable_install:
             spec_filename = os.path.relpath(path_to_spec, interpreter_spec_path)
@@ -424,7 +424,7 @@ async def compile_environment_spec_to_container(
                 "PYTHON_IMAGE"
             ] = f"python:{environment_spec.python_version}-slim-bullseye"
 
-        if environment_spec.environment_type == EnvironmentType.PIP:
+        if environment_spec.environment_type == EnvironmentType.ENV_TYPE_PIP:
             docker_file_name = "PipDockerfile"
             if environment_spec.editable_install:
                 spec_filename = os.path.relpath(path_to_spec, interpreter_spec_path)
@@ -435,7 +435,7 @@ async def compile_environment_spec_to_container(
                 files_to_copy.append((path_to_spec, spec_filename))
             build_args["ENV_FILE"] = spec_filename
             build_args["ENV_COPY"] = "."
-        elif environment_spec.environment_type == EnvironmentType.POETRY:
+        elif environment_spec.environment_type == EnvironmentType.ENV_TYPE_POETRY:
             docker_file_name = "PoetryDockerfile"
             if environment_spec.editable_install:
                 files_to_copy.append((path_to_spec, "."))
@@ -536,11 +536,11 @@ def _get_cached_or_create_func_for(
     ],
     Awaitable[str],
 ]:
-    if environment_type == EnvironmentType.CONDA:
+    if environment_type == EnvironmentType.ENV_TYPE_CONDA:
         return get_cached_or_create_conda_environment
-    elif environment_type == EnvironmentType.PIP:
+    elif environment_type == EnvironmentType.ENV_TYPE_PIP:
         return get_cached_or_create_pip_environment
-    elif environment_type == EnvironmentType.POETRY:
+    elif environment_type == EnvironmentType.ENV_TYPE_POETRY:
         return get_cached_or_create_poetry_environment
     else:
         raise ValueError(f"Unexpected environment_type {environment_type}")
@@ -594,7 +594,7 @@ def _get_path_and_hash(
         path_to_spec = os.path.join(
             interpreter_spec_path, environment_spec.path_to_spec
         )
-        if environment_spec.environment_type == EnvironmentType.POETRY:
+        if environment_spec.environment_type == EnvironmentType.ENV_TYPE_POETRY:
             # in the case of Poetry, the path_to_spec should be a folder that contains
             # pyproject.toml and poetry.lock
             file_to_hash = os.path.join(path_to_spec, "poetry.lock")
@@ -634,7 +634,7 @@ def _get_path_and_hash(
     elif isinstance(environment_spec, EnvironmentSpec):
         # in this case, interpreter_spec_path is a path to where we save the spec for
         # later processing.
-        if environment_spec.environment_type == EnvironmentType.POETRY:
+        if environment_spec.environment_type == EnvironmentType.ENV_TYPE_POETRY:
             # for poetry, path_to_spec will be a folder that contains pyproject.toml and
             # poetry.lock
             spec_contents_str = environment_spec.spec_lock
@@ -665,9 +665,9 @@ def _get_path_and_hash(
                 ).encode("UTF-8")
             )
 
-            if environment_spec.environment_type == EnvironmentType.CONDA:
+            if environment_spec.environment_type == EnvironmentType.ENV_TYPE_CONDA:
                 spec_filename = f"conda_env_spec_{spec_hash}.yml"
-            elif environment_spec.environment_type == EnvironmentType.PIP:
+            elif environment_spec.environment_type == EnvironmentType.ENV_TYPE_PIP:
                 spec_filename = f"pip_env_spec_{spec_hash}.txt"
             else:
                 raise ValueError(
@@ -697,8 +697,8 @@ def _get_environment_spec_prerequisites(
     result = EnvironmentSpecPrerequisites.NONE
 
     if (
-        environment_type == EnvironmentType.PIP
-        or environment_type == EnvironmentType.CONDA
+        environment_type == EnvironmentType.ENV_TYPE_PIP
+        or environment_type == EnvironmentType.ENV_TYPE_CONDA
     ):
         # example line resulting from pip freeze:
         # package @ git+https://github.com/name/repo.git@sha
@@ -711,7 +711,7 @@ def _get_environment_spec_prerequisites(
             # username/password, if they're not running on GCP, then we shouldn't set
             # this flag
             result |= EnvironmentSpecPrerequisites.GOOGLE_AUTH
-    elif environment_type == EnvironmentType.POETRY:
+    elif environment_type == EnvironmentType.ENV_TYPE_POETRY:
         for line in spec_contents.splitlines():
             if line.startswith('type = "git"'):
                 result |= EnvironmentSpecPrerequisites.GIT

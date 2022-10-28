@@ -29,19 +29,19 @@ class _EnvironmentTypeEnumTypeWrapper(
     builtins.type,
 ):  # noqa: F821
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
-    DEFAULT: _EnvironmentType.ValueType  # 0
+    ENV_TYPE_DEFAULT: _EnvironmentType.ValueType  # 0
     """Reserved, not used"""
-    CONDA: _EnvironmentType.ValueType  # 1
-    PIP: _EnvironmentType.ValueType  # 2
-    POETRY: _EnvironmentType.ValueType  # 3
+    ENV_TYPE_CONDA: _EnvironmentType.ValueType  # 1
+    ENV_TYPE_PIP: _EnvironmentType.ValueType  # 2
+    ENV_TYPE_POETRY: _EnvironmentType.ValueType  # 3
 
 class EnvironmentType(_EnvironmentType, metaclass=_EnvironmentTypeEnumTypeWrapper): ...
 
-DEFAULT: EnvironmentType.ValueType  # 0
+ENV_TYPE_DEFAULT: EnvironmentType.ValueType  # 0
 """Reserved, not used"""
-CONDA: EnvironmentType.ValueType  # 1
-PIP: EnvironmentType.ValueType  # 2
-POETRY: EnvironmentType.ValueType  # 3
+ENV_TYPE_CONDA: EnvironmentType.ValueType  # 1
+ENV_TYPE_PIP: EnvironmentType.ValueType  # 2
+ENV_TYPE_POETRY: EnvironmentType.ValueType  # 3
 global___EnvironmentType = EnvironmentType
 
 class StringPair(google.protobuf.message.Message):

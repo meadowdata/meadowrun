@@ -105,7 +105,7 @@ async def test_compile_environment_spec_in_container(tmp_path: Path) -> None:
         tmp_path, _MEADOWDATA_TEST_REPO_URL, commit
     )
     env_spec_in_code = EnvironmentSpecInCode(
-        environment_type=EnvironmentType.PIP,
+        environment_type=EnvironmentType.ENV_TYPE_PIP,
         path_to_spec="requirements.txt",
         python_version="3.9",
     )
@@ -126,7 +126,7 @@ async def test_compile_environment_spec_in_container_editable(tmp_path: Path) ->
         tmp_path, _MEADOWDATA_TEST_REPO_URL, commit
     )
     env_spec_in_code = EnvironmentSpecInCode(
-        environment_type=EnvironmentType.PIP,
+        environment_type=EnvironmentType.ENV_TYPE_PIP,
         path_to_spec="requirements_with_editable.txt",
         python_version="3.9",
         editable_install=True,
@@ -197,9 +197,9 @@ def patch_conda_poetry_exe(mocker: MockerFixture) -> None:
 @pytest.mark.parametrize(
     ("env_type", "path_to_spec"),
     [
-        (EnvironmentType.PIP, "requirements.txt"),
-        (EnvironmentType.CONDA, "myenv.yml"),
-        (EnvironmentType.POETRY, "poetry_with_git"),
+        (EnvironmentType.ENV_TYPE_PIP, "requirements.txt"),
+        (EnvironmentType.ENV_TYPE_CONDA, "myenv.yml"),
+        (EnvironmentType.ENV_TYPE_POETRY, "poetry_with_git"),
     ],
 )
 @pytest.mark.asyncio
@@ -235,21 +235,31 @@ async def test_compile_environment_spec_locally(
     ("env_type", "path_to_spec", "main_script", "editable_install"),
     [
         (
-            EnvironmentType.PIP,
+            EnvironmentType.ENV_TYPE_PIP,
             "requirements_with_editable.txt",
             "example_package",
             True,
         ),
         (
-            EnvironmentType.PIP,
+            EnvironmentType.ENV_TYPE_PIP,
             "requirements_with_editable.txt",
             "example_package",
             False,
         ),
-        (EnvironmentType.CONDA, "myenv-editable-install.yml", "example_package", True),
-        (EnvironmentType.CONDA, "myenv-editable-install.yml", "example_package", False),
-        (EnvironmentType.POETRY, "poetry_editable", "foo_package", True),
-        (EnvironmentType.POETRY, "poetry_editable", "foo_package", False),
+        (
+            EnvironmentType.ENV_TYPE_CONDA,
+            "myenv-editable-install.yml",
+            "example_package",
+            True,
+        ),
+        (
+            EnvironmentType.ENV_TYPE_CONDA,
+            "myenv-editable-install.yml",
+            "example_package",
+            False,
+        ),
+        (EnvironmentType.ENV_TYPE_POETRY, "poetry_editable", "foo_package", True),
+        (EnvironmentType.ENV_TYPE_POETRY, "poetry_editable", "foo_package", False),
     ],
 )
 async def test_compile_environment_spec_locally_with_editable_install(

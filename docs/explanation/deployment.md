@@ -78,7 +78,7 @@ One option is if your git repo contains an environment specification file
 (`environment.yml` for conda, `requirements.txt` for pip, or `poetry.lock` for poetry),
 you can point Meadowrun to that environment specification file and Meadowrun will create
 an environment based on that file on the remote machine. E.g.
-`interpreter=CondaEnvironmentYmlFile("path/in/repo/environment.yml")`
+`interpreter=CondaEnvironmentFile("path/in/repo/environment.yml")`
 
 In this case, the Meadowrun worker will create a docker image to replicate your
 environment, and this image will get cached in a Meadowrun-managed AWS/Azure container
@@ -112,5 +112,5 @@ to install packages only when they're available for the platform you're running 
 Conda environments generally need to be entirely re-built for different platforms. We
 recommend maintaining multiple environment files, like `environment-windows.yml` and
 `environment-linux.yml` that you keep in sync manually. Then you can specify
-`interpreter=CondaEnvironmentYmlFile("environment-linux.yml")` for Meadowrun, but still
-use `environment-windows.yml` on your local machine.
+`interpreter=CondaEnvironmentFile("environment-linux.yml")` for Meadowrun, but still use
+`environment-windows.yml` on your local machine.

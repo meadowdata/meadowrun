@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from typing import Callable, Awaitable, Optional, List
+from typing import Callable, Awaitable, Optional, List, TYPE_CHECKING
 
 import filelock
 
@@ -14,6 +14,9 @@ from meadowrun.deployment.prerequisites import (
 from meadowrun.shared import remove_corrupted_environment
 from meadowrun.deployment.pack_envs import pack_venv
 from meadowrun.storage_keys import STORAGE_ENV_CACHE_PREFIX
+
+if TYPE_CHECKING:
+    from meadowrun.meadowrun_pb2 import EnvironmentFileFormat
 
 
 # _pip_freeze and friends are run in the user environment and have to deal with
@@ -183,6 +186,8 @@ async def get_cached_or_create_pip_environment(
     try_get_file: Callable[[str, str], Awaitable[bool]],
     upload_file: Callable[[str, str], Awaitable[None]],
     editable_install: bool,
+    file_format: EnvironmentFileFormat.ValueType,
+    spec_contents: str,
 ) -> str:
     """
     If the desired pip environment exists, does nothing. If the environment has been

@@ -4,7 +4,7 @@ import asyncio
 import os
 import shutil
 import sys
-from typing import Callable, Awaitable, Optional, Tuple
+from typing import Callable, Awaitable, Optional, Tuple, TYPE_CHECKING
 
 import filelock
 
@@ -15,6 +15,10 @@ from meadowrun.deployment.prerequisites import (
     GOOGLE_AUTH_PACKAGE,
 )
 from meadowrun.deployment.pack_envs import pack_venv
+
+if TYPE_CHECKING:
+    from meadowrun.meadowrun_pb2 import EnvironmentFileFormat
+
 
 _POETRY_ENVIRONMENT_TIMEOUT = 10 * 60
 
@@ -28,6 +32,8 @@ async def get_cached_or_create_poetry_environment(
     try_get_file: Callable[[str, str], Awaitable[bool]],
     upload_file: Callable[[str, str], Awaitable[None]],
     allow_editable_install: bool,
+    file_format: EnvironmentFileFormat.ValueType,
+    spec_contents: str,
 ) -> str:
     """
     If the desired poetry environment exists, does nothing. If the environment has been

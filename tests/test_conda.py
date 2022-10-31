@@ -23,12 +23,13 @@ async def test_conda_env_export_base(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
     _run_conda.side_effect = [
         (json.dumps(dict(envs=["/home/user/anaconda"])), ""),
-        ("some yaml", ""),
+        ("list explicit output", ""),
+        (_SOME_YAML, ""),
     ]
 
     result = await conda.env_export("base")
-    assert _run_conda.call_count == 2
-    assert result == "some yaml"
+    assert _run_conda.call_count == 3
+    assert result == "list explicit output"
 
 
 @pytest.mark.asyncio
@@ -56,11 +57,12 @@ async def test_conda_env_export_name(mocker: MockerFixture) -> None:
             ),
             "",
         ),
-        ("some yaml", ""),
+        ("list explicit output", ""),
+        (_SOME_YAML, ""),
     ]
     result = await conda.env_export("abc")
-    assert _run_conda.call_count == 2
-    assert result == "some yaml"
+    assert _run_conda.call_count == 3
+    assert result == "list explicit output"
 
 
 @pytest.mark.asyncio
@@ -102,11 +104,12 @@ async def test_conda_env_export_path(mocker: MockerFixture) -> None:
             ),
             "",
         ),
-        ("some yaml", ""),
+        ("list explicit output", ""),
+        (_SOME_YAML, ""),
     ]
     result = await conda.env_export("/put/it/somewhere/else")
-    assert _run_conda.call_count == 2
-    assert result == "some yaml"
+    assert _run_conda.call_count == 3
+    assert result == "list explicit output"
 
 
 @pytest.mark.asyncio
@@ -131,17 +134,20 @@ async def test_conda_env_export_path_does_not_exist(mocker: MockerFixture) -> No
         await conda.env_export("/where/am/i")
 
 
+_SOME_YAML = "foo:\n- some yaml"
+
+
 @pytest.mark.asyncio
 async def test_conda_env_export_activated(mocker: MockerFixture) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
-    _run_conda.return_value = ("some yaml", "")
+    _run_conda.return_value = (_SOME_YAML, "")
     mocker.patch.dict(
         os.environ, {"CONDA_PREFIX": "/home/user/anaconda/envs/abc"}, clear=True
     )
     mocker.patch.object(sys, "executable", "/home/user/anaconda/envs/abc/bin/python")
     result = await conda.try_get_current_conda_env()
-    _run_conda.assert_called_once()
-    assert result == "some yaml"
+    assert _run_conda.call_count == 2
+    assert result == _SOME_YAML
 
 
 @pytest.mark.asyncio
@@ -149,7 +155,7 @@ async def test_conda_env_export_activated_but_lower_priority(
     mocker: MockerFixture,
 ) -> None:
     _run_conda = mocker.patch(_CONDA_RUN_NAME)
-    _run_conda.return_value = ("some yaml", "")
+    _run_conda.return_value = (_SOME_YAML, "")
     mocker.patch.dict(
         os.environ, {"CONDA_PREFIX": "/home/user/anaconda/envs/abc"}, clear=True
     )

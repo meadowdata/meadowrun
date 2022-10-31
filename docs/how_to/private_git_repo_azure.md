@@ -43,7 +43,7 @@ import meadowrun
 
 meadowrun.Deployment.git_repo(
     "git@github.com:my_organization/my_private_repo",
-    interpreter=meadowrun.CondaEnvironmentYmlFile("myenv.yml"),
+    interpreter=meadowrun.CondaEnvironmentFile("myenv.yml"),
     ssh_key_secret=meadowrun.AzureSecret("my_ssh_key")
 )
 ```

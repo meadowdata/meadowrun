@@ -47,8 +47,9 @@ The Git repo must specify the environment/libraries to run in.
     )
     ```
 === "conda"
-    For conda, you can run `conda env export > myenv.yml` in an existing environment to
-    produce a [`myenv.yml`](https://github.com/meadowdata/test_repo/blob/main/myenv.yml)
+    For conda, you can run `conda env export > conda_env_export.yml` in an existing
+    environment to produce a
+    [`myenv.yml`](https://github.com/meadowdata/test_repo/blob/main/conda_env_export.yml)
     file that you commit to your git repo.
 
     Conda environments are not cross-platform, so you'll need to make sure `myenv.yml`
@@ -65,7 +66,7 @@ The Git repo must specify the environment/libraries to run in.
             # URL to the repo
             https://github.com/meadowdata/test_repo
             # name of our environment file
-            interpreter=meadowrun.CondaEnvironmentYmlFile("myenv.yml")
+            interpreter=meadowrun.CondaEnvironmentFile("myenv.yml")
     )
     ```
 === "poetry"

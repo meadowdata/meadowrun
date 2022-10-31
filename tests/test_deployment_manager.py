@@ -198,7 +198,7 @@ def patch_conda_poetry_exe(mocker: MockerFixture) -> None:
     ("env_type", "path_to_spec"),
     [
         (EnvironmentType.ENV_TYPE_PIP, "requirements.txt"),
-        (EnvironmentType.ENV_TYPE_CONDA, "myenv.yml"),
+        (EnvironmentType.ENV_TYPE_CONDA, "conda_env_export.yml"),
         (EnvironmentType.ENV_TYPE_POETRY, "poetry_with_git"),
     ],
 )

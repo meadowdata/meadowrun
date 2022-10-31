@@ -40,6 +40,26 @@ class ResourcesInternal:
         self.consumable = consumable
         self.non_consumable = non_consumable
 
+    @property
+    def logical_cpu(self) -> float:
+        return self.consumable.get(LOGICAL_CPU, 0.0)
+
+    @property
+    def memory_gb(self) -> float:
+        return self.consumable.get(MEMORY_GB, 0.0)
+
+    @property
+    def gpu(self) -> float:
+        return self.consumable.get(GPU, 0.0)
+
+    @property
+    def gpu_memory_gb(self) -> float:
+        return self.consumable.get(GPU_MEMORY, 0.0)
+
+    @property
+    def ephemeral_storage_gb(self) -> float:
+        return self.consumable.get(EPHEMERAL_STORAGE_GB, 0.0)
+
     def subtract(self, required: ResourcesInternal) -> Optional[ResourcesInternal]:
         """
         Interpreting self as "resources available" on an instance, subtracts "resources
@@ -48,13 +68,13 @@ class ResourcesInternal:
         Returns None if the required resources are not available in self.
         """
 
-        for key, value in required.non_consumable.items():
+        for key in required.non_consumable.keys():
             if key not in self.non_consumable:
                 return None
             if self.non_consumable[key] < required.non_consumable[key]:
                 return None
 
-        for key, value in required.consumable.items():
+        for key in required.consumable.keys():
             if key not in self.consumable:
                 return None
             if self.consumable[key] < required.consumable[key]:

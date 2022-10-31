@@ -50,12 +50,13 @@ class EC2InstanceRegistrarProvider(InstanceRegistrarProvider[InstanceRegistrar])
         self, instance_registrar: InstanceRegistrar
     ) -> int:
         ec2 = boto3.resource("ec2", region_name=instance_registrar.get_region_name())
-        return sum(1 for _ in adjust_ec2_instances._get_running_instances(ec2))
+        return sum(1 for _ in adjust_ec2_instances.get_running_instances(ec2))
 
     async def run_adjust(self, instance_registrar: InstanceRegistrar) -> None:
         adjust_ec2_instances._deregister_and_terminate_instances(
             instance_registrar.get_region_name(),
             TERMINATE_INSTANCES_IF_IDLE_FOR_TEST,
+            [],
             datetime.timedelta.min,
         )
 

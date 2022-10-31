@@ -37,7 +37,7 @@ from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.deployment.conda import (
     get_cached_or_create_conda_environment,
-    filter_editable_installs_from_conda_env_yml,
+    prepare_conda_file,
 )
 from meadowrun.deployment.pip import (
     get_cached_or_create_pip_environment,
@@ -56,6 +56,7 @@ from meadowrun.docker_controller import (
 )
 from meadowrun.meadowrun_pb2 import (
     CodeZipFile,
+    EnvironmentFileFormat,
     EnvironmentSpec,
     EnvironmentSpecInCode,
     EnvironmentType,
@@ -400,11 +401,24 @@ async def compile_environment_spec_to_container(
 
     if environment_spec.environment_type == EnvironmentType.ENV_TYPE_CONDA:
         docker_file_name = "CondaDockerfile"
+
+        (
+            is_list_format,
+            path_to_spec,
+            pip_prerequisites,
+            pip_install_args,
+        ) = prepare_conda_file(
+            path_to_spec,
+            not environment_spec.editable_install,
+            prerequisites,
+            environment_spec.file_format,
+            spec_contents,
+        )
+
         if environment_spec.editable_install:
             spec_filename = os.path.relpath(path_to_spec, interpreter_spec_path)
             files_to_copy.append((interpreter_spec_path, "."))
         else:
-            path_to_spec = filter_editable_installs_from_conda_env_yml(path_to_spec)
             spec_filename = os.path.basename(path_to_spec)
             files_to_copy.append((path_to_spec, spec_filename))
         build_args["ENV_FILE"] = spec_filename
@@ -412,9 +426,16 @@ async def compile_environment_spec_to_container(
         if "cuda" in environment_spec.additional_software:
             build_args[
                 "CONDA_IMAGE"
-            ] = "meadowrun/cuda-conda:conda4.12.0-cuda11.6.2-cudnn8-ubuntu20.04"
+            ] = "meadowrun/cuda-conda:conda4.12.0-mamba-cuda11.6.2-cudnn8-ubuntu20.04"
         else:
-            build_args["CONDA_IMAGE"] = "continuumio/miniconda3"
+            build_args["CONDA_IMAGE"] = "meadowrun/mamba:conda4.12.0"
+
+        if not is_list_format:
+            build_args["ENV_FILE_FORMAT"] = "env"
+        if pip_prerequisites:
+            build_args["PIP_PREREQUISITES"] = " ".join(pip_prerequisites)
+        if pip_install_args:
+            build_args["PIP_PACKAGES"] = " ".join(pip_install_args)
     else:
         # common to pip and poetry
         if "cuda" in environment_spec.additional_software:
@@ -522,6 +543,8 @@ async def compile_environment_spec_locally(
             try_get_file,
             write_file,
             environment_spec.editable_install,
+            environment_spec.file_format,
+            spec_contents,
         )
     )
 
@@ -538,6 +561,8 @@ def _get_cached_or_create_func_for(
         Callable[[str, str], Awaitable[bool]],
         Callable[[str, str], Awaitable[None]],
         bool,
+        EnvironmentFileFormat.ValueType,
+        str,
     ],
     Awaitable[str],
 ]:

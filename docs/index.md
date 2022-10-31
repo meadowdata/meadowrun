@@ -35,10 +35,10 @@ VMs](tutorial/azure_vm), [GKE](tutorial/gke), or [Kubernetes](tutorial/kubernete
     If you're using conda on a Windows or Mac, Meadowrun won't be able to mirror your local
     environment because conda environments aren't cross-platform and Meadowrun runs the
     remote jobs on Linux. If you're in this situation, you can either switch to Pip or
-    Poetry, or create a [CondaEnvironmentYmlFile][meadowrun.CondaEnvironmentYmlFile] that's
-    built for Linux and pass that in to the
+    Poetry, or create a [CondaEnvironmentFile][meadowrun.CondaEnvironmentFile] that's built
+    for Linux and pass that in to the
     [mirror_local][meadowrun.Deployment.mirror_local] call in the next step below, like
-    `mirror_local(interpreter=CondaEnvironmentYmlFile(...))`
+    `mirror_local(interpreter=CondaEnvironmentFile(...))`
 === "Poetry"
     ```shell
     poetry add meadowrun

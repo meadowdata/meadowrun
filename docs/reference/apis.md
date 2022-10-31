@@ -61,7 +61,7 @@
 
 ::: meadowrun.InterpreterSpecFile
 
-::: meadowrun.CondaEnvironmentYmlFile
+::: meadowrun.CondaEnvironmentFile
 
 ::: meadowrun.PipRequirementsFile
 

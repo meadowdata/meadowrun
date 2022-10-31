@@ -9,6 +9,8 @@ RUN apt update && \
     apt clean && \
     rm -rf /var/lib/apt && \
     sh miniconda.sh -b -p /opt/conda && \
-    rm miniconda.sh
+    rm miniconda.sh && \
+    /opt/conda/bin/conda install -c conda-forge mamba
+
 
 ENV PATH /opt/conda/bin:$PATH

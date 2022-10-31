@@ -29,9 +29,22 @@ ARG ENV_COPY
 ARG ENV_FILE
 
 COPY $ENV_COPY ./
+# ENV_FILE_FORMAT should either be not set or "env". This should be set based on whether
+# the format of ENV_FILE requires `conda env create` vs `conda create`
+ARG ENV_FILE_FORMAT
 # we would rather not assume that the name of the environment in $ENV_NAME.yml is the
 # same as the filename, so we just hardcode a name here
-RUN conda env create -f $ENV_FILE -n the_env
+RUN mamba $ENV_FILE_FORMAT create --file $ENV_FILE --name the_env
+# see _prepare_conda_file for notes
+ARG PIP_PREREQUISITES
+RUN if [[ -n "$PIP_PREREQUISITES" ]]; then \
+    /opt/conda/envs/the_env/bin/python -m pip install $PIP_PREREQUISITES \
+    ; fi
+# see _prepare_conda_file for notes
+ARG PIP_PACKAGES
+RUN if [[ -n "$PIP_PACKAGES" ]]; then \
+    /opt/conda/envs/the_env/bin/python -m pip install $PIP_PACKAGES \
+    ; fi
 
 # delete everything from the workdir (copied repository or code) except:
 # - the src folder. We need to keep this for "pip -e git" installs in conda requirements files. 

@@ -22,7 +22,7 @@ import pytest
 
 import meadowrun.docker_controller
 from meadowrun import (
-    CondaEnvironmentYmlFile,
+    CondaEnvironmentFile,
     ContainerInterpreter,
     Deployment,
     LocalCondaInterpreter,
@@ -195,8 +195,8 @@ async def _test_libraries_available(
         import importlib
 
         # we could just do import requests, but that messes with mypy
-        pd = importlib.import_module("pandas")  # from myenv.yml
-        requests = importlib.import_module("requests")  # from myenv.yml
+        pd = importlib.import_module("pandas")
+        requests = importlib.import_module("requests")
         return requests.__version__, pd.__version__
 
     args = ["foo", "bar", "baz"]
@@ -220,11 +220,41 @@ async def _test_libraries_and_code_available(
         import importlib
 
         # we could just do import requests, but that messes with mypy
-        pd = importlib.import_module("pandas")  # from myenv.yml
-        requests = importlib.import_module("requests")  # from myenv.yml
-        example = importlib.import_module("example")  # from example_package
+        pd = importlib.import_module("pandas")
+        requests = importlib.import_module("requests")
+        example = importlib.import_module("example")
         return (
             (requests.__version__, pd.__version__),
+            example.join_strings("hello", arg),
+        )
+
+    args = ["foo", "bar", "baz"]
+    await _test_all_entry_points(
+        remote_function,
+        args,
+        [(versions, f"hello, {arg}") for arg in args],
+        host_provider,
+        deployment,
+        include_run_map_as_completed,
+    )
+
+
+async def _test_libraries_and_code_available_with_geopy(
+    versions: Tuple[str, str, str],
+    host_provider: HostProvider,
+    deployment: Union[Deployment, Awaitable[Deployment]],
+    include_run_map_as_completed: bool = False,
+) -> None:
+    def remote_function(arg: str) -> Tuple[Tuple[str, str, str], str]:
+        import importlib
+
+        # we could just do import requests, but that messes with mypy
+        pd = importlib.import_module("pandas")
+        requests = importlib.import_module("requests")
+        geopy = importlib.import_module("geopy")
+        example = importlib.import_module("example")
+        return (
+            (requests.__version__, pd.__version__, geopy.__version__),
             example.join_strings("hello", arg),
         )
 
@@ -297,15 +327,27 @@ class DeploymentSuite(HostProvider, abc.ABC):
         )
 
     @pytest.mark.asyncio
-    async def test_git_repo_conda(self) -> None:
-        await _test_libraries_and_code_available(
-            ("2.27.1", "1.4.2"),
+    async def test_git_repo_conda_env_export(self) -> None:
+        await _test_libraries_and_code_available_with_geopy(
+            ("2.27.1", "1.4.2", "2.2.0"),
             self,
             Deployment.git_repo(
-                repo_url=self.get_test_repo_url(),
-                branch="main",
+                self.get_test_repo_url(),
                 path_to_source="example_package",
-                interpreter=CondaEnvironmentYmlFile("myenv.yml"),
+                interpreter=CondaEnvironmentFile("conda_env_export.yml"),
+            ),
+            True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_git_repo_conda_list_explicit(self) -> None:
+        await _test_libraries_and_code_available_with_geopy(
+            ("2.27.1", "1.4.2", "2.2.0"),
+            self,
+            Deployment.git_repo(
+                self.get_test_repo_url(),
+                path_to_source="example_package",
+                interpreter=CondaEnvironmentFile("conda_list_explicit.txt"),
             ),
             True,
         )
@@ -335,12 +377,19 @@ class DeploymentSuite(HostProvider, abc.ABC):
         assert result.return_code == 0
 
     @pytest.mark.skipif("sys.version_info < (3, 8)")
-    @pytest.mark.parametrize(argnames="editable_install", argvalues=(True, False))
+    @pytest.mark.parametrize(
+        argnames=("editable_install", "conda_env_file"),
+        argvalues=[
+            (True, "conda_env_export_editable.yml"),
+            (False, "conda_env_export_editable.yml"),
+            (True, "conda_list_explicit_editable.txt"),
+            (False, "conda_list_explicit_editable.txt"),
+        ],
+    )
     @pytest.mark.asyncio
     async def test_git_repo_conda_with_editable_install(
-        self, editable_install: bool
+        self, editable_install: bool, conda_env_file: str
     ) -> None:
-        commit = "15153cb5afeb650944b26f963ceff9b42c309d20"
         result = await run_command(
             args=("main",)
             if editable_install
@@ -349,8 +398,7 @@ class DeploymentSuite(HostProvider, abc.ABC):
             resources=self.get_resources_required(),
             deployment=Deployment.git_repo(
                 self.get_test_repo_url(),
-                commit=commit,
-                interpreter=CondaEnvironmentYmlFile("myenv-editable-install.yml"),
+                interpreter=CondaEnvironmentFile(conda_env_file),
                 editable_install=editable_install,
             ),
         )
@@ -449,11 +497,11 @@ class DeploymentSuite(HostProvider, abc.ABC):
     @pytest.mark.asyncio
     async def test_mirror_local_conda(self) -> None:
         # this currently needs a conda environment created from the test repo:
-        # conda env create -n test_repo_conda_env -f myenv.yml
+        # conda env create -n test_repo_conda_env --file conda_env_export.yml
         exception_raised = False
         try:
             await _test_libraries_and_code_available(
-                ("2.27.1", "1.4.3"),
+                ("2.27.1", "1.4.2"),
                 self,
                 await Deployment.mirror_local(
                     interpreter=LocalCondaInterpreter("test_repo_conda_env"),
@@ -482,8 +530,8 @@ class DeploymentSuite(HostProvider, abc.ABC):
             ("2.27.1", "1.4.2"),
             self,
             await Deployment.mirror_local(
-                interpreter=CondaEnvironmentYmlFile(
-                    _path_from_here("../../test_repo/myenv.yml")
+                interpreter=CondaEnvironmentFile(
+                    _path_from_here("../../test_repo/conda_env_export.yml")
                 ),
                 additional_sys_paths=[
                     _path_from_here("../../test_repo/example_package")
@@ -665,8 +713,8 @@ class DeploymentSuite2(HostProvider, abc.ABC):
                 repo_url=self.get_test_repo_url(),
                 branch="main",
                 path_to_source="example_package",
-                interpreter=CondaEnvironmentYmlFile(
-                    "myenv.yml", additional_software=["curl"]
+                interpreter=CondaEnvironmentFile(
+                    "conda_env_export.yml", additional_software=["curl"]
                 ),
             ),
         )
@@ -815,7 +863,7 @@ class EdgeCasesSuite(HostProvider, abc.ABC):
             import importlib
 
             # we could just do import numpy, but that messes with mypy
-            np = importlib.import_module("numpy")  # from myenv.yml
+            np = importlib.import_module("numpy")
 
             array = np.array([i + 1, i + 2, i + 3], dtype=np.int32)
             return array

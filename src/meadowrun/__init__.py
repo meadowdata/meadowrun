@@ -48,6 +48,7 @@ from meadowrun.config import MEADOWRUN_INTERPRETER
 from meadowrun.deployment_spec import (
     AwsSecret,
     AzureSecret,
+    CondaEnvironmentFile,
     CondaEnvironmentYmlFile,
     ContainerAtDigestInterpreter,
     ContainerInterpreter,
@@ -99,6 +100,7 @@ __all__ = [
     "run_map_as_completed",
     "AwsSecret",
     "AzureSecret",
+    "CondaEnvironmentFile",
     "CondaEnvironmentYmlFile",
     "ContainerAtDigestInterpreter",
     "ContainerInterpreter",

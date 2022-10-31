@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meadowrun"
-version = "0.2.16a1"
+version = "0.2.16"
 description = "The easiest way to run python code on one or more remote machines"
 readme = "README.md"
 authors = ["Richard Lee <hrichardlee@gmail.com>"]

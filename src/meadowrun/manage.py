@@ -266,7 +266,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         if cloud_provider == "EC2":
             if args.clean_active:
                 aws.terminate_all_instances(args.region, False)
-            _deregister_and_terminate_instances(args.region, datetime.timedelta.min)
+            _deregister_and_terminate_instances(args.region, datetime.timedelta.min, [])
             clear_prices_cache()
         elif cloud_provider == "AzureVM":
             resource_group_path = await ensure_meadowrun_resource_group(region_name)

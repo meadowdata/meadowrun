@@ -5,7 +5,7 @@ import io
 import os
 import pkgutil
 import zipfile
-from typing import Any, Tuple, Callable, TypeVar, Dict
+from typing import TYPE_CHECKING, Any, Tuple, Callable, TypeVar, Dict
 
 import boto3
 
@@ -18,6 +18,11 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
 )
 from meadowrun.shared import create_zipfile
 
+if TYPE_CHECKING:
+    from mypy_boto3_lambda import LambdaClient
+    from types import ModuleType
+
+
 _T = TypeVar("_T")
 
 # the name of the lambda that runs adjust_ec2_instances.py
@@ -29,23 +34,35 @@ _CLEAN_UP_LAMBDA_NAME = "meadowrun_clean_up"
 _CLEAN_UP_LAMBDA_SCHEDULE_RULE = "meadowrun_clean_up_lambda_schedule_rule"
 
 
+def _get_prefix_and_root_path(module_name: ModuleType) -> Tuple[str, str]:
+    return (module_name.__name__.replace(".", os.path.sep), module_name.__path__[0])
+
+
 def _get_zipped_lambda_code(overrides: Dict[str, str]) -> bytes:
     """
     Gets the contents of the ec2_alloc_lambda folder as a zip file. This is the code we
     want to run as a lambda.
 
+    Since the code is (currently lightly) dependent on files in meadowrun and
+    meadowrun.aws_integration, those folders are also added.
+
     Warning, this doesn't recurse into any subdirectories (because it is not currently
     needed)
     """
-    lambda_root_path = meadowrun.aws_integration.management_lambdas.__path__[0]
-    module_names = [name for _, name, _ in pkgutil.iter_modules([lambda_root_path])]
-    path_prefix = meadowrun.aws_integration.management_lambdas.__name__.replace(
-        ".", os.path.sep
+    path_prefix, lambda_root_path = _get_prefix_and_root_path(
+        meadowrun.aws_integration.management_lambdas
     )
+    extras = [
+        _get_prefix_and_root_path(meadowrun),
+        _get_prefix_and_root_path(meadowrun.aws_integration),
+    ]
+    lambda_module_names = [
+        name for _, name, _ in pkgutil.iter_modules([lambda_root_path])
+    ]
 
     with io.BytesIO() as buffer:
         with create_zipfile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for module_name in module_names:
+            for module_name in lambda_module_names:
                 if module_name == "config" and overrides:
                     with open(
                         os.path.join(lambda_root_path, f"{module_name}.py"),
@@ -68,6 +85,13 @@ def _get_zipped_lambda_code(overrides: Dict[str, str]) -> bytes:
                         os.path.join(lambda_root_path, module_name + ".py"),
                         os.path.join(path_prefix, module_name + ".py"),
                     )
+            for path_prefix, root_path in extras:
+                for _, module_name, is_pkg in pkgutil.iter_modules([root_path]):
+                    if not is_pkg:
+                        zf.write(
+                            os.path.join(root_path, module_name + ".py"),
+                            os.path.join(path_prefix, module_name + ".py"),
+                        )
 
         buffer.seek(0)
 

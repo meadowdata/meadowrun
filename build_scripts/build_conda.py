@@ -27,6 +27,8 @@ def translate_poetry_version_to_conda(v: str) -> str:
         return f"=={v}"
     elif v.startswith(">=") and ",<" in v:
         return v
+    elif v == "*":
+        return v
     else:
         raise NotImplementedError(
             f"Version strings of the format {v} are not yet supported"

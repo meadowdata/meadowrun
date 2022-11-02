@@ -424,7 +424,9 @@ class LocalInterpreter(abc.ABC):
 @dataclasses.dataclass(frozen=True)
 class LocalCurrentInterpreter(LocalInterpreter):
     """
-    Specifies the current python interpreter.
+    Specifies the current python interpreter. This is the default in `mirror_local`,
+    this class is mainly useful if you want to specify additional customization like
+    `additional_software`
 
     Attributes:
         additional_software: apt packages that need to be installed to make the

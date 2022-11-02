@@ -57,6 +57,8 @@
 
 ::: meadowrun.LocalPipInterpreter
 
+::: meadowrun.LocalCurrentInterpreter
+
 ---
 
 ::: meadowrun.InterpreterSpecFile

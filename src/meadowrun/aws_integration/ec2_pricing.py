@@ -87,6 +87,49 @@ def _get_region_description_for_pricing(region_code: str) -> str:
     )
 
 
+_GPU_MEMORY = {
+    "g3s.xlarge": 8,
+    "g3.4xlarge": 8,
+    "g3.8xlarge": 16,
+    "g3.16xlarge": 32,
+    "g4ad.xlarge": 8,
+    "g4ad.2xlarge": 8,
+    "g4ad.4xlarge": 8,
+    "g4ad.8xlarge": 16,
+    "g4ad.16xlarge": 32,
+    "g4dn.xlarge": 16,
+    "g4dn.2xlarge": 16,
+    "g4dn.4xlarge": 16,
+    "g4dn.8xlarge": 16,
+    "g4dn.16xlarge": 16,
+    "g4dn.12xlarge": 64,
+    "g4dn.metal": 128,
+    "g5g.xlarge": 16,
+    "g5g.2xlarge": 16,
+    "g5g.4xlarge": 16,
+    "g5g.8xlarge": 16,
+    "g5g.16xlarge": 32,
+    "g5g.metal": 32,
+    "g5.xlarge": 16,
+    "g5.2xlarge": 32,
+    "g5.4xlarge": 64,
+    "g5.8xlarge": 128,
+    "g5.16xlarge": 256,
+    "g5.12xlarge": 192,
+    "g5.24xlarge": 384,
+    "g5.48xlarge": 768,
+    "p2.xlarge": 12,
+    "p2.8xlarge": 96,
+    "p2.16xlarge": 192,
+    "p3.2xlarge": 16,
+    "p3.8xlarge": 64,
+    "p3.16xlarge": 128,
+    "p3dn.24xlarge": 256,
+    "p4d.24xlarge": 1152,
+    "p4de.24xlarge": 1152,
+}
+
+
 def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
     """
     Returns a dataframe with columns instance_type, memory_gb, logical_cpu, and price
@@ -104,14 +147,7 @@ def _get_ec2_on_demand_prices(region_name: str) -> Iterable[CloudInstanceType]:
             "Unable to get most recent GPU memory data, will fall back to data in "
             f"package: {e}"
         )
-        with open(
-            pkg_resources.resource_filename(
-                "meadowrun", "aws_integration/aws_gpu_memory.json"
-            ),
-            "r",
-            encoding="utf-8",
-        ) as file:
-            gpu_memory = json.loads(file.read())
+        gpu_memory = _GPU_MEMORY
 
     # All comments about the pricing API are based on
     # https://www.sentiatechblog.com/using-the-ec2-price-list-api

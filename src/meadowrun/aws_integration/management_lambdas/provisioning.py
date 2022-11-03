@@ -1,79 +1,58 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Tuple
 
+from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
 from meadowrun.instance_selection import ResourcesInternal
-
 
 if TYPE_CHECKING:
     from meadowrun.instance_selection import CloudInstanceType, OnDemandOrSpotType
+    from meadowrun.run_job_core import Resources
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class Threshold:
-    times: int = 1
-    logical_cpu_count: float = 0.0
-    memory_gb: float = 0.0
-    gpu_count: float = 0.0
-    gpu_memory_gb: float = 0.0
-    flags: FrozenSet[str] = frozenset()
+    resources: Resources
+    num_resources: int = 1
+    instance_type: AllocEC2Instance = dataclasses.field(
+        default_factory=AllocEC2Instance
+    )
 
-    def accepts(self, resources: ResourcesInternal) -> bool:
-        """Returns True if the given resource can contribute to this threshold."""
+    threshold_as_resource: ResourcesInternal = dataclasses.field(init=False)
 
-        def check_flags() -> bool:
-            required_flags = ResourcesInternal.from_cpu_and_memory(
-                0.0, 0.0, flags_required=self.flags
-            )
-            for (
-                required_flag_k,
-                required_flag_v,
-            ) in required_flags.non_consumable.items():
-                if not (
-                    required_flag_k in resources.non_consumable
-                    and resources.non_consumable[required_flag_k] >= required_flag_v
-                ):
-                    return False
-            return True
+    def __post_init__(self) -> None:
+        res = self.resources.to_internal()
+        alloc = self.instance_type.get_runtime_resources()
+        self.threshold_as_resource = res.combine(alloc)
 
-        return (
-            # check that the resource is "chunky" enough
-            resources.logical_cpu >= self.logical_cpu_count
-            and resources.memory_gb >= self.memory_gb
-            and resources.gpu >= self.gpu_count
-            and resources.gpu_memory_gb >= self.gpu_memory_gb
-            # machines with GPU requirements don't contribute to non-GPU thresholds,
-            # because it's counter-intuitive, and expensive to keep a GPU machine alive
-            # when all you want is some cheap CPUs.
-            and (
-                # not A or B === A => B
-                not (self.gpu_count == 0.0 and self.gpu_memory_gb == 0.0)
-                or (resources.gpu == 0.0 and resources.gpu_memory_gb == 0.0)
-            )
-            # all threshold flags must be present in the resource
-            and check_flags()
-        )
+    def accepts(self, instance_resources: ResourcesInternal) -> bool:
+        """Returns True if the given instance's resources can contribute to this
+        threshold."""
+        # special rule - since GPUs are typically expensive, don't keep GPU instances
+        # around when threshold is not asking GPU resources.
+        # (this also excludes when the threshold has GPUs but the instance does not)
+        if (
+            self.threshold_as_resource.has_gpu_consumables()
+            != instance_resources.has_gpu_consumables()
+        ):
+            return False
+
+        leftover = instance_resources.subtract(self.threshold_as_resource)
+        if leftover is None:
+            # the instance does not have the required resources, or too little of them
+            return False
+
+        return True
 
     def is_reached(self, resources: ResourcesInternal) -> bool:
-        return (
-            self.logical_cpu_count <= resources.logical_cpu
-            and self.memory_gb <= resources.memory_gb
-            and self.gpu_count <= resources.gpu
-            and self.gpu_memory_gb <= resources.gpu_memory_gb
-        )
+        """Returns true if the given resources equal or exceed this threshold's."""
+        return self.total().consumables_le(resources)
 
-    def total(self) -> Threshold:
-        if self.times == 1:
-            return self
-        return Threshold(
-            times=1,
-            logical_cpu_count=self.times * self.logical_cpu_count,
-            memory_gb=self.times * self.memory_gb,
-            gpu_count=self.times * self.gpu_count,
-            gpu_memory_gb=self.times * self.gpu_memory_gb,
-            flags=self.flags,
-        )
+    def total(self) -> ResourcesInternal:
+        if self.num_resources == 1:
+            return self.threshold_as_resource
+        return self.threshold_as_resource.multiply(self.num_resources)
 
 
 if TYPE_CHECKING:
@@ -95,23 +74,36 @@ class Assignment:
         self.instances.append(instance)
 
     def is_threshold_reached(self) -> bool:
-        total_threshold = self.threshold.total()
         total_allocated = ResourcesInternal({}, {})
         for instance in self.instances:
             total_allocated = total_allocated.add(instance[1].resources)
-        return total_threshold.is_reached(total_allocated)
+        return self.threshold.is_reached(total_allocated)
+
+
+def _augmented_cloud_instance_type(
+    instance_type: CloudInstanceType, instance_specifc: ResourcesInternal
+) -> CloudInstanceType:
+    return dataclasses.replace(
+        instance_type, resources=instance_type.resources.combine(instance_specifc)
+    )
 
 
 def shutdown_thresholds(
     thresholds: Iterable[Threshold],
     instances: Dict[InstanceId, InstanceTypeKey],
     type_to_info: Dict[InstanceTypeKey, CloudInstanceType],
+    instance_to_resources: Dict[InstanceId, ResourcesInternal],
 ) -> List[InstanceId]:
 
     assignments = [Assignment(threshold) for threshold in thresholds]
 
     sorted_instances = [
-        (instance_id, type_to_info[instance_type_key])
+        (
+            instance_id,
+            _augmented_cloud_instance_type(
+                type_to_info[instance_type_key], instance_to_resources[instance_id]
+            ),
+        )
         for instance_id, instance_type_key in instances.items()
     ]
     sorted_instances.sort(key=lambda i: i[1].price, reverse=True)

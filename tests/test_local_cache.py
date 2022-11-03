@@ -6,8 +6,6 @@ from meadowrun.local_cache import MEADOWRUN_DIRS, get_cached_json, save_json_to_
 
 
 def test_json_cache() -> None:
-    # def get_cached_json(name: str, freshness: timedelta) -> Optional[Any]:
-    # def save_json_to_cache(name: str, json_data: Any) -> None:
     try:
         filename = str(uuid.uuid4())
         assert get_cached_json(filename, timedelta(seconds=60)) is None
@@ -19,4 +17,4 @@ def test_json_cache() -> None:
         save_json_to_cache(filename, json_data)
         assert get_cached_json(filename, timedelta(seconds=60)) == json_data
     finally:
-        os.remove(os.path.join(MEADOWRUN_DIRS.user_cache_dir, filename))
+        os.remove(MEADOWRUN_DIRS.user_cache_path / filename)

@@ -264,13 +264,17 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             if args.get == "default":
                 print(f"Creating default configuration as {custom_config}")
                 aws.get_default_management_lambda_config(custom_config)
+                got_file = True
             elif args.get == "current":
                 print(f"Getting current configuration as {custom_config}")
-                aws.get_current_management_lambda_config(custom_config, args.region)
-            print(
-                f"Edit {custom_config} to your liking, then upload it with --set "
-                f"{custom_config}"
-            )
+                got_file = aws.get_current_management_lambda_config(
+                    custom_config, args.region
+                )
+            if got_file:
+                print(
+                    f"Edit {custom_config} to your liking, then upload it with --set "
+                    f"{custom_config}"
+                )
 
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")

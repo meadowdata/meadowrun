@@ -111,13 +111,20 @@ def get_default_management_lambda_config(custom_config: str) -> None:
     shutil.copyfile(config.__file__, custom_config)
 
 
-def get_current_management_lambda_config(custom_config: str, region_name: str) -> None:
-    lamc = boto3.client("lambda", region_name)
-    result = lamc.get_function(FunctionName="meadowrun_ec2_alloc_lambda")
+def get_current_management_lambda_config(custom_config: str, region_name: str) -> bool:
+    lambda_client = boto3.client("lambda", region_name)
+    try:
+        result = lambda_client.get_function(FunctionName="meadowrun_ec2_alloc_lambda")
+    except lambda_client.exceptions.ResourceNotFoundException:
+        print("Could not find management lambda. Try running 'install` first?")
+        return False
+
     download_url = result["Code"]["Location"]
 
     response = requests.get(download_url)
-    response.raise_for_status()
+    if not response.ok:
+        print(f"Could not download lambda code. Respnse code: {response.status_code}")
+        return False
 
     with io.BytesIO(response.content) as f:
         with zipfile.ZipFile(f) as z:
@@ -130,6 +137,7 @@ def get_current_management_lambda_config(custom_config: str, region_name: str) -
             config = z.read(config_file)
             with open(custom_config, "wb+") as t:
                 t.write(config)
+    return True
 
 
 def _delete_user_group(iam: Any, group_name: str) -> None:

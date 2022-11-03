@@ -155,10 +155,22 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
     clean_parser = subparsers.add_parser(
         "clean",
-        help=f"Cleans up all temporary resources, runs the same code as the {functions}"
-        " created by install",
+        help=f"Cleans up temporary resources. Runs the same code as the {functions} "
+        "created by install.",
     )
-    clean_parser.add_argument("--clean-active", action="store_true")
+    clean_parser.add_argument(
+        "--active",
+        "--clean-active",
+        action="store_true",
+        help=f"Additionally terminate {vm_instances} that are actively running jobs.",
+    )
+    if cloud_provider == "EC2":
+        clean_parser.add_argument(
+            "--cache", action="store_true", help="Additionally clean up local caches."
+        )
+    clean_parser.add_argument(
+        "--all", action="store_true", help="Shorthand for enabling all options."
+    )
 
     if cloud_provider == "EC2":
         grant_permission_to_secret_parser = subparsers.add_parser(
@@ -252,7 +264,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             f"Deleted all meadowrun resources in {time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "clean":
-        if args.clean_active:
+        if args.active:
             print(
                 f"Terminating and deregistering all {vm_instances}. This will "
                 f"interrupt actively running jobs."
@@ -260,20 +272,24 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
         else:
             print(
                 f"Terminating and deregistering all inactive {vm_instances} (specify "
-                "--clean-active to also terminate and deregister active instances)"
+                "--active to also terminate and deregister active instances)"
             )
 
         if cloud_provider == "EC2":
-            if args.clean_active:
+            if args.active:
                 aws.terminate_all_instances(args.region, False)
-            _deregister_and_terminate_instances(args.region, datetime.timedelta.min, [])
-            clear_prices_cache()
+            await _deregister_and_terminate_instances(
+                args.region, datetime.timedelta.min, []
+            )
+            if args.cache:
+                print("Cleaning cache.")
+                clear_prices_cache()
         elif cloud_provider == "AzureVM":
             resource_group_path = await ensure_meadowrun_resource_group(region_name)
             storage_account = await ensure_meadowrun_storage_account(
                 region_name, "raise"
             )
-            if args.clean_active:
+            if args.active:
                 await terminate_all_vms(resource_group_path)
             for log_line in await _deregister_and_terminate_vms(
                 storage_account, resource_group_path, datetime.timedelta.min

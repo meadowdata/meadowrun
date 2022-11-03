@@ -1,6 +1,7 @@
 """
-This code will run in the generic AWS Lambda environment, so it should not import any
-code outside this folder.
+This code will run in the generic AWS Lambda environment. It has access to code in
+meadowrun, meadowrun.aws_integration, and meadowrun.aws_integration.management_lambdas.
+However, no 3rd party dependencies are added.
 """
 from __future__ import annotations
 
@@ -40,6 +41,7 @@ from meadowrun.aws_integration.management_lambdas.provisioning import (
     Threshold,
     shutdown_thresholds,
 )
+from meadowrun.instance_selection import ResourcesInternal
 
 if TYPE_CHECKING:
     from meadowrun.instance_selection import CloudInstanceType, OnDemandOrSpotType
@@ -128,8 +130,8 @@ _NON_TERMINATED_EC2_STATES = [
 ]
 
 
-def adjust(region_name: str) -> None:
-    _deregister_and_terminate_instances(
+async def adjust(region_name: str) -> None:
+    await _deregister_and_terminate_instances(
         region_name,
         TERMINATE_INSTANCES_IF_IDLE_FOR,
         INSTANCE_THRESHOLDS,
@@ -245,12 +247,12 @@ def _get_ec2_instances(region_name: str) -> Dict[str, _EC2_Instance]:
     return non_terminated_instances
 
 
-def _get_instance_type_info(
+async def _get_instance_type_info(
     region_name: str,
 ) -> Dict[Tuple[str, OnDemandOrSpotType], CloudInstanceType]:
     # gather some info to apply thresholds.
-    cloud_instance_types: List[CloudInstanceType] = asyncio.run(
-        get_ec2_instance_types(region_name)
+    cloud_instance_types: List[CloudInstanceType] = await get_ec2_instance_types(
+        region_name
     )
     return {
         (instance_type.name, instance_type.on_demand_or_spot): instance_type
@@ -258,7 +260,7 @@ def _get_instance_type_info(
     }
 
 
-def _deregister_and_terminate_instances(
+async def _deregister_and_terminate_instances(
     region_name: str,
     terminate_instances_if_idle_for: dt.timedelta,
     thresholds: List[Threshold],
@@ -272,7 +274,7 @@ def _deregister_and_terminate_instances(
     """
 
     ec2_instances = _get_ec2_instances(region_name)
-    instance_type_info = _get_instance_type_info(region_name)
+    instance_type_info = await _get_instance_type_info(region_name)
     now = dt.datetime.now(dt.timezone.utc)
 
     _add_deregister_and_terminate_actions(
@@ -303,13 +305,14 @@ def _add_deregister_and_terminate_actions(
     instance_type_info: Dict[Tuple[str, OnDemandOrSpotType], CloudInstanceType],
 ) -> None:
     """Modifies ec2_instances to add terminate or deregister actions where necessary.
-
     This is separated from the actual execution of the actions for testability."""
+
     _sync_registration_and_actual_state(
         region_name, ec2_instances, now, launch_register_delay
     )
 
-    # Check thresholds. Returns any instances that may be shut down.
+    # build instance id to an identifier we can look up in instance_type_info,
+    # to look up instance type specific resources, and price.
     instance_id_to_type = {
         instance_id: (
             instance.instance.instance_type,
@@ -321,10 +324,19 @@ def _add_deregister_and_terminate_actions(
         if instance.action is None and instance.instance is not None
     }
 
+    # build instance id to instance-specific resources
+    instance_id_to_resources = {
+        instance_id: ResourcesInternal.from_ec2_instance_resource(instance.instance)
+        for instance_id, instance in ec2_instances.items()
+        if instance.action is None and instance.instance is not None
+    }
+
+    # Check thresholds. Returns any instances that may be shut down.
     excess_instances = shutdown_thresholds(
         thresholds,
         instance_id_to_type,  # type: ignore[arg-type]
         instance_type_info,
+        instance_id_to_resources,
     )
 
     _delete_abandoned_machine_queues(sqs_client, set(running_instances.keys()))
@@ -399,5 +411,5 @@ def _sync_registration_and_actual_state(
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:
     """The handler for AWS lambda"""
-    adjust(os.environ["AWS_REGION"])
+    asyncio.run(adjust(os.environ["AWS_REGION"]))
     return {"statusCode": 200, "body": ""}

@@ -114,19 +114,22 @@ class Resources:
     def needs_cuda(self) -> bool:
         return self.uses_gpu() and _needs_cuda(self.flags)
 
-    def to_internal(self) -> Optional[ResourcesInternal]:
+    def to_internal_or_none(self) -> Optional[ResourcesInternal]:
         if self.logical_cpu is None or self.memory_gb is None:
             return None
         else:
-            return ResourcesInternal.from_cpu_and_memory(
-                self.logical_cpu,
-                self.memory_gb,
-                self.max_eviction_rate,
-                self.gpus,
-                self.gpu_memory,
-                self.flags,
-                self.ephemeral_storage_gb,
-            )
+            return self.to_internal()
+
+    def to_internal(self) -> ResourcesInternal:
+        return ResourcesInternal.from_cpu_and_memory(
+            self.logical_cpu,
+            self.memory_gb,
+            self.max_eviction_rate,
+            self.gpus,
+            self.gpu_memory,
+            self.flags,
+            self.ephemeral_storage_gb,
+        )
 
 
 class WaitOption(enum.Enum):

@@ -4,7 +4,7 @@ import dataclasses
 import decimal
 import math
 import sys
-from typing import Any, Dict, Optional, Tuple, Iterable, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Iterable, Union
 
 from typing_extensions import Literal
 
@@ -25,6 +25,9 @@ ON_DEMAND_OR_SPOT_VALUES: Tuple[OnDemandOrSpotType, OnDemandOrSpotType] = (
 )
 OnDemandOrSpotType = Literal["on_demand", "spot"]
 
+if TYPE_CHECKING:
+    from mypy_boto3_ec2.service_resource import Instance
+
 
 class ResourcesInternal:
     """
@@ -39,26 +42,6 @@ class ResourcesInternal:
     def __init__(self, consumable: Dict[str, float], non_consumable: Dict[str, float]):
         self.consumable = consumable
         self.non_consumable = non_consumable
-
-    @property
-    def logical_cpu(self) -> float:
-        return self.consumable.get(LOGICAL_CPU, 0.0)
-
-    @property
-    def memory_gb(self) -> float:
-        return self.consumable.get(MEMORY_GB, 0.0)
-
-    @property
-    def gpu(self) -> float:
-        return self.consumable.get(GPU, 0.0)
-
-    @property
-    def gpu_memory_gb(self) -> float:
-        return self.consumable.get(GPU_MEMORY, 0.0)
-
-    @property
-    def ephemeral_storage_gb(self) -> float:
-        return self.consumable.get(EPHEMERAL_STORAGE_GB, 0.0)
 
     def subtract(self, required: ResourcesInternal) -> Optional[ResourcesInternal]:
         """
@@ -86,6 +69,20 @@ class ResourcesInternal:
                 for key, value in self.consumable.items()
             },
             self.non_consumable,
+        )
+
+    def consumables_le(self, other: ResourcesInternal) -> bool:
+        """True if all consumables of self are smaller or equal than those of other."""
+        for key, value in self.consumable.items():
+            if value > other.consumable.get(key, 0.0):
+                return False
+        return True
+
+    def has_gpu_consumables(self) -> bool:
+        """True if any consumable resources are GPUs or GPU memory."""
+        return (
+            self.consumable.get(GPU, 0.0) > 0.0
+            or self.consumable.get(GPU_MEMORY, 0.0) > 0.0
         )
 
     def add(self, returned: ResourcesInternal) -> ResourcesInternal:
@@ -241,8 +238,8 @@ class ResourcesInternal:
     @classmethod
     def from_cpu_and_memory(
         cls,
-        logical_cpu: float,
-        memory_gb: float,
+        logical_cpu: Optional[float],
+        memory_gb: Optional[float],
         max_eviction_rate: Optional[float] = None,
         gpus: Optional[float] = None,
         gpu_memory: Optional[float] = None,
@@ -257,8 +254,10 @@ class ResourcesInternal:
             consumables = {}
         else:
             consumables = other_consumables.copy()
-        consumables[LOGICAL_CPU] = logical_cpu
-        consumables[MEMORY_GB] = memory_gb
+        if logical_cpu is not None:
+            consumables[LOGICAL_CPU] = logical_cpu
+        if memory_gb is not None:
+            consumables[MEMORY_GB] = memory_gb
         if gpus is not None:
             consumables[GPU] = gpus
         if gpu_memory is not None:
@@ -286,6 +285,26 @@ class ResourcesInternal:
             non_consumables[EPHEMERAL_STORAGE_GB] = ephemeral_storage_gb
 
         return cls(consumables, non_consumables)
+
+    @classmethod
+    def from_ec2_instance_resource(cls, instance: Instance) -> ResourcesInternal:
+        """Creates non-consumable resources to match AllocEC2Instance, and
+        EPHEMERAL_STORAGE_GB. Basically all the resources that are not in
+        CloudInstanceType."""
+        ls = {sec_group["GroupId"]: 1.0 for sec_group in instance.security_groups}
+        return ResourcesInternal(
+            {},
+            {
+                instance.image_id: 1.0,
+                instance.subnet_id: 1.0,
+                instance.vpc_id: 1.0,
+                instance.iam_instance_profile["Id"]: 1.0,
+                **ls,
+                EPHEMERAL_STORAGE_GB: sum(
+                    volume.size for volume in instance.volumes.all()
+                ),
+            },
+        )
 
 
 def remaining_resources_sort_key(

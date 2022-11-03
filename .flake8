@@ -17,7 +17,8 @@ exclude=
     src/meadowrun/_vendor,
     dist,
     # config file
-    src/meadowrun/aws_integration/management_lambdas/config.py
+    src/meadowrun/aws_integration/management_lambdas/config.py,
+    custom_config.py
 
 # for flake8-type-checking
 enable-extensions = TC, TC1

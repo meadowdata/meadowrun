@@ -419,7 +419,7 @@ async def run_function(
     )
 
     job_completion = await host.run_job(
-        resources.to_internal(),
+        resources.to_internal_or_none(),
         job,
         WaitOption.WAIT_AND_TAIL_STDOUT if wait_for_result else WaitOption.DO_NOT_WAIT,
     )
@@ -501,7 +501,7 @@ async def run_command(
     )
 
     return await host.run_job(
-        resources.to_internal(),
+        resources.to_internal_or_none(),
         job,
         WaitOption.WAIT_AND_TAIL_STDOUT if wait_for_result else WaitOption.DO_NOT_WAIT,
     )
@@ -593,7 +593,7 @@ async def run_map(
     return await host.run_map(
         function,
         args,
-        resources_per_task.to_internal(),
+        resources_per_task.to_internal_or_none(),
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,
@@ -694,7 +694,7 @@ async def run_map_as_completed(
     return host.run_map_as_completed(
         function,
         args,
-        resources_per_task.to_internal(),
+        resources_per_task.to_internal_or_none(),
         job_fields,
         num_concurrent_tasks,
         pickle_protocol,

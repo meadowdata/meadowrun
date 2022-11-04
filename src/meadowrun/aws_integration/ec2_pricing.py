@@ -66,6 +66,10 @@ async def get_ec2_instance_types(region_name: str) -> List[CloudInstanceType]:
     return result
 
 
+def clear_prices_cache() -> None:
+    clear_cache(_CACHED_EC2_PRICES_PREFIX)
+
+
 def _get_region_description_for_pricing(region_code: str) -> str:
     """
     Mostly copy/pasted from
@@ -438,7 +442,3 @@ async def _get_ec2_interruption_probabilities(region_name: str) -> Dict[str, flo
         instance_type: range_averages[values["r"]]
         for instance_type, values in data["spot_advisor"][region_name]["Linux"].items()
     }
-
-
-def clear_prices_cache() -> None:
-    clear_cache(_CACHED_EC2_PRICES_PREFIX)

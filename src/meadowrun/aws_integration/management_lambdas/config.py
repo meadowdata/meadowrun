@@ -1,8 +1,9 @@
+from typing import List
+import datetime as dt
 from meadowrun.aws_integration.management_lambdas.provisioning import Threshold
 
-# Any changes to these variable names must be reflected in aws_install_uninstall
+# Terminate instances if they haven't run any jobs for this long.
+TERMINATE_INSTANCES_IF_IDLE_FOR = dt.timedelta(minutes=5)
 
-# 5 minutes is the default, can be overridden on the next line
-TERMINATE_INSTANCES_IF_IDLE_FOR_SECS = 5 * 60
-
-INSTANCE_THRESHOLDS = [Threshold(1, logical_cpu_count=2, memory_gb=4)]
+# Keep instances around to satisfy these thresholds.
+INSTANCE_THRESHOLDS: List[Threshold] = []

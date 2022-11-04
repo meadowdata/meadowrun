@@ -23,7 +23,7 @@ import boto3
 from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
 from meadowrun.aws_integration.management_lambdas.config import (
     INSTANCE_THRESHOLDS,
-    TERMINATE_INSTANCES_IF_IDLE_FOR_SECS,
+    TERMINATE_INSTANCES_IF_IDLE_FOR,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     MACHINE_AGENT_QUEUE_PREFIX,
@@ -45,10 +45,7 @@ if TYPE_CHECKING:
     from meadowrun.instance_selection import CloudInstanceType, OnDemandOrSpotType
     from mypy_boto3_ec2.service_resource import EC2ServiceResource, Instance
 
-# Terminate instances if they haven't run any jobs recently
-_TERMINATE_INSTANCES_IF_IDLE_FOR = dt.timedelta(
-    seconds=TERMINATE_INSTANCES_IF_IDLE_FOR_SECS
-)
+
 # If we see instances running that aren't registered, we assume there is something wrong
 # and they need to be terminated. However, it's possible that we happen to query between
 # when an instance is launched and when it's registered. So for some time after an
@@ -134,7 +131,7 @@ _NON_TERMINATED_EC2_STATES = [
 def adjust(region_name: str) -> None:
     _deregister_and_terminate_instances(
         region_name,
-        _TERMINATE_INSTANCES_IF_IDLE_FOR,
+        TERMINATE_INSTANCES_IF_IDLE_FOR,
         INSTANCE_THRESHOLDS,
         _LAUNCH_REGISTER_DELAY,
     )

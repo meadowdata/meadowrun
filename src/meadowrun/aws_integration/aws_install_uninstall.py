@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-import argparse
-from typing import TYPE_CHECKING, Any, Optional, Dict, List
+import io
+import os
+import shutil
+import zipfile
+from typing import TYPE_CHECKING, Any, List, Optional
+
 import boto3
+import requests
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
@@ -22,9 +27,9 @@ from meadowrun.aws_integration.aws_mgmt_lambda_install import (
 from meadowrun.aws_integration.aws_permissions_install import (
     _EC2_ROLE_INSTANCE_PROFILE,
     _EC2_ROLE_NAME,
+    _EC2_ROLE_POLICY_NAME,
     _MANAGEMENT_LAMBDA_POLICY_NAME,
     _MANAGEMENT_LAMBDA_ROLE,
-    _EC2_ROLE_POLICY_NAME,
     _MEADOWRUN_USER_POLICY_NAME,
     _policy_arn_from_name,
     ensure_management_lambda_role,
@@ -38,8 +43,8 @@ from meadowrun.aws_integration.ec2 import (
 from meadowrun.aws_integration.ec2_instance_allocation import ensure_ec2_alloc_table
 from meadowrun.aws_integration.ec2_pricing import clear_prices_cache
 from meadowrun.aws_integration.ec2_ssh_keys import (
-    MEADOWRUN_KEY_PAIR_NAME,
     _MEADOWRUN_KEY_PAIR_SECRET_NAME,
+    MEADOWRUN_KEY_PAIR_NAME,
     ensure_meadowrun_key_pair,
 )
 from meadowrun.aws_integration.ecr import _ensure_repository
@@ -56,25 +61,11 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import ObjectIdentifierTypeDef
 
 
-def add_management_lambda_override_arguments(parser: argparse.ArgumentParser) -> None:
-    """Modifies parser in place!"""
-    parser.add_argument("--terminate-instances-if-idle-for-secs")
-
-
-def get_management_lambda_overrides_from_args(args: Any) -> Dict[str, str]:
-    overrides = {}
-    if args.terminate_instances_if_idle_for_secs:
-        overrides[
-            "TERMINATE_INSTANCES_IF_IDLE_FOR_SECS"
-        ] = args.terminate_instances_if_idle_for_secs
-    return overrides
-
-
 async def install(
     region_name: str,
     allow_authorize_ips: bool,
     vpc_id: Optional[str],
-    management_lambda_overrides: Dict[str, str],
+    config_file: Optional[str],
 ) -> None:
     """Installs resources needed to run Meadowrun jobs"""
 
@@ -99,8 +90,8 @@ async def install(
 
     ensure_ec2_alloc_table(region_name)
 
-    await ensure_ec2_alloc_lambda(True, management_lambda_overrides, region_name)
-    await ensure_clean_up_lambda(True, management_lambda_overrides, region_name)
+    await ensure_ec2_alloc_lambda(True, config_file, region_name)
+    await ensure_clean_up_lambda(True, config_file, region_name)
 
     ensure_meadowrun_key_pair(region_name)
 
@@ -109,11 +100,36 @@ async def install(
     _ensure_repository(_MEADOWRUN_GENERATED_DOCKER_REPO, region_name)
 
 
-async def edit_management_lambda_config(
-    overrides: Dict[str, str], region_name: str
-) -> None:
-    await ensure_ec2_alloc_lambda(True, overrides, region_name)
-    await ensure_clean_up_lambda(True, overrides, region_name)
+async def edit_management_lambda_config(config_file: str, region_name: str) -> None:
+    await ensure_ec2_alloc_lambda(True, config_file, region_name)
+    await ensure_clean_up_lambda(True, config_file, region_name)
+
+
+def get_default_management_lambda_config(custom_config: str) -> None:
+    from meadowrun.aws_integration.management_lambdas import config
+
+    shutil.copyfile(config.__file__, custom_config)
+
+
+def get_current_management_lambda_config(custom_config: str, region_name: str) -> None:
+    lamc = boto3.client("lambda", region_name)
+    result = lamc.get_function(FunctionName="meadowrun_ec2_alloc_lambda")
+    download_url = result["Code"]["Location"]
+
+    response = requests.get(download_url)
+    response.raise_for_status()
+
+    with io.BytesIO(response.content) as f:
+        with zipfile.ZipFile(f) as z:
+            config_file = [
+                file
+                for file in z.filelist
+                if os.path.basename(file.filename) == "config.py"
+            ][0]
+
+            config = z.read(config_file)
+            with open(custom_config, "wb+") as t:
+                t.write(config)
 
 
 def _delete_user_group(iam: Any, group_name: str) -> None:

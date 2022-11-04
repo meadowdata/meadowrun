@@ -5,7 +5,7 @@ import io
 import os
 import pkgutil
 import zipfile
-from typing import TYPE_CHECKING, Any, Tuple, Callable, TypeVar, Dict
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Callable, TypeVar
 
 import boto3
 
@@ -38,7 +38,7 @@ def _get_prefix_and_root_path(module_name: ModuleType) -> Tuple[str, str]:
     return (module_name.__name__.replace(".", os.path.sep), module_name.__path__[0])
 
 
-def _get_zipped_lambda_code(overrides: Dict[str, str]) -> bytes:
+def _get_zipped_lambda_code(config_file: Optional[str]) -> bytes:
     """
     Gets the contents of the ec2_alloc_lambda folder as a zip file. This is the code we
     want to run as a lambda.
@@ -63,23 +63,8 @@ def _get_zipped_lambda_code(overrides: Dict[str, str]) -> bytes:
     with io.BytesIO() as buffer:
         with create_zipfile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for module_name in lambda_module_names:
-                if module_name == "config" and overrides:
-                    with open(
-                        os.path.join(lambda_root_path, f"{module_name}.py"),
-                        "r",
-                        encoding="utf-8",
-                    ) as orig_config:
-                        result = []
-                        for line in orig_config:
-                            for key, value in overrides.items():
-                                if line.startswith(f"{key} = "):
-                                    result.append(f"{key} = {value}\n")
-                                else:
-                                    result.append(line)
-                        zf.writestr(
-                            os.path.join(path_prefix, module_name + ".py"),
-                            "".join(result),
-                        )
+                if config_file is not None and module_name == "config":
+                    zf.write(config_file, os.path.join(path_prefix, "config.py"))
                 else:
                     zf.write(
                         os.path.join(lambda_root_path, module_name + ".py"),
@@ -105,7 +90,7 @@ async def _create_management_lambda(
     schedule_rule_name: str,
     schedule_expression: str,
     region_name: str,
-    overrides: Dict[str, str],
+    config_file: Optional[str],
 ) -> None:
     """Creates the ec2 alloc lambda assuming it does not already exist"""
     account_number = _get_account_number()
@@ -118,7 +103,7 @@ async def _create_management_lambda(
                 Runtime="python3.9",
                 Role=f"arn:aws:iam::{account_number}:role/{_MANAGEMENT_LAMBDA_ROLE}",
                 Handler=f"{lambda_handler.__module__}.{lambda_handler.__name__}",
-                Code={"ZipFile": _get_zipped_lambda_code(overrides)},
+                Code={"ZipFile": _get_zipped_lambda_code(config_file)},
                 Timeout=120,
                 MemorySize=128,  # memory available in MB
             ),
@@ -197,7 +182,7 @@ async def _ensure_management_lambda(
     schedule_rule_name: str,
     schedule_expression: str,
     update_if_exists: bool,
-    overrides: Dict[str, str],
+    config_file: Optional[str],
     region_name: str,
 ) -> None:
     """
@@ -225,18 +210,18 @@ async def _ensure_management_lambda(
             schedule_rule_name,
             schedule_expression,
             region_name,
-            overrides,
+            config_file,
         )
         _set_retention_policy_lambda_logs(lambda_name, region_name)
     elif update_if_exists:
         lambda_client.update_function_code(
-            FunctionName=lambda_name, ZipFile=_get_zipped_lambda_code(overrides)
+            FunctionName=lambda_name, ZipFile=_get_zipped_lambda_code(config_file)
         )
         _set_retention_policy_lambda_logs(lambda_name, region_name)
 
 
 async def ensure_ec2_alloc_lambda(
-    update_if_exists: bool, overrides: Dict[str, str], region_name: str
+    update_if_exists: bool, config_file: Optional[str], region_name: str
 ) -> None:
     await _ensure_management_lambda(
         meadowrun.aws_integration.management_lambdas.adjust_ec2_instances.lambda_handler,  # noqa: E501
@@ -244,13 +229,13 @@ async def ensure_ec2_alloc_lambda(
         _EC2_ALLOC_LAMBDA_SCHEDULE_RULE,
         "rate(1 minute)",
         update_if_exists,
-        overrides,
+        config_file,
         region_name,
     )
 
 
 async def ensure_clean_up_lambda(
-    update_if_exists: bool, overrides: Dict[str, str], region_name: str
+    update_if_exists: bool, config_file: Optional[str], region_name: str
 ) -> None:
     await _ensure_management_lambda(
         meadowrun.aws_integration.management_lambdas.clean_up.lambda_handler,
@@ -258,7 +243,7 @@ async def ensure_clean_up_lambda(
         _CLEAN_UP_LAMBDA_SCHEDULE_RULE,
         "rate(3 hours)",
         update_if_exists,
-        overrides,
+        config_file,
         region_name,
     )
 

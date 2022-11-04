@@ -146,7 +146,29 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
                 "meadowrun_ssh_security_group in"
             ),
         )
-        aws.add_management_lambda_override_arguments(install_parser)
+        install_parser.add_argument(
+            "--config-file",
+            type=str,
+            metavar="CONFIGFILENAME",
+            help="Path to a config file. Use `config --defaults` to generate a file "
+            "with the defaults, and `config --current` to download the currently used "
+            "config.",
+        )
+        config_parser = subparsers.add_parser("config", help="Manage configuration.")
+        get_set = config_parser.add_mutually_exclusive_group()
+        get_set.add_argument(
+            "--get",
+            type=str,
+            choices=["default", "current"],
+            help="Create a file 'meadowrun_config.py' in the current directory, "
+            "containing the default or current configuration.",
+        )
+        get_set.add_argument(
+            "--set",
+            type=str,
+            metavar="CONFIGFILENAME",
+            help="Upload the given file as the new configuration.",
+        )
 
     subparsers.add_parser(
         "uninstall",
@@ -197,17 +219,6 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             "repo_name", help="The name of the repo to give permissions to"
         )
 
-        edit_management_lambda_config_parser = subparsers.add_parser(
-            "edit-management-lambda-config",
-            help=(
-                "Edits configuration for the management lambdas which are responsible "
-                "for cleaning up resources that are no longer in use"
-            ),
-        )
-        aws.add_management_lambda_override_arguments(
-            edit_management_lambda_config_parser
-        )
-
     get_ssh_key_parser = subparsers.add_parser(
         "get-ssh-key",
         help="Downloads the SSH key used to connect meadowrun-launched "
@@ -230,28 +241,37 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
                 args.region,
                 args.allow_authorize_ips,
                 args.vpc_id,
-                aws.get_management_lambda_overrides_from_args(args),
+                args.config_file,
             )
         elif cloud_provider == "AzureVM":
             await azure.install(region_name)
         else:
             raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
         print(f"Created resources in {time.perf_counter() - t0:.2f} seconds")
-    elif args.command == "edit-management-lambda-config":
-        print("Editing management lambda config")
-        if cloud_provider == "EC2":
-            await aws.edit_management_lambda_config(
-                aws.get_management_lambda_overrides_from_args(args), args.region
+    elif args.command == "config":
+        if args.set:
+            print("Changing management lambda config")
+            if cloud_provider == "EC2":
+                await aws.edit_management_lambda_config(args.set, args.region)
+            else:
+                raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
+            print(
+                f"Changed management lambda config in {time.perf_counter() - t0:.2f} "
+                "seconds"
             )
-        elif cloud_provider == "AzureVM":
-            raise NotImplementedError(
-                "Editing the management lambda config is not yet supported for Azure"
+        elif args.get:
+            custom_config = "custom_config.py"
+            if args.get == "default":
+                print(f"Creating default configuration as {custom_config}")
+                aws.get_default_management_lambda_config(custom_config)
+            elif args.get == "current":
+                print(f"Getting current configuration as {custom_config}")
+                aws.get_current_management_lambda_config(custom_config, args.region)
+            print(
+                f"Edit {custom_config} to your liking, then upload it with --set "
+                f"{custom_config}"
             )
-        else:
-            raise ValueError(f"Unexpected cloud_provider {cloud_provider}")
-        print(
-            f"Edited management lambda config in {time.perf_counter() - t0:.2f} seconds"
-        )
+
     elif args.command == "uninstall":
         print("Deleting all meadowrun resources")
         if cloud_provider == "EC2":

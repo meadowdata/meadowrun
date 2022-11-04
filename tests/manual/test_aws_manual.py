@@ -75,5 +75,5 @@ async def manual_test_create_management_lambdas() -> None:
     # 1. delete the lambda and the ec2_alloc_lambda_role, then run this.
     # 2. make a small change to the lambda code then run this again
     region_name = await _get_default_region_name()
-    await ensure_ec2_alloc_lambda(True, {}, region_name)
-    await ensure_clean_up_lambda(True, {}, region_name)
+    await ensure_ec2_alloc_lambda(True, None, region_name)
+    await ensure_clean_up_lambda(True, None, region_name)

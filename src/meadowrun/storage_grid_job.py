@@ -292,7 +292,6 @@ async def receive_results(
     all_workers_exited: asyncio.Event,
     initial_wait_seconds: int = 1,
     receive_message_wait_seconds: int = 20,
-    read_worker_process_states: bool = True,
 ) -> AsyncIterable[Tuple[List[TaskProcessState], List[WorkerProcessState]]]:
     """
     Listens to a result queue until we have results for num_tasks.
@@ -372,9 +371,6 @@ async def receive_results(
                             TaskProcessState(task_id, attempt, process_state)
                         )
                     elif key.endswith(STORAGE_KEY_PROCESS_STATE_SUFFIX):
-                        if not read_worker_process_states:
-                            continue
-
                         worker_index = parse_storage_key_process_state(
                             key, results_prefix
                         )

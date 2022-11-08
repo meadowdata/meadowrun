@@ -752,7 +752,6 @@ class KubernetesGridJobDriver:
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
             initial_wait_seconds=2,
-            read_worker_process_states=self._kubernetes.reusable_pods,
         )
 
     async def _retry_task(self, task_id: int, attempts_so_far: int) -> None:

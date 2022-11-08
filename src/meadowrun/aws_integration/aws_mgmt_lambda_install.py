@@ -33,6 +33,17 @@ _EC2_ALLOC_LAMBDA_SCHEDULE_RULE = "meadowrun_ec2_alloc_lambda_schedule_rule"
 _CLEAN_UP_LAMBDA_NAME = "meadowrun_clean_up"
 _CLEAN_UP_LAMBDA_SCHEDULE_RULE = "meadowrun_clean_up_lambda_schedule_rule"
 
+# Constants to identify the lambda layer with the lambda code's dependencies.
+# The account where the layer is published, NOT the user account.
+_LAMBDA_LAYER_ACCOUNT = "344606234287"
+# The name of the layer.
+_LAMBDA_LAYER_NAME = "meadowrun-dependencies"
+# The version of the layer - this is printed by build_aws_lambda_layer.
+# Since AWS never forgets the version for a given layer name, it's likely that
+# us-east-2 is going to be ahead.
+_LAMBDA_LAYER_DEFAULT_VERSION = "1"
+_LAMBDA_LAYER_REGION_TO_VERSION = {"us-east-2": "3"}
+
 
 def _get_prefix_and_root_path(module_name: ModuleType) -> Tuple[str, str]:
     return (module_name.__name__.replace(".", os.path.sep), module_name.__path__[0])
@@ -104,6 +115,11 @@ async def _create_management_lambda(
                 Role=f"arn:aws:iam::{account_number}:role/{_MANAGEMENT_LAMBDA_ROLE}",
                 Handler=f"{lambda_handler.__module__}.{lambda_handler.__name__}",
                 Code={"ZipFile": _get_zipped_lambda_code(config_file)},
+                Layers=[
+                    f"arn:aws:lambda:{region_name}:{_LAMBDA_LAYER_ACCOUNT}:layer:"
+                    f"{_LAMBDA_LAYER_NAME}:"
+                    f"{_LAMBDA_LAYER_REGION_TO_VERSION.get(region_name, _LAMBDA_LAYER_DEFAULT_VERSION)}"  # noqa
+                ],
                 Timeout=120,
                 MemorySize=128,  # memory available in MB
             ),
@@ -218,6 +234,22 @@ async def _ensure_management_lambda(
             FunctionName=lambda_name, ZipFile=_get_zipped_lambda_code(config_file)
         )
         _set_retention_policy_lambda_logs(lambda_name, region_name)
+        await _retry(
+            lambda: ignore_boto3_error_code(
+                lambda: lambda_client.update_function_configuration(
+                    FunctionName=lambda_name,
+                    Layers=[
+                        f"arn:aws:lambda:{region_name}:{_LAMBDA_LAYER_ACCOUNT}:layer:"
+                        f"{_LAMBDA_LAYER_NAME}:"
+                        f"{_LAMBDA_LAYER_REGION_TO_VERSION.get(region_name, _LAMBDA_LAYER_DEFAULT_VERSION)}"  # noqa
+                    ],
+                ),
+                "ResourceConflictException",
+            ),
+            10,
+            2,
+            f"Waiting to update lambda {lambda_name}'s configuration...",
+        )
 
 
 async def ensure_ec2_alloc_lambda(

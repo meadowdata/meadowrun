@@ -6,7 +6,8 @@ from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
 from meadowrun.azure_integration.azure_instance_allocation import AllocAzureVM
 
 if TYPE_CHECKING:
-    from meadowrun.run_job_core import CloudProviderType, AllocVM
+    from meadowrun.run_job_core import CloudProviderType
+    from meadowrun.alloc_vm import AllocVM
 
 
 def AllocCloudInstance(

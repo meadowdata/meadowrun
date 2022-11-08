@@ -66,13 +66,12 @@ from meadowrun.instance_allocation import (
 )
 from meadowrun.instance_selection import CloudInstance, ResourcesInternal
 from meadowrun.run_job_core import (
-    AllocVM,
     CloudProviderType,
-    GridJobCloudInterface,
     JobCompletion,
     SshHost,
     WaitOption,
 )
+from meadowrun.alloc_vm import AllocVM, GridJobCloudInterface
 from meadowrun.meadowrun_pb2 import QualifiedFunctionName
 
 if TYPE_CHECKING:

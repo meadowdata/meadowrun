@@ -79,12 +79,12 @@ from meadowrun.run_job import (
 )
 from meadowrun.alloc_cloud_instance import AllocCloudInstance
 from meadowrun.run_job_core import (
-    AllocVM,
     Resources,
     RunMapTasksFailedException,
     SshHost,
     TaskException,
 )
+from meadowrun.alloc_vm import AllocVM
 from meadowrun.run_job_core import Host
 from meadowrun.run_job_local import MACHINE_CACHE_FOLDER
 from meadowrun.version import __version__

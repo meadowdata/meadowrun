@@ -6,7 +6,10 @@
 - Build new cuda base AMIs with `build_scripts\build_base_ami.py cuda all`
 - Copy the region/AMI ID mapping from the output of that script into ami_listing.py under BASE_AMIS["cuda"]
 
+## To rebuild the AWS management lambda layer (only necessary if aws_integration/management_lambdas/requirements.txt changed)
 
+- Run `build_aws_lambda_layer.py`.
+- Copy the Layer ARNs from the output of the script to the constants in `aws_mgmt_lambda_install.py`
 ### To publish meadowrun:
 
 - Increment the version in `pyproject.toml` and `version.py`

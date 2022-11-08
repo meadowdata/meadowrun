@@ -67,8 +67,8 @@ from meadowrun.run_job_core import (
     MeadowrunException,
     TaskResult,
     WaitOption,
-    _PRINT_RECEIVED_TASKS_SECONDS,
 )
+from meadowrun.alloc_vm import _PRINT_RECEIVED_TASKS_SECONDS
 from meadowrun.run_job_local import (
     TaskWorkerServer,
     WorkerMonitor,

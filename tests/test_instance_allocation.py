@@ -34,7 +34,7 @@ from meadowrun.instance_selection import (
 
 if TYPE_CHECKING:
     from types import TracebackType
-    from meadowrun.run_job_core import AllocVM
+    from meadowrun.alloc_vm import AllocVM
 
 
 class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):

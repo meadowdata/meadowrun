@@ -29,7 +29,7 @@ from meadowrun.shared import assert_is_not_none
 
 if TYPE_CHECKING:
     from types import TracebackType
-    from meadowrun.run_job_core import AllocVM
+    from meadowrun.alloc_vm import AllocVM
 
 
 @dataclasses.dataclass

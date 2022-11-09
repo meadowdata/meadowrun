@@ -72,7 +72,12 @@ from meadowrun.run_job_core import (
     SshHost,
     WaitOption,
 )
-from meadowrun.alloc_vm import AllocVM, GridJobCloudInterface
+from meadowrun.alloc_vm import (
+    AllocVM,
+    GridJobCloudInterface,
+    GridJobSshWorkerLauncher,
+    GridJobWorkerLauncher,
+)
 from meadowrun.storage_grid_job import (
     S3Bucket,
     get_aws_s3_bucket,
@@ -679,6 +684,9 @@ class AllocEC2Instance(AllocVM):
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         return EC2GridJobInterface(self)
 
+    def _create_grid_job_worker_launcher(self) -> GridJobWorkerLauncher:
+        return EC2GridJobSshWorkerLauncher(self)
+
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         return get_aws_s3_bucket(self._get_region_name())
 
@@ -717,10 +725,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
     """
 
     def __init__(self, alloc_cloud_instance: AllocEC2Instance):
-        self._cloud_provider = alloc_cloud_instance.get_cloud_provider()
         self._region_name = alloc_cloud_instance._get_region_name()
-
-        self._ssh_private_key = get_meadowrun_ssh_key(self._region_name)
 
         # We keep multiple request queues so that we can retry tasks with more
         # resources. The ith queue (where i starts at 0) will have workers with
@@ -754,9 +759,6 @@ class EC2GridJobInterface(GridJobCloudInterface):
             await self._sqs_client.__aexit__(exc_type, exc_val, exc_tb)
         if self._s3_bucket is not None:
             await self._s3_bucket.__aexit__(exc_type, exc_val, exc_tb)
-
-    def create_instance_registrar(self) -> InstanceRegistrar:
-        return EC2InstanceRegistrar(self._region_name, "create")
 
     def create_queue(self) -> int:
         if self._sqs_client is None:
@@ -794,15 +796,6 @@ class EC2GridJobInterface(GridJobCloudInterface):
             )
         )
         await self._task_argument_ranges
-
-    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
-        return SshHost(
-            address,
-            SSH_USER,
-            self._ssh_private_key,
-            (self._cloud_provider, self._region_name),
-            instance_name,
-        )
 
     async def shutdown_workers(self, num_workers: int, queue_index: int) -> None:
         if len(self._request_queue_urls) < queue_index + 1:
@@ -874,4 +867,26 @@ class EC2GridJobInterface(GridJobCloudInterface):
             attempts_so_far + 1,
             (await self._task_argument_ranges)[task_id],
             self._sqs_client,
+        )
+
+
+class EC2GridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
+    def __init__(self, alloc_ec2_instance: AllocEC2Instance):
+        self._region_name = alloc_ec2_instance._get_region_name()
+        self._cloud_provider = alloc_ec2_instance.get_cloud_provider()
+        self._ssh_private_key = get_meadowrun_ssh_key(self._region_name)
+
+        # this has to happen after _region_name is set
+        super().__init__(alloc_ec2_instance)
+
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        return EC2InstanceRegistrar(self._region_name, "create")
+
+    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
+        return SshHost(
+            address,
+            SSH_USER,
+            self._ssh_private_key,
+            (self._cloud_provider, self._region_name),
+            instance_name,
         )

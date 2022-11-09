@@ -9,6 +9,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
+    Callable,
+    Dict,
     Generic,
     Iterable,
     List,
@@ -492,8 +494,16 @@ class AllocAzureVM(AllocVM):
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         return AzureVMGridJobInterface(self)
 
-    def _create_grid_job_worker_launcher(self) -> GridJobWorkerLauncher:
-        return AzureVMGridJobSshWorkerLauncher(self)
+    def _create_grid_job_worker_launcher(
+        self,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ) -> GridJobWorkerLauncher:
+        return AzureVMGridJobSshWorkerLauncher(
+            self, user_function, pickle_protocol, job_fields, wait_for_result
+        )
 
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         return await get_azure_blob_container(self._get_location())
@@ -578,7 +588,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         )
 
     async def get_agent_function(
-        self, queue_index: int, pickle_protocol: int
+        self, queue_index: int
     ) -> Tuple[QualifiedFunctionName, Sequence[Any]]:
         if self._request_result_queues is None:
             raise ValueError(
@@ -627,7 +637,14 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
 
 
 class AzureVMGridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
-    def __init__(self, alloc_vm: AllocAzureVM):
+    def __init__(
+        self,
+        alloc_vm: AllocAzureVM,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ):
         self._cloud_provider = alloc_vm.get_cloud_provider()
         self._location = alloc_vm._get_location()
 
@@ -636,7 +653,9 @@ class AzureVMGridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
         )
 
         # this has to happen after _location is set
-        super().__init__(alloc_vm)
+        super().__init__(
+            alloc_vm, user_function, pickle_protocol, job_fields, wait_for_result
+        )
 
     def create_instance_registrar(self) -> InstanceRegistrar:
         return AzureInstanceRegistrar(self._location, "create")

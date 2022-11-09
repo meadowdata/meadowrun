@@ -76,23 +76,22 @@ class AllocVM(Host, abc.ABC):
                 "Resources.logical_cpu and memory_gb must be specified for "
                 "AllocEC2Instance and AllocAzureVM"
             )
+        if job_fields["ports"] and self.get_cloud_provider() == "AzureVM":
+            raise NotImplementedError(
+                "Opening ports on Azure is not implemented, please comment on "
+                "https://github.com/meadowdata/meadowrun/issues/126"
+            )
 
-        async with self._create_grid_job_cloud_interface() as cloud_interface, self._create_grid_job_worker_launcher() as worker_launcher:  # noqa: E501
+        async with self._create_grid_job_worker_launcher(
+            function, pickle_protocol, job_fields, wait_for_result
+        ) as worker_launcher, self._create_grid_job_cloud_interface() as cloud_interface:  # noqa: E501
             driver = GridJobDriver(
                 cloud_interface,
                 worker_launcher,
                 num_concurrent_tasks,
                 resources_required_per_task,
             )
-            run_worker_loops = asyncio.create_task(
-                driver.run_worker_functions(
-                    self,
-                    function,
-                    pickle_protocol,
-                    job_fields,
-                    wait_for_result,
-                )
-            )
+            run_worker_loops = asyncio.create_task(driver.run_worker_functions())
             num_tasks_done = 0
             async for result in driver.add_tasks_and_get_results(
                 args, max_num_task_attempts, retry_with_more_memory
@@ -116,7 +115,13 @@ class AllocVM(Host, abc.ABC):
         pass
 
     @abc.abstractmethod
-    def _create_grid_job_worker_launcher(self) -> GridJobWorkerLauncher:
+    def _create_grid_job_worker_launcher(
+        self,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ) -> GridJobWorkerLauncher:
         pass
 
     @abc.abstractmethod
@@ -169,7 +174,7 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
 
     @abc.abstractmethod
     async def get_agent_function(
-        self, queue_index: int, pickle_protocol: int
+        self, queue_index: int
     ) -> Tuple[QualifiedFunctionName, Sequence[Any]]:
         """
         Returns a function that will poll/wait for tasks, and communicate to task worker
@@ -210,13 +215,9 @@ class GridJobWorkerLauncher(abc.ABC):
     @abc.abstractmethod
     async def launch_workers(
         self,
-        job_fields: Dict[str, Any],
         agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
-        user_function: Callable[[_T], _U],
         num_workers_to_launch: int,
         resources_required_per_task: ResourcesInternal,
-        pickle_protocol: int,
-        wait_for_result: WaitOption,
         queue_index: int,
         abort_launching_new_workers: asyncio.Event,
     ) -> AsyncIterable[List[WorkerTask]]:
@@ -226,8 +227,20 @@ class GridJobWorkerLauncher(abc.ABC):
 
 
 class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
-    def __init__(self, alloc_vm: AllocVM) -> None:
+    def __init__(
+        self,
+        alloc_vm: AllocVM,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ) -> None:
         self._alloc_vm = alloc_vm
+        self._user_function = user_function
+        self._pickle_protocol = pickle_protocol
+        self._job_fields = job_fields
+        self._wait_for_result = wait_for_result
+
         self._instance_registrar = self.create_instance_registrar()
 
         self._address_to_ssh_host: Dict[str, SshHost] = {}
@@ -264,12 +277,8 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
         self,
         ssh_host: SshHost,
         worker_job_id: str,
-        job_fields: Dict[str, Any],
         agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
-        user_function: Callable[[_T], _U],
-        pickle_protocol: int,
         log_file_name: str,
-        wait_for_result: WaitOption,
     ) -> JobCompletion:
 
         (
@@ -281,7 +290,7 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
             job_id=worker_job_id,
             py_agent=PyAgentJob(
                 pickled_function=cloudpickle.dumps(
-                    user_function, protocol=pickle_protocol
+                    self._user_function, protocol=self._pickle_protocol
                 ),
                 qualified_agent_function_name=qualified_agent_function_name,
                 pickled_agent_function_arguments=pickle.dumps(
@@ -292,10 +301,10 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                             "log_file_name": log_file_name,
                         },
                     ),
-                    protocol=pickle_protocol,
+                    protocol=self._pickle_protocol,
                 ),
             ),
-            **job_fields,
+            **self._job_fields,
         )
 
         async def deallocator() -> None:
@@ -307,17 +316,13 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                     worker_job_id,
                 )
 
-        return await ssh_host.run_cloud_job(job, wait_for_result, deallocator)
+        return await ssh_host.run_cloud_job(job, self._wait_for_result, deallocator)
 
     async def launch_workers(
         self,
-        job_fields: Dict[str, Any],
         agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
-        user_function: Callable[[_T], _U],
         num_workers_to_launch: int,
         resources_required_per_task: ResourcesInternal,
-        pickle_protocol: int,
-        wait_for_result: WaitOption,
         queue_index: int,
         abort_launching_new_workers: asyncio.Event,
     ) -> AsyncIterable[List[WorkerTask]]:
@@ -326,7 +331,7 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
             resources_required_per_task,
             num_workers_to_launch,
             self._alloc_vm,
-            job_fields["ports"],
+            self._job_fields["ports"],
             abort_launching_new_workers,
         ):
             worker_tasks = []
@@ -343,7 +348,7 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                 for worker_job_id in worker_job_ids:
                     log_file_name = (
                         "/var/meadowrun/job_logs/"
-                        f"{job_fields['job_friendly_name']}."
+                        f"{self._job_fields['job_friendly_name']}."
                         f"{worker_job_id}.log"
                     )
                     worker_tasks.append(
@@ -354,12 +359,8 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                                 self.launch_worker(
                                     ssh_host,
                                     worker_job_id,
-                                    job_fields,
                                     agent_function_task,
-                                    user_function,
-                                    pickle_protocol,
                                     log_file_name,
-                                    wait_for_result,
                                 )
                             ),
                         )
@@ -450,14 +451,7 @@ class GridJobDriver:
 
         self._abort_launching_new_workers = asyncio.Event()
 
-    async def run_worker_functions(
-        self,
-        alloc_cloud_instance: AllocVM,
-        user_function: Callable[[_T], _U],
-        pickle_protocol: int,
-        job_fields: Dict[str, Any],
-        wait_for_result: WaitOption,
-    ) -> None:
+    async def run_worker_functions(self) -> None:
         """
         Allocates cloud instances, runs a worker function on them, sends worker shutdown
         messages when requested by add_tasks_and_get_results, and generally manages
@@ -474,22 +468,13 @@ class GridJobDriver:
         async_cancel_exception = False
 
         try:
-            if (
-                job_fields["ports"]
-                and alloc_cloud_instance.get_cloud_provider() == "AzureVM"
-            ):
-                raise NotImplementedError(
-                    "Opening ports on Azure is not implemented, please comment on "
-                    "https://github.com/meadowdata/meadowrun/issues/126"
-                )
-
             # we create an asyncio.task for this because it requires waiting for
             # _cloud_interface.setup_and_add_tasks to complete. We don't want to just
             # run this sequentially, though, because we want to start launching
             # instances before setup_and_add_tasks is complete.
             # initially, we just want the 0th queue
             self._worker_queues[0].get_agent_function_task = asyncio.create_task(
-                self._cloud_interface.get_agent_function(0, pickle_protocol)
+                self._cloud_interface.get_agent_function(0)
             )
 
             while True:
@@ -511,21 +496,17 @@ class GridJobDriver:
                         if worker_queue.get_agent_function_task is None:
                             worker_queue.get_agent_function_task = asyncio.create_task(
                                 self._cloud_interface.get_agent_function(
-                                    worker_queue.queue_index, pickle_protocol
+                                    worker_queue.queue_index
                                 )
                             )
 
                         async for new_worker_tasks in self._worker_launcher.launch_workers(  # noqa: E501
-                            job_fields,
                             worker_queue.get_agent_function_task,
-                            user_function,
                             new_workers_to_launch,
                             _resources_for_queue_index(
                                 worker_queue.queue_index,
                                 self._resources_required_per_task,
                             ),
-                            pickle_protocol,
-                            wait_for_result,
                             worker_queue.queue_index,
                             self._abort_launching_new_workers,
                         ):

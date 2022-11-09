@@ -50,6 +50,7 @@ from meadowrun.run_job_core import (
     ResourcesInternal,
     TaskProcessState,
     WaitOption,
+    get_log_path,
 )
 from meadowrun.run_job_local import _set_up_working_folder, run_local
 
@@ -257,22 +258,22 @@ class LocalHostProvider(HostProvider):
 
 def _set_up_working_folder_for_tests(
     working_folder: str,
-) -> Tuple[str, str, str, str, str]:
+) -> Tuple[str, str, str, str]:
     io_folder = os.path.join(working_folder, "io")
-    job_logs_folder = os.path.join(working_folder, "job_logs")
     git_repos_folder = os.path.join(working_folder, "git_repos")
     local_copies_folder = os.path.join(working_folder, "local_copies")
     misc_folder = os.path.join(working_folder, "misc")
 
     result = (
         io_folder,
-        job_logs_folder,
         git_repos_folder,
         local_copies_folder,
         misc_folder,
     )
     for path in result:
         pathlib.Path(path).mkdir(exist_ok=True)
+    # also make job_logs folder here, which is a bit messy
+    pathlib.Path(os.path.join(working_folder, "job_logs")).mkdir(exist_ok=True)
     return result
 
 
@@ -281,11 +282,22 @@ _SET_UP_WORKING_FOLDER_NAME = (
 )
 
 
+def _get_log_path_name_for_tests(working_folder: str, job_id: str) -> str:
+    return os.path.join(working_folder, "job_logs", f"{job_id}.log")
+
+
+_GET_LOG_PATH_NAME = f"meadowrun.run_job_core.{get_log_path.__qualname__}"
+
+
 @pytest.fixture(scope="function")
 def patch_working_folder(tmp_path: pathlib.Path, mocker: MockerFixture) -> None:
     _working_folder = mocker.patch(_SET_UP_WORKING_FOLDER_NAME)
     _working_folder.side_effect = lambda: _set_up_working_folder_for_tests(
         str(tmp_path)
+    )
+    _get_log_path = mocker.patch(_GET_LOG_PATH_NAME)
+    _get_log_path.side_effect = lambda job_id: _get_log_path_name_for_tests(
+        str(tmp_path), job_id
     )
 
 

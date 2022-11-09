@@ -71,7 +71,7 @@ Assuming you saved the file above as mdr.py:
 Provisioned virtual machine 666ae778-5fe7-47e4-b4e4-f068865e082c-vm (20.85.227.52)
 Launched a new instance for the job: 20.85.227.52: Standard_D2as_v4 (2.0 CPU, 8.0 GB),
 spot ($0.0096/hr, 2.5% eviction rate), will run 1 workers
-Running job on 20.85.227.52 /var/meadowrun/job_logs/lambda.d33ad94a-dffb-46bf-b24c-0ebd0517e263.log
+Running job on 20.85.227.52 /var/meadowrun/job_logs/d33ad94a-dffb-46bf-b24c-0ebd0517e263.log
 Meadowrun worked! Got 499.5
 ```
 

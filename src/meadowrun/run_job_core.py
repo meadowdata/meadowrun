@@ -47,6 +47,10 @@ CloudProvider = "EC2", "AzureVM"
 CloudProviderType = Literal["EC2", "AzureVM"]
 
 
+def get_log_path(job_id: str) -> str:
+    return f"/var/meadowrun/job_logs/{job_id}.log"
+
+
 async def _retry(
     function: Callable[[], Awaitable[_T]],
     exception_types: Union[Type, Tuple[Type, ...]],
@@ -302,9 +306,7 @@ class SshHost(Host):
                     f"--cloud-region-name {self.cloud_provider[1]}"
                 )
 
-            log_file_name = (
-                f"/var/meadowrun/job_logs/{job.job_friendly_name}.{job.job_id}.log"
-            )
+            log_file_name = get_log_path(job.job_id)
             if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
                 command_suffixes.append(
                     f"2>&1 | tee --ignore-interrupts {log_file_name}"

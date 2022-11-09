@@ -67,6 +67,7 @@ from meadowrun.meadowrun_pb2 import (
     StringPair,
 )
 from meadowrun.shared import cancel_task, pickle_exception
+from meadowrun.run_job_core import get_log_path
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
@@ -1125,6 +1126,7 @@ async def _run_agent(
     )
     await agent_func(
         *agent_func_args,
+        job_id=job.job_id,
         worker_server=job_spec_transformed.server,
         worker_monitor=worker,
         **agent_func_kwargs,
@@ -1198,9 +1200,9 @@ def _completed_job_state(
     )
 
 
-def _set_up_working_folder() -> Tuple[str, str, str, str, str]:
+def _set_up_working_folder() -> Tuple[str, str, str, str]:
     """
-    Returns conventional io, job_logs, git_repos, local_copies, and misc path names.
+    Returns conventional io, git_repos, local_copies, and misc path names.
     It's assumed that these paths already exist.
     """
 
@@ -1209,8 +1211,6 @@ def _set_up_working_folder() -> Tuple[str, str, str, str, str]:
     # this holds files for transferring data to and from this server process and the
     # child processes
     io_folder = os.path.join(working_folder, "io")
-    # holds the logs for the functions/commands that this server runs
-    job_logs_folder = os.path.join(working_folder, "job_logs")
     # see CodeDeploymentManager
     git_repos_folder = os.path.join(working_folder, "git_repos")
     # see CodeDeploymentManager
@@ -1220,7 +1220,6 @@ def _set_up_working_folder() -> Tuple[str, str, str, str, str]:
 
     return (
         io_folder,
-        job_logs_folder,
         git_repos_folder,
         local_copies_folder,
         misc_folder,
@@ -1395,7 +1394,6 @@ async def run_local(
 
     (
         io_folder,
-        job_logs_folder,
         git_repos_folder,
         local_copies_folder,
         misc_folder,
@@ -1403,10 +1401,7 @@ async def run_local(
 
     # the logging actually happens via stdout redirection in the run_job_local_main
     # caller
-    log_file_name = os.path.join(
-        job_logs_folder,
-        f"{job.job_friendly_name}.{job.job_id}.log",
-    )
+    log_file_name = get_log_path(job.job_id)
 
     try:
         # unpickle credentials if necessary

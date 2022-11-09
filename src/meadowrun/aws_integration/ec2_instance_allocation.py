@@ -826,11 +826,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
                 module_name=agent_function.__module__,
                 function_name=agent_function.__name__,
             ),
-            [
-                await self._request_queue_urls[queue_index],
-                self._job_id,
-                self._region_name,
-            ],
+            [await self._request_queue_urls[queue_index], self._region_name],
         )
 
     async def receive_task_results(

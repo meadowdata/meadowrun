@@ -67,6 +67,7 @@ from meadowrun.run_job_core import (
     MeadowrunException,
     TaskResult,
     WaitOption,
+    get_log_path,
 )
 from meadowrun.alloc_vm import _PRINT_RECEIVED_TASKS_SECONDS
 from meadowrun.run_job_local import (
@@ -142,7 +143,7 @@ async def _indexed_agent_function(
     pod_name = os.environ.get(
         MEADOWRUN_POD_NAME, os.environ.get("HOSTNAME", platform.node())
     )
-    log_file_name = f"{pod_name}:/var/meadowrun/job_logs/{job_id}.log"
+    log_file_name = f"{pod_name}:{get_log_path(job_id)}"
 
     byte_ranges = pickle.loads(
         await storage_bucket.get_bytes(storage_key_ranges(job_id))
@@ -765,7 +766,7 @@ class KubernetesGridJobDriver:
         pickle_protocol: int,
     ) -> Job:
 
-        indexed_map_worker_args = num_args, self._num_concurrent_tasks, self._job_id
+        indexed_map_worker_args = num_args, self._num_concurrent_tasks
 
         return Job(
             job_id=self._job_id,
@@ -1446,7 +1447,7 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
         _COMMAND_TEMPLATE = (
             "PYTHONUNBUFFERED=1 MEADOWRUN_WORKER_INDEX={worker_index} python -m "
             f"meadowrun.run_job_local_storage_main --job-id {job_id} "
-            f"{storage_spec_args} >/var/meadowrun/job_logs/{job_id}.log 2>&1 "
+            f"{storage_spec_args} >{get_log_path(job_id)} 2>&1 "
             f"& echo $$ $!"
         )
         # echo $$ gets the process id of the current bash session (we will run
@@ -1516,14 +1517,7 @@ class ReusablePodRemoteProcesses(KubernetesRemoteProcesses):
                 run_command_on_pod_and_stream(
                     last_pod.metadata.name,
                     kubernetes_namespace,
-                    [
-                        "tail",
-                        "--pid",
-                        pid,
-                        "--retry",
-                        "-F",
-                        f"/var/meadowrun/job_logs/{job_id}.log",
-                    ],
+                    ["tail", "--pid", pid, "--retry", "-F", get_log_path(job_id)],
                     ws_core_api,
                 )
             )

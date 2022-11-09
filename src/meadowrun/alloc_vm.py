@@ -515,6 +515,16 @@ class GridJobDriver:
                             workers_to_shutdown
                         )
 
+                # this means all workers are either done or shutting down
+                if all(
+                    worker_queue.num_workers_launched
+                    - worker_queue.num_worker_shutdown_messages_sent
+                    - worker_queue.num_workers_exited_unexpectedly
+                    <= 0
+                    for worker_queue in self._worker_queues
+                ):
+                    break
+
                 # now we wait until either add_tasks_and_get_results tells us to
                 # shutdown some workers, or workers exit
                 await asyncio.wait(
@@ -559,16 +569,6 @@ class GridJobDriver:
                     workers_needed_changed_wait_task = asyncio.create_task(
                         self._num_workers_needed_changed.wait()
                     )
-
-                # this means all workers are either done or shutting down
-                if all(
-                    worker_queue.num_workers_launched
-                    - worker_queue.num_worker_shutdown_messages_sent
-                    - worker_queue.num_workers_exited_unexpectedly
-                    <= 0
-                    for worker_queue in self._worker_queues
-                ):
-                    break
 
         except asyncio.CancelledError:
             # if we're being cancelled, then most likely the worker_tasks are being

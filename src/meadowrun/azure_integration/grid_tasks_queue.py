@@ -40,7 +40,7 @@ from meadowrun.azure_integration.mgmt_functions.azure_core.azure_storage_api imp
     queue_send_message,
 )
 from meadowrun.meadowrun_pb2 import GridTask, GridTaskStateResponse, ProcessState
-from meadowrun.run_job_core import TaskProcessState
+from meadowrun.run_job_core import TaskProcessState, get_log_path
 from meadowrun.run_job_local import WorkerMonitor, restart_worker
 
 if TYPE_CHECKING:
@@ -262,12 +262,12 @@ async def agent_function(
     request_queue: Queue,
     result_queue: Queue,
     public_address: str,
-    log_file_name: str,
+    job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
 ) -> None:
     pid = os.getpid()
-    log_file_name = f"{public_address}:{log_file_name}"
+    log_file_name = f"{public_address}:{get_log_path(job_id)}"
 
     while await _worker_iteration(
         request_queue, result_queue, log_file_name, pid, worker_server, worker_monitor

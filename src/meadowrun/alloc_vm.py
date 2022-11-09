@@ -33,8 +33,9 @@ from meadowrun.instance_selection import ResourcesInternal
 from meadowrun.meadowrun_pb2 import QualifiedFunctionName, Job, PyAgentJob
 from meadowrun.run_job_core import (
     Host,
-    TaskResult,
     SshHost,
+    TaskResult,
+    get_log_path,
 )
 
 if TYPE_CHECKING:
@@ -278,7 +279,6 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
         ssh_host: SshHost,
         worker_job_id: str,
         agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
-        log_file_name: str,
     ) -> JobCompletion:
 
         (
@@ -294,13 +294,7 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                 ),
                 qualified_agent_function_name=qualified_agent_function_name,
                 pickled_agent_function_arguments=pickle.dumps(
-                    (
-                        agent_function_arguments,
-                        {
-                            "public_address": ssh_host.address,
-                            "log_file_name": log_file_name,
-                        },
-                    ),
+                    (agent_function_arguments, {"public_address": ssh_host.address}),
                     protocol=self._pickle_protocol,
                 ),
             ),
@@ -346,21 +340,13 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                     )
                     self._address_to_ssh_host[public_address] = ssh_host
                 for worker_job_id in worker_job_ids:
-                    log_file_name = (
-                        "/var/meadowrun/job_logs/"
-                        f"{self._job_fields['job_friendly_name']}."
-                        f"{worker_job_id}.log"
-                    )
                     worker_tasks.append(
                         WorkerTask(
-                            f"{public_address} {log_file_name}",
+                            f"{public_address} {get_log_path(worker_job_id)}",
                             queue_index,
                             asyncio.create_task(
                                 self.launch_worker(
-                                    ssh_host,
-                                    worker_job_id,
-                                    agent_function_task,
-                                    log_file_name,
+                                    ssh_host, worker_job_id, agent_function_task
                                 )
                             ),
                         )

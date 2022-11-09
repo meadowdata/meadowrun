@@ -77,9 +77,12 @@ class AllocVM(Host, abc.ABC):
                 "AllocEC2Instance and AllocAzureVM"
             )
 
-        async with self._create_grid_job_cloud_interface() as cloud_interface:
+        async with self._create_grid_job_cloud_interface() as cloud_interface, self._create_grid_job_worker_launcher() as worker_launcher:  # noqa: E501
             driver = GridJobDriver(
-                cloud_interface, num_concurrent_tasks, resources_required_per_task
+                cloud_interface,
+                worker_launcher,
+                num_concurrent_tasks,
+                resources_required_per_task,
             )
             run_worker_loops = asyncio.create_task(
                 driver.run_worker_functions(
@@ -110,6 +113,10 @@ class AllocVM(Host, abc.ABC):
 
     @abc.abstractmethod
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
+        pass
+
+    @abc.abstractmethod
+    def _create_grid_job_worker_launcher(self) -> GridJobWorkerLauncher:
         pass
 
     @abc.abstractmethod
@@ -149,10 +156,6 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
         pass
 
     @abc.abstractmethod
-    def create_instance_registrar(self) -> InstanceRegistrar:
-        ...
-
-    @abc.abstractmethod
     def create_queue(self) -> int:
         ...
 
@@ -162,14 +165,6 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
         GridJobDriver will always call this exactly once before any other functions on
         this class are called.
         """
-        ...
-
-    @abc.abstractmethod
-    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
-        ...
-
-    @abc.abstractmethod
-    async def shutdown_workers(self, num_workers: int, queue_index: int) -> None:
         ...
 
     @abc.abstractmethod
@@ -194,6 +189,182 @@ class GridJobCloudInterface(abc.ABC, Generic[_T, _U]):
         self, task_id: int, attempts_so_far: int, queue_index: int
     ) -> None:
         ...
+
+    @abc.abstractmethod
+    async def shutdown_workers(self, num_workers: int, queue_index: int) -> None:
+        ...
+
+
+class GridJobWorkerLauncher(abc.ABC):
+    async def __aenter__(self) -> GridJobWorkerLauncher:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def launch_workers(
+        self,
+        job_fields: Dict[str, Any],
+        agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
+        user_function: Callable[[_T], _U],
+        num_workers_to_launch: int,
+        resources_required_per_task: ResourcesInternal,
+        pickle_protocol: int,
+        wait_for_result: WaitOption,
+        queue_index: int,
+        abort_launching_new_workers: asyncio.Event,
+    ) -> AsyncIterable[List[WorkerTask]]:
+        # https://github.com/python/mypy/issues/5070
+        if False:
+            yield
+
+
+class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
+    def __init__(self, alloc_vm: AllocVM) -> None:
+        self._alloc_vm = alloc_vm
+        self._instance_registrar = self.create_instance_registrar()
+
+        self._address_to_ssh_host: Dict[str, SshHost] = {}
+
+    async def __aenter__(self) -> GridJobSshWorkerLauncher:
+        self._instance_registrar = await self._instance_registrar.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        await self._instance_registrar.__aexit__(exc_type, exc_val, exc_tb)
+
+        await asyncio.gather(
+            *[
+                ssh_host.close_connection()
+                for ssh_host in self._address_to_ssh_host.values()
+            ],
+            return_exceptions=True,
+        )
+
+    @abc.abstractmethod
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        ...
+
+    @abc.abstractmethod
+    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
+        ...
+
+    async def launch_worker(
+        self,
+        ssh_host: SshHost,
+        worker_job_id: str,
+        job_fields: Dict[str, Any],
+        agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        log_file_name: str,
+        wait_for_result: WaitOption,
+    ) -> JobCompletion:
+
+        (
+            qualified_agent_function_name,
+            agent_function_arguments,
+        ) = await agent_function_task
+
+        job = Job(
+            job_id=worker_job_id,
+            py_agent=PyAgentJob(
+                pickled_function=cloudpickle.dumps(
+                    user_function, protocol=pickle_protocol
+                ),
+                qualified_agent_function_name=qualified_agent_function_name,
+                pickled_agent_function_arguments=pickle.dumps(
+                    (
+                        agent_function_arguments,
+                        {
+                            "public_address": ssh_host.address,
+                            "log_file_name": log_file_name,
+                        },
+                    ),
+                    protocol=pickle_protocol,
+                ),
+            ),
+            **job_fields,
+        )
+
+        async def deallocator() -> None:
+            if ssh_host.instance_name is not None:
+                await self._instance_registrar.deallocate_job_from_instance(
+                    await self._instance_registrar.get_registered_instance(
+                        ssh_host.instance_name
+                    ),
+                    worker_job_id,
+                )
+
+        return await ssh_host.run_cloud_job(job, wait_for_result, deallocator)
+
+    async def launch_workers(
+        self,
+        job_fields: Dict[str, Any],
+        agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
+        user_function: Callable[[_T], _U],
+        num_workers_to_launch: int,
+        resources_required_per_task: ResourcesInternal,
+        pickle_protocol: int,
+        wait_for_result: WaitOption,
+        queue_index: int,
+        abort_launching_new_workers: asyncio.Event,
+    ) -> AsyncIterable[List[WorkerTask]]:
+        async for allocated_hosts in allocate_jobs_to_instances(
+            self._instance_registrar,
+            resources_required_per_task,
+            num_workers_to_launch,
+            self._alloc_vm,
+            job_fields["ports"],
+            abort_launching_new_workers,
+        ):
+            worker_tasks = []
+            for (
+                (public_address, instance_name),
+                worker_job_ids,
+            ) in allocated_hosts.items():
+                ssh_host = self._address_to_ssh_host.get(public_address)
+                if ssh_host is None:
+                    ssh_host = await self.ssh_host_from_address(
+                        public_address, instance_name
+                    )
+                    self._address_to_ssh_host[public_address] = ssh_host
+                for worker_job_id in worker_job_ids:
+                    log_file_name = (
+                        "/var/meadowrun/job_logs/"
+                        f"{job_fields['job_friendly_name']}."
+                        f"{worker_job_id}.log"
+                    )
+                    worker_tasks.append(
+                        WorkerTask(
+                            f"{public_address} {log_file_name}",
+                            queue_index,
+                            asyncio.create_task(
+                                self.launch_worker(
+                                    ssh_host,
+                                    worker_job_id,
+                                    job_fields,
+                                    agent_function_task,
+                                    user_function,
+                                    pickle_protocol,
+                                    log_file_name,
+                                    wait_for_result,
+                                )
+                            ),
+                        )
+                    )
+            yield worker_tasks
 
 
 _PRINT_RECEIVED_TASKS_SECONDS = 10
@@ -260,11 +431,13 @@ class GridJobDriver:
     def __init__(
         self,
         cloud_interface: GridJobCloudInterface,
+        worker_launcher: GridJobWorkerLauncher,
         num_concurrent_tasks: int,
         resources_required_per_task: ResourcesInternal,
     ):
         """This constructor must be called on an EventLoop"""
         self._cloud_interface = cloud_interface
+        self._worker_launcher = worker_launcher
         self._resources_required_per_task = resources_required_per_task
 
         # run_worker_functions will set this to indicate to add_tasks_and_get_results
@@ -292,7 +465,6 @@ class GridJobDriver:
         yet).
         """
 
-        address_to_ssh_host: Dict[str, SshHost] = {}
         worker_tasks: List[WorkerTask] = []
 
         workers_needed_changed_wait_task = asyncio.create_task(
@@ -320,194 +492,116 @@ class GridJobDriver:
                 self._cloud_interface.get_agent_function(0, pickle_protocol)
             )
 
-            # "inner_" on the parameter names is just to avoid name collision with outer
-            # scope
-            async def launch_worker_function(
-                inner_ssh_host: SshHost,
-                inner_worker_job_id: str,
-                log_file_name: str,
-                inner_instance_registrar: InstanceRegistrar,
-                queue_index: int,
-            ) -> JobCompletion:
-                inner_worker_queue = self._worker_queues[queue_index]
-                if inner_worker_queue.get_agent_function_task is None:
-                    inner_worker_queue.get_agent_function_task = asyncio.create_task(
-                        self._cloud_interface.get_agent_function(
-                            queue_index, pickle_protocol
-                        )
+            while True:
+                for worker_queue in self._worker_queues:
+                    # TODO we should subtract workers_exited_unexpectedly from
+                    # workers_launched, this would mean we replace workers that exited
+                    # unexpectedly. Implementing this properly means we should add more
+                    # code that will tell us why workers exited unexpectedly (e.g.
+                    # segfault in user code, spot instance eviction, vs an issue
+                    # creating the environment). The main concern is ending up in an
+                    # infinite loop where we're constantly launching workers that fail.
+                    new_workers_to_launch = worker_queue.num_workers_needed - (
+                        worker_queue.num_workers_launched
+                        - worker_queue.num_worker_shutdown_messages_sent
                     )
-                (
-                    qualified_agent_function_name,
-                    agent_function_arguments,
-                ) = await inner_worker_queue.get_agent_function_task
-                job = Job(
-                    job_id=inner_worker_job_id,
-                    py_agent=PyAgentJob(
-                        pickled_function=cloudpickle.dumps(
-                            user_function, protocol=pickle_protocol
-                        ),
-                        qualified_agent_function_name=qualified_agent_function_name,
-                        pickled_agent_function_arguments=pickle.dumps(
-                            (
-                                agent_function_arguments,
-                                {
-                                    "public_address": inner_ssh_host.address,
-                                    "log_file_name": log_file_name,
-                                },
-                            ),
-                            protocol=pickle_protocol,
-                        ),
-                    ),
-                    **job_fields,
-                )
 
-                async def deallocator() -> None:
-                    if inner_ssh_host.instance_name is not None:
-                        await inner_instance_registrar.deallocate_job_from_instance(
-                            await inner_instance_registrar.get_registered_instance(
-                                inner_ssh_host.instance_name
-                            ),
-                            inner_worker_job_id,
-                        )
-
-                return await inner_ssh_host.run_cloud_job(
-                    job, wait_for_result, deallocator
-                )
-
-            async with self._cloud_interface.create_instance_registrar() as instance_registrar:  # noqa: E501
-                while True:
-                    for worker_queue in self._worker_queues:
-                        # TODO we should subtract workers_exited_unexpectedly from
-                        # workers_launched, this would mean we replace workers that
-                        # exited unexpectedly. Implementing this properly means we
-                        # should add more code that will tell us why workers exited
-                        # unexpectedly (e.g. segfault in user code, spot instance
-                        # eviction, vs an issue creating the environment). The main
-                        # concern is ending up in an infinite loop where we're
-                        # constantly launching workers that fail.
-                        new_workers_to_launch = worker_queue.num_workers_needed - (
-                            worker_queue.num_workers_launched
-                            - worker_queue.num_worker_shutdown_messages_sent
-                        )
-
-                        # launch new workers if they're needed
-                        if new_workers_to_launch > 0:
-                            # TODO pass in an event for if workers_needed goes to 0,
-                            # cancel any remaining allocate_jobs_to_instances
-                            async for allocated_hosts in allocate_jobs_to_instances(
-                                instance_registrar,
-                                _resources_for_queue_index(
-                                    worker_queue.queue_index,
-                                    self._resources_required_per_task,
-                                ),
-                                new_workers_to_launch,
-                                alloc_cloud_instance,
-                                job_fields["ports"],
-                                self._abort_launching_new_workers,
-                            ):
-                                for (
-                                    (public_address, instance_name),
-                                    worker_job_ids,
-                                ) in allocated_hosts.items():
-                                    ssh_host = address_to_ssh_host.get(public_address)
-                                    if ssh_host is None:
-                                        ssh_host = await self._cloud_interface.ssh_host_from_address(  # noqa: E501
-                                            public_address, instance_name
-                                        )
-                                        address_to_ssh_host[public_address] = ssh_host
-                                    for worker_job_id in worker_job_ids:
-                                        log_file_name = (
-                                            "/var/meadowrun/job_logs/"
-                                            f"{job_fields['job_friendly_name']}."
-                                            f"{worker_job_id}.log"
-                                        )
-                                        worker_tasks.append(
-                                            WorkerTask(
-                                                f"{public_address} {log_file_name}",
-                                                worker_queue.queue_index,
-                                                asyncio.create_task(
-                                                    launch_worker_function(
-                                                        ssh_host,
-                                                        worker_job_id,
-                                                        log_file_name,
-                                                        instance_registrar,
-                                                        worker_queue.queue_index,
-                                                    )
-                                                ),
-                                            )
-                                        )
-                                        worker_queue.num_workers_launched += 1
-
-                        # shutdown workers if they're no longer needed
-                        # once we have the lost worker replacement logic this should
-                        # just be -workers_to_launch
-                        workers_to_shutdown = (
-                            worker_queue.num_workers_launched
-                            - worker_queue.num_worker_shutdown_messages_sent
-                            - worker_queue.num_workers_exited_unexpectedly
-                        ) - (worker_queue.num_workers_needed)
-                        if workers_to_shutdown > 0:
-                            await self._cloud_interface.shutdown_workers(
-                                workers_to_shutdown, worker_queue.queue_index
-                            )
-                            worker_queue.num_worker_shutdown_messages_sent += (
-                                workers_to_shutdown
-                            )
-
-                    # now we wait until either add_tasks_and_get_results tells us to
-                    # shutdown some workers, or workers exit
-                    await asyncio.wait(
-                        itertools.chain(
-                            cast(
-                                Iterable[asyncio.Task],
-                                (task.task for task in worker_tasks),
-                            ),
-                            (workers_needed_changed_wait_task,),
-                        ),
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    new_worker_tasks = []
-                    for worker_task in worker_tasks:
-                        if worker_task.task.done():
-                            exception = worker_task.task.exception()
-                            if exception is not None:
-                                print(
-                                    # TODO also include queue index here?
-                                    f"Error running worker {worker_task.log_file_info}:"
-                                    f"\n"
-                                    + "".join(
-                                        traceback.format_exception(
-                                            type(exception),
-                                            exception,
-                                            exception.__traceback__,
-                                        )
-                                    )
+                    # launch new workers if they're needed
+                    if new_workers_to_launch > 0:
+                        if worker_queue.get_agent_function_task is None:
+                            worker_queue.get_agent_function_task = asyncio.create_task(
+                                self._cloud_interface.get_agent_function(
+                                    worker_queue.queue_index, pickle_protocol
                                 )
-                                self._worker_queues[
-                                    worker_task.queue_index
-                                ].num_workers_exited_unexpectedly += 1
-                                # TODO ideally we would tell the receive_results loop to
-                                # reschedule whatever task the worker was working on
-                            #  TODO do something with worker_task.result()
-                        else:
-                            new_worker_tasks.append(worker_task)
-                    worker_tasks = new_worker_tasks
+                            )
 
-                    if workers_needed_changed_wait_task.done():
-                        self._num_workers_needed_changed.clear()
-                        workers_needed_changed_wait_task = asyncio.create_task(
-                            self._num_workers_needed_changed.wait()
-                        )
+                        async for new_worker_tasks in self._worker_launcher.launch_workers(  # noqa: E501
+                            job_fields,
+                            worker_queue.get_agent_function_task,
+                            user_function,
+                            new_workers_to_launch,
+                            _resources_for_queue_index(
+                                worker_queue.queue_index,
+                                self._resources_required_per_task,
+                            ),
+                            pickle_protocol,
+                            wait_for_result,
+                            worker_queue.queue_index,
+                            self._abort_launching_new_workers,
+                        ):
+                            worker_queue.num_workers_launched += len(new_worker_tasks)
+                            worker_tasks.extend(new_worker_tasks)
 
-                    # this means all workers are either done or shutting down
-                    if all(
+                    # shutdown workers if they're no longer needed
+                    # once we have the lost worker replacement logic this should
+                    # just be -workers_to_launch
+                    workers_to_shutdown = (
                         worker_queue.num_workers_launched
                         - worker_queue.num_worker_shutdown_messages_sent
                         - worker_queue.num_workers_exited_unexpectedly
-                        <= 0
-                        for worker_queue in self._worker_queues
-                    ):
-                        break
+                    ) - (worker_queue.num_workers_needed)
+                    if workers_to_shutdown > 0:
+                        await self._cloud_interface.shutdown_workers(
+                            workers_to_shutdown, worker_queue.queue_index
+                        )
+                        worker_queue.num_worker_shutdown_messages_sent += (
+                            workers_to_shutdown
+                        )
+
+                # now we wait until either add_tasks_and_get_results tells us to
+                # shutdown some workers, or workers exit
+                await asyncio.wait(
+                    itertools.chain(
+                        cast(
+                            Iterable[asyncio.Task],
+                            (task.task for task in worker_tasks),
+                        ),
+                        (workers_needed_changed_wait_task,),
+                    ),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                new_worker_tasks = []
+                for worker_task in worker_tasks:
+                    if worker_task.task.done():
+                        exception = worker_task.task.exception()
+                        if exception is not None:
+                            print(
+                                # TODO also include queue index here?
+                                f"Error running worker {worker_task.log_file_info}:"
+                                f"\n"
+                                + "".join(
+                                    traceback.format_exception(
+                                        type(exception),
+                                        exception,
+                                        exception.__traceback__,
+                                    )
+                                )
+                            )
+                            self._worker_queues[
+                                worker_task.queue_index
+                            ].num_workers_exited_unexpectedly += 1
+                            # TODO ideally we would tell the receive_results loop to
+                            # reschedule whatever task the worker was working on
+                        #  TODO do something with worker_task.result()
+                    else:
+                        new_worker_tasks.append(worker_task)
+                worker_tasks = new_worker_tasks
+
+                if workers_needed_changed_wait_task.done():
+                    self._num_workers_needed_changed.clear()
+                    workers_needed_changed_wait_task = asyncio.create_task(
+                        self._num_workers_needed_changed.wait()
+                    )
+
+                # this means all workers are either done or shutting down
+                if all(
+                    worker_queue.num_workers_launched
+                    - worker_queue.num_worker_shutdown_messages_sent
+                    - worker_queue.num_workers_exited_unexpectedly
+                    <= 0
+                    for worker_queue in self._worker_queues
+                ):
+                    break
 
         except asyncio.CancelledError:
             # if we're being cancelled, then most likely the worker_tasks are being
@@ -538,13 +632,6 @@ class GridJobDriver:
                 *(task.task for task in worker_tasks), return_exceptions=True
             )
 
-            await asyncio.gather(
-                *[
-                    ssh_host.close_connection()
-                    for ssh_host in address_to_ssh_host.values()
-                ],
-                return_exceptions=True,
-            )
             workers_needed_changed_wait_task.cancel()
             if pickled_worker_function_task is not None:
                 pickled_worker_function_task.cancel()

@@ -71,13 +71,17 @@ from meadowrun.run_job_core import (
     SshHost,
     WaitOption,
 )
-from meadowrun.alloc_vm import AllocVM, GridJobCloudInterface
+from meadowrun.alloc_vm import (
+    AllocVM,
+    GridJobCloudInterface,
+    GridJobSshWorkerLauncher,
+    GridJobWorkerLauncher,
+)
 from meadowrun.meadowrun_pb2 import QualifiedFunctionName
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-    import asyncssh
     from meadowrun.abstract_storage_bucket import AbstractStorageBucket
     from meadowrun.meadowrun_pb2 import Job
     from meadowrun.run_job_core import TaskProcessState, WorkerProcessState
@@ -488,6 +492,9 @@ class AllocAzureVM(AllocVM):
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         return AzureVMGridJobInterface(self)
 
+    def _create_grid_job_worker_launcher(self) -> GridJobWorkerLauncher:
+        return AzureVMGridJobSshWorkerLauncher(self)
+
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         return await get_azure_blob_container(self._get_location())
 
@@ -537,12 +544,7 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         )
 
     def __init__(self, alloc_cloud_instance: AllocAzureVM):
-        self._cloud_provider = alloc_cloud_instance.get_cloud_provider()
         self._location = alloc_cloud_instance._get_location()
-
-        self._ssh_private_key: Optional[
-            asyncio.Task[Tuple[asyncssh.SSHKey, str]]
-        ] = None
 
         self._request_result_queues: Optional[asyncio.Task[Tuple[Queue, Queue]]] = None
 
@@ -552,33 +554,13 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
         # any Job.job_ids
         self._job_id = str(uuid.uuid4())
 
-    def create_instance_registrar(self) -> InstanceRegistrar:
-        return AzureInstanceRegistrar(self._location, "create")
-
     async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
         print(f"The current run_map's id is {self._job_id}")
-        self._ssh_private_key = asyncio.create_task(
-            ensure_meadowrun_key_pair(self._location)
-        )
         self._request_result_queues = asyncio.create_task(
             create_queues_for_job(self._job_id, self._location)
         )
         self._tasks = tasks
         await add_tasks((await self._request_result_queues)[0], tasks)
-
-    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
-        if self._ssh_private_key is None:
-            raise ValueError(
-                "Must call setup_and_add_tasks before calling ssh_host_from_address"
-            )
-
-        return SshHost(
-            address,
-            "meadowrunuser",
-            (await self._ssh_private_key)[0],
-            (self._cloud_provider, self._location),
-            instance_name,
-        )
 
     async def shutdown_workers(self, num_workers: int, queue_index: int) -> None:
         if queue_index != 0:
@@ -641,4 +623,29 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             task_id,
             attempts_so_far + 1,
             self._tasks[task_id],
+        )
+
+
+class AzureVMGridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
+    def __init__(self, alloc_vm: AllocAzureVM):
+        self._cloud_provider = alloc_vm.get_cloud_provider()
+        self._location = alloc_vm._get_location()
+
+        self._ssh_private_key = asyncio.create_task(
+            ensure_meadowrun_key_pair(self._location)
+        )
+
+        # this has to happen after _location is set
+        super().__init__(alloc_vm)
+
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        return AzureInstanceRegistrar(self._location, "create")
+
+    async def ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
+        return SshHost(
+            address,
+            "meadowrunuser",
+            (await self._ssh_private_key)[0],
+            (self._cloud_provider, self._location),
+            instance_name,
         )

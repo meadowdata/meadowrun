@@ -10,6 +10,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
+    Callable,
     Dict,
     Iterable,
     List,
@@ -684,8 +685,16 @@ class AllocEC2Instance(AllocVM):
     def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
         return EC2GridJobInterface(self)
 
-    def _create_grid_job_worker_launcher(self) -> GridJobWorkerLauncher:
-        return EC2GridJobSshWorkerLauncher(self)
+    def _create_grid_job_worker_launcher(
+        self,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ) -> GridJobWorkerLauncher:
+        return EC2GridJobSshWorkerLauncher(
+            self, user_function, pickle_protocol, job_fields, wait_for_result
+        )
 
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         return get_aws_s3_bucket(self._get_region_name())
@@ -807,7 +816,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
         )
 
     async def get_agent_function(
-        self, queue_index: int, pickle_protocol: int
+        self, queue_index: int
     ) -> Tuple[QualifiedFunctionName, Sequence[Any]]:
         if len(self._request_queue_urls) < queue_index + 1:
             raise ValueError(f"Queue {queue_index} has not been created yet")
@@ -871,13 +880,26 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
 
 class EC2GridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
-    def __init__(self, alloc_ec2_instance: AllocEC2Instance):
+    def __init__(
+        self,
+        alloc_ec2_instance: AllocEC2Instance,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ):
         self._region_name = alloc_ec2_instance._get_region_name()
         self._cloud_provider = alloc_ec2_instance.get_cloud_provider()
         self._ssh_private_key = get_meadowrun_ssh_key(self._region_name)
 
         # this has to happen after _region_name is set
-        super().__init__(alloc_ec2_instance)
+        super().__init__(
+            alloc_ec2_instance,
+            user_function,
+            pickle_protocol,
+            job_fields,
+            wait_for_result,
+        )
 
     def create_instance_registrar(self) -> InstanceRegistrar:
         return EC2InstanceRegistrar(self._region_name, "create")

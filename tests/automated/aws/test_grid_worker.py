@@ -154,7 +154,7 @@ class TestGridWorker:
             (
                 agent_function_name,
                 agent_function_arguments,
-            ) = await interface.get_agent_function(0, pickle.HIGHEST_PROTOCOL)
+            ) = await interface.get_agent_function(0)
             agent_function = getattr(
                 importlib.import_module(agent_function_name.module_name),
                 agent_function_name.function_name,
@@ -206,7 +206,7 @@ class TestGridWorker:
             (
                 agent_function_name,
                 agent_function_arguments,
-            ) = await interface.get_agent_function(0, pickle.HIGHEST_PROTOCOL)
+            ) = await interface.get_agent_function(0)
             agent_function = getattr(
                 importlib.import_module(agent_function_name.module_name),
                 agent_function_name.function_name,
@@ -263,7 +263,7 @@ class TestGridWorker:
             (
                 agent_function_name,
                 agent_function_arguments,
-            ) = await interface.get_agent_function(0, pickle.HIGHEST_PROTOCOL)
+            ) = await interface.get_agent_function(0)
             agent_function = getattr(
                 importlib.import_module(agent_function_name.module_name),
                 agent_function_name.function_name,

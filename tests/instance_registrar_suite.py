@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 import asyncio
 import os
@@ -11,6 +13,7 @@ import pytest
 
 from meadowrun import run_function, AllocEC2Instance
 from meadowrun.config import LOGICAL_CPU, MEMORY_GB
+from meadowrun.deployment_spec import Deployment
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
@@ -297,25 +300,25 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 return os.getpid(), platform.node()
 
             pid1, host1 = await run_function(
-                remote_function, self.get_host(), Resources(1, 0.5, 15)
+                remote_function, self.get_host(), Resources(1, 2, 15), Deployment()
             )
             time.sleep(1)
             pid2, host2 = await run_function(
-                remote_function, self.get_host(), Resources(1, 0.5, 15)
+                remote_function, self.get_host(), Resources(1, 2, 15), Deployment()
             )
             time.sleep(1)
             pid3, host3 = await run_function(
-                remote_function, self.get_host(), Resources(1, 0.5, 15)
+                remote_function, self.get_host(), Resources(1, 2, 15), Deployment()
             )
 
             # these should have all run on the same host, but in different processes
-            assert pid1 != pid2 and pid2 != pid3
+            assert pid1 != pid2 and pid2 != pid3, f"{pid1} {pid2} {pid3}"
             assert host1 == host2 and host2 == host3
 
             instances = await instance_registrar.get_registered_instances()
             assert len(instances) == 1
             assert instances[0].get_available_resources().consumable[LOGICAL_CPU] >= 1
-            assert instances[0].get_available_resources().consumable[MEMORY_GB] >= 0.5
+            assert instances[0].get_available_resources().consumable[MEMORY_GB] >= 2
 
             # remember to kill the instance when you're done!
 
@@ -330,13 +333,19 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
                 return os.getpid(), platform.node()
 
             task1 = asyncio.create_task(
-                run_function(remote_function, self.get_host(), Resources(1, 0.5, 15))
+                run_function(
+                    remote_function, self.get_host(), Resources(1, 2, 15), Deployment()
+                )
             )
             task2 = asyncio.create_task(
-                run_function(remote_function, self.get_host(), Resources(1, 0.5, 15))
+                run_function(
+                    remote_function, self.get_host(), Resources(1, 2, 15), Deployment()
+                ),
             )
             task3 = asyncio.create_task(
-                run_function(remote_function, self.get_host(), Resources(1, 0.5, 15))
+                run_function(
+                    remote_function, self.get_host(), Resources(1, 2, 15), Deployment()
+                )
             )
 
             results = await asyncio.gather(task1, task2, task3)
@@ -348,7 +357,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             assert len(instances) == 3
             assert all(
                 instance.get_available_resources().consumable[LOGICAL_CPU] >= 1
-                and instance.get_available_resources().consumable[MEMORY_GB] >= 0.5
+                and instance.get_available_resources().consumable[MEMORY_GB] >= 2
                 for instance in instances
             )
 

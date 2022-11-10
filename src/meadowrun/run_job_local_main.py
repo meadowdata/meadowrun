@@ -92,7 +92,7 @@ from typing import Optional, Tuple, TYPE_CHECKING
 import meadowrun.run_job_local
 from meadowrun.azure_integration.blob_storage import get_azure_blob_container
 from meadowrun.meadowrun_pb2 import ProcessState, Job
-from meadowrun.run_job_core import CloudProvider, CloudProviderType
+from meadowrun.run_job_core import CloudProvider, CloudProviderType, get_log_path
 from meadowrun.storage_grid_job import get_aws_s3_bucket_async
 import meadowrun.func_worker_storage_helper
 
@@ -102,6 +102,7 @@ if TYPE_CHECKING:
 
 async def main_async(
     job_id: str,
+    public_address: Optional[str],
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
     job_io_prefix = f"/var/meadowrun/io/{job_id}"
@@ -131,9 +132,20 @@ async def main_async(
             print(f"Warning: unknown value for cloud {cloud}")
             storage_bucket_factory = None
 
+        if public_address:
+            # this is a little silly as we could just use the IMDS endpoints to figure
+            # this out for ourselves. It shouldn't even really be necessary because the
+            # caller should have this information already, but it's convenient to be
+            # able to return a ProcessState with a populated log_file_name that has
+            # everything in it you would want to know.
+            log_file_name = f"{public_address}:{get_log_path(job_id)}"
+        else:
+            log_file_name = get_log_path(job_id)
+
         first_state, continuation = await meadowrun.run_job_local.run_local(
             job,
             job_id,
+            log_file_name,
             cloud,
             storage_bucket_factory,
             compile_environment_in_container=True,
@@ -178,10 +190,11 @@ async def main_async(
 
 def main(
     job_id: str,
+    public_address: Optional[str],
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
     try:
-        asyncio.run(main_async(job_id, cloud))
+        asyncio.run(main_async(job_id, public_address, cloud))
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("Job was killed by SIGINT")
 
@@ -191,6 +204,7 @@ def command_line_main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--job-id", required=True)
+    parser.add_argument("--public-address")
     parser.add_argument("--cloud", choices=CloudProvider)
     parser.add_argument("--cloud-region-name")
     args = parser.parse_args()
@@ -206,7 +220,7 @@ def command_line_main() -> None:
     else:
         cloud = args.cloud, args.cloud_region_name
 
-    main(args.job_id, cloud)
+    main(args.job_id, args.public_address, cloud)
 
 
 if __name__ == "__main__":

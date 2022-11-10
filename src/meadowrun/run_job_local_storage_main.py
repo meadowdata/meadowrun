@@ -7,16 +7,19 @@ import argparse
 import asyncio
 import logging
 import os
+import platform
 import time
 import traceback
 
 import filelock
 
 import meadowrun.run_job_local
+from meadowrun.k8s_integration.k8s import MEADOWRUN_POD_NAME
 from meadowrun.k8s_integration.storage_spec import (
     add_storage_spec_arguments_to_parser,
     storage_bucket_from_parsed_args,
 )
+from meadowrun.run_job_core import get_log_path
 from meadowrun.storage_keys import storage_key_job_to_run, storage_key_process_state
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.k8s_integration.k8s_main import (
@@ -60,6 +63,16 @@ async def main() -> None:
                 job = Job.FromString(
                     await storage_bucket.get_bytes(storage_key_job_to_run(job_id))
                 )
+
+                # only the first option (MEADOWRUN_POD_NAME) will give the actual name
+                # of the pod. The hostname is similar but slightly different, and we'll
+                # fall back on that if something has gone wrong and MEADOWRUN_POD_NAME
+                # is not available
+                pod_name = os.environ.get(
+                    MEADOWRUN_POD_NAME, os.environ.get("HOSTNAME", platform.node())
+                )
+                log_file_name = f"{pod_name}:{get_log_path(job.base_job_id)}"
+
                 # hypothetically we should make sure MEADOWRUN_STORAGE_USERNAME and
                 # MEADOWRUN_STORAGE_PASSWORD should get added to the Job object because
                 # if we are running _indexed_agent_function we will need those
@@ -69,6 +82,7 @@ async def main() -> None:
                 first_state, continuation = await meadowrun.run_job_local.run_local(
                     job,
                     job.base_job_id,
+                    log_file_name,
                     None,
                     storage_bucket,
                     compile_environment_in_container=False,

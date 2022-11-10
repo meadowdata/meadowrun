@@ -324,11 +324,9 @@ class SshHost(Host):
 
             command = (
                 " ".join(command_prefixes) + "/usr/bin/env PYTHONUNBUFFERED=1 "
-                "/var/meadowrun/env/bin/python "
-                # "-X importtime "
-                # "-m cProfile -o remote.prof "
-                "-m meadowrun.run_job_local_main "
-                f"--job-id {job_id}" + " ".join(command_suffixes)
+                "/var/meadowrun/env/bin/python -m meadowrun.run_job_local_main --job-id"
+                f" {job_id} --public-address {self.address}"
+                + " ".join(command_suffixes)
             )
 
             print(f"Running job on {self.address} {log_file_name}")

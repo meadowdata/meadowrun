@@ -67,7 +67,6 @@ from meadowrun.meadowrun_pb2 import (
     StringPair,
 )
 from meadowrun.shared import cancel_task, pickle_exception
-from meadowrun.run_job_core import get_log_path
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
@@ -858,7 +857,7 @@ async def _non_container_job_continuation(
 
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, job_id, worker)
+            await _run_agent(job_spec_transformed, job, log_file_name, worker)
             await worker.stop()
             await worker.wait_until_exited()
             return ProcessState(
@@ -1070,7 +1069,7 @@ async def _container_job_continuation(
     """
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, job_id, worker)
+            await _run_agent(job_spec_transformed, job, log_file_name, worker)
             await worker.stop()
             await worker.wait_until_exited()
             return ProcessState(
@@ -1118,7 +1117,7 @@ async def _container_job_continuation(
 async def _run_agent(
     job_spec_transformed: _JobSpecTransformed,
     job: Job,
-    job_id: str,
+    log_file_name: str,
     worker: WorkerMonitor,
 ) -> None:
     # run the agent function. The agent function connects to another
@@ -1133,7 +1132,7 @@ async def _run_agent(
     )
     await agent_func(
         *agent_func_args,
-        job_id=job_id,
+        log_file_name=log_file_name,
         base_job_id=job.base_job_id,
         worker_server=job_spec_transformed.server,
         worker_monitor=worker,
@@ -1373,6 +1372,7 @@ async def _get_credentials_for_job(
 async def run_local(
     job: Job,
     job_id: str,
+    log_file_name: str,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
     storage_bucket_factory: StorageBucketFactoryType = None,
     compile_environment_in_container: bool = True,
@@ -1407,10 +1407,6 @@ async def run_local(
         local_copies_folder,
         misc_folder,
     ) = _set_up_working_folder()
-
-    # the logging actually happens via stdout redirection in the run_job_local_main
-    # caller
-    log_file_name = get_log_path(job_id)
 
     try:
         # unpickle credentials if necessary

@@ -22,7 +22,6 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_TAG_VALUE,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
-from meadowrun.run_job_core import get_log_path
 from meadowrun.storage_grid_job import (
     S3Bucket,
     complete_task,
@@ -316,8 +315,7 @@ async def _worker_iteration(
 async def agent_function(
     request_queue_url: str,
     region_name: str,
-    public_address: str,
-    job_id: str,
+    log_file_name: str,
     base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
@@ -327,7 +325,6 @@ async def agent_function(
     and writer to the task worker, and uploads the results to S3.
     """
     pid = os.getpid()
-    log_file_name = f"{public_address}:{get_log_path(job_id)}"
     session = aiobotocore.session.get_session()
     async with session.create_client(
         "sqs", region_name=region_name

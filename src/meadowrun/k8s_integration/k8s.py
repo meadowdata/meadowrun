@@ -7,7 +7,6 @@ import dataclasses
 import math
 import os
 import pickle
-import platform
 import shlex
 import time
 import traceback
@@ -110,7 +109,7 @@ _U = TypeVar("_U")
 async def _indexed_agent_function(
     total_num_tasks: int,
     num_workers: int,
-    job_id: str,
+    log_file_name: str,
     base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
@@ -138,21 +137,13 @@ async def _indexed_agent_function(
             "run_job_local_storage_main"
         )
 
-    # only the first option (MEADOWRUN_POD_NAME) will give the actual name of the pod.
-    # The hostname is similar but slightly different, and we'll fall back on that if
-    # something has gone wrong and MEADOWRUN_POD_NAME is not available
-    pod_name = os.environ.get(
-        MEADOWRUN_POD_NAME, os.environ.get("HOSTNAME", platform.node())
-    )
-    log_file_name = f"{pod_name}:{get_log_path(job_id)}"
-
     byte_ranges = pickle.loads(
-        await storage_bucket.get_bytes(storage_key_ranges(job_id))
+        await storage_bucket.get_bytes(storage_key_ranges(base_job_id))
     )
 
     i = current_worker_index
     while i < total_num_tasks:
-        arg = await download_task_arg(storage_bucket, job_id, byte_ranges[i])
+        arg = await download_task_arg(storage_bucket, base_job_id, byte_ranges[i])
 
         try:
             worker_monitor.start_stats()
@@ -180,7 +171,7 @@ async def _indexed_agent_function(
             await restart_worker(worker_server, worker_monitor)
 
         # we don't support retries yet so we're always on attempt 1
-        await complete_task(storage_bucket, job_id, i, 1, process_state)
+        await complete_task(storage_bucket, base_job_id, i, 1, process_state)
 
         print(
             f"Meadowrun agent: Completed task #{i}, "

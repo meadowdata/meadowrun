@@ -134,7 +134,9 @@ class LocalHost(Host):
         if resources_required is not None:
             raise ValueError("Specifying Resources for LocalHost is not supported")
 
-        initial_update, continuation = await run_local(job, job.base_job_id)
+        initial_update, continuation = await run_local(
+            job, job.base_job_id, get_log_path(job.base_job_id)
+        )
         if (
             initial_update.state != ProcessState.ProcessStateEnum.RUNNING
             or continuation is None

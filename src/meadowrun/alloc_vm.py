@@ -304,7 +304,7 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                 ),
                 qualified_agent_function_name=qualified_agent_function_name,
                 pickled_agent_function_arguments=pickle.dumps(
-                    (agent_function_arguments, {"public_address": ssh_host.address}),
+                    (agent_function_arguments, {}),
                     protocol=self._pickle_protocol,
                 ),
             ),

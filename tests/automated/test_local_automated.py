@@ -134,7 +134,7 @@ class LocalHost(Host):
         if resources_required is not None:
             raise ValueError("Specifying Resources for LocalHost is not supported")
 
-        initial_update, continuation = await run_local(job)
+        initial_update, continuation = await run_local(job, job.base_job_id)
         if (
             initial_update.state != ProcessState.ProcessStateEnum.RUNNING
             or continuation is None
@@ -205,7 +205,7 @@ class LocalHost(Host):
             result = await self.run_job(
                 resources_required_per_task,
                 Job(
-                    job_id=str(uuid.uuid4()),
+                    base_job_id=str(uuid.uuid4()),
                     py_function=PyFunctionJob(
                         pickled_function=cloudpickle.dumps(
                             function, protocol=pickle_protocol

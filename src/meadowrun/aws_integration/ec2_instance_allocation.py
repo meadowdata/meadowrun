@@ -5,7 +5,6 @@ import dataclasses
 import datetime
 import decimal
 import itertools
-import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -682,18 +681,26 @@ class AllocEC2Instance(AllocVM):
             job, resources_required, self, wait_for_result
         )
 
-    def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
-        return EC2GridJobInterface(self)
+    def _create_grid_job_cloud_interface(
+        self, base_job_id: str
+    ) -> GridJobCloudInterface:
+        return EC2GridJobInterface(self, base_job_id)
 
     def _create_grid_job_worker_launcher(
         self,
+        base_job_id: str,
         user_function: Callable[[_T], _U],
         pickle_protocol: int,
         job_fields: Dict[str, Any],
         wait_for_result: WaitOption,
     ) -> GridJobWorkerLauncher:
         return EC2GridJobSshWorkerLauncher(
-            self, user_function, pickle_protocol, job_fields, wait_for_result
+            self,
+            base_job_id,
+            user_function,
+            pickle_protocol,
+            job_fields,
+            wait_for_result,
         )
 
     async def get_storage_bucket(self) -> AbstractStorageBucket:
@@ -714,16 +721,13 @@ async def run_job_ec2_instance_registrar(
         host, job_id = await allocate_single_job_to_instance(
             instance_registrar,
             resources_required,
+            job.base_job_id,
             alloc_ec2_instance,
             job.ports,
         )
 
-    # Kind of weird that we're changing the job_id here, but okay as long as job_id
-    # remains mostly an internal concept
-    job.job_id = job_id
-
-    return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_job(
-        resources_required, job, wait_for_result
+    return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_cloud_job(
+        job, job_id, wait_for_result, None
     )
 
 
@@ -733,7 +737,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
     class should be in grid_tasks_sqs, but it's here because of circular import issues.
     """
 
-    def __init__(self, alloc_cloud_instance: AllocEC2Instance):
+    def __init__(self, alloc_cloud_instance: AllocEC2Instance, base_job_id: str):
         self._region_name = alloc_cloud_instance._get_region_name()
 
         # We keep multiple request queues so that we can retry tasks with more
@@ -743,9 +747,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
         self._request_queue_urls: List[asyncio.Task[str]] = []
         self._task_argument_ranges: Optional[asyncio.Task[List[Tuple[int, int]]]] = None
 
-        # this id is just used for creating the job's queues. It has no relationship to
-        # any Job.job_ids
-        self._job_id = str(uuid.uuid4())
+        self._base_job_id = base_job_id
 
         self._sqs_client: Optional[SQSClient] = None
         self._s3_bucket: Optional[S3Bucket] = None
@@ -775,11 +777,13 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
         index = len(self._request_queue_urls)
         if index == 0:
-            job_id_modified = self._job_id
+            job_id_for_queue = self._base_job_id
         else:
-            job_id_modified = f"{self._job_id}-{index}"
+            job_id_for_queue = f"{self._base_job_id}-{index}"
         self._request_queue_urls.append(
-            asyncio.create_task(create_request_queue(job_id_modified, self._sqs_client))
+            asyncio.create_task(
+                create_request_queue(job_id_for_queue, self._sqs_client)
+            )
         )
         return index
 
@@ -788,7 +792,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
             raise ValueError("EC2GridJobInterface must be created with `async with`")
 
         # create SQS queues and add tasks to the request queue
-        print(f"The current run_map's id is {self._job_id}")
+        print(f"The current run_map's id is {self._base_job_id}")
         queue_index = self.create_queue()
         if queue_index != 0:
             raise ValueError(
@@ -797,7 +801,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
             )
         self._task_argument_ranges = asyncio.create_task(
             add_tasks(
-                self._job_id,
+                self._base_job_id,
                 await self._request_queue_urls[queue_index],
                 self._s3_bucket,
                 self._sqs_client,
@@ -849,7 +853,7 @@ class EC2GridJobInterface(GridJobCloudInterface):
 
         return receive_results(
             self._s3_bucket,
-            self._job_id,
+            self._base_job_id,
             stop_receiving=stop_receiving,
             all_workers_exited=workers_done,
             # it's rare for any results to be ready in <4 seconds
@@ -879,6 +883,7 @@ class EC2GridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
     def __init__(
         self,
         alloc_ec2_instance: AllocEC2Instance,
+        base_job_id: str,
         user_function: Callable[[_T], _U],
         pickle_protocol: int,
         job_fields: Dict[str, Any],
@@ -891,6 +896,7 @@ class EC2GridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
         # this has to happen after _region_name is set
         super().__init__(
             alloc_ec2_instance,
+            base_job_id,
             user_function,
             pickle_protocol,
             job_fields,

@@ -4,7 +4,6 @@ import abc
 import asyncio
 import dataclasses
 import itertools
-import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,6 +24,7 @@ from meadowrun.instance_selection import (
     ResourcesInternal,
     remaining_resources_sort_key,
 )
+from meadowrun.storage_keys import construct_job_id
 from meadowrun.shared import assert_is_not_none
 
 if TYPE_CHECKING:
@@ -225,6 +225,8 @@ class _InstanceWithProposedJobs(Generic[_TInstanceState]):
 async def _choose_existing_instances(
     instance_registrar: InstanceRegistrar[_TInstanceState],
     resources_required_per_job: ResourcesInternal,
+    base_job_id: str,
+    first_worker_suffix: int,
     num_jobs: int,
 ) -> Tuple[Dict[Tuple[str, str], List[str]], Dict[Tuple[str, str], _TInstanceState]]:
     """
@@ -278,7 +280,11 @@ async def _choose_existing_instances(
 
                 # we successfully chose an instance!
                 chosen_instance = instances[chosen_index]
-                chosen_instance.proposed_jobs.append(str(uuid.uuid4()))
+                chosen_instance.proposed_jobs.append(
+                    construct_job_id(
+                        base_job_id, first_worker_suffix + num_jobs_proposed
+                    )
+                )
                 num_jobs_proposed += 1
 
                 # decrease the agent's available_resources
@@ -381,6 +387,8 @@ async def _choose_existing_instances(
 async def _launch_new_instances(
     instance_registrar: InstanceRegistrar,
     instance_type_resources_required_per_task: ResourcesInternal,
+    base_job_id: str,
+    first_worker_suffix: int,
     num_concurrent_tasks: int,
     alloc_cloud_instance: AllocVM,
     original_num_concurrent_tasks: int,
@@ -427,8 +435,13 @@ async def _launch_new_instances(
             num_concurrent_tasks - total_num_allocated_jobs,
             instance.instance_type.workers_per_instance_full,
         )
+        job_ids = [
+            construct_job_id(
+                base_job_id, first_worker_suffix + total_num_allocated_jobs + i
+            )
+            for i in range(num_allocated_jobs)
+        ]
         total_num_allocated_jobs += num_allocated_jobs
-        job_ids = [str(uuid.uuid4()) for _ in range(num_allocated_jobs)]
 
         await instance_registrar.register_instance(
             instance.public_dns_name,
@@ -471,6 +484,8 @@ async def _launch_new_instances(
 async def allocate_jobs_to_instances(
     instance_registrar: InstanceRegistrar,
     resources_required_per_task: ResourcesInternal,
+    base_job_id: str,
+    first_worker_suffix: int,
     num_concurrent_tasks: int,
     alloc_cloud_instance: AllocVM,
     ports: Optional[Sequence[str]],
@@ -495,6 +510,8 @@ async def allocate_jobs_to_instances(
         resources_required_per_task.combine(
             alloc_cloud_instance.get_runtime_resources()
         ),
+        base_job_id,
+        first_worker_suffix,
         num_concurrent_tasks,
     )
 
@@ -505,9 +522,10 @@ async def allocate_jobs_to_instances(
         await authorize_current_ip_task  # this should almost always be complete by now
         yield existing_instances_allocated_jobs
 
-    num_concurrent_tasks_remaining = num_concurrent_tasks - sum(
+    jobs_allocated_so_far = sum(
         len(jobs) for jobs in existing_instances_allocated_jobs.values()
     )
+    num_concurrent_tasks_remaining = num_concurrent_tasks - jobs_allocated_so_far
 
     if num_concurrent_tasks_remaining > 0:
         (
@@ -516,6 +534,8 @@ async def allocate_jobs_to_instances(
         ) = await _launch_new_instances(
             instance_registrar,
             resources_required_per_task,
+            base_job_id,
+            first_worker_suffix + jobs_allocated_so_far,
             num_concurrent_tasks_remaining,
             alloc_cloud_instance,
             num_concurrent_tasks,
@@ -535,6 +555,7 @@ async def allocate_jobs_to_instances(
 async def allocate_single_job_to_instance(
     instance_registrar: InstanceRegistrar,
     resources_required: ResourcesInternal,
+    base_job_id: str,
     alloc_cloud_instance: AllocVM,
     ports: Optional[Sequence[str]],
 ) -> Tuple[str, str]:
@@ -546,7 +567,14 @@ async def allocate_single_job_to_instance(
     result = None
 
     async for allocated_hosts in allocate_jobs_to_instances(
-        instance_registrar, resources_required, 1, alloc_cloud_instance, ports, None
+        instance_registrar,
+        resources_required,
+        base_job_id,
+        0,
+        1,
+        alloc_cloud_instance,
+        ports,
+        None,
     ):
         if len(allocated_hosts) == 0:
             pass

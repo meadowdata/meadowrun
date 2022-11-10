@@ -137,7 +137,9 @@ class TestGridWorker:
 
     async def _create_driver_interface(self) -> EC2GridJobInterface:
         region_name = await _get_default_region_name()
-        interface = EC2GridJobInterface(AllocEC2Instance(region_name))
+        interface = EC2GridJobInterface(
+            AllocEC2Instance(region_name), str(uuid.uuid4())
+        )
         return interface
 
     @pytest.mark.asyncio

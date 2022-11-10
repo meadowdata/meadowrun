@@ -766,7 +766,7 @@ global___ContainerImage = ContainerImage
 class Job(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    JOB_ID_FIELD_NUMBER: builtins.int
+    BASE_JOB_ID_FIELD_NUMBER: builtins.int
     JOB_FRIENDLY_NAME_FIELD_NUMBER: builtins.int
     SERVER_AVAILABLE_FOLDER_FIELD_NUMBER: builtins.int
     GIT_REPO_COMMIT_FIELD_NUMBER: builtins.int
@@ -787,7 +787,7 @@ class Job(google.protobuf.message.Message):
     CREDENTIALS_SOURCES_FIELD_NUMBER: builtins.int
     PORTS_FIELD_NUMBER: builtins.int
     USES_GPU_FIELD_NUMBER: builtins.int
-    job_id: builtins.str
+    base_job_id: builtins.str
     """job_id uniquely identifies this request to avoid duplicates and for getting the
     results later. Make sure job_id is unique! Multiple requests with the same job_id
     will be treated as duplicates even if all of the other parameters are different.
@@ -859,7 +859,7 @@ class Job(google.protobuf.message.Message):
     def __init__(
         self,
         *,
-        job_id: builtins.str = ...,
+        base_job_id: builtins.str = ...,
         job_friendly_name: builtins.str = ...,
         server_available_folder: global___ServerAvailableFolder | None = ...,
         git_repo_commit: global___GitRepoCommit | None = ...,
@@ -924,6 +924,8 @@ class Job(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
+            "base_job_id",
+            b"base_job_id",
             "code_deployment",
             b"code_deployment",
             "code_zip_file",
@@ -948,8 +950,6 @@ class Job(google.protobuf.message.Message):
             b"interpreter_deployment",
             "job_friendly_name",
             b"job_friendly_name",
-            "job_id",
-            b"job_id",
             "job_spec",
             b"job_spec",
             "ports",

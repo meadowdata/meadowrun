@@ -263,6 +263,7 @@ async def agent_function(
     result_queue: Queue,
     public_address: str,
     job_id: str,
+    base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
 ) -> None:

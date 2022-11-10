@@ -86,7 +86,7 @@ MESSAGE_PREFIX_WORKER_SHUTDOWN = "worker-shutdown"
 
 
 async def add_tasks(
-    job_id: str,
+    base_job_id: str,
     request_queue_url: str,
     s3_bucket: S3Bucket,
     sqs: SQSClient,
@@ -98,7 +98,7 @@ async def add_tasks(
     task_ids
     """
 
-    byte_ranges = await upload_task_args(s3_bucket, job_id, run_map_args)
+    byte_ranges = await upload_task_args(s3_bucket, base_job_id, run_map_args)
 
     for byte_ranges_chunk in _chunker(enumerate(byte_ranges), 10):
         # this function can only take 10 messages at a time, so we chunk into
@@ -247,7 +247,7 @@ async def _worker_iteration(
     sqs: SQSClient,
     s3_bucket: S3Bucket,
     request_queue_url: str,
-    job_id: str,
+    base_job_id: str,
     log_file_name: str,
     pid: int,
     worker_server: TaskWorkerServer,
@@ -257,7 +257,7 @@ async def _worker_iteration(
         sqs,
         s3_bucket,
         request_queue_url,
-        job_id,
+        base_job_id,
         3,
     )
     if not task:
@@ -308,7 +308,7 @@ async def _worker_iteration(
         f"memory {process_state.max_memory_used_gb}GB "
     )
 
-    await complete_task(s3_bucket, job_id, task_id, attempt, process_state)
+    await complete_task(s3_bucket, base_job_id, task_id, attempt, process_state)
 
     return True
 
@@ -318,6 +318,7 @@ async def agent_function(
     region_name: str,
     public_address: str,
     job_id: str,
+    base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
 ) -> None:
@@ -336,7 +337,7 @@ async def agent_function(
             sqs,
             s3_bucket,
             request_queue_url,
-            job_id,
+            base_job_id,
             log_file_name,
             pid,
             worker_server,

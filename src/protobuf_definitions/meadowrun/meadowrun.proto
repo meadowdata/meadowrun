@@ -219,12 +219,7 @@ message ContainerImage {
 
 
 message Job {
-
-    // job_id uniquely identifies this request to avoid duplicates and for getting the
-    // results later. Make sure job_id is unique! Multiple requests with the same job_id
-    // will be treated as duplicates even if all of the other parameters are different.
-    // Also, job_id may only use string.ascii_letters, numbers, ., -, and _.
-    string job_id = 1;
+    string base_job_id = 1;
     string job_friendly_name = 2;
 
     oneof code_deployment {

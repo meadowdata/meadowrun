@@ -138,7 +138,7 @@ def _io_file_container_binds(
 
 
 def _prepare_py_command(
-    job: Job, io_folder: str, is_container: bool
+    job: Job, job_id: str, io_folder: str, is_container: bool
 ) -> _JobSpecTransformed:
     """
     Creates files in io_folder for the child process to use, and returns the
@@ -149,15 +149,15 @@ def _prepare_py_command(
     io_files = []
 
     # request the results file
-    result_path = os.path.join(io_folder, job.job_id + ".result")
+    result_path = os.path.join(io_folder, job_id + ".result")
     if is_container:
-        result_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}.result"
+        result_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job_id}.result"
         # we create an empty file here so that we can expose it to the docker container,
         # docker does not let us bind non-existent files
         open(result_path, "w", encoding="utf-8").close()
     else:
         result_path_container = result_path
-    io_files.append(job.job_id + ".result")
+    io_files.append(job_id + ".result")
     environment[_MEADOWRUN_RESULT_FILE] = result_path_container
     environment[_MEADOWRUN_RESULT_PICKLE_PROTOCOL] = str(
         job.result_highest_pickle_protocol
@@ -165,18 +165,16 @@ def _prepare_py_command(
 
     # write context variables to file
     if job.py_command.pickled_context_variables:
-        context_variables_path = os.path.join(
-            io_folder, job.job_id + ".context_variables"
-        )
+        context_variables_path = os.path.join(io_folder, job_id + ".context_variables")
         if is_container:
             context_variables_path_container = (
-                f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}.context_variables"
+                f"{MEADOWRUN_IO_MOUNT_LINUX}/{job_id}.context_variables"
             )
         else:
             context_variables_path_container = context_variables_path
         with open(context_variables_path, "wb") as f:
             f.write(job.py_command.pickled_context_variables)
-        io_files.append(job.job_id + ".context_variables")
+        io_files.append(job_id + ".context_variables")
         # we can't communicate "directly" with the arbitrary command that the
         # user is running so we'll use environment variables
         environment[_MEADOWRUN_CONTEXT_VARIABLES] = context_variables_path_container
@@ -249,7 +247,7 @@ def _prepare_function_arguments(
 
 
 def _prepare_py_function(
-    job: Job, io_folder: str, is_container: bool
+    job: Job, job_id: str, io_folder: str, is_container: bool
 ) -> _JobSpecTransformed:
     """
     Creates files in io_folder for the child process to use and returns
@@ -259,18 +257,18 @@ def _prepare_py_function(
 
     io_files = [
         # these line up with __meadowrun_func_worker
-        os.path.join(job.job_id + ".state"),
-        os.path.join(job.job_id + ".result"),
+        os.path.join(job_id + ".state"),
+        os.path.join(job_id + ".result"),
     ]
 
     if not is_container:
         func_worker_path = _FUNC_WORKER_PATH
-        io_path_container = os.path.join(io_folder, job.job_id)
+        io_path_container = os.path.join(io_folder, job_id)
     else:
         func_worker_path = (
             f"{MEADOWRUN_CODE_MOUNT_LINUX}{os.path.basename(_FUNC_WORKER_PATH)}"
         )
-        io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}"
+        io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job_id}"
         for io_file in io_files:
             open(os.path.join(io_folder, io_file), "w", encoding="utf-8").close()
 
@@ -284,11 +282,11 @@ def _prepare_py_function(
     ]
 
     command_line_for_function, io_files_for_function = _prepare_function(
-        job.job_id, job.py_function, io_folder
+        job_id, job.py_function, io_folder
     )
 
     command_line_for_arguments, io_files_for_arguments = _prepare_function_arguments(
-        job.job_id, job.py_function.pickled_function_arguments, io_folder
+        job_id, job.py_function.pickled_function_arguments, io_folder
     )
 
     return _JobSpecTransformed(
@@ -313,7 +311,7 @@ _TASK_WORKER_PATH = str(
 
 
 async def _prepare_py_agent(
-    job: Job, io_folder: str, is_container: bool
+    job: Job, job_id: str, io_folder: str, is_container: bool
 ) -> _JobSpecTransformed:
     """
     Creates files in io_folder for the child process to use and returns
@@ -323,18 +321,18 @@ async def _prepare_py_agent(
 
     io_files = [
         # these line up with __meadowrun_task_worker
-        os.path.join(job.job_id + ".state"),
-        os.path.join(job.job_id + ".result"),
+        os.path.join(job_id + ".state"),
+        os.path.join(job_id + ".result"),
     ]
 
     if not is_container:
         worker_path = _TASK_WORKER_PATH
-        io_path_container = os.path.join(io_folder, job.job_id)
+        io_path_container = os.path.join(io_folder, job_id)
     else:
         worker_path = (
             f"{MEADOWRUN_CODE_MOUNT_LINUX}{os.path.basename(_TASK_WORKER_PATH)}"
         )
-        io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job.job_id}"
+        io_path_container = f"{MEADOWRUN_IO_MOUNT_LINUX}/{job_id}"
         for io_file in io_files:
             open(os.path.join(io_folder, io_file), "w", encoding="utf-8").close()
 
@@ -355,7 +353,7 @@ async def _prepare_py_agent(
     ]
 
     command_line_for_function, io_files_for_function = _prepare_function(
-        job.job_id, job.py_agent, io_folder
+        job_id, job.py_agent, io_folder
     )
 
     return _JobSpecTransformed(
@@ -746,6 +744,7 @@ async def _launch_non_container_job(
     cwd_path: Optional[str],
     log_file_name: str,
     job: Job,
+    job_id: str,
     io_folder: str,
 ) -> Tuple[int, Coroutine[Any, Any, ProcessState]]:
     """
@@ -836,6 +835,7 @@ async def _launch_non_container_job(
         job_spec_type,
         job_spec_transformed,
         job,
+        job_id,
         io_folder,
         log_file_name,
     )
@@ -846,6 +846,7 @@ async def _non_container_job_continuation(
     job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
     job: Job,
+    job_id: str,
     io_folder: str,
     log_file_name: str,
 ) -> ProcessState:
@@ -857,7 +858,7 @@ async def _non_container_job_continuation(
 
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, worker)
+            await _run_agent(job_spec_transformed, job, job_id, worker)
             await worker.stop()
             await worker.wait_until_exited()
             return ProcessState(
@@ -870,7 +871,7 @@ async def _non_container_job_continuation(
         returncode = await worker.wait_until_exited()
         return _completed_job_state(
             job_spec_type,
-            job.job_id,
+            job_id,
             io_folder,
             log_file_name,
             returncode,
@@ -905,6 +906,7 @@ async def _launch_container_job(
     cwd_path: Optional[str],
     log_file_name: str,
     job: Job,
+    job_id: str,
     io_folder: str,
     sidecar_container_images: List[str],
 ) -> Tuple[str, Coroutine[Any, Any, ProcessState]]:
@@ -1042,6 +1044,7 @@ async def _launch_container_job(
         job_spec_type,
         job_spec_transformed,
         job,
+        job_id,
         io_folder,
         log_file_name,
         sidecar_containers,
@@ -1053,6 +1056,7 @@ async def _container_job_continuation(
     job_spec_type: JobSpecType,
     job_spec_transformed: _JobSpecTransformed,
     job: Job,
+    job_id: str,
     io_folder: str,
     log_file_name: str,
     sidecar_containers: List[DockerContainer],
@@ -1066,7 +1070,7 @@ async def _container_job_continuation(
     """
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, worker)
+            await _run_agent(job_spec_transformed, job, job_id, worker)
             await worker.stop()
             await worker.wait_until_exited()
             return ProcessState(
@@ -1079,7 +1083,7 @@ async def _container_job_continuation(
         return_code = await worker.wait_until_exited()
         return _completed_job_state(
             job_spec_type,
-            job.job_id,
+            job_id,
             io_folder,
             log_file_name,
             return_code,
@@ -1112,7 +1116,10 @@ async def _container_job_continuation(
 
 
 async def _run_agent(
-    job_spec_transformed: _JobSpecTransformed, job: Job, worker: WorkerMonitor
+    job_spec_transformed: _JobSpecTransformed,
+    job: Job,
+    job_id: str,
+    worker: WorkerMonitor,
 ) -> None:
     # run the agent function. The agent function connects to another
     # process, the task worker, which runs the actual user function.
@@ -1126,7 +1133,8 @@ async def _run_agent(
     )
     await agent_func(
         *agent_func_args,
-        job_id=job.job_id,
+        job_id=job_id,
+        base_job_id=job.base_job_id,
         worker_server=job_spec_transformed.server,
         worker_monitor=worker,
         **agent_func_kwargs,
@@ -1364,6 +1372,7 @@ async def _get_credentials_for_job(
 
 async def run_local(
     job: Job,
+    job_id: str,
     cloud: Optional[Tuple[CloudProviderType, str]] = None,
     storage_bucket_factory: StorageBucketFactoryType = None,
     compile_environment_in_container: bool = True,
@@ -1401,7 +1410,7 @@ async def run_local(
 
     # the logging actually happens via stdout redirection in the run_job_local_main
     # caller
-    log_file_name = get_log_path(job.job_id)
+    log_file_name = get_log_path(job_id)
 
     try:
         # unpickle credentials if necessary
@@ -1476,11 +1485,17 @@ async def run_local(
         job_spec_type = job.WhichOneof("job_spec")
 
         if job_spec_type == "py_command":
-            job_spec_transformed = _prepare_py_command(job, io_folder, is_container)
+            job_spec_transformed = _prepare_py_command(
+                job, job_id, io_folder, is_container
+            )
         elif job_spec_type == "py_function":
-            job_spec_transformed = _prepare_py_function(job, io_folder, is_container)
+            job_spec_transformed = _prepare_py_function(
+                job, job_id, io_folder, is_container
+            )
         elif job_spec_type == "py_agent":
-            job_spec_transformed = await _prepare_py_agent(job, io_folder, is_container)
+            job_spec_transformed = await _prepare_py_agent(
+                job, job_id, io_folder, is_container
+            )
         else:
             raise ValueError(f"Unknown job_spec {job_spec_type}")
 
@@ -1519,6 +1534,7 @@ async def run_local(
                 cwd_path,
                 log_file_name,
                 job,
+                job_id,
                 io_folder,
             )
             # due to the way protobuf works, this is equivalent to None
@@ -1591,6 +1607,7 @@ async def run_local(
                 cwd_path,
                 log_file_name,
                 job,
+                job_id,
                 io_folder,
                 sidecar_containers,
             )

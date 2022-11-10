@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -216,6 +217,8 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         async for allocated_jobs in allocate_jobs_to_instances(
             self,
             resources,
+            str(uuid.uuid4()),
+            0,
             num_concurrent_jobs,
             AllocEC2Instance("test_region"),
             None,

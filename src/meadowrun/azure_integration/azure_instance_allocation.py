@@ -4,7 +4,6 @@ import asyncio
 import dataclasses
 import datetime
 import json
-import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -491,18 +490,26 @@ class AllocAzureVM(AllocVM):
             job, resources_required, self, wait_for_result
         )
 
-    def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
-        return AzureVMGridJobInterface(self)
+    def _create_grid_job_cloud_interface(
+        self, base_job_id: str
+    ) -> GridJobCloudInterface:
+        return AzureVMGridJobInterface(self, base_job_id)
 
     def _create_grid_job_worker_launcher(
         self,
+        base_job_id: str,
         user_function: Callable[[_T], _U],
         pickle_protocol: int,
         job_fields: Dict[str, Any],
         wait_for_result: WaitOption,
     ) -> GridJobWorkerLauncher:
         return AzureVMGridJobSshWorkerLauncher(
-            self, user_function, pickle_protocol, job_fields, wait_for_result
+            self,
+            base_job_id,
+            user_function,
+            pickle_protocol,
+            job_fields,
+            wait_for_result,
         )
 
     async def get_storage_bucket(self) -> AbstractStorageBucket:
@@ -528,17 +535,14 @@ async def run_job_azure_vm_instance_registrar(
         host, job_id = await allocate_single_job_to_instance(
             instance_registrar,
             resources_required,
+            job.base_job_id,
             alloc_azure_vm,
             job.ports,
         )
 
-    # Kind of weird that we're changing the job_id here, but okay as long as job_id
-    # remains mostly an internal concept
-    job.job_id = job_id
-
-    return await SshHost(host, "meadowrunuser", pkey, ("AzureVM", location)).run_job(
-        resources_required, job, wait_for_result
-    )
+    return await SshHost(
+        host, "meadowrunuser", pkey, ("AzureVM", location)
+    ).run_cloud_job(job, job_id, wait_for_result, None)
 
 
 class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
@@ -553,16 +557,14 @@ class AzureVMGridJobInterface(GridJobCloudInterface, Generic[_T, _U]):
             "Retrying with more resources is not supported on Azure yet"
         )
 
-    def __init__(self, alloc_cloud_instance: AllocAzureVM):
+    def __init__(self, alloc_cloud_instance: AllocAzureVM, base_job_id: str):
         self._location = alloc_cloud_instance._get_location()
 
         self._request_result_queues: Optional[asyncio.Task[Tuple[Queue, Queue]]] = None
 
         self._tasks: Optional[Sequence[_T]] = None
 
-        # this id is just used for creating the job's queues. It has no relationship to
-        # any Job.job_ids
-        self._job_id = str(uuid.uuid4())
+        self._job_id = base_job_id
 
     async def setup_and_add_tasks(self, tasks: Sequence[_T]) -> None:
         print(f"The current run_map's id is {self._job_id}")
@@ -640,6 +642,7 @@ class AzureVMGridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
     def __init__(
         self,
         alloc_vm: AllocAzureVM,
+        base_job_id: str,
         user_function: Callable[[_T], _U],
         pickle_protocol: int,
         job_fields: Dict[str, Any],
@@ -654,7 +657,12 @@ class AzureVMGridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
 
         # this has to happen after _location is set
         super().__init__(
-            alloc_vm, user_function, pickle_protocol, job_fields, wait_for_result
+            alloc_vm,
+            base_job_id,
+            user_function,
+            pickle_protocol,
+            job_fields,
+            wait_for_result,
         )
 
     def create_instance_registrar(self) -> InstanceRegistrar:

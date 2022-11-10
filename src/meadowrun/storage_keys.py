@@ -55,3 +55,15 @@ def storage_key_process_state(job_id: str, worker_index: str) -> str:
 
 def parse_storage_key_process_state(key: str, results_prefix: str) -> str:
     return key.replace(results_prefix, "").replace(STORAGE_KEY_PROCESS_STATE_SUFFIX, "")
+
+
+def construct_job_id(base_job_id: str, worker_suffix: int) -> str:
+    """
+    For run_map jobs, base_job_id is used in contexts where it doesn't matter which
+    worker is involved. E.g. the task arguments or results. job_id (which should be
+    renamed to something like worker_id but is hard to rename because of the allocation
+    table logic) is used to identify each worker within the overall run_map job. E.g. we
+    don't want two workers for the same job on the same machine writing to the same log
+    file.
+    """
+    return f"{base_job_id}-worker{worker_suffix}"

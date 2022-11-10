@@ -3,6 +3,7 @@ import asyncio
 import os
 import platform
 import time
+import uuid
 from typing import Tuple, TypeVar, Generic
 import datetime
 
@@ -198,7 +199,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             resources_required = ResourcesInternal.from_cpu_and_memory(1, 2)
             results, _ = await _choose_existing_instances(
-                instance_registrar, resources_required, 3
+                instance_registrar, resources_required, str(uuid.uuid4()), 0, 3
             )
 
             # we should put 2 tasks on testhost-3 because that's more "compact"
@@ -233,7 +234,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             resources_required = ResourcesInternal.from_cpu_and_memory(1, 2)
             results, _ = await _choose_existing_instances(
-                instance_registrar, resources_required, 3
+                instance_registrar, resources_required, str(uuid.uuid4()), 0, 3
             )
 
             # we should want to 2 tasks on testhost-5 because that's more "compact", but
@@ -243,7 +244,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             # now we should only be able to allocate one worker on testhost-6
             results, _ = await _choose_existing_instances(
-                instance_registrar, resources_required, 3
+                instance_registrar, resources_required, str(uuid.uuid4()), 0, 3
             )
             assert ("testhost-5", "testhost-5-name") not in results
             assert len(results[("testhost-6", "testhost-6-name")]) == 1
@@ -254,7 +255,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
 
             # now we can use testhost-5 again
             results, _ = await _choose_existing_instances(
-                instance_registrar, resources_required, 3
+                instance_registrar, resources_required, str(uuid.uuid4()), 0, 3
             )
             assert len(results[("testhost-5", "testhost-5-name")]) == 2
             assert ("testhost-6", "testhost-6-name") not in results
@@ -273,7 +274,11 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             )
 
             await _choose_existing_instances(
-                instance_registrar, ResourcesInternal.from_cpu_and_memory(2, 4), 200
+                instance_registrar,
+                ResourcesInternal.from_cpu_and_memory(2, 4),
+                str(uuid.uuid4()),
+                0,
+                200,
             )
 
             instance = await instance_registrar.get_registered_instance(
@@ -412,6 +417,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             public_address1, job1 = await allocate_single_job_to_instance(
                 instance_registrar,
                 ResourcesInternal.from_cpu_and_memory(1, 0.5, 15),
+                str(uuid.uuid4()),
                 # won't actually create an EC2 instance given instance_registrar
                 AllocEC2Instance(instance_registrar.get_region_name()),
                 None,
@@ -420,6 +426,7 @@ class InstanceRegistrarSuite(InstanceRegistrarProvider, abc.ABC):
             public_address2, job2 = await allocate_single_job_to_instance(
                 instance_registrar,
                 ResourcesInternal.from_cpu_and_memory(1, 0.5, 15),
+                str(uuid.uuid4()),
                 # won't actually create an EC2 instance given instance_registrar
                 AllocEC2Instance(instance_registrar.get_region_name()),
                 None,

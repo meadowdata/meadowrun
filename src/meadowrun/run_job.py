@@ -411,7 +411,7 @@ async def run_function(
         resources = Resources()
 
     job = Job(
-        job_id=str(uuid.uuid4()),
+        base_job_id=str(uuid.uuid4()),
         job_friendly_name=friendly_name,
         py_function=py_function,
         ports=_prepare_ports(ports),
@@ -493,7 +493,7 @@ async def run_command(
     if resources is None:
         resources = Resources()
     job = Job(
-        job_id=str(uuid.uuid4()),
+        base_job_id=str(uuid.uuid4()),
         job_friendly_name=_make_valid_friendly_name(friendly_name),
         py_command=py_command,
         ports=_prepare_ports(ports),

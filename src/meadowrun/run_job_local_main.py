@@ -132,7 +132,11 @@ async def main_async(
             storage_bucket_factory = None
 
         first_state, continuation = await meadowrun.run_job_local.run_local(
-            job, cloud, storage_bucket_factory, compile_environment_in_container=True
+            job,
+            job_id,
+            cloud,
+            storage_bucket_factory,
+            compile_environment_in_container=True,
         )
         with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:
             f.write(first_state.SerializeToString())

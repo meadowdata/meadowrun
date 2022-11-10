@@ -4,6 +4,7 @@ the test has passed
 """
 
 import time
+import uuid
 
 from automated.aws.test_instance_registrar import EC2InstanceRegistrarProvider
 from meadowrun.aws_integration.aws_core import _get_default_region_name
@@ -55,6 +56,7 @@ async def manual_test_deallocate_before_running() -> None:
         result = await allocate_single_job_to_instance(
             instance_registrar,
             ResourcesInternal.from_cpu_and_memory(1, 0.5, 100),
+            str(uuid.uuid4()),
             AllocEC2Instance(),
             None,
         )

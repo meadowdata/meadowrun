@@ -111,6 +111,7 @@ async def _indexed_agent_function(
     total_num_tasks: int,
     num_workers: int,
     job_id: str,
+    base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
 ) -> None:
@@ -469,7 +470,7 @@ class Kubernetes(Host):
                 return_codes = await _run_kubernetes_job(
                     kubernetes_client.CoreV1Api(api_client),
                     kubernetes_client.BatchV1Api(api_client),
-                    job.job_id,
+                    job.base_job_id,
                     self.kubernetes_namespace,
                     image_name,
                     command,
@@ -546,7 +547,7 @@ class Kubernetes(Host):
             batch_api = kubernetes_client.BatchV1Api(api_client)
 
             try:
-                job_to_run_key = storage_key_job_to_run(job.job_id)
+                job_to_run_key = storage_key_job_to_run(job.base_job_id)
                 storage_keys_used.append(job_to_run_key)
                 await storage_bucket.write_bytes(
                     job.SerializeToString(), job_to_run_key
@@ -564,7 +565,7 @@ class Kubernetes(Host):
                             [int(p) for p in expand_ports(job.ports)],
                             resources_required,
                             self.storage_spec,
-                            job.job_id,
+                            job.base_job_id,
                             1,
                             wait_for_result,
                             self.pod_customization,
@@ -607,7 +608,7 @@ class Kubernetes(Host):
                     raise ValueError("Unexpected, job.job_spec is None")
                 result = await get_job_completion_from_process_state(
                     storage_bucket,
-                    job.job_id,
+                    job.base_job_id,
                     "0",
                     job_spec_type,
                     timeout_seconds,
@@ -769,7 +770,7 @@ class KubernetesGridJobDriver:
         indexed_map_worker_args = num_args, self._num_concurrent_tasks
 
         return Job(
-            job_id=self._job_id,
+            base_job_id=self._job_id,
             py_agent=PyAgentJob(
                 pickled_function=cloudpickle.dumps(function, protocol=pickle_protocol),
                 qualified_agent_function_name=QualifiedFunctionName(

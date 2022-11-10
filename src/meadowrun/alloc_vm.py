@@ -8,6 +8,7 @@ import itertools
 import pickle
 import time
 import traceback
+import uuid
 from typing import (
     Any,
     AsyncIterable,
@@ -83,9 +84,12 @@ class AllocVM(Host, abc.ABC):
                 "https://github.com/meadowdata/meadowrun/issues/126"
             )
 
+        base_job_id = str(uuid.uuid4())
         async with self._create_grid_job_worker_launcher(
-            function, pickle_protocol, job_fields, wait_for_result
-        ) as worker_launcher, self._create_grid_job_cloud_interface() as cloud_interface:  # noqa: E501
+            base_job_id, function, pickle_protocol, job_fields, wait_for_result
+        ) as worker_launcher, self._create_grid_job_cloud_interface(
+            base_job_id
+        ) as cloud_interface:
             driver = GridJobDriver(
                 cloud_interface,
                 worker_launcher,
@@ -112,12 +116,15 @@ class AllocVM(Host, abc.ABC):
             )
 
     @abc.abstractmethod
-    def _create_grid_job_cloud_interface(self) -> GridJobCloudInterface:
+    def _create_grid_job_cloud_interface(
+        self, base_job_id: str
+    ) -> GridJobCloudInterface:
         pass
 
     @abc.abstractmethod
     def _create_grid_job_worker_launcher(
         self,
+        base_job_id: str,
         user_function: Callable[[_T], _U],
         pickle_protocol: int,
         job_fields: Dict[str, Any],
@@ -231,12 +238,15 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
     def __init__(
         self,
         alloc_vm: AllocVM,
+        base_job_id: str,
         user_function: Callable[[_T], _U],
         pickle_protocol: int,
         job_fields: Dict[str, Any],
         wait_for_result: WaitOption,
     ) -> None:
         self._alloc_vm = alloc_vm
+        self._base_job_id = base_job_id
+        self._next_worker_suffix = 0
         self._user_function = user_function
         self._pickle_protocol = pickle_protocol
         self._job_fields = job_fields
@@ -287,7 +297,7 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
         ) = await agent_function_task
 
         job = Job(
-            job_id=worker_job_id,
+            base_job_id=self._base_job_id,
             py_agent=PyAgentJob(
                 pickled_function=cloudpickle.dumps(
                     self._user_function, protocol=self._pickle_protocol
@@ -310,7 +320,9 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                     worker_job_id,
                 )
 
-        return await ssh_host.run_cloud_job(job, self._wait_for_result, deallocator)
+        return await ssh_host.run_cloud_job(
+            job, worker_job_id, self._wait_for_result, deallocator
+        )
 
     async def launch_workers(
         self,
@@ -323,35 +335,35 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
         async for allocated_hosts in allocate_jobs_to_instances(
             self._instance_registrar,
             resources_required_per_task,
+            self._base_job_id,
+            self._next_worker_suffix,
             num_workers_to_launch,
             self._alloc_vm,
             self._job_fields["ports"],
             abort_launching_new_workers,
         ):
             worker_tasks = []
-            for (
-                (public_address, instance_name),
-                worker_job_ids,
-            ) in allocated_hosts.items():
+            for ((public_address, instance_name), job_ids) in allocated_hosts.items():
                 ssh_host = self._address_to_ssh_host.get(public_address)
                 if ssh_host is None:
                     ssh_host = await self.ssh_host_from_address(
                         public_address, instance_name
                     )
                     self._address_to_ssh_host[public_address] = ssh_host
-                for worker_job_id in worker_job_ids:
+                for job_id in job_ids:
                     worker_tasks.append(
                         WorkerTask(
-                            f"{public_address} {get_log_path(worker_job_id)}",
+                            f"{public_address} {get_log_path(job_id)}",
                             queue_index,
                             asyncio.create_task(
                                 self.launch_worker(
-                                    ssh_host, worker_job_id, agent_function_task
+                                    ssh_host, job_id, agent_function_task
                                 )
                             ),
                         )
                     )
             yield worker_tasks
+        self._next_worker_suffix += num_workers_to_launch
 
 
 _PRINT_RECEIVED_TASKS_SECONDS = 10

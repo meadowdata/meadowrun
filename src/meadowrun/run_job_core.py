@@ -274,11 +274,12 @@ class SshHost(Host):
         # TODO we should probably make SshHost not a Host, and if we want to expose
         # SshHost-as-a-Host functionality, create a separate, more pure SshHost class.
         # This SshHost class is fairly tightly coupled to the EC2/AzureVM code.
-        return await self.run_cloud_job(job, wait_for_result, None)
+        return await self.run_cloud_job(job, job.base_job_id, wait_for_result, None)
 
     async def run_cloud_job(
         self,
         job: Job,
+        job_id: str,
         wait_for_result: WaitOption,
         deallocator: Optional[Callable[[], Awaitable[None]]],
     ) -> JobCompletion[Any]:
@@ -289,7 +290,7 @@ class SshHost(Host):
             connection = await self._connection_future()
 
             # serialize job_to_run and send it to the remote machine
-            job_io_prefix = f"/var/meadowrun/io/{job.job_id}"
+            job_io_prefix = f"/var/meadowrun/io/{job_id}"
             await ssh.write_to_file(
                 connection, job.SerializeToString(), f"{job_io_prefix}.job_to_run"
             )
@@ -306,7 +307,7 @@ class SshHost(Host):
                     f"--cloud-region-name {self.cloud_provider[1]}"
                 )
 
-            log_file_name = get_log_path(job.job_id)
+            log_file_name = get_log_path(job_id)
             if wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT:
                 command_suffixes.append(
                     f"2>&1 | tee --ignore-interrupts {log_file_name}"
@@ -327,7 +328,7 @@ class SshHost(Host):
                 # "-X importtime "
                 # "-m cProfile -o remote.prof "
                 "-m meadowrun.run_job_local_main "
-                f"--job-id {job.job_id}" + " ".join(command_suffixes)
+                f"--job-id {job_id}" + " ".join(command_suffixes)
             )
 
             print(f"Running job on {self.address} {log_file_name}")

@@ -386,7 +386,7 @@ def _sync_registration_and_actual_state(
         instance.instance.terminate()
 
     for instance_id, instance in ec2_instances.items():
-        if instance.registration is None:
+        if instance.registration is None and instance.state == "running":
             assert instance.instance is not None
             if (now - instance.instance.launch_time) > launch_register_delay:
                 instance.add_action(

@@ -26,7 +26,11 @@ import aiobotocore.session
 import boto3
 
 from meadowrun.aws_integration.aws_core import _get_default_region_name
+
 from meadowrun.aws_integration.aws_permissions_install import _EC2_ROLE_INSTANCE_PROFILE
+from meadowrun.aws_integration.boto_utils import (
+    ignore_boto3_error_code,
+)
 from meadowrun.aws_integration.ec2 import (
     LaunchEC2InstanceSettings,
     authorize_current_ip_for_meadowrun_ssh,
@@ -45,8 +49,7 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     create_request_queue,
     retry_task,
 )
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    MACHINE_AGENT_QUEUE_PREFIX,
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
     _ALLOCATED_TIME,
     _EC2_ALLOC_TABLE_NAME,
     _INSTANCE_ID,
@@ -59,8 +62,10 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _RESOURCES_ALLOCATED,
     _RESOURCES_AVAILABLE,
     _RUNNING_JOBS,
-    ignore_boto3_error_code,
+    MACHINE_AGENT_QUEUE_PREFIX,
 )
+
+
 from meadowrun.instance_allocation import (
     InstanceRegistrar,
     _InstanceState,
@@ -102,8 +107,6 @@ if TYPE_CHECKING:
     from types_aiobotocore_sqs import SQSClient
     from typing_extensions import Literal
 
-
-# SEE ALSO ec2_alloc_stub.py
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")

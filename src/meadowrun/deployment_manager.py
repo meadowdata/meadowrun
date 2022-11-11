@@ -11,6 +11,7 @@ import tempfile
 import urllib.parse
 import zipfile
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -18,7 +19,6 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
     Union,
 )
@@ -27,12 +27,11 @@ import filelock
 
 import meadowrun.func_worker_storage_helper
 from meadowrun._vendor.aiodocker import exceptions as aiodocker_exceptions
-from meadowrun.aws_integration.ecr import (
-    get_ecr_helper,
-)
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+from meadowrun.abstract_storage_bucket import AbstractStorageBucket
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
 )
+from meadowrun.aws_integration.ecr import get_ecr_helper
 from meadowrun.azure_integration.acr import get_acr_helper
 from meadowrun.credentials import RawCredentials, SshKey
 from meadowrun.deployment.conda import (
@@ -40,13 +39,13 @@ from meadowrun.deployment.conda import (
     prepare_conda_file,
 )
 from meadowrun.deployment.pip import (
-    get_cached_or_create_pip_environment,
     filter_editable_installs_from_pip_reqs,
+    get_cached_or_create_pip_environment,
 )
 from meadowrun.deployment.poetry import get_cached_or_create_poetry_environment
 from meadowrun.deployment.prerequisites import (
-    EnvironmentSpecPrerequisites,
     GOOGLE_AUTH_PACKAGE,
+    EnvironmentSpecPrerequisites,
 )
 from meadowrun.docker_controller import (
     _does_digest_exist_locally,
@@ -64,12 +63,8 @@ from meadowrun.meadowrun_pb2 import (
     ServerAvailableContainer,
     ServerAvailableInterpreter,
 )
-from meadowrun.run_job_core import (
-    CloudProviderType,
-    ContainerRegistryHelper,
-)
+from meadowrun.run_job_core import CloudProviderType, ContainerRegistryHelper
 from meadowrun.storage_grid_job import download_chunked_file
-from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 
 if TYPE_CHECKING:
     StorageBucketFactoryType = Union[

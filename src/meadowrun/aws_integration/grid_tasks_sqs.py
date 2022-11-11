@@ -4,24 +4,17 @@ import json
 import os
 import time
 import traceback
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Iterable,
-    List,
-    Optional,
-    Tuple,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple, TypeVar
 
 import aiobotocore.session
 
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+from meadowrun.aws_integration.ec2_instance_allocation import (
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.shared import _chunker
+from meadowrun.run_job_local import restart_worker
 from meadowrun.storage_grid_job import (
     S3Bucket,
     complete_task,
@@ -29,10 +22,10 @@ from meadowrun.storage_grid_job import (
     get_aws_s3_bucket,
     upload_task_args,
 )
-from meadowrun.run_job_local import restart_worker
 
 if TYPE_CHECKING:
     from types_aiobotocore_sqs.client import SQSClient
+
     from meadowrun.run_job_local import TaskWorkerServer, WorkerMonitor
 
 _REQUEST_QUEUE_NAME_PREFIX = "meadowrun-task-"

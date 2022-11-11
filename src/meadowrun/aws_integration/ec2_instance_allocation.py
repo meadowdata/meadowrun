@@ -46,12 +46,13 @@ from meadowrun.aws_integration.grid_tasks_sqs import (
     retry_task,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    MACHINE_AGENT_QUEUE_PREFIX,
     _ALLOCATED_TIME,
     _EC2_ALLOC_TABLE_NAME,
-    _MEADOWRUN_TAG,
-    _MEADOWRUN_TAG_VALUE,
     _INSTANCE_ID,
     _LAST_UPDATE_TIME,
+    _MEADOWRUN_TAG,
+    _MEADOWRUN_TAG_VALUE,
     _NON_CONSUMABLE_RESOURCES,
     _PREVENT_FURTHER_ALLOCATION,
     _PUBLIC_ADDRESS,
@@ -942,9 +943,6 @@ class EC2GridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
             (self._cloud_provider, self._region_name),
             instance_name,
         )
-
-
-MACHINE_AGENT_QUEUE_PREFIX = "meadowrun-machine-"
 
 
 class EC2GridJobQueueWorkerLauncher(GridJobQueueWorkerLauncher):

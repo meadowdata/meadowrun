@@ -14,9 +14,9 @@ import aiobotocore.session
 from meadowrun.aws_integration.aws_core import _get_ec2_metadata
 from meadowrun.aws_integration.ec2_instance_allocation import (
     EC2InstanceRegistrar,
-    MACHINE_AGENT_QUEUE_PREFIX,
 )
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    MACHINE_AGENT_QUEUE_PREFIX,
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
 )

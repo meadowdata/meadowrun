@@ -11,9 +11,9 @@ import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
-from meadowrun.aws_integration.aws_core import _get_account_number
 from meadowrun.aws_integration.aws_permissions_install import _MANAGEMENT_LAMBDA_ROLE
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    _get_account_number,
     ignore_boto3_error_code,
 )
 from meadowrun.shared import create_zipfile

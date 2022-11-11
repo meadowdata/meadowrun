@@ -11,7 +11,6 @@ import boto3
 
 from meadowrun.aws_integration.aws_core import (
     _MEADOWRUN_USER_GROUP_NAME,
-    _get_account_number,
 )
 from meadowrun.aws_integration.ec2_ssh_keys import (
     MEADOWRUN_KEY_PAIR_NAME,
@@ -21,6 +20,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _EC2_ALLOC_TABLE_NAME,
     _MEADOWRUN_GENERATED_DOCKER_REPO,
     _MEADOWRUN_TAG,
+    _get_account_number,
     ignore_boto3_error_code,
 )
 

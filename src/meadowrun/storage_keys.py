@@ -67,3 +67,18 @@ def construct_job_id(base_job_id: str, worker_suffix: int) -> str:
     file.
     """
     return f"{base_job_id}-worker{worker_suffix}"
+
+
+def job_id_to_storage_key_process_state(job_id: str) -> str:
+    """Assumes job_id was created by construct_job_id"""
+    s = job_id.split("-worker")
+    if len(s) != 2:
+        raise ValueError(
+            f"Tried to parse {job_id} but it is not in the right format of "
+            "<base_job_id>-worker<worker_suffix>"
+        )
+    return storage_key_process_state(s[0], s[1])
+
+
+def construct_job_object_id(base_job_id: str, queue_index: int) -> str:
+    return f"{base_job_id}-queue{queue_index}"

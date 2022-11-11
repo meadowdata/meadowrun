@@ -5,6 +5,7 @@ import dataclasses
 import datetime
 import decimal
 import itertools
+import json
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -75,6 +76,7 @@ from meadowrun.run_job_core import (
 from meadowrun.alloc_vm import (
     AllocVM,
     GridJobCloudInterface,
+    GridJobQueueWorkerLauncher,
     GridJobSshWorkerLauncher,
     GridJobWorkerLauncher,
 )
@@ -84,6 +86,7 @@ from meadowrun.storage_grid_job import (
     receive_results,
 )
 from meadowrun.meadowrun_pb2 import QualifiedFunctionName
+from meadowrun.storage_keys import storage_key_job_to_run
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -104,7 +107,7 @@ _U = TypeVar("_U")
 # replicate into each region.
 _AMIS = {
     "plain": {
-        "us-east-2": "ami-0667e31e8579f4b37",
+        "us-east-2": "ami-0225b27022c2aff4c",
         "us-east-1": "ami-06f3ad92d9b203ac4",
         "us-west-1": "ami-0634aeae222fc2b17",
         "us-west-2": "ami-0e05dba977392eccb",
@@ -694,7 +697,7 @@ class AllocEC2Instance(AllocVM):
         job_fields: Dict[str, Any],
         wait_for_result: WaitOption,
     ) -> GridJobWorkerLauncher:
-        return EC2GridJobSshWorkerLauncher(
+        return EC2GridJobQueueWorkerLauncher(
             self,
             base_job_id,
             user_function,
@@ -726,6 +729,7 @@ async def run_job_ec2_instance_registrar(
             job.ports,
         )
 
+    # TODO consider switching this to use the SQS route?
     return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_cloud_job(
         job, job_id, wait_for_result, None
     )
@@ -914,3 +918,91 @@ class EC2GridJobSshWorkerLauncher(GridJobSshWorkerLauncher):
             (self._cloud_provider, self._region_name),
             instance_name,
         )
+
+
+MACHINE_AGENT_QUEUE_PREFIX = "meadowrun-machine-"
+
+
+class EC2GridJobQueueWorkerLauncher(GridJobQueueWorkerLauncher):
+    def __init__(
+        self,
+        alloc_ec2_instance: AllocEC2Instance,
+        base_job_id: str,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ):
+        self._region_name = alloc_ec2_instance._get_region_name()
+        self._alloc_ec2_instance = alloc_ec2_instance
+
+        # this calls create_instance_registrar so it has to happen after
+        # self._region_name is set
+        super().__init__(
+            alloc_ec2_instance,
+            base_job_id,
+            user_function,
+            pickle_protocol,
+            job_fields,
+            wait_for_result,
+        )
+
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        return EC2InstanceRegistrar(self._region_name, "create")
+
+    async def _upload_job_object(self, job_object_id: str, job: Job) -> None:
+        async with await self._alloc_ec2_instance.get_storage_bucket() as storage_bucket:  # noqa: E501
+            await storage_bucket.write_bytes(
+                job.SerializeToString(), storage_key_job_to_run(job_object_id)
+            )
+
+    async def launch_jobs(
+        self,
+        public_address: str,
+        instance_name: str,
+        job_object_id: str,
+        job_ids: List[str],
+    ) -> None:
+        queue_name = f"{MACHINE_AGENT_QUEUE_PREFIX}{instance_name}"
+
+        session = aiobotocore.session.get_session()
+        async with session.create_client(
+            "sqs", region_name=self._region_name
+        ) as sqs_client:
+            # not ideal that we create the queue every time but it's not any faster to
+            # query and see if the queue exists
+            queue_url = (
+                await sqs_client.create_queue(
+                    QueueName=queue_name, tags={_MEADOWRUN_TAG: _MEADOWRUN_TAG_VALUE}
+                )
+            )["QueueUrl"]
+            result = await sqs_client.send_message(
+                QueueUrl=queue_url,
+                MessageBody=json.dumps(
+                    {
+                        "action": "launch",
+                        "job_object_id": job_object_id,
+                        "job_ids": job_ids,
+                        "public_address": public_address,
+                    }
+                ),
+            )
+            if "Failed" in result:
+                raise ValueError(f"Unable to add jobs to the queue: {result}")
+
+    async def kill_jobs(self, instance_name: str, job_ids: List[str]) -> None:
+        queue_name = f"{MACHINE_AGENT_QUEUE_PREFIX}{instance_name}"
+
+        session = aiobotocore.session.get_session()
+        async with session.create_client(
+            "sqs", region_name=self._region_name
+        ) as sqs_client:
+            queue_url = (await sqs_client.get_queue_url(QueueName=queue_name))[
+                "QueueUrl"
+            ]
+            result = await sqs_client.send_message(
+                QueueUrl=queue_url,
+                MessageBody=json.dumps({"action": "kill", "job_ids": job_ids}),
+            )
+            if "Failed" in result:
+                raise ValueError(f"Unable to add kill messages to the queue: {result}")

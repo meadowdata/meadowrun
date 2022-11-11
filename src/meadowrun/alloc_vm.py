@@ -31,13 +31,15 @@ import cloudpickle
 from meadowrun.config import MEMORY_GB
 from meadowrun.instance_allocation import InstanceRegistrar, allocate_jobs_to_instances
 from meadowrun.instance_selection import ResourcesInternal
-from meadowrun.meadowrun_pb2 import QualifiedFunctionName, Job, PyAgentJob
+from meadowrun.meadowrun_pb2 import QualifiedFunctionName, Job, PyAgentJob, ProcessState
 from meadowrun.run_job_core import (
     Host,
+    MeadowrunException,
     SshHost,
     TaskResult,
     get_log_path,
 )
+from meadowrun.storage_keys import construct_job_object_id
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -360,8 +362,161 @@ class GridJobSshWorkerLauncher(GridJobWorkerLauncher):
                                     ssh_host, job_id, agent_function_task
                                 )
                             ),
+                            # the worker_ids concept is for when we launch workers via
+                            # queues and need to correlate WorkerProcessStates with the
+                            # WorkerQueue that the worker was for. In the case of
+                            # SshWorkerLauncher, we won't get WorkerProcessStates
+                            [""],
                         )
                     )
+            yield worker_tasks
+        self._next_worker_suffix += num_workers_to_launch
+
+
+class GridJobQueueWorkerLauncher(GridJobWorkerLauncher):
+    def __init__(
+        self,
+        alloc_vm: AllocVM,
+        base_job_id: str,
+        user_function: Callable[[_T], _U],
+        pickle_protocol: int,
+        job_fields: Dict[str, Any],
+        wait_for_result: WaitOption,
+    ) -> None:
+        self._alloc_vm = alloc_vm
+        self._base_job_id = base_job_id
+        self._next_worker_suffix = 0
+        self._user_function = user_function
+        self._pickle_protocol = pickle_protocol
+        self._job_fields = job_fields
+        self._wait_for_result = wait_for_result
+
+        self._instance_registrar = self.create_instance_registrar()
+
+        self._job_object_uploads: Dict[str, asyncio.Task] = {}
+
+    async def __aenter__(self) -> GridJobQueueWorkerLauncher:
+        self._instance_registrar = await self._instance_registrar.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        await self._instance_registrar.__aexit__(exc_type, exc_val, exc_tb)
+
+        for job_object_id, upload_task in self._job_object_uploads.items():
+            upload_task.cancel()
+
+    @abc.abstractmethod
+    def create_instance_registrar(self) -> InstanceRegistrar:
+        ...
+
+    @abc.abstractmethod
+    async def launch_jobs(
+        self,
+        public_address: str,
+        instance_name: str,
+        job_object_id: str,
+        job_ids: List[str],
+    ) -> None:
+        ...
+
+    @abc.abstractmethod
+    async def kill_jobs(self, instance_name: str, job_ids: List[str]) -> None:
+        ...
+
+    @abc.abstractmethod
+    async def _upload_job_object(self, job_object_id: str, job: Job) -> None:
+        ...
+
+    async def _upload_job_object_wrapper(
+        self,
+        agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
+        job_object_id: str,
+    ) -> None:
+        (
+            qualified_agent_function_name,
+            agent_function_arguments,
+        ) = await agent_function_task
+
+        job = Job(
+            base_job_id=self._base_job_id,
+            py_agent=PyAgentJob(
+                pickled_function=cloudpickle.dumps(
+                    self._user_function, protocol=self._pickle_protocol
+                ),
+                qualified_agent_function_name=qualified_agent_function_name,
+                pickled_agent_function_arguments=pickle.dumps(
+                    (agent_function_arguments, {}),
+                    protocol=self._pickle_protocol,
+                ),
+            ),
+            **self._job_fields,
+        )
+
+        await self._upload_job_object(job_object_id, job)
+
+    async def _on_cancel_kill_jobs(
+        self, instance_name: str, job_ids: List[str]
+    ) -> None:
+        """
+        This will asyncio-sleep forever until it is cancelled and then kill the
+        specified jobs
+        """
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await self.kill_jobs(instance_name, job_ids)
+
+    async def launch_workers(
+        self,
+        agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
+        num_workers_to_launch: int,
+        resources_required_per_task: ResourcesInternal,
+        queue_index: int,
+        abort_launching_new_workers: asyncio.Event,
+    ) -> AsyncIterable[List[WorkerTask]]:
+        async for allocated_hosts in allocate_jobs_to_instances(
+            self._instance_registrar,
+            resources_required_per_task,
+            self._base_job_id,
+            self._next_worker_suffix,
+            num_workers_to_launch,
+            self._alloc_vm,
+            self._job_fields["ports"],
+            abort_launching_new_workers,
+        ):
+            worker_tasks = []
+            for (
+                (public_address, instance_name),
+                worker_job_ids,
+            ) in allocated_hosts.items():
+                job_object_id = construct_job_object_id(self._base_job_id, queue_index)
+                if job_object_id not in self._job_object_uploads:
+                    self._job_object_uploads[job_object_id] = asyncio.create_task(
+                        self._upload_job_object_wrapper(
+                            agent_function_task, job_object_id
+                        )
+                    )
+                await self._job_object_uploads[job_object_id]
+
+                await self.launch_jobs(
+                    public_address, instance_name, job_object_id, worker_job_ids
+                )
+                worker_tasks.append(
+                    WorkerTask(
+                        f"Worker placeholder: {instance_name}, {worker_job_ids}",
+                        queue_index,
+                        asyncio.create_task(
+                            self._on_cancel_kill_jobs(instance_name, worker_job_ids)
+                        ),
+                        worker_job_ids,
+                    )
+                )
+
             yield worker_tasks
         self._next_worker_suffix += num_workers_to_launch
 
@@ -389,9 +544,21 @@ class WorkerQueue:
 
 @dataclasses.dataclass(frozen=True)
 class WorkerTask:
+    """
+    This class is currently a bit messy. For SSH-launched workers, this represents a
+    single worker process. task will complete when the worker completes, and will raise
+    an exception if there's a problem with the worker, and the task can be cancelled to
+    kill the worker. In this case, worker_ids will be meaningless.
+
+    For queue-launched workers, this represents one or more workers, whose job_ids will
+    be in worker_ids. The task will never complete or raise, but can be cancelled to
+    kill the worker. log_file_info will be meaningless.
+    """
+
     log_file_info: str
     queue_index: int
-    task: asyncio.Task[JobCompletion]
+    task: asyncio.Task
+    worker_ids: List[str]
 
 
 def _memory_gb_for_queue_index(
@@ -449,6 +616,9 @@ class GridJobDriver:
 
         self._abort_launching_new_workers = asyncio.Event()
 
+        self._worker_process_states: List[List[WorkerProcessState]] = []
+        self._worker_process_state_received = asyncio.Event()
+
     async def run_worker_functions(self) -> None:
         """
         Allocates cloud instances, runs a worker function on them, sends worker shutdown
@@ -458,9 +628,13 @@ class GridJobDriver:
         """
 
         worker_tasks: List[WorkerTask] = []
+        worker_id_to_queue_index: Dict[str, int] = {}
 
         workers_needed_changed_wait_task = asyncio.create_task(
             self._num_workers_needed_changed.wait()
+        )
+        worker_process_state_received_task = asyncio.create_task(
+            self._worker_process_state_received.wait()
         )
         pickled_worker_function_task: Optional[asyncio.Task[bytes]] = None
         async_cancel_exception = False
@@ -508,7 +682,15 @@ class GridJobDriver:
                             worker_queue.queue_index,
                             self._abort_launching_new_workers,
                         ):
-                            worker_queue.num_workers_launched += len(new_worker_tasks)
+                            for worker_task in new_worker_tasks:
+                                for worker_id in worker_task.worker_ids:
+                                    worker_id_to_queue_index[
+                                        worker_id
+                                    ] = worker_queue.queue_index
+                            worker_queue.num_workers_launched += sum(
+                                len(worker_task.worker_ids)
+                                for worker_task in new_worker_tasks
+                            )
                             worker_tasks.extend(new_worker_tasks)
 
                     # shutdown workers if they're no longer needed
@@ -545,7 +727,10 @@ class GridJobDriver:
                             Iterable[asyncio.Task],
                             (task.task for task in worker_tasks),
                         ),
-                        (workers_needed_changed_wait_task,),
+                        (
+                            workers_needed_changed_wait_task,
+                            worker_process_state_received_task,
+                        ),
                     ),
                     return_when=asyncio.FIRST_COMPLETED,
                 )
@@ -575,6 +760,35 @@ class GridJobDriver:
                     else:
                         new_worker_tasks.append(worker_task)
                 worker_tasks = new_worker_tasks
+
+                if worker_process_state_received_task.done():
+                    self._worker_process_state_received.clear()
+                    worker_process_state_received_task = asyncio.create_task(
+                        self._worker_process_state_received.wait()
+                    )
+                    while self._worker_process_states:
+                        for worker_process_state in self._worker_process_states.pop():
+                            queue_index = worker_id_to_queue_index.pop(
+                                worker_process_state.worker_index, None
+                            )
+                            if queue_index is not None:
+                                # This doesn't check to make sure that we're not
+                                # double-counting a worker whose task raised an
+                                # exception. It must never be the case that
+                                # worker_task.task raises an exception AND a
+                                # worker_process_state is received
+                                self._worker_queues[
+                                    queue_index
+                                ].num_workers_exited_unexpectedly += 1
+
+                            if (
+                                worker_process_state.result.state
+                                != ProcessState.ProcessStateEnum.SUCCEEDED
+                            ):
+                                print(
+                                    "Error running worker: "
+                                    f"{MeadowrunException(worker_process_state.result)}"
+                                )
 
                 if workers_needed_changed_wait_task.done():
                     self._num_workers_needed_changed.clear()
@@ -649,9 +863,9 @@ class GridJobDriver:
         async for task_batch, worker_batch in await self._cloud_interface.receive_task_results(  # noqa: E501
             stop_receiving=stop_receiving, workers_done=self._no_workers_available
         ):
-            # TODO right now we ignore worker_batch because we get worker failures
-            # through the SSH connection. At some point, we may want to process worker
-            # failures here.
+            if worker_batch:
+                self._worker_process_states.append(worker_batch)
+                self._worker_process_state_received.set()
 
             for task in task_batch:
                 task_result = TaskResult.from_process_state(task)

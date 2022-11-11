@@ -1028,3 +1028,6 @@ class EC2GridJobQueueWorkerLauncher(GridJobQueueWorkerLauncher):
             )
             if "Failed" in result:
                 raise ValueError(f"Unable to add kill messages to the queue: {result}")
+
+    async def _ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
+        return SshHost(address, SSH_USER, get_meadowrun_ssh_key(self._region_name))

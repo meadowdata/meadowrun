@@ -441,6 +441,14 @@ class SshHost(Host):
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         raise NotImplementedError("get_storage_bucket is not implemented for SshHost")
 
+    async def tail_log(self, log_file_name: str) -> None:
+        connection = await self._connection_future()
+        cmd_result = await ssh.run_and_print(
+            connection, f"tail -F {log_file_name}", check=False
+        )
+        if cmd_result.exit_status != 0:
+            raise ValueError(f"tail command exited with {cmd_result.returncode}")
+
 
 @dataclasses.dataclass
 class JobCompletion(Generic[_T]):

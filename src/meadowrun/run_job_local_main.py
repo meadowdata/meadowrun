@@ -87,25 +87,38 @@ import logging
 import os
 import sys
 import traceback
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import Optional, Tuple, TYPE_CHECKING, Union
 
+import meadowrun.func_worker_storage_helper
 import meadowrun.run_job_local
 from meadowrun.azure_integration.blob_storage import get_azure_blob_container
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.run_job_core import CloudProvider, CloudProviderType, get_log_path
-from meadowrun.storage_grid_job import get_aws_s3_bucket_async
-import meadowrun.func_worker_storage_helper
+from meadowrun.storage_grid_job import get_aws_s3_bucket
+from meadowrun.storage_keys import job_id_to_storage_key_process_state
 
 if TYPE_CHECKING:
     from meadowrun.deployment_manager import StorageBucketFactoryType
+    from meadowrun.abstract_storage_bucket import AbstractStorageBucket
 
 
 async def main_async(
     job_id: str,
+    job_object_id: Optional[str],
     public_address: Optional[str],
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
     job_io_prefix = f"/var/meadowrun/io/{job_id}"
+    if job_object_id:
+        job_object_path = f"/var/meadowrun/io/{job_object_id}.job_to_run"
+    else:
+        job_object_path = f"{job_io_prefix}.job_to_run"
+
+    storage_bucket: Optional[AbstractStorageBucket] = None
+    storage_bucket_factory: Union[
+        StorageBucketFactoryType, AbstractStorageBucket, None
+    ] = None
+
     try:
         # write to a temp file and then rename to make sure deallocate_tasks doesn't see
         # a partial write
@@ -113,24 +126,27 @@ async def main_async(
             f.write(str(os.getpid()))
         os.rename(f"{job_io_prefix}.pid_temp", f"{job_io_prefix}.pid")
 
-        with open(f"{job_io_prefix}.job_to_run", mode="rb") as f:
+        # get the job
+        with open(job_object_path, mode="rb") as f:
             bytes_job_to_run = f.read()
         job = Job()
         job.ParseFromString(bytes_job_to_run)
 
-        if cloud is None:
-            storage_bucket_factory: StorageBucketFactoryType = None
-        elif cloud[0] == "EC2":
-            storage_bucket_factory = functools.partial(
-                get_aws_s3_bucket_async, cloud[1]
-            )
-        elif cloud[0] == "AzureVM":
-            storage_bucket_factory = functools.partial(
-                get_azure_blob_container, cloud[1]
-            )
-        else:
-            print(f"Warning: unknown value for cloud {cloud}")
-            storage_bucket_factory = None
+        # set storage_bucket, storage_bucket_factory
+        if cloud is not None:
+            if cloud[0] == "EC2":
+                # with EC2, we need the storage bucket to download the job object
+                storage_bucket = await get_aws_s3_bucket(cloud[1]).__aenter__()
+                storage_bucket_factory = storage_bucket
+            elif cloud[0] == "AzureVM":
+                # with Azure, the storage bucket is optional, so storage_bucket_factory
+                # is a function rather than an actual storage_bucket
+                storage_bucket_factory = functools.partial(
+                    get_azure_blob_container, cloud[1]
+                )
+            else:
+                print(f"Warning: unknown value for cloud {cloud}")
+                storage_bucket_factory = None
 
         if public_address:
             # this is a little silly as we could just use the IMDS endpoints to figure
@@ -150,17 +166,21 @@ async def main_async(
             storage_bucket_factory,
             compile_environment_in_container=True,
         )
-        with open(f"{job_io_prefix}.initial_process_state", mode="wb") as f:
-            f.write(first_state.SerializeToString())
 
         if (
             first_state.state != ProcessState.ProcessStateEnum.RUNNING
             or continuation is None
         ):
-            with open(f"{job_io_prefix}.process_state", mode="wb") as f:
-                f.write(first_state.SerializeToString())
+            final_process_state = first_state
         else:
             final_process_state = await continuation
+
+        if storage_bucket is not None:
+            await storage_bucket.write_bytes(
+                final_process_state.SerializeToString(),
+                job_id_to_storage_key_process_state(job_id),
+            )
+        else:
             # if the result is large it's a little sad because we're duplicating it into
             # this .process_state file
             with open(f"{job_io_prefix}.process_state", mode="wb") as f:
@@ -172,6 +192,8 @@ async def main_async(
         traceback.print_exc()
         raise
     finally:
+        if storage_bucket is not None:
+            await storage_bucket.__aexit__(None, None, None)
         if cloud is not None:
             # we want to kick this off and then allow the current process to complete
             # without affecting the child process. This seems to work on Linux but not
@@ -190,11 +212,12 @@ async def main_async(
 
 def main(
     job_id: str,
+    job_object_id: Optional[str],
     public_address: Optional[str],
     cloud: Optional[Tuple[CloudProviderType, str]],
 ) -> None:
     try:
-        asyncio.run(main_async(job_id, public_address, cloud))
+        asyncio.run(main_async(job_id, job_object_id, public_address, cloud))
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("Job was killed by SIGINT")
 
@@ -207,6 +230,7 @@ def command_line_main() -> None:
     parser.add_argument("--public-address")
     parser.add_argument("--cloud", choices=CloudProvider)
     parser.add_argument("--cloud-region-name")
+    parser.add_argument("--job-object-id")
     args = parser.parse_args()
 
     if bool(args.cloud is None) ^ bool(args.cloud_region_name is None):
@@ -220,7 +244,7 @@ def command_line_main() -> None:
     else:
         cloud = args.cloud, args.cloud_region_name
 
-    main(args.job_id, args.public_address, cloud)
+    main(args.job_id, args.job_object_id, args.public_address, cloud)
 
 
 if __name__ == "__main__":

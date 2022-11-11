@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import time
@@ -22,6 +21,7 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _MEADOWRUN_TAG_VALUE,
 )
 from meadowrun.meadowrun_pb2 import ProcessState
+from meadowrun.shared import _chunker
 from meadowrun.storage_grid_job import (
     S3Bucket,
     complete_task,
@@ -68,16 +68,6 @@ async def create_request_queue(job_id: str, sqs: SQSClient) -> str:
     request_queue_url = request_queue_response["QueueUrl"]
 
     return request_queue_url
-
-
-def _chunker(it: Iterable[_T], size: int) -> Iterable[Tuple[_T, ...]]:
-    """E.g. _chunker([1, 2, 3, 4, 5], 2) -> [1, 2], [3, 4], [5]"""
-    iterator = iter(it)
-    while True:
-        chunk = tuple(itertools.islice(iterator, size))
-        if not chunk:
-            break
-        yield chunk
 
 
 MESSAGE_PREFIX_TASK = "task"

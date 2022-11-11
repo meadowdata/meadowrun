@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import itertools
 import pickle
 import shutil
 import sys
 import traceback
 import uuid
 import zipfile
-from typing import Optional, Tuple, TypeVar, IO, TYPE_CHECKING
-
+from typing import Optional, Tuple, TypeVar, IO, TYPE_CHECKING, Iterable
 
 from meadowrun.meadowrun_pb2 import ProcessState
 
@@ -115,3 +115,13 @@ def b62_encoded_uuid() -> str:
 
 def b32_encoded_uuid() -> str:
     return base64.b32encode(uuid.uuid4().bytes).decode("utf-8")
+
+
+def _chunker(it: Iterable[_T], size: int) -> Iterable[Tuple[_T, ...]]:
+    """E.g. _chunker([1, 2, 3, 4, 5], 2) -> [1, 2], [3, 4], [5]"""
+    iterator = iter(it)
+    while True:
+        chunk = tuple(itertools.islice(iterator, size))
+        if not chunk:
+            break
+        yield chunk

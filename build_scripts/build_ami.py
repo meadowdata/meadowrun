@@ -14,6 +14,7 @@ from build_ami_helper import (
     get_name_from_ami,
 )
 from build_image_shared import upload_and_configure_meadowrun
+import meadowrun.aws_integration.machine_agent
 
 
 async def build_meadowrun_ami(
@@ -64,6 +65,7 @@ async def build_meadowrun_ami(
             package_root_dir=package_root_dir,
             cloud_provider="EC2",
             image_name=new_ami_name,
+            machine_agent_module=meadowrun.aws_integration.machine_agent.__name__,
         ),
     )
 

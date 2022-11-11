@@ -4,17 +4,19 @@ code outside this folder.
 """
 import datetime
 import os
-from typing import Dict, Tuple, Any, Iterable
+from typing import Dict, Tuple, Any, Iterable, Set
 
 import boto3
 
 from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+    MACHINE_AGENT_QUEUE_PREFIX,
     _EC2_ALLOC_TABLE_NAME,
     _INSTANCE_ID,
     _LAST_UPDATE_TIME,
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
     _RUNNING_JOBS,
+    _get_account_number,
     ignore_boto3_error_code,
 )
 from meadowrun.aws_integration.management_lambdas.config import (
@@ -134,6 +136,46 @@ def _get_running_instances(ec2_resource: Any) -> Iterable[Any]:
     )
 
 
+def _delete_abandoned_machine_queues(sqs_client: Any, instance_ids: Set[str]) -> None:
+    queue_urls_to_delete = []
+
+    for page in sqs_client.get_paginator("list_queues").paginate(
+        QueueNamePrefix=MACHINE_AGENT_QUEUE_PREFIX
+    ):
+        for machine_queue_url in page.get("QueueUrls", []):
+            queue_instance_id = machine_queue_url.split("/")[-1][
+                len(MACHINE_AGENT_QUEUE_PREFIX) :
+            ]
+            if queue_instance_id not in instance_ids:
+                queue_urls_to_delete.append(machine_queue_url)
+
+    for queue_url in queue_urls_to_delete:
+        # we will pick up queues that are already being deleted as they can take up to
+        # 60 seconds to delete
+        print(
+            "Deleting machine queue corresponding to machine that is no longer running "
+            f"{queue_url}"
+        )
+        ignore_boto3_error_code(
+            lambda: sqs_client.delete_queue(QueueUrl=queue_url),
+            "AWS.SimpleQueueService.NonExistentQueue",
+        )
+
+
+def _delete_machine_queue_if_exists(
+    sqs_client: Any, instance_id: str, region_name: str
+) -> None:
+    ignore_boto3_error_code(
+        lambda: sqs_client.delete_queue(
+            QueueUrl=(
+                f"https://sqs.{region_name}.amazonaws.com/{_get_account_number()}/"
+                f"{MACHINE_AGENT_QUEUE_PREFIX}{instance_id}"
+            )
+        ),
+        "AWS.SimpleQueueService.NonExistentQueue",
+    )
+
+
 def _deregister_and_terminate_instances(
     region_name: str,
     terminate_instances_if_idle_for: datetime.timedelta,
@@ -146,6 +188,7 @@ def _deregister_and_terminate_instances(
     """
 
     ec2_resource = boto3.resource("ec2", region_name=region_name)
+    sqs_client = boto3.client("sqs", region_name=region_name)
     non_terminated_instances = {
         instance.instance_id: instance
         for instance in _get_non_terminated_instances(ec2_resource)
@@ -159,6 +202,8 @@ def _deregister_and_terminate_instances(
 
     now = datetime.datetime.now(datetime.timezone.utc)
 
+    _delete_abandoned_machine_queues(sqs_client, set(running_instances.keys()))
+
     for instance_id, (last_updated, num_jobs) in registered_instances.items():
         if instance_id not in running_instances:
             print(
@@ -169,6 +214,7 @@ def _deregister_and_terminate_instances(
             if instance_id in non_terminated_instances:
                 # just in case
                 non_terminated_instances[instance_id].terminate()
+            _delete_machine_queue_if_exists(sqs_client, instance_id, region_name)
         elif num_jobs == 0 and (now - last_updated) > terminate_instances_if_idle_for:
             success = _deregister_ec2_instance(instance_id, True, region_name)
             if success:
@@ -177,6 +223,7 @@ def _deregister_and_terminate_instances(
                     f"since {last_updated} so we will deregister and terminate it"
                 )
                 non_terminated_instances[instance_id].terminate()
+                _delete_machine_queue_if_exists(sqs_client, instance_id, region_name)
         else:
             print(f"Letting {instance_id} continue to run--this instance is active")
 
@@ -188,6 +235,7 @@ def _deregister_and_terminate_instances(
                     f"Was launched at {instance.launch_time}."
                 )
                 instance.terminate()
+                _delete_machine_queue_if_exists(sqs_client, instance_id, region_name)
             else:
                 print(
                     f"{instance_id} is running but is not registered, not terminating "

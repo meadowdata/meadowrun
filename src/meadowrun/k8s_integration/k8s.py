@@ -89,6 +89,7 @@ from meadowrun.storage_keys import (
     storage_key_job_to_run,
     storage_key_ranges,
     storage_key_task_args,
+    storage_prefix_outputs,
 )
 from meadowrun.version import __version__
 
@@ -669,12 +670,22 @@ class Kubernetes(Host):
                 await run_worker_loops
 
             finally:
-                keys_to_delete = [
+                input_keys_to_delete = [
                     storage_key_task_args(driver._job_id),
                     storage_key_ranges(driver._job_id),
                 ]
+                output_keys_to_delete = await storage_bucket.list_objects(
+                    storage_prefix_outputs(driver._job_id)
+                )
                 await asyncio.gather(
-                    *(storage_bucket.delete_object(key) for key in keys_to_delete),
+                    *(
+                        storage_bucket.delete_object(key)
+                        for key in input_keys_to_delete
+                    ),
+                    *(
+                        storage_bucket.delete_object(key)
+                        for key in output_keys_to_delete
+                    ),
                     return_exceptions=True,
                 )
 

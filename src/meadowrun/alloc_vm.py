@@ -37,6 +37,7 @@ from meadowrun.run_job_core import (
     MeadowrunException,
     SshHost,
     TaskResult,
+    WaitOption,
     get_log_path,
 )
 from meadowrun.storage_keys import construct_job_object_id
@@ -44,7 +45,6 @@ from meadowrun.storage_keys import construct_job_object_id
 if TYPE_CHECKING:
     from types import TracebackType
     from meadowrun.run_job_core import (
-        WaitOption,
         JobCompletion,
         TaskProcessState,
         CloudProviderType,
@@ -436,6 +436,10 @@ class GridJobQueueWorkerLauncher(GridJobWorkerLauncher):
         """
         ...
 
+    @abc.abstractmethod
+    async def _ssh_host_from_address(self, address: str, instance_name: str) -> SshHost:
+        ...
+
     async def _upload_job_object_wrapper(
         self,
         agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
@@ -475,6 +479,31 @@ class GridJobQueueWorkerLauncher(GridJobWorkerLauncher):
         except asyncio.CancelledError:
             await self.kill_jobs(instance_name, job_ids)
 
+    async def _stream_logs_then_kill_job(
+        self, public_address: str, instance_name: str, job_id: str
+    ) -> None:
+        try:
+            log_file_name = get_log_path(job_id)
+            try:
+                ssh_host = await self._ssh_host_from_address(
+                    public_address, instance_name
+                )
+                await ssh_host.tail_log(log_file_name)
+            except asyncio.CancelledError:
+                raise  # go to the outer `except asyncio.CancelledError` block
+            except BaseException:
+                print(
+                    f"Error tailing log {public_address}:{log_file_name} via SSH. Job "
+                    "will continue to run but remote logs will not be streamed here:\n"
+                    + traceback.format_exc()
+                )
+
+            # this is in case we hit BaseException, we want to keep waiting until
+            # cancellation happens
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await self.kill_jobs(instance_name, [job_id])
+
     async def launch_workers(
         self,
         agent_function_task: asyncio.Task[Tuple[QualifiedFunctionName, Sequence[Any]]],
@@ -510,13 +539,26 @@ class GridJobQueueWorkerLauncher(GridJobWorkerLauncher):
                 await self.launch_jobs(
                     public_address, instance_name, job_object_id, worker_job_ids
                 )
+
+                if (
+                    num_workers_to_launch == 1
+                    and self._wait_for_result == WaitOption.WAIT_AND_TAIL_STDOUT
+                ):
+                    # really we should check if the total number of workers (not just on
+                    # this invocation) is 1
+                    worker_task = self._stream_logs_then_kill_job(
+                        public_address, instance_name, worker_job_ids[0]
+                    )
+                else:
+                    worker_task = self._on_cancel_kill_jobs(
+                        instance_name, worker_job_ids
+                    )
+
                 worker_tasks.append(
                     WorkerTask(
                         f"Worker placeholder: {instance_name}, {worker_job_ids}",
                         queue_index,
-                        asyncio.create_task(
-                            self._on_cancel_kill_jobs(instance_name, worker_job_ids)
-                        ),
+                        asyncio.create_task(worker_task),
                         worker_job_ids,
                     )
                 )

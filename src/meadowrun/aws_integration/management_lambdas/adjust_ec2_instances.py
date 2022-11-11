@@ -9,16 +9,7 @@ import asyncio
 import dataclasses
 import datetime as dt
 import os
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    Tuple,
-)
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import boto3
 from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
@@ -26,8 +17,8 @@ from meadowrun.aws_integration.management_lambdas.config import (
     INSTANCE_THRESHOLDS,
     TERMINATE_INSTANCES_IF_IDLE_FOR,
 )
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    MACHINE_AGENT_QUEUE_PREFIX,
+
+from meadowrun.aws_integration.ec2_instance_allocation import (
     _EC2_ALLOC_TABLE_NAME,
     _INSTANCE_ID,
     _LAST_UPDATE_TIME,
@@ -37,6 +28,11 @@ from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
     _get_account_number,
     ignore_boto3_error_code,
 )
+from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
+from meadowrun.aws_integration.management_lambdas.config import (
+    INSTANCE_THRESHOLDS,
+    TERMINATE_INSTANCES_IF_IDLE_FOR,
+)
 from meadowrun.aws_integration.management_lambdas.provisioning import (
     Threshold,
     shutdown_thresholds,
@@ -44,8 +40,9 @@ from meadowrun.aws_integration.management_lambdas.provisioning import (
 from meadowrun.instance_selection import ResourcesInternal
 
 if TYPE_CHECKING:
-    from meadowrun.instance_selection import CloudInstanceType, OnDemandOrSpotType
     from mypy_boto3_ec2.service_resource import EC2ServiceResource, Instance
+
+    from meadowrun.instance_selection import CloudInstanceType, OnDemandOrSpotType
 
 
 # If we see instances running that aren't registered, we assume there is something wrong

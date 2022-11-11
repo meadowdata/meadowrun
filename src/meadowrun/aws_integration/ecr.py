@@ -7,10 +7,7 @@ import boto3
 from meadowrun.aws_integration.aws_core import (
     _get_default_region_name,
 )
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _get_account_number,
-    ignore_boto3_error_code,
-)
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 from meadowrun.credentials import UsernamePassword
 from meadowrun.run_job_core import ContainerRegistryHelper
 

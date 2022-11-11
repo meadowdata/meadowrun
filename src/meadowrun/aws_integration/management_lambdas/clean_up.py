@@ -3,10 +3,10 @@ import os
 from typing import Any, Dict, Iterable
 
 import boto3
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
     _MEADOWRUN_GENERATED_DOCKER_REPO,
-    ignore_boto3_error_code,
 )
 
 # queues will automatically be deleted 3 days after being created

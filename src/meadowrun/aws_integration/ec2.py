@@ -26,13 +26,15 @@ from meadowrun.aws_integration.aws_core import (
     _get_current_ip_for_ssh,
     _get_default_region_name,
 )
-from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _MEADOWRUN_TAG,
-    _MEADOWRUN_TAG_VALUE,
+from meadowrun.aws_integration.boto_utils import (
     ignore_boto3_error_code,
     ignore_boto3_error_code_async,
 )
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
+    _MEADOWRUN_TAG,
+    _MEADOWRUN_TAG_VALUE,
+)
+from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
 from meadowrun.aws_integration.quotas import (
     get_quota_for_instance_type,
     instance_family_from_type,
@@ -46,7 +48,6 @@ from meadowrun.instance_selection import (
 )
 from meadowrun.shared import b62_encoded_uuid
 from meadowrun.version import __version__
-
 
 _T = TypeVar("_T")
 

@@ -5,7 +5,7 @@ import asyncio
 import asyncio.subprocess
 import datetime
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any, ItemsView, Union, Iterable, Tuple
+from typing import TYPE_CHECKING, Any, Dict, ItemsView, Iterable, Optional, Tuple, Union
 
 import psutil
 
@@ -13,16 +13,19 @@ from meadowrun.aws_integration.aws_core import (
     _get_default_region_name,
     _get_ec2_metadata,
 )
-from meadowrun.aws_integration.ec2_instance_allocation import EC2InstanceRegistrar
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import _ALLOCATED_TIME
-from meadowrun.azure_integration.azure_meadowrun_core import (
-    get_default_location,
-    get_current_vm_name,
+from meadowrun.aws_integration.ec2_instance_allocation import (
+    _ALLOCATED_TIME,
+    EC2InstanceRegistrar,
 )
 from meadowrun.azure_integration.azure_instance_allocation import AzureInstanceRegistrar
+from meadowrun.azure_integration.azure_meadowrun_core import (
+    get_current_vm_name,
+    get_default_location,
+)
 
 if TYPE_CHECKING:
     from meadowrun.instance_allocation import InstanceRegistrar
+
 from meadowrun.run_job_core import CloudProvider, CloudProviderType
 
 # If a job is allocated but we never see a pid file for it, we assume after this amount

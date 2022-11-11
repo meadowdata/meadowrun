@@ -2,11 +2,9 @@ import argparse
 import time
 
 import boto3
-
 from build_ami_helper import REGION_TO_INSTANCE_TYPE
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    ignore_boto3_error_code,
-)
+
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 
 _SOURCE_REGION = "us-east-2"  # your "main" region
 _SUPPORTED_REGIONS = list(REGION_TO_INSTANCE_TYPE.keys())

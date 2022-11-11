@@ -5,22 +5,20 @@ import io
 import os
 import pkgutil
 import zipfile
-from typing import TYPE_CHECKING, Any, Optional, Tuple, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, TypeVar
 
 import boto3
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_permissions_install import _MANAGEMENT_LAMBDA_ROLE
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _get_account_number,
-    ignore_boto3_error_code,
-)
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 from meadowrun.shared import create_zipfile
 
 if TYPE_CHECKING:
-    from mypy_boto3_lambda import LambdaClient
     from types import ModuleType
+
+    from mypy_boto3_lambda import LambdaClient
 
 
 _T = TypeVar("_T")

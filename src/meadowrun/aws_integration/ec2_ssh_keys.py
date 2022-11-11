@@ -1,13 +1,10 @@
 import os
 
 import asyncssh
-
 import boto3
 
 from meadowrun.aws_integration.aws_core import wrap_access_or_install_errors
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    ignore_boto3_error_code,
-)
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 
 MEADOWRUN_KEY_PAIR_NAME = "meadowrun_key_pair"
 _MEADOWRUN_KEY_PAIR_SECRET_NAME = "meadowrun_private_key"

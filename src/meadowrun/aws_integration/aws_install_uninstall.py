@@ -40,6 +40,11 @@ from meadowrun.aws_integration.ec2 import (
     _MEADOWRUN_SSH_SECURITY_GROUP,
     ensure_security_group,
 )
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
+    _EC2_ALLOC_TABLE_NAME,
+    _MEADOWRUN_GENERATED_DOCKER_REPO,
+)
 from meadowrun.aws_integration.ec2_instance_allocation import ensure_ec2_alloc_table
 from meadowrun.aws_integration.ec2_pricing import clear_prices_cache
 from meadowrun.aws_integration.ec2_ssh_keys import (
@@ -50,11 +55,6 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
 from meadowrun.aws_integration.ecr import _ensure_repository
 from meadowrun.aws_integration.management_lambdas.adjust_ec2_instances import (
     _get_non_terminated_instances,
-)
-from meadowrun.aws_integration.management_lambdas.ec2_alloc_stub import (
-    _EC2_ALLOC_TABLE_NAME,
-    _MEADOWRUN_GENERATED_DOCKER_REPO,
-    ignore_boto3_error_code,
 )
 
 if TYPE_CHECKING:

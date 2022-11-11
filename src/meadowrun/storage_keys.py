@@ -23,6 +23,10 @@ def storage_prefix_outputs(job_id: str) -> str:
     return f"outputs/{job_id}/"
 
 
+def storage_prefix_inputs(job_id: str) -> str:
+    return f"inputs/{job_id}"
+
+
 def storage_key_task_result(job_id: str, task_id: int, attempt: int) -> str:
     # A million tasks and 1000 attempts should be enough for everybody. Formatting the
     # task is important because when we task download results from S3, we use the

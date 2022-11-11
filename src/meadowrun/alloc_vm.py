@@ -430,6 +430,10 @@ class GridJobQueueWorkerLauncher(GridJobWorkerLauncher):
 
     @abc.abstractmethod
     async def _upload_job_object(self, job_object_id: str, job: Job) -> None:
+        """
+        This is a bit janky, but GridJobCloudInterface will take care of deleting the
+        job objects
+        """
         ...
 
     async def _upload_job_object_wrapper(

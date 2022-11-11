@@ -86,7 +86,11 @@ from meadowrun.storage_grid_job import (
     receive_results,
 )
 from meadowrun.meadowrun_pb2 import QualifiedFunctionName
-from meadowrun.storage_keys import storage_key_job_to_run
+from meadowrun.storage_keys import (
+    storage_key_job_to_run,
+    storage_prefix_inputs,
+    storage_prefix_outputs,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -771,8 +775,28 @@ class EC2GridJobInterface(GridJobCloudInterface):
         exc_tb: Optional[TracebackType],
     ) -> None:
         if self._sqs_client is not None:
+            for queue_url_task in self._request_queue_urls:
+                if queue_url_task.done():
+                    await self._sqs_client.delete_queue(
+                        QueueUrl=queue_url_task.result()
+                    )
+                else:
+                    # if we cancel at exactly the wrong moment we won't clean up a queue
+                    # we should have caught, but it's okay
+                    queue_url_task.cancel()
+
             await self._sqs_client.__aexit__(exc_type, exc_val, exc_tb)
+
         if self._s3_bucket is not None:
+            for key in await self._s3_bucket.list_objects(
+                storage_prefix_outputs(self._base_job_id)
+            ):
+                await self._s3_bucket.delete_object(key)
+            for key in await self._s3_bucket.list_objects(
+                storage_prefix_inputs(self._base_job_id)
+            ):
+                await self._s3_bucket.delete_object(key)
+
             await self._s3_bucket.__aexit__(exc_type, exc_val, exc_tb)
 
     def create_queue(self) -> int:

@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
-import pkgutil
 import zipfile
 from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, TypeVar
 
 import boto3
+from meadowrun.aws_integration.aws_core import _get_account_number
 
 import meadowrun.aws_integration.management_lambdas.adjust_ec2_instances
 import meadowrun.aws_integration.management_lambdas.clean_up
@@ -40,11 +39,7 @@ _LAMBDA_LAYER_NAME = "meadowrun-dependencies"
 # Since AWS never forgets the version for a given layer name, it's likely that
 # us-east-2 is going to be ahead.
 _LAMBDA_LAYER_DEFAULT_VERSION = "1"
-_LAMBDA_LAYER_REGION_TO_VERSION = {"us-east-2": "3"}
-
-
-def _get_prefix_and_root_path(module_name: ModuleType) -> Tuple[str, str]:
-    return (module_name.__name__.replace(".", os.path.sep), module_name.__path__[0])
+_LAMBDA_LAYER_REGION_TO_VERSION = {"us-east-2": "18"}
 
 
 def _get_zipped_lambda_code(config_file: Optional[str]) -> bytes:
@@ -58,34 +53,12 @@ def _get_zipped_lambda_code(config_file: Optional[str]) -> bytes:
     Warning, this doesn't recurse into any subdirectories (because it is not currently
     needed)
     """
-    path_prefix, lambda_root_path = _get_prefix_and_root_path(
-        meadowrun.aws_integration.management_lambdas
-    )
-    extras = [
-        _get_prefix_and_root_path(meadowrun),
-        _get_prefix_and_root_path(meadowrun.aws_integration),
-    ]
-    lambda_module_names = [
-        name for _, name, _ in pkgutil.iter_modules([lambda_root_path])
-    ]
 
     with io.BytesIO() as buffer:
         with create_zipfile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for module_name in lambda_module_names:
-                if config_file is not None and module_name == "config":
-                    zf.write(config_file, os.path.join(path_prefix, "config.py"))
-                else:
-                    zf.write(
-                        os.path.join(lambda_root_path, module_name + ".py"),
-                        os.path.join(path_prefix, module_name + ".py"),
-                    )
-            for path_prefix, root_path in extras:
-                for _, module_name, is_pkg in pkgutil.iter_modules([root_path]):
-                    if not is_pkg:
-                        zf.write(
-                            os.path.join(root_path, module_name + ".py"),
-                            os.path.join(path_prefix, module_name + ".py"),
-                        )
+            zf.writestr("nothing_to_see_here.txt", "all the code is in a layer")
+            if config_file is not None:
+                zf.write(config_file, "aws_custom_management_config.py")
 
         buffer.seek(0)
 
@@ -119,7 +92,7 @@ async def _create_management_lambda(
                     f"{_LAMBDA_LAYER_REGION_TO_VERSION.get(region_name, _LAMBDA_LAYER_DEFAULT_VERSION)}"  # noqa
                 ],
                 Timeout=120,
-                MemorySize=128,  # memory available in MB
+                MemorySize=256,  # memory available in MB
             ),
             "ResourceConflictException",
         )

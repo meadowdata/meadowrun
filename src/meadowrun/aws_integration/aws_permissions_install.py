@@ -11,6 +11,7 @@ import boto3
 
 from meadowrun.aws_integration.aws_core import (
     _MEADOWRUN_USER_GROUP_NAME,
+    _get_account_number,
 )
 from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 from meadowrun.aws_integration.ec2_instance_allocation_constants import (
@@ -170,7 +171,10 @@ _MEADOWRUN_POLICY_TEMPLATE = """{
         {
             "Sid": "ec2instances",
             "Effect": "Allow",
-            "Action": "ec2:DescribeInstances",
+            "Action": [
+                    "ec2:DescribeInstances",
+                    "ec2:DescribeVolumes"
+            ],
             "Resource": "*",
             "Condition": {
                 "ForAllValues:StringEquals": {

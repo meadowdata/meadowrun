@@ -1,0 +1,3 @@
+# to deal with glibc inconsistencies on lambda runtime
+cryptography==3.4.8
+bcrypt==3.2.2

@@ -1,12 +1,23 @@
-from typing import List
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Iterable
 import datetime as dt
-from meadowrun.aws_integration.management_lambdas.provisioning import Threshold
-from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
-from meadowrun.run_job_core import Resources
 
-# Terminate instances if they haven't run any jobs for this long.
-TERMINATE_INSTANCES_IF_IDLE_FOR = dt.timedelta(minutes=5)
+if TYPE_CHECKING:
+    from meadowrun.aws_integration.management_lambdas.provisioning import Threshold
 
 
-# Keep instances around to satisfy these thresholds.
-INSTANCE_THRESHOLDS: List[Threshold] = []
+@dataclass
+class ManagementConfig:
+    terminate_instances_if_idle_for: dt.timedelta = dt.timedelta(minutes=5)
+    instance_thresholds: Iterable[Threshold] = ()
+
+
+def get_config() -> ManagementConfig:
+    try:
+        from aws_custom_management_config import get_config as custom_config
+
+        return custom_config()
+    except ImportError:
+        return ManagementConfig()

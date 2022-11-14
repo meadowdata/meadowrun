@@ -542,11 +542,9 @@ def test_sync_registration_and_actual_state_unregistered(
         ]
     }
 
+    sqs_client = mocker.Mock()
     _sync_registration_and_actual_state(
-        "us-east-2",
-        ec2_instances,
-        now,
-        launch_register_delay,
+        "us-east-2", ec2_instances, now, launch_register_delay, sqs_client
     )
 
     assert ec2_instances["0"].action is not None
@@ -576,11 +574,9 @@ def test_sync_registration_and_actual_state_not_running(
         ]
     }
 
+    sqs_client = mocker.Mock()
     _sync_registration_and_actual_state(
-        "us-east-2",
-        ec2_instances,
-        now,
-        launch_register_delay,
+        "us-east-2", ec2_instances, now, launch_register_delay, sqs_client
     )
 
     ec2_instance = ec2_instances["0"]
@@ -673,6 +669,8 @@ def test_add_deregister_and_terminate_actions(mocker: MockerFixture) -> None:
             ),
         ]
     }
+
+    sqs_client = mocker.Mock()
     _add_deregister_and_terminate_actions(
         "us-east-2",
         terminate_instances_if_idle_for,
@@ -681,6 +679,7 @@ def test_add_deregister_and_terminate_actions(mocker: MockerFixture) -> None:
         now,
         ec2_instances,
         MOCK_TYPE_TO_INFO,
+        sqs_client,
     )
 
     for i in range(4):

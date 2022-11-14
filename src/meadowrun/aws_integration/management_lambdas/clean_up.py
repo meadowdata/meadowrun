@@ -138,6 +138,7 @@ def delete_unused_images(region_name: str) -> None:
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:
     """The handler for AWS lambda"""
+
     region_name = os.environ["AWS_REGION"]
 
     exceptions = []

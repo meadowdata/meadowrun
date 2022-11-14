@@ -1,3 +1,0 @@
-aiohttp
-requests
-typing_extensions

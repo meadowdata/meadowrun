@@ -9,14 +9,25 @@ import asyncio
 import dataclasses
 import datetime as dt
 import os
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 import boto3
-from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
-from meadowrun.aws_integration.management_lambdas.config import (
-    INSTANCE_THRESHOLDS,
-    TERMINATE_INSTANCES_IF_IDLE_FOR,
+from meadowrun.aws_integration.aws_core import _get_account_number
+from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
+    MACHINE_AGENT_QUEUE_PREFIX,
 )
+from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
 
 from meadowrun.aws_integration.ec2_instance_allocation import (
     _EC2_ALLOC_TABLE_NAME,
@@ -25,14 +36,8 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
     _RUNNING_JOBS,
-    _get_account_number,
-    ignore_boto3_error_code,
 )
-from meadowrun.aws_integration.ec2_pricing import get_ec2_instance_types
-from meadowrun.aws_integration.management_lambdas.config import (
-    INSTANCE_THRESHOLDS,
-    TERMINATE_INSTANCES_IF_IDLE_FOR,
-)
+from meadowrun.aws_integration.management_lambdas.config import get_config
 from meadowrun.aws_integration.management_lambdas.provisioning import (
     Threshold,
     shutdown_thresholds,
@@ -41,6 +46,7 @@ from meadowrun.instance_selection import ResourcesInternal
 
 if TYPE_CHECKING:
     from mypy_boto3_ec2.service_resource import EC2ServiceResource, Instance
+    from mypy_boto3_sqs.client import SQSClient
 
     from meadowrun.instance_selection import CloudInstanceType, OnDemandOrSpotType
 
@@ -109,7 +115,7 @@ def _deregister_ec2_instance(
         optional_args["ConditionExpression"] = f"size({_RUNNING_JOBS}) = :zero"
         optional_args["ExpressionAttributeValues"] = {":zero": 0}
 
-    success, result = ignore_boto3_error_code(
+    success, _ = ignore_boto3_error_code(
         lambda: _get_ec2_alloc_table(region_name).delete_item(
             Key={_INSTANCE_ID: instance_id}, **optional_args
         ),
@@ -128,10 +134,12 @@ _NON_TERMINATED_EC2_STATES = [
 
 
 async def adjust(region_name: str) -> None:
+    config = get_config()
+
     await _deregister_and_terminate_instances(
         region_name,
-        TERMINATE_INSTANCES_IF_IDLE_FOR,
-        INSTANCE_THRESHOLDS,
+        config.terminate_instances_if_idle_for,
+        config.instance_thresholds,
         _LAUNCH_REGISTER_DELAY,
     )
     # TODO this should also launch instances based on pre-provisioning policy
@@ -158,7 +166,9 @@ def get_running_instances(ec2_resource: EC2ServiceResource) -> Iterable[Instance
     )
 
 
-def _delete_abandoned_machine_queues(sqs_client: Any, instance_ids: Set[str]) -> None:
+def _delete_abandoned_machine_queues(
+    sqs_client: SQSClient, instance_ids: Set[str]
+) -> None:
     queue_urls_to_delete = []
 
     for page in sqs_client.get_paginator("list_queues").paginate(
@@ -185,7 +195,7 @@ def _delete_abandoned_machine_queues(sqs_client: Any, instance_ids: Set[str]) ->
 
 
 def _delete_machine_queue_if_exists(
-    sqs_client: Any, instance_id: str, region_name: str
+    sqs_client: SQSClient, instance_id: str, region_name: str
 ) -> None:
     ignore_boto3_error_code(
         lambda: sqs_client.delete_queue(
@@ -260,7 +270,7 @@ async def _get_instance_type_info(
 async def _deregister_and_terminate_instances(
     region_name: str,
     terminate_instances_if_idle_for: dt.timedelta,
-    thresholds: List[Threshold],
+    thresholds: Iterable[Threshold],
     launch_register_delay: dt.timedelta = _LAUNCH_REGISTER_DELAY,
 ) -> None:
     """
@@ -273,6 +283,13 @@ async def _deregister_and_terminate_instances(
     ec2_instances = _get_ec2_instances(region_name)
     instance_type_info = await _get_instance_type_info(region_name)
     now = dt.datetime.now(dt.timezone.utc)
+    sqs_client = boto3.client("sqs")
+    running_instances = {
+        ins_id
+        for ins_id, ins in ec2_instances.items()
+        if ins.instance is not None and ins.instance.state["Name"] == "running"
+    }
+    _delete_abandoned_machine_queues(sqs_client, running_instances)
 
     _add_deregister_and_terminate_actions(
         region_name,
@@ -282,11 +299,12 @@ async def _deregister_and_terminate_instances(
         now,
         ec2_instances,
         instance_type_info,
+        sqs_client,
     )
 
     for instance_id, instance in ec2_instances.items():
         if instance.action is None:
-            print(f"Letting {instance_id} continue to run--this instance is active")
+            print(f"Letting {instance_id} continue to run")
             continue
 
         instance.do_action()
@@ -295,17 +313,18 @@ async def _deregister_and_terminate_instances(
 def _add_deregister_and_terminate_actions(
     region_name: str,
     terminate_instances_if_idle_for: dt.timedelta,
-    thresholds: List[Threshold],
+    thresholds: Iterable[Threshold],
     launch_register_delay: dt.timedelta,
     now: dt.datetime,
     ec2_instances: Dict[str, _EC2_Instance],
     instance_type_info: Dict[Tuple[str, OnDemandOrSpotType], CloudInstanceType],
+    sqs_client: SQSClient,
 ) -> None:
     """Modifies ec2_instances to add terminate or deregister actions where necessary.
     This is separated from the actual execution of the actions for testability."""
 
     _sync_registration_and_actual_state(
-        region_name, ec2_instances, now, launch_register_delay
+        region_name, ec2_instances, now, launch_register_delay, sqs_client
     )
 
     # build instance id to an identifier we can look up in instance_type_info,
@@ -336,8 +355,6 @@ def _add_deregister_and_terminate_actions(
         instance_id_to_resources,
     )
 
-    _delete_abandoned_machine_queues(sqs_client, set(running_instances.keys()))
-
     # Apply idle timeout on the rest, if registered.
     def deregister_and_terminate(instance: _EC2_Instance) -> None:
         if instance.instance is None:
@@ -345,6 +362,10 @@ def _add_deregister_and_terminate_actions(
         success = _deregister_ec2_instance(instance.instance_id, True, region_name)
         if success:
             instance.instance.terminate()
+        else:
+            print(
+                f"Did not deregister {instance.instance_id}, the instance became active"
+            )
 
     for instance_id in excess_instances:
         instance = ec2_instances.get(instance_id)
@@ -366,20 +387,23 @@ def _sync_registration_and_actual_state(
     ec2_instances: Dict[str, _EC2_Instance],
     now: dt.datetime,
     launch_register_delay: dt.timedelta,
+    sqs_client: SQSClient,
 ) -> None:
     """Adds actions to either deregister or terminate where instances appear in the
     alloc table but are not present according to AWS, or vice versa."""
 
     def deregister_and_terminate(instance: _EC2_Instance) -> None:
         _deregister_ec2_instance(instance.instance_id, False, region_name)
+        _delete_machine_queue_if_exists(sqs_client, instance.instance_id, region_name)
         if instance.instance is not None:
             # just in case
             instance.instance.terminate()
 
     def terminate(instance: _EC2_Instance) -> None:
+        _delete_machine_queue_if_exists(sqs_client, instance.instance_id, region_name)
         if instance.instance is None:
             return
-        _delete_machine_queue_if_exists(sqs_client, instance_id, region_name)
+
         instance.instance.terminate()
 
     for instance_id, instance in ec2_instances.items():

@@ -857,26 +857,20 @@ async def _non_container_job_continuation(
 
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, log_file_name, worker)
-            await worker.stop()
-            await worker.wait_until_exited()
-            return ProcessState(
-                state=ProcessStateEnum.SUCCEEDED,
-                pid=worker.pid or 0,
-                log_file_name=log_file_name,
-                return_code=0,
+            return await _agent_job_continuation(
+                job, job_spec_transformed, log_file_name, worker, pid=worker.pid
             )
-
-        returncode = await worker.wait_until_exited()
-        return _completed_job_state(
-            job_spec_type,
-            job_id,
-            io_folder,
-            log_file_name,
-            returncode,
-            worker.pid,
-            None,
-        )
+        else:
+            returncode = await worker.wait_until_exited()
+            return _completed_job_state(
+                job_spec_type,
+                job_id,
+                io_folder,
+                log_file_name,
+                returncode,
+                worker.pid,
+                None,
+            )
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -1069,26 +1063,24 @@ async def _container_job_continuation(
     """
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, log_file_name, worker)
-            await worker.stop()
-            await worker.wait_until_exited()
-            return ProcessState(
-                state=ProcessStateEnum.SUCCEEDED,
-                container_id=worker.container_id or "",
-                log_file_name=log_file_name,
-                return_code=0,
+            return await _agent_job_continuation(
+                job,
+                job_spec_transformed,
+                log_file_name,
+                worker,
+                container_id=worker.container_id,
             )
-
-        return_code = await worker.wait_until_exited()
-        return _completed_job_state(
-            job_spec_type,
-            job_id,
-            io_folder,
-            log_file_name,
-            return_code,
-            None,
-            worker.container_id,
-        )
+        else:
+            return_code = await worker.wait_until_exited()
+            return _completed_job_state(
+                job_spec_type,
+                job_id,
+                io_folder,
+                log_file_name,
+                return_code,
+                None,
+                worker.container_id,
+            )
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -1139,6 +1131,53 @@ async def _run_agent(
         **agent_func_kwargs,
     )
     await job_spec_transformed.server.close()
+
+
+async def _agent_job_continuation(
+    job: Job,
+    job_spec_transformed: _JobSpecTransformed,
+    log_file_name: str,
+    worker: WorkerMonitor,
+    pid: Optional[int] = None,
+    container_id: Optional[str] = None,
+) -> ProcessState:
+    """
+    This waits for the agent task to complete but also checks to see if the worker
+    process exits unexpectedly.
+    """
+
+    run_agent_task: asyncio.Task = asyncio.create_task(
+        _run_agent(job_spec_transformed, job, log_file_name, worker)
+    )
+    worker_exit_task: asyncio.Task = asyncio.create_task(worker.wait_until_exited())
+    await asyncio.wait(
+        [run_agent_task, worker_exit_task], return_when=asyncio.FIRST_COMPLETED
+    )
+
+    # if the worker has exited, give _run_agent another 1 second to complete
+    if not run_agent_task.done():
+        await asyncio.wait([run_agent_task], timeout=1)
+
+    if not run_agent_task.done():
+        # if _run_agent still hasn't completed, return UNEXPECTED_WORKER_EXIT
+        run_agent_task.cancel()
+        return ProcessState(
+            state=ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
+            pid=pid or 0,
+            container_id=container_id or "",
+            log_file_name=log_file_name,
+            return_code=worker_exit_task.result(),
+        )
+    else:
+        # in case the worker hasn't actually exited, cancel worker.wait_until_exited
+        worker_exit_task.cancel()
+        return ProcessState(
+            state=ProcessStateEnum.SUCCEEDED,
+            pid=pid or 0,
+            container_id=container_id or "",
+            log_file_name=log_file_name,
+            return_code=0,
+        )
 
 
 def _completed_job_state(

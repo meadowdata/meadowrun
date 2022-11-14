@@ -1104,6 +1104,9 @@ def _pod_meets_requirements(
 
     if resources:
         existing_resources = main_container.resources.requests
+        if existing_resources is None:
+            return False
+
         for key, value in _resources_to_kubernetes(resources).items():
             if key not in existing_resources:
                 return False

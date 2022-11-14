@@ -97,7 +97,7 @@ def shutdown_thresholds(
 
     assignments = [Assignment(threshold) for threshold in thresholds]
 
-    sorted_instances = [
+    instance_id_type = [
         (
             instance_id,
             _augmented_cloud_instance_type(
@@ -106,11 +106,10 @@ def shutdown_thresholds(
         )
         for instance_id, instance_type_key in instances.items()
     ]
-    sorted_instances.sort(key=lambda i: i[1].price, reverse=True)
 
     # Pass 1.
     # Assign cheapest machines to thresholds first, until the threshold is reached.
-    _greedy_assignment(assignments, sorted_instances)
+    _greedy_assignment(assignments, instance_id_type)
 
     # Pass 2.
     # Remove from assignments any small superfluous machines.
@@ -119,28 +118,31 @@ def shutdown_thresholds(
     # Here the small machines are removed. This favors a small amount of big machines
     # over many small machines - this is normally more cost-effective, and simpler to
     # manage.
-    to_shut_down = sorted_instances
-    _remove_small_machines(assignments, to_shut_down)
+    _remove_small_machines(assignments, instance_id_type)
 
-    return [inst[0] for inst in sorted_instances]
+    return [inst[0] for inst in instance_id_type]
 
 
 def _greedy_assignment(
-    assignments: List[Assignment], sorted_instances: List[Any]
+    assignments: List[Assignment],
+    instances: List[Tuple[InstanceId, CloudInstanceType]],
 ) -> None:
+    """Modifies assignemtns and instances!"""
+    instances.sort(key=lambda i: i[1].price, reverse=True)
     for assignment in assignments:
         unassigned = []
-        while len(sorted_instances) > 0 and not assignment.is_threshold_reached():
-            candidate = sorted_instances.pop()
+        while len(instances) > 0 and not assignment.is_threshold_reached():
+            candidate = instances.pop()
             if assignment.accepts(candidate):
                 assignment.assign(candidate)
             else:
                 unassigned.append(candidate)
         # put the unassigned instances back, to be considered for the next assignemnt.
-        sorted_instances.extend(unassigned)
+        instances.extend(unassigned)
 
 
 def _remove_small_machines(assignments: List[Assignment], instances: List[Any]) -> None:
+    """Modifies assignements and instances!"""
     for assignment in assignments:
         original_len = len(assignment.instances)
         removed_instances = []

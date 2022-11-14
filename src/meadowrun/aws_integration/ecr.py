@@ -5,6 +5,7 @@ from typing import Optional
 import boto3
 
 from meadowrun.aws_integration.aws_core import (
+    _get_account_number,
     _get_default_region_name,
 )
 from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code

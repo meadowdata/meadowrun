@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple, TypeVar
 
 import aiobotocore.session
 
-from meadowrun.aws_integration.ec2_instance_allocation import (
+from meadowrun.aws_integration.ec2_instance_allocation_constants import (
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
 )

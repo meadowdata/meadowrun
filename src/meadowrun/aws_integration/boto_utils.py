@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
     Awaitable,
@@ -12,8 +11,6 @@ from typing import (
     overload,
 )
 import botocore.exceptions
-
-import boto3
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
@@ -101,9 +98,3 @@ async def ignore_boto3_error_code_async(
                 return False, None, error["Code"]
 
         raise
-
-
-@lru_cache(maxsize=1)
-def _get_account_number() -> str:
-    # weird that we have to do this to get the account number to construct the ARN
-    return boto3.client("sts").get_caller_identity().get("Account")

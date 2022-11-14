@@ -54,8 +54,10 @@ def main() -> None:
             "install",
             "-t",
             f"dist/{LAYER_NAME}/python/lib/{PYTHON_VERSION}/site-packages",
-            "-r",
-            "src/meadowrun/aws_integration/management_lambdas/requirements.txt",
+            "--no-compile",  # don't zip up pyc files anyway
+            "-c",
+            "build_scripts/aws_lambda_constraints.txt",
+            ".",
         ]
     )
     result.check_returncode()
@@ -85,7 +87,10 @@ def main() -> None:
         )
         version = response["Version"]
         arn = response["LayerVersionArn"]
-        print(f"Published layer for region {region}, layer version Arn is {arn}.")
+        print(
+            f"Published layer for region {region}, layer version ARN is {arn}. "
+            "Update ARN in aws_mgmt_lambda_install and run install or config --set."
+        )
         perm_result = lambda_client.add_layer_version_permission(
             LayerName=LAYER_NAME,
             VersionNumber=version,

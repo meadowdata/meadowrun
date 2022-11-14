@@ -106,9 +106,9 @@ async def edit_management_lambda_config(config_file: str, region_name: str) -> N
 
 
 def get_default_management_lambda_config(custom_config: str) -> None:
-    from meadowrun.aws_integration.management_lambdas import config
+    import aws_custom_management_config
 
-    shutil.copyfile(config.__file__, custom_config)
+    shutil.copyfile(aws_custom_management_config.__file__, custom_config)
 
 
 def get_current_management_lambda_config(custom_config: str, region_name: str) -> bool:
@@ -128,13 +128,16 @@ def get_current_management_lambda_config(custom_config: str, region_name: str) -
 
     with io.BytesIO(response.content) as f:
         with zipfile.ZipFile(f) as z:
-            config_file = [
+            config_file_candidates = [
                 file
                 for file in z.filelist
-                if os.path.basename(file.filename) == "config.py"
-            ][0]
+                if os.path.basename(file.filename) == "aws_custom_management_config.py"
+            ]
+            if len(config_file_candidates) != 1:
+                print("No custom config. Get the default using `config --get default`?")
+                return False
 
-            config = z.read(config_file)
+            config = z.read(config_file_candidates[0])
             with open(custom_config, "wb+") as t:
                 t.write(config)
     return True

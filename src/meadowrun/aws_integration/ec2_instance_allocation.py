@@ -734,7 +734,12 @@ async def run_job_ec2_instance_registrar(
             job.ports,
         )
 
-    # TODO consider switching this to use the SQS route?
+    # For run_map on EC2, we launch jobs via SQS/machine_agent.py, but for
+    # run_function/run_command we just lanch them directly with SSH. At some point we
+    # should probably get rid of this "launch jobs via SSH" code and replace it all with
+    # SSH but it feels weird to do that because for run_job/run_command we're always
+    # going to start the job via SQS/machine_agent.py and then still create an SSH
+    # connection to tail the logs.
     return await SshHost(host, SSH_USER, pkey, ("EC2", region_name)).run_cloud_job(
         job, job_id, wait_for_result, None
     )

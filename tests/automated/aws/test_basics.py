@@ -39,12 +39,15 @@ class AwsHostProvider(HostProvider):
         return "https://github.com/meadowdata/test_repo"
 
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
+        log_file_name = job_completion.log_file_name
+        if log_file_name.startswith(job_completion.public_address + ":"):
+            log_file_name = log_file_name[len(job_completion.public_address) + 1 :]
         async with ssh.connect(
             job_completion.public_address,
             username=SSH_USER,
             private_key=get_meadowrun_ssh_key(REGION),
         ) as conn:
-            return await ssh.read_text_from_file(conn, job_completion.log_file_name)
+            return await ssh.read_text_from_file(conn, log_file_name)
 
 
 class TestDeploymentsAws(AwsHostProvider, DeploymentSuite):

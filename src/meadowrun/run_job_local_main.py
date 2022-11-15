@@ -94,7 +94,7 @@ import meadowrun.run_job_local
 from meadowrun.azure_integration.blob_storage import get_azure_blob_container
 from meadowrun.meadowrun_pb2 import ProcessState, Job
 from meadowrun.run_job_core import CloudProvider, CloudProviderType, get_log_path
-from meadowrun.storage_grid_job import get_aws_s3_bucket
+from meadowrun.storage_grid_job import get_aws_s3_bucket, get_aws_s3_bucket_async
 from meadowrun.storage_keys import job_id_to_storage_key_process_state
 
 if TYPE_CHECKING:
@@ -107,6 +107,7 @@ async def main_async(
     job_object_id: Optional[str],
     public_address: Optional[str],
     cloud: Optional[Tuple[CloudProviderType, str]],
+    results_to_storage: bool,
 ) -> None:
     job_io_prefix = f"/var/meadowrun/io/{job_id}"
     if job_object_id:
@@ -135,12 +136,22 @@ async def main_async(
         # set storage_bucket, storage_bucket_factory
         if cloud is not None:
             if cloud[0] == "EC2":
-                # with EC2, we need the storage bucket to download the job object
-                storage_bucket = await get_aws_s3_bucket(cloud[1]).__aenter__()
-                storage_bucket_factory = storage_bucket
+                if results_to_storage:
+                    # we need the storage bucket to upload our results
+                    storage_bucket = await get_aws_s3_bucket(cloud[1]).__aenter__()
+                    # storage_bucket_factory can be either a real storage bucket or a
+                    # function that returns a storage bucket
+                    storage_bucket_factory = storage_bucket
+                else:
+                    storage_bucket_factory = functools.partial(
+                        get_aws_s3_bucket_async, cloud[1]
+                    )
             elif cloud[0] == "AzureVM":
-                # with Azure, the storage bucket is optional, so storage_bucket_factory
-                # is a function rather than an actual storage_bucket
+                if results_to_storage:
+                    raise NotImplementedError(
+                        "--results-to-storage is not yet implemented for Azure"
+                    )
+
                 storage_bucket_factory = functools.partial(
                     get_azure_blob_container, cloud[1]
                 )
@@ -215,9 +226,12 @@ def main(
     job_object_id: Optional[str],
     public_address: Optional[str],
     cloud: Optional[Tuple[CloudProviderType, str]],
+    results_to_storage: bool,
 ) -> None:
     try:
-        asyncio.run(main_async(job_id, job_object_id, public_address, cloud))
+        asyncio.run(
+            main_async(job_id, job_object_id, public_address, cloud, results_to_storage)
+        )
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("Job was killed by SIGINT")
 
@@ -231,6 +245,7 @@ def command_line_main() -> None:
     parser.add_argument("--cloud", choices=CloudProvider)
     parser.add_argument("--cloud-region-name")
     parser.add_argument("--job-object-id")
+    parser.add_argument("--results-to-storage", action="store_true")
     args = parser.parse_args()
 
     if bool(args.cloud is None) ^ bool(args.cloud_region_name is None):
@@ -244,7 +259,13 @@ def command_line_main() -> None:
     else:
         cloud = args.cloud, args.cloud_region_name
 
-    main(args.job_id, args.job_object_id, args.public_address, cloud)
+    main(
+        args.job_id,
+        args.job_object_id,
+        args.public_address,
+        cloud,
+        args.results_to_storage,
+    )
 
 
 if __name__ == "__main__":

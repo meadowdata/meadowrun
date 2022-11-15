@@ -51,13 +51,16 @@ class AzureHostProvider(HostProvider):
         return "https://github.com/meadowdata/test_repo"
 
     async def get_log_file_text(self, job_completion: JobCompletion) -> str:
+        log_file_name = job_completion.log_file_name
+        if log_file_name.startswith(job_completion.public_address + ":"):
+            log_file_name = log_file_name[len(job_completion.public_address) + 1 :]
         private_key, public_key = await ensure_meadowrun_key_pair("eastus")
         async with ssh.connect(
             job_completion.public_address,
             username="meadowrunuser",
             private_key=private_key,
         ) as conn:
-            return await ssh.read_text_from_file(conn, job_completion.log_file_name)
+            return await ssh.read_text_from_file(conn, log_file_name)
 
     def get_num_concurrent_tasks(self) -> int:
         # default quota on Azure is very low (3vCPUs)

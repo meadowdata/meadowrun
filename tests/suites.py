@@ -987,7 +987,7 @@ class MapRetriesSuite(HostProvider, abc.ABC):
         assert len(actual) == 2
         for result in actual:
             assert not result.is_success
-            assert result.exception is None
+            assert result.exception is not None
             assert result.attempt == 3
 
     @pytest.mark.asyncio

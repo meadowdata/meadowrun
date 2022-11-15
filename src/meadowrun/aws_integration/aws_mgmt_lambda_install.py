@@ -13,6 +13,7 @@ import meadowrun.aws_integration.management_lambdas.clean_up
 from meadowrun.aws_integration.aws_permissions_install import _MANAGEMENT_LAMBDA_ROLE
 from meadowrun.aws_integration.boto_utils import ignore_boto3_error_code
 from meadowrun.shared import create_zipfile
+from meadowrun.version import __version__
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -205,22 +206,35 @@ async def _ensure_management_lambda(
             FunctionName=lambda_name, ZipFile=_get_zipped_lambda_code(config_file)
         )
         _set_retention_policy_lambda_logs(lambda_name, region_name)
-        await _retry(
-            lambda: ignore_boto3_error_code(
-                lambda: lambda_client.update_function_configuration(
-                    FunctionName=lambda_name,
-                    Layers=[
-                        f"arn:aws:lambda:{region_name}:{_LAMBDA_LAYER_ACCOUNT}:layer:"
-                        f"{_LAMBDA_LAYER_NAME}:"
-                        f"{_LAMBDA_LAYER_REGION_TO_VERSION.get(region_name, _LAMBDA_LAYER_DEFAULT_VERSION)}"  # noqa
-                    ],
+        try:
+            layer_version = _LAMBDA_LAYER_REGION_TO_VERSION.get(
+                region_name, _LAMBDA_LAYER_DEFAULT_VERSION
+            )
+            await _retry(
+                lambda: ignore_boto3_error_code(
+                    lambda: lambda_client.update_function_configuration(
+                        FunctionName=lambda_name,
+                        Layers=[
+                            f"arn:aws:lambda:{region_name}:{_LAMBDA_LAYER_ACCOUNT}"
+                            f":layer:{_LAMBDA_LAYER_NAME}:{layer_version}"
+                        ],
+                    ),
+                    "ResourceConflictException",
                 ),
-                "ResourceConflictException",
-            ),
-            10,
-            2,
-            f"Waiting to update lambda {lambda_name}'s configuration...",
-        )
+                10,
+                2,
+                f"Waiting to update lambda {lambda_name}'s configuration...",
+            )
+        except lambda_client.exceptions.InvalidParameterValueException:
+            print(
+                "Installing or changing management lambda failed, likely because the "
+                f"layer version {layer_version} no longer exists. You may need to "
+                "update Meadowrun and re-install, as we regularly remove lambda layers "
+                "for old versions. Please contact us (contact@meadowdata.io) if you "
+                "need support for old versions. You are on version "
+                f"{__version__}."
+            )
+            raise
 
 
 async def ensure_ec2_alloc_lambda(

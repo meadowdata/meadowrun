@@ -183,7 +183,7 @@ async def _launch_jobs(
                     "/var/meadowrun/env/bin/python -m meadowrun.run_job_local_main "
                     f"--job-id {job_id} --cloud EC2 --cloud-region-name {region_name} "
                     f"--job-object-id {job_object_id} {public_address} "
-                    f"> {get_log_path(job_id)} 2>&1",
+                    f"--results-to-storage > {get_log_path(job_id)} 2>&1",
                     shell=True,
                     env=environment,
                     # see https://stackoverflow.com/a/4791612/908704

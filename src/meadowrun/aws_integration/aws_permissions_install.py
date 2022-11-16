@@ -5,7 +5,7 @@ resources from meadowrun-launched EC2 instances
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 import boto3
 
@@ -23,6 +23,9 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     _MEADOWRUN_KEY_PAIR_SECRET_NAME,
     MEADOWRUN_KEY_PAIR_NAME,
 )
+
+if TYPE_CHECKING:
+    from mypy_boto3_iam.client import IAMClient
 
 # an IAM role for Meadowrun-managed EC2 instances
 _EC2_ROLE_NAME = "meadowrun_ec2_role"
@@ -138,7 +141,7 @@ _MEADOWRUN_POLICY_TEMPLATE = """{
             ],
             "Condition": {
                 "ForAllValues:StringEquals": {
-                    "aws:TagKeys": "%MEADOWRUN_TAG%"
+                    "aws:TagKeys": [ "%MEADOWRUN_TAG%", "Name" ]
                 }
             }
         },
@@ -372,7 +375,7 @@ def _materialize_meadowrun_policy(
 
 
 def _create_or_update_policy(
-    iam_client: Any, policy_name: str, policy_document: str
+    iam_client: IAMClient, policy_name: str, policy_document: str
 ) -> None:
     policy_arn = _policy_arn_from_name(policy_name)
 
@@ -400,7 +403,9 @@ def _create_or_update_policy(
         )
 
 
-def ensure_meadowrun_user_group(iam_client: Any, allow_authorize_ips: bool) -> None:
+def ensure_meadowrun_user_group(
+    iam_client: IAMClient, allow_authorize_ips: bool
+) -> None:
     """
     Creates the meadowrun user group if it doesn't exist. If it does already exist, does
     not modify it, other than making sure the meadowrun user policy is attached to it.
@@ -430,7 +435,7 @@ def ensure_meadowrun_user_group(iam_client: Any, allow_authorize_ips: bool) -> N
     )
 
 
-def ensure_meadowrun_ec2_role(iam_client: Any) -> None:
+def ensure_meadowrun_ec2_role(iam_client: IAMClient) -> None:
     """
     Creates the meadowrun IAM role if it doesn't exist. If it does exist, does not
     modify it, other than making sure the meadowrun user policy is attached to it.
@@ -485,7 +490,7 @@ def ensure_meadowrun_ec2_role(iam_client: Any) -> None:
     )
 
 
-def ensure_management_lambda_role(iam_client: Any) -> None:
+def ensure_management_lambda_role(iam_client: IAMClient) -> None:
     """
     Creates the role for the meadowrun management lambdas to run as. If it already
     exists, does not modify it, other than making sure the management lambda policy is

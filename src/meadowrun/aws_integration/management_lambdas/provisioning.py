@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple
 
 from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
 from meadowrun.instance_selection import ResourcesInternal
@@ -73,11 +73,26 @@ class Assignment:
     def assign(self, instance: Tuple[InstanceId, CloudInstanceType]) -> None:
         self.instances.append(instance)
 
-    def is_threshold_reached(self) -> bool:
+    def _total_allocated(self) -> ResourcesInternal:
         total_allocated = ResourcesInternal({}, {})
         for instance in self.instances:
             total_allocated = total_allocated.add(instance[1].resources)
-        return self.threshold.is_reached(total_allocated)
+        return total_allocated
+
+    def is_threshold_reached(self) -> bool:
+        return self.threshold.is_reached(self._total_allocated())
+
+    def unmet_threshold(self) -> Optional[Tuple[Threshold, int]]:
+        if self.is_threshold_reached():
+            return None
+
+        threshold_res = self.threshold.resources.to_internal()
+        num_resources_met = 0
+        for instance_id, instance_type in self.instances:
+            num_resources_met += instance_type.resources.divide_by(threshold_res)
+        num_unmet_resources = self.threshold.num_resources - num_resources_met
+        assert num_unmet_resources > 0
+        return self.threshold, num_unmet_resources
 
 
 def _augmented_cloud_instance_type(
@@ -93,7 +108,10 @@ def shutdown_thresholds(
     instances: Dict[InstanceId, InstanceTypeKey],
     type_to_info: Dict[InstanceTypeKey, CloudInstanceType],
     instance_to_resources: Dict[InstanceId, ResourcesInternal],
-) -> List[InstanceId]:
+) -> Tuple[List[InstanceId], List[Tuple[Threshold, int]]]:
+    """Returns a list of instance ids that can be shut down, taking into account
+    thresholds only. Also returns a lit of thresholds that are not met. The latter is
+    used to start new instances."""
 
     assignments = [Assignment(threshold) for threshold in thresholds]
 
@@ -120,7 +138,15 @@ def shutdown_thresholds(
     # manage.
     _remove_small_machines(assignments, instance_id_type)
 
-    return [inst[0] for inst in instance_id_type]
+    excess_instances = [inst[0] for inst in instance_id_type]
+
+    unmet_thresholds = []
+    for assignment in assignments:
+        unmet_threshold = assignment.unmet_threshold()
+        if unmet_threshold:
+            unmet_thresholds.append(unmet_threshold)
+
+    return excess_instances, unmet_thresholds
 
 
 def _greedy_assignment(

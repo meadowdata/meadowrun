@@ -872,6 +872,7 @@ class GridJobDriver:
             )
 
             workers_needed_changed_wait_task.cancel()
+            worker_process_state_received_task.cancel()
             if pickled_worker_function_task is not None:
                 pickled_worker_function_task.cancel()
 

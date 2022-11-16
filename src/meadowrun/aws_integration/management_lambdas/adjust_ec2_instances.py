@@ -36,6 +36,7 @@ from meadowrun.aws_integration.ec2_instance_allocation import (
     _MEADOWRUN_TAG,
     _MEADOWRUN_TAG_VALUE,
     _RUNNING_JOBS,
+    EC2InstanceRegistrar,
 )
 from meadowrun.aws_integration.management_lambdas.config import get_config
 from meadowrun.aws_integration.management_lambdas.provisioning import (
@@ -136,13 +137,34 @@ _NON_TERMINATED_EC2_STATES = [
 async def adjust(region_name: str) -> None:
     config = get_config()
 
-    await _deregister_and_terminate_instances(
+    # shutdown instances based on configuration
+    unmet_thresholds = await _deregister_and_terminate_instances(
         region_name,
         config.terminate_instances_if_idle_for,
         config.instance_thresholds,
         _LAUNCH_REGISTER_DELAY,
     )
-    # TODO this should also launch instances based on pre-provisioning policy
+
+    if not unmet_thresholds:
+        return
+
+    # launch instances based on config, to meet thresholds
+    async with EC2InstanceRegistrar(region_name, on_table_missing="raise") as registrar:
+        for unmet_threshold, num_unmet in unmet_thresholds:
+            await unmet_threshold.instance_type.set_defaults()
+            launched_instances = await registrar.launch_instances(
+                unmet_threshold.resources.to_internal(),
+                num_unmet,
+                unmet_threshold.instance_type,
+                abort=None,
+            )
+            for launched_instance in launched_instances:
+                await registrar.register_instance(
+                    launched_instance.public_dns_name,
+                    launched_instance.name,
+                    launched_instance.instance_type.instance_type.resources,
+                    [],
+                )
 
 
 def _get_non_terminated_instances(
@@ -272,12 +294,12 @@ async def _deregister_and_terminate_instances(
     terminate_instances_if_idle_for: dt.timedelta,
     thresholds: Iterable[Threshold],
     launch_register_delay: dt.timedelta = _LAUNCH_REGISTER_DELAY,
-) -> None:
+) -> List[Tuple[Threshold, int]]:
     """
     1. Compares running vs registered instances and terminates/deregisters instances
     to get running/registered instances back in sync
     2. Checks thresholds for instances to keep
-    3. Terminates and deregisters idle instances
+    3. Terminates and deregisters excess, idle instances
     """
 
     ec2_instances = _get_ec2_instances(region_name)
@@ -291,7 +313,7 @@ async def _deregister_and_terminate_instances(
     }
     _delete_abandoned_machine_queues(sqs_client, running_instances)
 
-    _add_deregister_and_terminate_actions(
+    unmet_thresholds = _add_deregister_and_terminate_actions(
         region_name,
         terminate_instances_if_idle_for,
         thresholds,
@@ -309,6 +331,8 @@ async def _deregister_and_terminate_instances(
 
         instance.do_action()
 
+    return unmet_thresholds
+
 
 def _add_deregister_and_terminate_actions(
     region_name: str,
@@ -319,7 +343,7 @@ def _add_deregister_and_terminate_actions(
     ec2_instances: Dict[str, _EC2_Instance],
     instance_type_info: Dict[Tuple[str, OnDemandOrSpotType], CloudInstanceType],
     sqs_client: SQSClient,
-) -> None:
+) -> List[Tuple[Threshold, int]]:
     """Modifies ec2_instances to add terminate or deregister actions where necessary.
     This is separated from the actual execution of the actions for testability."""
 
@@ -348,7 +372,7 @@ def _add_deregister_and_terminate_actions(
     }
 
     # Check thresholds. Returns any instances that may be shut down.
-    excess_instances = shutdown_thresholds(
+    excess_instances, unmet_thresholds = shutdown_thresholds(
         thresholds,
         instance_id_to_type,  # type: ignore[arg-type]
         instance_type_info,
@@ -380,6 +404,8 @@ def _add_deregister_and_terminate_actions(
                 reason=f"{instance_id} is not running any jobs and has not run anything"
                 f" since {last_updated} so we will deregister and terminate it",
             )
+
+    return unmet_thresholds
 
 
 def _sync_registration_and_actual_state(

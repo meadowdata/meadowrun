@@ -40,7 +40,7 @@ _LAMBDA_LAYER_NAME = "meadowrun-dependencies"
 # Since AWS never forgets the version for a given layer name, it's likely that
 # us-east-2 is going to be ahead.
 _LAMBDA_LAYER_DEFAULT_VERSION = "1"
-_LAMBDA_LAYER_REGION_TO_VERSION = {"us-east-2": "18"}
+_LAMBDA_LAYER_REGION_TO_VERSION = {"us-east-2": "23"}
 
 
 def _get_zipped_lambda_code(config_file: Optional[str]) -> bytes:

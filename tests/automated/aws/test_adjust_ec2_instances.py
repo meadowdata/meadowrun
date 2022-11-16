@@ -131,26 +131,29 @@ def test_shutdown_thresholds_single_threshold() -> None:
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(1, 4)}
 
     # S instance matches exactly with threshold
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == []
+    assert terminated_instance_ids == []
+    assert unmet_thresholds == []
 
     # an extra S instance, one of them should shut down
     instances["id2"] = ("S", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 1
+    assert len(terminated_instance_ids) == 1
+    assert unmet_thresholds == []
 
     # an extra XS instance, too small for threshold.
     # Should shut down, as well as one of id1 or id2.
     instances["id3"] = ("XS", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 2
-    assert "id3" in actual_instance_ids
+    assert len(terminated_instance_ids) == 2
+    assert "id3" in terminated_instance_ids
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_single_threshold_resource_too_small() -> None:
@@ -159,10 +162,11 @@ def test_shutdown_thresholds_single_threshold_resource_too_small() -> None:
     instances: Dict[str, Tuple[str, OnDemandOrSpotType]] = {"id1": ("XS", "spot")}
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(1, 2)}
 
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == ["id1"]
+    assert terminated_instance_ids == ["id1"]
+    assert unmet_thresholds == [(thresholds[0], 1)]
 
 
 def test_shutdown_thresholds_single_threshold_resource_bigger() -> None:
@@ -170,17 +174,19 @@ def test_shutdown_thresholds_single_threshold_resource_bigger() -> None:
     thresholds = [Threshold(Resources(logical_cpu=2, memory_gb=4))]
     instances: Dict[str, Tuple[str, OnDemandOrSpotType]] = {"id1": ("M", "spot")}
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(1, 3)}
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == []
+    assert terminated_instance_ids == []
+    assert unmet_thresholds == []
 
     # id2 is S instance, cheaper to keep this one.
     instances["id2"] = ("S", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == ["id1"]
+    assert terminated_instance_ids == ["id1"]
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_single_threshold_keep_cheapest_resource() -> None:
@@ -193,10 +199,11 @@ def test_shutdown_thresholds_single_threshold_keep_cheapest_resource() -> None:
         "id4": ("S", "spot"),
     }
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(1, 5)}
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert set(actual_instance_ids) == set(["id1", "id3", "id4"])
+    assert set(terminated_instance_ids) == set(["id1", "id3", "id4"])
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_single_threshold_resource_has_gpu() -> None:
@@ -204,17 +211,19 @@ def test_shutdown_thresholds_single_threshold_resource_has_gpu() -> None:
     thresholds = [Threshold(Resources(logical_cpu=2, memory_gb=4))]
     instances: Dict[str, Tuple[str, OnDemandOrSpotType]] = {"id1": ("S-GPU", "spot")}
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(1, 3)}
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == ["id1"]
+    assert terminated_instance_ids == ["id1"]
+    assert unmet_thresholds == [(thresholds[0], 1)]
 
     # S instance has right size. Should not shut down.
     instances["id2"] = ("S", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == ["id1"]
+    assert terminated_instance_ids == ["id1"]
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_single_threshold_multiple_times() -> None:
@@ -225,35 +234,39 @@ def test_shutdown_thresholds_single_threshold_multiple_times() -> None:
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(7)}
 
     # S instance matches exactly with threshold
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == []
+    assert terminated_instance_ids == []
+    assert unmet_thresholds == []
 
     # an extra S instance, one of them should shut down
     instances["id4"] = ("S", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 1
+    assert len(terminated_instance_ids) == 1
+    assert unmet_thresholds == []
 
     # an extra M instance, one of them should shut down
     instances["id5"] = ("M", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 2
-    assert "id5" in actual_instance_ids
+    assert len(terminated_instance_ids) == 2
+    assert "id5" in terminated_instance_ids
+    assert unmet_thresholds == []
 
     # an extra XS instance, too small for threshold.
     # Should shut down, as well as one of id1 or id2.
     instances["id6"] = ("XS", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 3
-    assert "id5" in actual_instance_ids
-    assert "id6" in actual_instance_ids
+    assert len(terminated_instance_ids) == 3
+    assert "id5" in terminated_instance_ids
+    assert "id6" in terminated_instance_ids
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_multiple_thresholds() -> None:
@@ -268,36 +281,40 @@ def test_shutdown_thresholds_multiple_thresholds() -> None:
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(5)}
 
     # S/XS-GPU instance matches exactly with one threshold each
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == []
+    assert terminated_instance_ids == []
+    assert unmet_thresholds == []
 
     # an extra S instance, one of them should shut down
     instances["id2"] = ("S", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 1
-    assert "id1" not in actual_instance_ids
+    assert len(terminated_instance_ids) == 1
+    assert "id1" not in terminated_instance_ids
+    assert unmet_thresholds == []
 
     # an extra S-GPU instance, one of them should shut down
     instances["id3"] = ("S-GPU", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 2
-    assert "id3" in actual_instance_ids
+    assert len(terminated_instance_ids) == 2
+    assert "id3" in terminated_instance_ids
+    assert unmet_thresholds == []
 
     # an extra XS instance, too small for threshold.
     # Should shut down, as well as one of id1 or id2.
     instances["id4"] = ("XS", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 3
-    assert "id3" in actual_instance_ids
-    assert "id4" in actual_instance_ids
+    assert len(terminated_instance_ids) == 3
+    assert "id3" in terminated_instance_ids
+    assert "id4" in terminated_instance_ids
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_multiple_thresholds_multiple_times() -> None:
@@ -315,31 +332,35 @@ def test_shutdown_thresholds_multiple_thresholds_multiple_times() -> None:
     )
 
     # not enough resources to match threshold
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == []
+    assert terminated_instance_ids == []
+    assert unmet_thresholds == [(thresholds[0], 1), (thresholds[1], 1)]
 
     # an extra S instance, should be shut down as it's too small
     instances["id4"] = ("XS", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == ["id4"]
+    assert terminated_instance_ids == ["id4"]
+    assert unmet_thresholds == [(thresholds[0], 1), (thresholds[1], 1)]
 
     # an extra S instance, matches first threshold exactly
     instances["id5"] = ("S", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert actual_instance_ids == ["id4"]
+    assert terminated_instance_ids == ["id4"]
+    assert unmet_thresholds == [(thresholds[1], 1)]
 
     # an extra GPU instance, should shut down the smaller GPU machine
     instances["gpu-id1"] = ("M-GPU", "spot")
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert set(actual_instance_ids) == {"id4", "gpu-id0"}
+    assert set(terminated_instance_ids) == {"id4", "gpu-id0"}
+    assert unmet_thresholds == []
 
 
 def test_shutdown_thresholds_second_pass() -> None:
@@ -354,21 +375,23 @@ def test_shutdown_thresholds_second_pass() -> None:
     instance_to_resource["big"] = ResourcesInternal({}, {})
 
     # should keep the M instance, and just enough of the smaller ones to reach threshold
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 1
-    assert "big" not in actual_instance_ids
+    assert len(terminated_instance_ids) == 1
+    assert "big" not in terminated_instance_ids
+    assert unmet_thresholds == []
 
     # this doesn't work, because big2 is not even assigned in the first pass, so the
     # second pass can't remove it.
     # instances["big2"] = ("M", "spot")
 
     # # can shut down two more of the S instances, keep the two M.
-    # actual_instance_ids = shutdown_thresholds(thresholds, instances,MOCK_TYPE_TO_INFO)
-    # assert len(actual_instance_ids) == 3
-    # assert "big" not in actual_instance_ids
-    # assert "big2" not in actual_instance_ids
+    # terminated_instance_ids = shutdown_thresholds(
+    # thresholds, instances,MOCK_TYPE_TO_INFO)
+    # assert len(terminated_instance_ids) == 3
+    # assert "big" not in terminated_instance_ids
+    # assert "big2" not in terminated_instance_ids
 
 
 def test_shutdown_thresholds_flags() -> None:
@@ -383,10 +406,11 @@ def test_shutdown_thresholds_flags() -> None:
     }
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(0, 4)}
 
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, MOCK_TYPE_TO_INFO, instance_to_resource
     )
-    assert set(actual_instance_ids) == {"id0", "id3"}
+    assert set(terminated_instance_ids) == {"id0", "id3"}
+    assert unmet_thresholds == []
 
 
 def _get_ec2_type_info_snapshot() -> Dict[
@@ -426,12 +450,13 @@ def test_ec2_have_at_least_20_1CPU_4GB_available() -> None:
 
     # keeps 8 of the t3.medium instances and 3 of the r6a.large instances.
     # Not sure this is actually optimal (probably not...) but it's not unreasonable.
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, EC2_TYPE_TO_INFO, instance_to_resource
     )
-    assert len(actual_instance_ids) == 4
-    assert len(list(filter(lambda ident: "lar" in ident, actual_instance_ids))) == 2
-    assert len(list(filter(lambda ident: "med" in ident, actual_instance_ids))) == 2
+    assert len(terminated_instance_ids) == 4
+    assert len(list(filter(lambda ident: "lar" in ident, terminated_instance_ids))) == 2
+    assert len(list(filter(lambda ident: "med" in ident, terminated_instance_ids))) == 2
+    assert unmet_thresholds == []
 
 
 def test_ec2_has_at_least_1GPU_10GB_available() -> None:
@@ -451,22 +476,23 @@ def test_ec2_has_at_least_1GPU_10GB_available() -> None:
     instance_to_resource = {f"id{i}": ResourcesInternal({}, {}) for i in range(0, 2)}
     instance_to_resource["gpu"] = ResourcesInternal({}, {})
 
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, EC2_TYPE_TO_INFO, instance_to_resource
     )
-    assert set(actual_instance_ids) == {"id0", "id1"}
+    assert set(terminated_instance_ids) == {"id0", "id1"}
+    assert unmet_thresholds == [(thresholds[0], 2)]
 
 
 def test_ec2_with_ephemeral_storage() -> None:
     thresholds = [
         Threshold(
             Resources(logical_cpu=1, memory_gb=2, ephemeral_storage_gb=100),
-            num_resources=3,
+            num_resources=5,
         ),
     ]
 
     instances: Dict[str, Tuple[str, OnDemandOrSpotType]] = {
-        "id0": ("r6a.large", "spot"),
+        "id0": ("r6a.large", "spot"),  # 2 cpu, 16Gb
         "id1": ("t3.medium", "spot"),
         "gpu": ("g4dn.8xlarge", "on_demand"),
     }
@@ -476,22 +502,22 @@ def test_ec2_with_ephemeral_storage() -> None:
         "gpu": ResourcesInternal({}, {EPHEMERAL_STORAGE_GB: 250}),
     }
 
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, EC2_TYPE_TO_INFO, instance_to_resource
     )
-    assert set(actual_instance_ids) == {"gpu", "id1"}
+    assert set(terminated_instance_ids) == {"gpu", "id1"}
+    assert unmet_thresholds == [(thresholds[0], 3)]
 
 
 def test_ec2_with_custom_ami() -> None:
     thresholds = [
         Threshold(
             Resources(logical_cpu=1, memory_gb=2),
-            num_resources=3,
+            num_resources=12,
             instance_type=AllocEC2Instance(ami_id="ami-1234456"),
         ),
     ]
 
-    # "g4dn.8xlarge", 1gpu 16Gb gpu_memory
     instances: Dict[str, Tuple[str, OnDemandOrSpotType]] = {
         "id0": ("r6a.large", "spot"),
         "id1": ("t3.medium", "spot"),
@@ -503,10 +529,11 @@ def test_ec2_with_custom_ami() -> None:
         "id2": ResourcesInternal({}, {"ami-other": 1.0}),
     }
 
-    actual_instance_ids = shutdown_thresholds(
+    terminated_instance_ids, unmet_thresholds = shutdown_thresholds(
         thresholds, instances, EC2_TYPE_TO_INFO, instance_to_resource
     )
-    assert set(actual_instance_ids) == {"id1", "id2"}
+    assert set(terminated_instance_ids) == {"id1", "id2"}
+    assert unmet_thresholds == [(thresholds[0], 10)]
 
 
 def _mock_instance(
@@ -671,7 +698,7 @@ def test_add_deregister_and_terminate_actions(mocker: MockerFixture) -> None:
     }
 
     sqs_client = mocker.Mock()
-    _add_deregister_and_terminate_actions(
+    unmet_thresholds = _add_deregister_and_terminate_actions(
         "us-east-2",
         terminate_instances_if_idle_for,
         thresholds,
@@ -698,3 +725,4 @@ def test_add_deregister_and_terminate_actions(mocker: MockerFixture) -> None:
         ec2_instance = ec2_instances[str(i)]
         assert ec2_instance.action is None
         assert ec2_instance.reason is None
+    assert unmet_thresholds == []

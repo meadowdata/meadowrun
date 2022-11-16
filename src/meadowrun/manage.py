@@ -177,22 +177,30 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
 
     clean_parser = subparsers.add_parser(
         "clean",
-        help=f"Cleans up temporary resources. Runs the same code as the {functions} "
-        "created by install.",
+        help=f"Cleans up temporary resources: shuts down idle {vm_instances}, removes "
+        "unused container images, queues, and caches. Running this with defaults is "
+        "safe, but it can cause jobs to start slowly next time. Some additional options"
+        " interrupt running jobs.",
     )
-    clean_parser.add_argument(
+    active_idle = clean_parser.add_mutually_exclusive_group()
+    active_idle.add_argument(
         "--active",
         "--clean-active",
         action="store_true",
         help=f"Additionally terminate {vm_instances} that are actively running jobs.",
     )
+    active_idle.add_argument(
+        "--idle",
+        type=int,
+        metavar="IDLE_TIME_SECS",
+        help=f"Only terminate {vm_instances} if they've been idle for given time (in "
+        "seconds).",
+    )
+
     if cloud_provider == "EC2":
         clean_parser.add_argument(
             "--cache", action="store_true", help="Additionally clean up local caches."
         )
-    clean_parser.add_argument(
-        "--all", action="store_true", help="Shorthand for enabling all options."
-    )
 
     if cloud_provider == "EC2":
         grant_permission_to_secret_parser = subparsers.add_parser(
@@ -288,23 +296,33 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             f"Deleted all meadowrun resources in {time.perf_counter() - t0:.2f} seconds"
         )
     elif args.command == "clean":
+        idle_time = (
+            datetime.timedelta(seconds=args.idle)
+            if args.idle
+            else datetime.timedelta.min
+        )
+
         if args.active:
             print(
                 f"Terminating and deregistering all {vm_instances}. This will "
                 f"interrupt actively running jobs."
             )
+        elif args.idle:
+            print(
+                f"Terminating and deregistering {vm_instances} that have been idle for "
+                f"longer than {idle_time}."
+            )
         else:
             print(
-                f"Terminating and deregistering all inactive {vm_instances} (specify "
+                f"Terminating and deregistering all idle {vm_instances} (specify "
                 "--active to also terminate and deregister active instances)"
             )
 
         if cloud_provider == "EC2":
             if args.active:
                 aws.terminate_all_instances(args.region, False)
-            await _deregister_and_terminate_instances(
-                args.region, datetime.timedelta.min, []
-            )
+
+            await _deregister_and_terminate_instances(args.region, idle_time, [])
             if args.cache:
                 print("Cleaning cache.")
                 clear_prices_cache()
@@ -316,7 +334,7 @@ async def async_main(cloud_provider: CloudProviderType) -> None:
             if args.active:
                 await terminate_all_vms(resource_group_path)
             for log_line in await _deregister_and_terminate_vms(
-                storage_account, resource_group_path, datetime.timedelta.min
+                storage_account, resource_group_path, idle_time
             ):
                 print(log_line)
         else:

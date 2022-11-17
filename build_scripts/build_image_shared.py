@@ -139,7 +139,13 @@ async def upload_and_configure_meadowrun(
     )
 
     if machine_agent_module:
-        user = run_and_capture(connection, "whoami")
+        user_output = (await run_and_capture(connection, "whoami")).stdout
+        if not user_output:
+            raise ValueError("whoami returned None")
+        if isinstance(user_output, bytes):
+            user = user_output.decode("utf-8").strip()
+        else:
+            user = user_output.strip()
         await write_text_to_file(
             connection,
             "[Unit]\n"

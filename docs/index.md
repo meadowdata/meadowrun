@@ -11,7 +11,7 @@ AWS, Azure, or Kubernetes. Meadowrun:
   they're no longer needed.
   
 For more context, see our [case studies](case_studies) of how Meadowrun is used in real
-life, or see the [project homepage](https://meadowrun.io)
+life, or see the [project homepage](https://meadowrun.io).
 
 ## Quickstart
 

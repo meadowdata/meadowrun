@@ -1,5 +1,6 @@
 nav:
 - aws_ec2.md
+- aws_configuration.md
 - azure_vm.md
 - gke.md
 - kubernetes.md

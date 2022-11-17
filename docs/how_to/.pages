@@ -10,4 +10,6 @@ nav:
 - read_logs.md
 - ssh_to_instance.md
 - machine_cache.md
+- manage_configuration.md
+- instance_management.md
 - uninstall.md

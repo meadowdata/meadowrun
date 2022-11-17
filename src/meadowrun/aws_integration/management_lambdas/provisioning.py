@@ -13,6 +13,15 @@ if TYPE_CHECKING:
 
 @dataclasses.dataclass
 class Threshold:
+    """Specifies resources (EC2 instances) to run regardless of whether they're used to
+    run jobs. Only used in configuration.
+
+    Attributes:
+        resources: A chunk of resources (cpus, memory)
+        num_resources: How many resource chunks to run
+        instance_type: Restrictions on the machines, such as custom ami and region
+    """
+
     resources: Resources
     num_resources: int = 1
     instance_type: AllocEC2Instance = dataclasses.field(
@@ -27,8 +36,8 @@ class Threshold:
         self.threshold_as_resource = res.combine(alloc)
 
     def accepts(self, instance_resources: ResourcesInternal) -> bool:
-        """Returns True if the given instance's resources can contribute to this
-        threshold."""
+        # Returns True if the given instance's resources can contribute to this
+        # threshold.
         # special rule - since GPUs are typically expensive, don't keep GPU instances
         # around when threshold is not asking GPU resources.
         # (this also excludes when the threshold has GPUs but the instance does not)
@@ -46,7 +55,7 @@ class Threshold:
         return True
 
     def is_reached(self, resources: ResourcesInternal) -> bool:
-        """Returns true if the given resources equal or exceed this threshold's."""
+        # Returns true if the given resources equal or exceed this threshold's.
         return self.total().consumables_le(resources)
 
     def total(self) -> ResourcesInternal:

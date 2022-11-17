@@ -10,6 +10,16 @@ if TYPE_CHECKING:
 
 @dataclass
 class ManagementConfig:
+    """Configuration used by management lambdas.
+
+    Attributes:
+        terminate_instances_if_idle_for: How long instances should be idle for, i.e. not
+            running any jobs, before they are considered for termination.
+
+        instance_thresholds: a list of thresholds, which determine instances to keep
+            running regardless of idle time.
+    """
+
     terminate_instances_if_idle_for: dt.timedelta = dt.timedelta(minutes=5)
     instance_thresholds: Iterable[Threshold] = ()
 

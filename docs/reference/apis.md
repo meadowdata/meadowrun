@@ -89,3 +89,9 @@
 ::: meadowrun.AwsSecret
 
 ::: meadowrun.AzureSecret
+
+## Specifying resource thresholds
+
+::: meadowrun.ManagementConfig
+
+::: meadowrun.Threshold

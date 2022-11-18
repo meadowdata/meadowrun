@@ -539,6 +539,13 @@ class GridJobQueueWorkerLauncher(GridJobWorkerLauncher):
                 await self.launch_jobs(
                     public_address, instance_name, job_object_id, worker_job_ids
                 )
+                print(
+                    "Launched workers: "
+                    + ", ".join(
+                        f"{public_address}:{get_log_path(worker_job_id)}"
+                        for worker_job_id in worker_job_ids
+                    )
+                )
 
                 if (
                     num_workers_to_launch == 1

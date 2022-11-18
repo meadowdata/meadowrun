@@ -331,6 +331,7 @@ message ProcessState {
     bytes pickled_result = 5;
     int32 return_code = 6;
     float max_memory_used_gb = 7;
+    bool was_oom_killed = 8;
 }
 
 

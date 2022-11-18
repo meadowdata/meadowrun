@@ -521,6 +521,9 @@ class WorkerMonitor(abc.ABC):
             await cancel_task(self._stats_task)
         return self._stats_accumulator
 
+    async def was_oom_killed(self) -> bool:
+        return False
+
 
 class WorkerProcessMonitor(WorkerMonitor):
     """Monitors a task worker that runs as a process."""
@@ -726,6 +729,9 @@ class WorkerContainerMonitor(WorkerMonitor):
             )
             / (1024**3)
         )
+
+    async def was_oom_killed(self) -> bool:
+        return (await self.container.show()).get("State", {}).get("OOMKilled", False)
 
 
 async def restart_worker(

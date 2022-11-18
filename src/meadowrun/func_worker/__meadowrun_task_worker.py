@@ -10,7 +10,7 @@ import argparse  # available in python 3.2+
 import pickle
 import struct
 import traceback
-from typing import Callable
+from typing import Callable, Optional
 
 
 async def send_message(
@@ -34,57 +34,47 @@ async def receive_bytes(reader: asyncio.StreamReader, bytes_len: int) -> bytearr
     return result_bs
 
 
-def connect_and_do_tasks(
-    host: str, port: int, function: Callable, pickle_protocol: int
+def do_tasks(
+    event_loop: asyncio.AbstractEventLoop,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    function: Callable,
+    pickle_protocol: int,
 ) -> None:
-    # we avoid using asyncio.run here (or in the caller) so that the user `function` can
-    # use asyncio.run
-    event_loop = asyncio.new_event_loop()
+    while True:
+        arg_size_bs = event_loop.run_until_complete(reader.read(4))
+        if len(arg_size_bs) == 0:
+            break
+        (arg_size,) = struct.unpack(">i", arg_size_bs)
 
-    reader, writer = event_loop.run_until_complete(asyncio.open_connection(host, port))
-
-    try:
-        while True:
-            arg_size_bs = event_loop.run_until_complete(reader.read(4))
-            if len(arg_size_bs) == 0:
-                break
-            (arg_size,) = struct.unpack(">i", arg_size_bs)
-
-            try:
-                if arg_size > 0:
-                    arg_bs = event_loop.run_until_complete(
-                        receive_bytes(reader, arg_size)
-                    )
-                    function_args, function_kwargs = pickle.loads(arg_bs)
-                else:
-                    function_args, function_kwargs = (), {}
-                # run the function
-                result = function(*(function_args or ()), **(function_kwargs or {}))
-                result_bytes = pickle.dumps(result, protocol=pickle_protocol)
-            except Exception as e:
-                # first print the exception for the local log file
-                traceback.print_exc()
-
-                # next, send the exception back
-                tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-                event_loop.run_until_complete(
-                    send_message(
-                        writer,
-                        "PYTHON_EXCEPTION",
-                        pickle.dumps(
-                            (str(type(e)), str(e), tb), protocol=pickle_protocol
-                        ),
-                        pickle_protocol,
-                    )
-                )
+        try:
+            if arg_size > 0:
+                arg_bs = event_loop.run_until_complete(receive_bytes(reader, arg_size))
+                function_args, function_kwargs = pickle.loads(arg_bs)
             else:
-                # send back results
-                event_loop.run_until_complete(
-                    send_message(writer, "SUCCEEDED", result_bytes, pickle_protocol)
+                function_args, function_kwargs = (), {}
+            # run the function
+            result = function(*(function_args or ()), **(function_kwargs or {}))
+            result_bytes = pickle.dumps(result, protocol=pickle_protocol)
+        except Exception as e:
+            # first print the exception for the local log file
+            traceback.print_exc()
+
+            # next, send the exception back
+            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            event_loop.run_until_complete(
+                send_message(
+                    writer,
+                    "PYTHON_EXCEPTION",
+                    pickle.dumps((str(type(e)), str(e), tb), protocol=pickle_protocol),
+                    pickle_protocol,
                 )
-    finally:
-        # close connection
-        writer.close()
+            )
+        else:
+            # send back results
+            event_loop.run_until_complete(
+                send_message(writer, "SUCCEEDED", result_bytes, pickle_protocol)
+            )
 
 
 def get_function(args: argparse.Namespace) -> Callable:
@@ -135,9 +125,17 @@ def main() -> None:
     result_pickle_protocol = min(
         args.result_highest_pickle_protocol, pickle.HIGHEST_PROTOCOL
     )
+
+    writer: Optional[asyncio.StreamWriter] = None
     try:
+        # we avoid using asyncio.run here so that the user `function` can use
+        # asyncio.run
+        event_loop = asyncio.new_event_loop()
+        reader, writer = event_loop.run_until_complete(
+            asyncio.open_connection(args.host, args.port)
+        )
         function = get_function(args)
-        connect_and_do_tasks(args.host, args.port, function, result_pickle_protocol)
+        do_tasks(event_loop, reader, writer, function, result_pickle_protocol)
 
     except Exception as e:
         # first print the exception for the local log file
@@ -156,6 +154,9 @@ def main() -> None:
             state_text_writer.write("SUCCEEDED")
         with open(result_filename, "wb") as f:
             pickle.dump("agent exited normally", f, protocol=result_pickle_protocol)
+    finally:
+        if writer is not None:
+            writer.close()
 
 
 if __name__ == "__main__":

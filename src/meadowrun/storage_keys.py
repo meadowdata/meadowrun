@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple
-
+from typing import Tuple, Optional
 
 STORAGE_ENV_CACHE_PREFIX = "env_cache/"
 STORAGE_CODE_CACHE_PREFIX = "code_cache/"
@@ -71,6 +70,18 @@ def construct_job_id(base_job_id: str, worker_suffix: int) -> str:
     file.
     """
     return f"{base_job_id}-worker{worker_suffix}"
+
+
+def parse_job_id(job_id: str) -> Optional[Tuple[str, int]]:
+    s = job_id.split("-worker")
+    if len(s) != 2:
+        return None
+    try:
+        worker_suffix_int = int(s[1])
+    except ValueError:
+        return None
+
+    return s[0], worker_suffix_int
 
 
 def job_id_to_storage_key_process_state(job_id: str) -> str:

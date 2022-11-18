@@ -40,7 +40,7 @@ from meadowrun.run_job_core import (
     WaitOption,
     get_log_path,
 )
-from meadowrun.storage_keys import construct_job_object_id
+from meadowrun.storage_keys import construct_job_object_id, parse_job_id
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -674,7 +674,7 @@ class GridJobDriver:
         """
 
         worker_tasks: List[WorkerTask] = []
-        worker_id_to_queue_index: Dict[str, int] = {}
+        worker_index_to_queue_index: Dict[int, int] = {}
 
         workers_needed_changed_wait_task = asyncio.create_task(
             self._num_workers_needed_changed.wait()
@@ -730,8 +730,13 @@ class GridJobDriver:
                         ):
                             for worker_task in new_worker_tasks:
                                 for worker_id in worker_task.worker_ids:
-                                    worker_id_to_queue_index[
-                                        worker_id
+                                    parsed_job_id = parse_job_id(worker_id)
+                                    if parsed_job_id is None:
+                                        raise ValueError(
+                                            f"Cannot parse worker_id {worker_id}"
+                                        )
+                                    worker_index_to_queue_index[
+                                        parsed_job_id[1]
                                     ] = worker_queue.queue_index
                             worker_queue.num_workers_launched += sum(
                                 len(worker_task.worker_ids)
@@ -814,8 +819,8 @@ class GridJobDriver:
                     )
                     while self._worker_process_states:
                         for worker_process_state in self._worker_process_states.pop():
-                            queue_index = worker_id_to_queue_index.pop(
-                                worker_process_state.worker_index, None
+                            queue_index = worker_index_to_queue_index.pop(
+                                int(worker_process_state.worker_index), None
                             )
                             if queue_index is not None:
                                 # This doesn't check to make sure that we're not

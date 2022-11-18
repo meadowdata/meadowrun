@@ -114,6 +114,7 @@ async def _indexed_agent_function(
     base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
+    get_job_state: Callable[[int], ProcessState],
 ) -> None:
     """
     This is a worker function to help with running a run_map. This worker assumes that
@@ -165,12 +166,12 @@ async def _indexed_agent_function(
             )
         except BaseException:
             stats = await worker_monitor.stop_stats()
-            process_state = ProcessState(
-                state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
+            process_state = get_job_state(  # type: ignore
                 return_code=(await worker_monitor.try_get_return_code()) or 0,
-                max_memory_used_gb=stats.max_memory_used_gb,
-                log_file_name=log_file_name,
             )
+            process_state.max_memory_used_gb = stats.max_memory_used_gb
+            process_state.was_oom_killed = await worker_monitor.was_oom_killed()
+
             restart_worker_needed = True
 
         print(

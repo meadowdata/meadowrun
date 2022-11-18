@@ -4,6 +4,7 @@ import abc
 import asyncio
 import asyncio.subprocess
 import dataclasses
+import functools
 import importlib
 import itertools
 import os
@@ -19,6 +20,7 @@ from pathlib import PurePath
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Coroutine,
     Dict,
     Iterable,
@@ -863,7 +865,21 @@ async def _non_container_job_continuation(
 
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, log_file_name, worker)
+            await _run_agent(
+                job_spec_transformed,
+                job,
+                log_file_name,
+                worker,
+                functools.partial(
+                    _completed_job_state,
+                    job_spec_type=job_spec_type,
+                    job_id=job_id,
+                    io_folder=io_folder,
+                    log_file_name=log_file_name,
+                    pid=worker.pid,
+                    container_id=None,
+                ),
+            )
             await worker.stop()
             await worker.wait_until_exited()
             return ProcessState(
@@ -1075,7 +1091,21 @@ async def _container_job_continuation(
     """
     try:
         if job_spec_type == "py_agent":
-            await _run_agent(job_spec_transformed, job, log_file_name, worker)
+            await _run_agent(
+                job_spec_transformed,
+                job,
+                log_file_name,
+                worker,
+                functools.partial(
+                    _completed_job_state,
+                    job_spec_type=job_spec_type,
+                    job_id=job_id,
+                    io_folder=io_folder,
+                    log_file_name=log_file_name,
+                    pid=None,
+                    container_id=worker.container_id,
+                ),
+            )
             return ProcessState(
                 state=ProcessStateEnum.SUCCEEDED,
                 container_id=worker.container_id or "",
@@ -1123,6 +1153,7 @@ async def _run_agent(
     job: Job,
     log_file_name: str,
     worker: WorkerMonitor,
+    get_job_state: Callable[[int], ProcessState],
 ) -> None:
     # run the agent function. The agent function connects to another
     # process, the task worker, which runs the actual user function.
@@ -1140,6 +1171,7 @@ async def _run_agent(
         base_job_id=job.base_job_id,
         worker_server=job_spec_transformed.server,
         worker_monitor=worker,
+        get_job_state=get_job_state,
         **agent_func_kwargs,
     )
     await job_spec_transformed.server.close()

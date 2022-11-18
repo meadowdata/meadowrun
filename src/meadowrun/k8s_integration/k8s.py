@@ -146,6 +146,8 @@ async def _indexed_agent_function(
     while i < total_num_tasks:
         arg = await download_task_arg(storage_bucket, base_job_id, byte_ranges[i])
 
+        restart_worker_needed = False
+
         try:
             worker_monitor.start_stats()
             await worker_server.send_message(arg)
@@ -169,16 +171,18 @@ async def _indexed_agent_function(
                 max_memory_used_gb=stats.max_memory_used_gb,
                 log_file_name=log_file_name,
             )
-            await restart_worker(worker_server, worker_monitor)
-
-        # we don't support retries yet so we're always on attempt 1
-        await complete_task(storage_bucket, base_job_id, i, 1, process_state)
+            restart_worker_needed = True
 
         print(
             f"Meadowrun agent: Completed task #{i}, "
             f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}, max "
             f"memory {process_state.max_memory_used_gb}GB "
         )
+        # we don't support retries yet so we're always on attempt 1
+        await complete_task(storage_bucket, base_job_id, i, 1, process_state)
+
+        if restart_worker_needed:
+            await restart_worker(worker_server, worker_monitor)
 
         i += num_workers
 

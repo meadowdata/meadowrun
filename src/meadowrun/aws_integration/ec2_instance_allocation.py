@@ -549,12 +549,36 @@ class EC2InstanceRegistrar(InstanceRegistrar[_InstanceState]):
         ports: Optional[Sequence[str]],
         allocated_existing_instances: Iterable[_TInstanceState],
         allocated_new_instances: Iterable[CloudInstance],
+        alloc_vm: AllocVM,
     ) -> None:
         if ports:
+            if not isinstance(alloc_vm, AllocEC2Instance):
+                # TODO do this in the type checker somehow
+                raise ValueError(
+                    "Programming error: EC2InstanceRegistrar can only be used with "
+                    "AllocEC2Instance"
+                )
+
+            region_name = self.get_region_name()
+
+            if alloc_vm.subnet_id is not None:
+                subnet = boto3.client("ec2", region_name=region_name).describe_subnets(
+                    SubnetIds=[alloc_vm.subnet_id]
+                )["Subnets"][0]
+                vpc_id = subnet["VpcId"]
+            else:
+                vpc_id = None
+            ssh_security_group_id = get_ssh_security_group_id(region_name, vpc_id)
+
             security_group_ids = await asyncio.gather(
-                *(ensure_port_security_group(p, self.get_region_name()) for p in ports)
+                *(
+                    ensure_port_security_group(
+                        p, ssh_security_group_id, region_name, vpc_id
+                    )
+                    for p in ports
+                )
             )
-            ec2 = boto3.client("ec2", region_name=self.get_region_name())
+            ec2 = boto3.client("ec2", region_name=region_name)
             for instance_id in itertools.chain(
                 (i.name for i in allocated_existing_instances),
                 (i.name for i in allocated_new_instances),

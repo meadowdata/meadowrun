@@ -185,7 +185,12 @@ def ensure_security_group(
     return security_group.id
 
 
-async def ensure_port_security_group(ports: str, region_name: str) -> str:
+async def ensure_port_security_group(
+    ports: str,
+    ssh_security_group_id: str,
+    region_name: str,
+    vpc_id: Optional[str],
+) -> str:
     """
     Creates a security group for opening the specified ports to the current ip address
     as well as other machines in that security group. Returns a security group id.
@@ -203,6 +208,11 @@ async def ensure_port_security_group(ports: str, region_name: str) -> str:
     ec2_resource = boto3.resource("ec2", region_name)
     security_group = _get_ec2_security_group(ec2_resource, group_name)
     if security_group is None:
+        if vpc_id is not None:
+            additional_parameters = {"VpcId": vpc_id}
+        else:
+            additional_parameters = {}
+
         try:
             security_group = ec2_resource.create_security_group(
                 Description=group_name,
@@ -215,19 +225,23 @@ async def ensure_port_security_group(ports: str, region_name: str) -> str:
                         ],
                     }
                 ],
+                **additional_parameters,  # type: ignore[arg-type]
             )
         except Exception as e:
+            # TODO include vpc_id in here
             raise MeadowrunAWSAccessError(
                 "Unable to create a security group. Please ask an administrator to run "
                 "`meadowrun-manage-ec2 install --allow-authorize-ips` or alternatively,"
                 " ask them to manually create this security group and authorize your "
                 "access to it with the following commands: `aws ec2 "
                 f"create-security-group --description {group_name} --group-name "
-                f"{group_name}` then `aws ec2 authorize-security-group-ingress "
-                f"--group-name {group_name} --protocol tcp --port {ports} "
-                f"--source-group {group_name}` then finally `aws ec2 "
-                f"authorize-security-group-ingress --group-name {group_name} --protocol"
-                f" tcp --port {ports} --cidr {await _get_current_ip_for_ssh()}/32`",
+                f"{group_name}; aws ec2 authorize-security-group-ingress --group-name "
+                f"{group_name} --protocol tcp --port {ports} --source-group "
+                f"{group_name}; aws ec2 authorize-security-group-ingress --group-name "
+                f"{group_name} --protocol tcp --port {ports} --source-group "
+                f"{ssh_security_group_id}; aws ec2 authorize-security-group-ingress "
+                f"--group-name {group_name} --protocol tcp --port {ports} --cidr "
+                f"{await _get_current_ip_for_ssh()}/32`",
                 True,
             ) from e
 
@@ -238,7 +252,10 @@ async def ensure_port_security_group(ports: str, region_name: str) -> str:
                         "FromPort": from_port_int,
                         "ToPort": to_port_int,
                         "IpProtocol": "tcp",
-                        "UserIdGroupPairs": [{"GroupId": security_group.id}],
+                        "UserIdGroupPairs": [
+                            {"GroupId": security_group.id},
+                            {"GroupId": ssh_security_group_id},
+                        ],
                     }
                 ]
             ),

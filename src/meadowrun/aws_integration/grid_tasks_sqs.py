@@ -246,6 +246,8 @@ async def _worker_iteration(
         print("Meadowrun agent: Received shutdown message. Exiting.")
         return False
 
+    worker_restart_needed = False
+
     task_id, attempt, arg = task
     print(f"Meadowrun agent: About to execute task #{task_id}, attempt #{attempt}")
     try:
@@ -281,16 +283,17 @@ async def _worker_iteration(
             f"Meadowrun agent: Unexpected worker exit, restarting worker. "
             f"In task #{task_id}, attempt #{attempt}, {traceback.format_exc()}"
         )
-
-        await restart_worker(worker_server, worker_monitor)
+        worker_restart_needed = True
 
     print(
         f"Meadowrun agent: Completed task #{task_id}, attempt #{attempt}, "
         f"state {ProcessState.ProcessStateEnum.Name(process_state.state)}, max "
         f"memory {process_state.max_memory_used_gb}GB "
     )
-
     await complete_task(s3_bucket, base_job_id, task_id, attempt, process_state)
+
+    if worker_restart_needed:
+        await restart_worker(worker_server, worker_monitor)
 
     return True
 

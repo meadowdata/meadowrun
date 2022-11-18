@@ -947,7 +947,8 @@ class GridJobDriver:
                             f"Task {task.task_id} failed at attempt "
                             f"{task.attempt}{oom_message}, retrying with more memory "
                             f"(task used {task.result.max_memory_used_gb:.2f}/"
-                            f"{prev_memory_requirement}GB requested)"
+                            f"{prev_memory_requirement}GB requested): "
+                            f"{task_result._log_file_and_exception_traceback()}"
                         )
 
                         new_queue_index = arg_to_queue_index[task.task_id] + 1
@@ -963,7 +964,8 @@ class GridJobDriver:
                     else:
                         print(
                             f"Task {task.task_id} failed at attempt {task.attempt}, "
-                            "retrying"
+                            "retrying: "
+                            f"{task_result._log_file_and_exception_traceback()}"
                         )
                         await self._cloud_interface.retry_task(
                             task.task_id, task.attempt, prev_queue_index
@@ -977,12 +979,14 @@ class GridJobDriver:
                             f"Task {task.task_id} failed at attempt {task.attempt}, max"
                             f" attempts is {max_num_task_attempts}, but not retrying "
                             "because the failure happened when trying to unpickle the "
-                            "result on the client."
+                            "result on the client: "
+                            f"{task_result._log_file_and_exception_traceback()}"
                         )
                     else:
                         print(
                             f"Task {task.task_id} failed at attempt {task.attempt}, max"
-                            f" attempts is {max_num_task_attempts}, not retrying."
+                            f" attempts is {max_num_task_attempts}, not retrying: "
+                            f"{task_result._log_file_and_exception_traceback()}"
                         )
                     num_tasks_done += 1
                     arg_to_queue_index[task.task_id] = -1

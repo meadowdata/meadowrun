@@ -163,6 +163,7 @@ class MockInstanceRegistrar(InstanceRegistrar[_InstanceState]):
         ports: Optional[Sequence[str]],
         allocated_existing_instances: Iterable[_TInstanceState],
         allocated_new_instances: Iterable[CloudInstance],
+        alloc_cloud_instances: AllocVM,
     ) -> None:
         pass
 

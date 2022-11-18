@@ -209,6 +209,7 @@ class InstanceRegistrar(abc.ABC, Generic[_TInstanceState]):
         ports: Optional[Sequence[str]],
         allocated_existing_instances: Iterable[_TInstanceState],
         allocated_new_instances: Iterable[CloudInstance],
+        alloc_cloud_instances: AllocVM,
     ) -> None:
         pass
 
@@ -517,7 +518,7 @@ async def allocate_jobs_to_instances(
 
     if len(existing_instances_allocated_jobs) > 0:
         await instance_registrar.open_ports(
-            ports, allocated_existing_instances.values(), ()
+            ports, allocated_existing_instances.values(), (), alloc_cloud_instance
         )
         await authorize_current_ip_task  # this should almost always be complete by now
         yield existing_instances_allocated_jobs
@@ -544,7 +545,9 @@ async def allocate_jobs_to_instances(
         # TODO if this fails and we have existing instances, we should just carry on
         # with those
 
-        await instance_registrar.open_ports(ports, (), allocated_new_instances.values())
+        await instance_registrar.open_ports(
+            ports, (), allocated_new_instances.values(), alloc_cloud_instance
+        )
         if len(existing_instances_allocated_jobs) == 0:
             # we need to await this if and only if we didn't await it before
             await authorize_current_ip_task

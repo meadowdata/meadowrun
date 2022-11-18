@@ -545,6 +545,12 @@ class TaskResult(Generic[_T]):
     attempt: int = 1
     log_file_name: str = ""
 
+    def _log_file_and_exception_traceback(self) -> str:
+        if self.exception is None:
+            return self.log_file_name
+        else:
+            return f"{self.log_file_name}\n{self.exception[2]}"
+
     @staticmethod
     def from_process_state(task: TaskProcessState) -> TaskResult:
         if task.result.state == ProcessState.ProcessStateEnum.SUCCEEDED:

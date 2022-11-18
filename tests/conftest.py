@@ -19,6 +19,7 @@ from typing import (
 
 import pytest
 
+from meadowrun.docker_controller import remove_container
 from meadowrun.run_job_local import WorkerContainerMonitor, WorkerProcessMonitor
 
 if TYPE_CHECKING:
@@ -141,7 +142,7 @@ async def task_worker_container_monitor(
             await monitor.start_and_tail()
             yield monitor, io_path
         finally:
-            await monitor.stop()
+            await remove_container(monitor.container)
             if monitor.docker_client:
                 await monitor.docker_client.close()
 

@@ -732,7 +732,12 @@ class WorkerContainerMonitor(WorkerMonitor):
 async def restart_worker(
     server: TaskWorkerServer, worker_monitor: WorkerMonitor
 ) -> None:
-    await server.close_task_worker_connection()
+    try:
+        await server.close_task_worker_connection()
+    except (BrokenPipeError, ConnectionResetError):
+        # this indicates that the worker has already exited, which we don't care about
+        pass
+
     await worker_monitor.restart()
     await server.wait_for_task_worker_connection()
 

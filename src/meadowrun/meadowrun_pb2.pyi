@@ -788,11 +788,6 @@ class Job(google.protobuf.message.Message):
     PORTS_FIELD_NUMBER: builtins.int
     USES_GPU_FIELD_NUMBER: builtins.int
     base_job_id: builtins.str
-    """job_id uniquely identifies this request to avoid duplicates and for getting the
-    results later. Make sure job_id is unique! Multiple requests with the same job_id
-    will be treated as duplicates even if all of the other parameters are different.
-    Also, job_id may only use string.ascii_letters, numbers, ., -, and _.
-    """
     job_friendly_name: builtins.str
     @property
     def server_available_folder(self) -> global___ServerAvailableFolder: ...
@@ -1142,6 +1137,7 @@ class ProcessState(google.protobuf.message.Message):
     PICKLED_RESULT_FIELD_NUMBER: builtins.int
     RETURN_CODE_FIELD_NUMBER: builtins.int
     MAX_MEMORY_USED_GB_FIELD_NUMBER: builtins.int
+    WAS_OOM_KILLED_FIELD_NUMBER: builtins.int
     state: global___ProcessState.ProcessStateEnum.ValueType
     pid: builtins.int
     container_id: builtins.str
@@ -1149,6 +1145,7 @@ class ProcessState(google.protobuf.message.Message):
     pickled_result: builtins.bytes
     return_code: builtins.int
     max_memory_used_gb: builtins.float
+    was_oom_killed: builtins.bool
     def __init__(
         self,
         *,
@@ -1159,6 +1156,7 @@ class ProcessState(google.protobuf.message.Message):
         pickled_result: builtins.bytes = ...,
         return_code: builtins.int = ...,
         max_memory_used_gb: builtins.float = ...,
+        was_oom_killed: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -1177,6 +1175,8 @@ class ProcessState(google.protobuf.message.Message):
             b"return_code",
             "state",
             b"state",
+            "was_oom_killed",
+            b"was_oom_killed",
         ],
     ) -> None: ...
 

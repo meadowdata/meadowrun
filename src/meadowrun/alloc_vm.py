@@ -933,15 +933,20 @@ class GridJobDriver:
                     prev_memory_requirement = _memory_gb_for_queue_index(
                         prev_queue_index, self._resources_required_per_task
                     )
-                    if (
-                        retry_with_more_memory
-                        and task.result.max_memory_used_gb
-                        >= 0.95 * prev_memory_requirement
+                    if retry_with_more_memory and (
+                        (
+                            task.result.max_memory_used_gb
+                            >= 0.95 * prev_memory_requirement
+                        )
+                        or task.result.was_oom_killed
                     ):
+                        oom_message = ""
+                        if task.result.was_oom_killed:
+                            oom_message = " (OOM)"
                         print(
-                            f"Task {task.task_id} failed at attempt {task.attempt}, "
-                            "retrying with more memory (task used "
-                            f"{task.result.max_memory_used_gb:.2f}/"
+                            f"Task {task.task_id} failed at attempt "
+                            f"{task.attempt}{oom_message}, retrying with more memory "
+                            f"(task used {task.result.max_memory_used_gb:.2f}/"
                             f"{prev_memory_requirement}GB requested)"
                         )
 

@@ -478,9 +478,15 @@ class MeadowrunException(Exception):
         else:
             return_code = ""
 
+        if process_state.was_oom_killed:
+            oom_message = " (OOM)"
+        else:
+            oom_message = ""
+
         message = [
             "Failure while running a Meadowrun job: "
             f"{ProcessState.ProcessStateEnum.Name(process_state.state)}{return_code}"
+            f"{oom_message}"
         ]
 
         if process_state.log_file_name:
@@ -572,6 +578,8 @@ class TaskResult(Generic[_T]):
             exception = unpickle_exception(task.result.pickled_result)
             if exception is None and task.result.return_code != 0:
                 return_code_message = f"Non-zero return code: {task.result.return_code}"
+                if task.result.was_oom_killed:
+                    return_code_message += " (OOM)"
                 exception = ("", return_code_message, return_code_message + "\n")
             return TaskResult(
                 task.task_id,
@@ -584,6 +592,8 @@ class TaskResult(Generic[_T]):
         else:
             if task.result.return_code != 0:
                 return_code_message = f"Non-zero return code: {task.result.return_code}"
+                if task.result.was_oom_killed:
+                    return_code_message += " (OOM)"
                 exception = ("", return_code_message, return_code_message + "\n")
             else:
                 exception = None

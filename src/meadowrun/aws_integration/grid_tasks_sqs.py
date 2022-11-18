@@ -277,10 +277,14 @@ async def _worker_iteration(
             return_code=(await worker_monitor.try_get_return_code()) or 0,
             log_file_name=log_file_name,
             max_memory_used_gb=stats.max_memory_used_gb,
+            was_oom_killed=(await worker_monitor.was_oom_killed()),
         )
 
+        oom_message = ""
+        if process_state.was_oom_killed:
+            oom_message = " (OOM)"
         print(
-            f"Meadowrun agent: Unexpected worker exit, restarting worker. "
+            f"Meadowrun agent: Unexpected worker exit{oom_message}, restarting worker. "
             f"In task #{task_id}, attempt #{attempt}, {traceback.format_exc()}"
         )
         worker_restart_needed = True

@@ -4,7 +4,16 @@ import json
 import os
 import time
 import traceback
-from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import aiobotocore.session
 
@@ -234,6 +243,7 @@ async def _worker_iteration(
     pid: int,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
+    get_job_state: Callable[[int], ProcessState],
 ) -> bool:
     task = await _get_task(
         sqs,
@@ -271,14 +281,11 @@ async def _worker_iteration(
     except Exception:
         stats = await worker_monitor.stop_stats()
 
-        process_state = ProcessState(
-            state=ProcessState.ProcessStateEnum.UNEXPECTED_WORKER_EXIT,
-            pid=pid,
+        process_state = get_job_state(  # type: ignore
             return_code=(await worker_monitor.try_get_return_code()) or 0,
-            log_file_name=log_file_name,
-            max_memory_used_gb=stats.max_memory_used_gb,
-            was_oom_killed=(await worker_monitor.was_oom_killed()),
         )
+        process_state.max_memory_used_gb = stats.max_memory_used_gb
+        process_state.was_oom_killed = await worker_monitor.was_oom_killed()
 
         oom_message = ""
         if process_state.was_oom_killed:
@@ -309,6 +316,7 @@ async def agent_function(
     base_job_id: str,
     worker_server: TaskWorkerServer,
     worker_monitor: WorkerMonitor,
+    get_job_state: Callable[[int], ProcessState],
 ) -> None:
     """
     Runs a loop that gets tasks off of the request_queue, communicates that via reader
@@ -329,5 +337,6 @@ async def agent_function(
             pid,
             worker_server,
             worker_monitor,
+            get_job_state,
         ):
             pass

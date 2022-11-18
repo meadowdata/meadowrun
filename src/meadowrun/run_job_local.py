@@ -674,10 +674,6 @@ class WorkerContainerMonitor(WorkerMonitor):
         )
         self._tail_task = asyncio.create_task(self._tail_log())
 
-    async def stop(self) -> None:
-        if self._container is not None:
-            await self.container.stop()
-
     async def wait_until_exited(self) -> int:
         wait_result = await self.container.wait()
         if self._tail_task is not None:
@@ -711,8 +707,7 @@ class WorkerContainerMonitor(WorkerMonitor):
             print(f"Task worker: {line}", end="")
 
     async def restart(self) -> None:
-        await self.stop()
-        await self.wait_until_exited()
+        await remove_container(self.container)
         await self.start_and_tail()
 
     async def get_stats(self) -> Stats:
@@ -1076,8 +1071,6 @@ async def _container_job_continuation(
     try:
         if job_spec_type == "py_agent":
             await _run_agent(job_spec_transformed, job, log_file_name, worker)
-            await worker.stop()
-            await worker.wait_until_exited()
             return ProcessState(
                 state=ProcessStateEnum.SUCCEEDED,
                 container_id=worker.container_id or "",

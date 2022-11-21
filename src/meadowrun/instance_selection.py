@@ -43,6 +43,10 @@ class ResourcesInternal:
         self.consumable = consumable
         self.non_consumable = non_consumable
 
+    @property
+    def logical_cpu(self) -> float:
+        return self.consumable.get(LOGICAL_CPU, 0.0)
+
     def subtract(self, required: ResourcesInternal) -> Optional[ResourcesInternal]:
         """
         Interpreting self as "resources available" on an instance, subtracts "resources
@@ -176,13 +180,14 @@ class ResourcesInternal:
         )
 
     def format_cpu_memory_gpu(self) -> str:
+        gpu_string = ""
         if GPU in self.consumable:
             gpu_string = f", {self.consumable[GPU]} GPU"
-        else:
-            gpu_string = ""
+        if GPU_MEMORY in self.consumable:
+            gpu_string += f", {self.consumable[GPU_MEMORY]} GiB GPU Mem"
 
         return (
-            f"{self.consumable[LOGICAL_CPU]} CPU, {self.consumable[MEMORY_GB]} GB"
+            f"{self.consumable[LOGICAL_CPU]} CPU, {self.consumable[MEMORY_GB]} GiB"
             + gpu_string
         )
 

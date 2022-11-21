@@ -88,6 +88,8 @@ def _get_region_description_for_pricing(region_code: str) -> str:
 
 
 _GPU_MEMORY = {
+    "g2.2xlarge": 4,
+    "g2.8xlarge": 16,
     "g3s.xlarge": 8,
     "g3.4xlarge": 8,
     "g3.8xlarge": 16,

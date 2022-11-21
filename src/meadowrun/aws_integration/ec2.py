@@ -336,6 +336,7 @@ class LaunchEC2InstanceAwsCapacity(LaunchEC2InstanceTypeUnavailable):
 class LaunchEC2InstanceQuota(LaunchEC2InstanceTypeUnavailable):
     """Indicates that an EC2 instance couldn't be launched because a quota was hit"""
 
+    instance_type: str
     message: str
     quota_code: str
     quota_instance_families: Tuple[str, ...]
@@ -346,11 +347,21 @@ class LaunchEC2InstanceQuota(LaunchEC2InstanceTypeUnavailable):
     def unusable_instance_types(
         self, all_instance_types: Iterable[CloudInstanceType]
     ) -> Iterable[Tuple[str, OnDemandOrSpotType]]:
+        def find_my_instance_type() -> Optional[CloudInstanceType]:
+            for instance_type in all_instance_types:
+                if instance_type.name == self.instance_type:
+                    return instance_type
+            return None
+
+        my_instance_type = find_my_instance_type()
         return (
             (instance_type.name, instance_type.on_demand_or_spot)
             for instance_type in all_instance_types
             if instance_family_from_type(instance_type.name)
             in self.quota_instance_families
+            if my_instance_type is None
+            or instance_type.resources.logical_cpu
+            >= my_instance_type.resources.logical_cpu
         )
 
 
@@ -464,9 +475,10 @@ async def launch_ec2_instance(
                 # I believe these error codes have the same meaning for spot/on-demand
                 # instances
                 return LaunchEC2InstanceQuota(
+                    instance_type,
                     *get_quota_for_instance_type(
                         instance_type, on_demand_or_spot, region_name
-                    )
+                    ),
                 )
             elif error_code == "InvalidAMIID.NotFound":
                 return LaunchEC2InstanceAmiNotAvailable(launch_settings.ami_id)

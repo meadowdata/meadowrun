@@ -829,20 +829,21 @@ class GridJobDriver:
                             queue_index = worker_index_to_queue_index.pop(
                                 int(worker_process_state.worker_index), None
                             )
-                            if queue_index is not None:
-                                # This doesn't check to make sure that we're not
-                                # double-counting a worker whose task raised an
-                                # exception. It must never be the case that
-                                # worker_task.task raises an exception AND a
-                                # worker_process_state is received
-                                self._worker_queues[
-                                    queue_index
-                                ].num_workers_exited_unexpectedly += 1
 
                             if (
                                 worker_process_state.result.state
                                 != ProcessState.ProcessStateEnum.SUCCEEDED
                             ):
+                                if queue_index is not None:
+                                    # This doesn't check to make sure that we're not
+                                    # double-counting a worker whose task raised an
+                                    # exception. It must never be the case that
+                                    # worker_task.task raises an exception AND a
+                                    # worker_process_state is received
+                                    self._worker_queues[
+                                        queue_index
+                                    ].num_workers_exited_unexpectedly += 1
+
                                 print(
                                     "Error running worker: "
                                     f"{MeadowrunException(worker_process_state.result)}"

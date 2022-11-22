@@ -23,7 +23,6 @@ async def upload_and_configure_meadowrun(
     package_root_dir: str,
     cloud_provider: CloudProviderType,
     image_name: str,
-    machine_agent_module: Optional[str] = None,
     pre_command: Optional[str] = None,
 ) -> str:
 
@@ -131,36 +130,6 @@ async def upload_and_configure_meadowrun(
         connection,
         "sudo systemctl enable --now meadowrun-check-spot-eviction.timer",
     )
-
-    if machine_agent_module:
-        user = await run_and_capture_str(connection, "whoami")
-        await write_text_to_file(
-            connection,
-            "[Unit]\n"
-            "Description=The machine agent for Meadowrun\n"
-            "StartLimitIntervalSec=0\n"
-            "[Service]\n"
-            f"User={user}\n"
-            f"Group={user}\n"
-            f"ExecStart=/var/meadowrun/env/bin/python -m {machine_agent_module}\n"
-            "StandardOutput=append:/var/meadowrun/machine_agent.log\n"
-            "StandardError=append:/var/meadowrun/machine_agent.log\n"
-            f"Environment=HOME={home_dir}\n"
-            "Environment=PYTHONUNBUFFERED=1\n"
-            "Restart=always\n"
-            "RestartSec=2\n"
-            "[Install]\n"
-            "WantedBy=multi-user.target\n",
-            f"{home_dir}/meadowrun-machine-agent.service",
-        )
-        await run_and_print(
-            connection,
-            f"sudo mv {home_dir}/meadowrun-machine-agent.service {systemd_config_dir}",
-        )
-        await run_and_print(
-            connection,
-            "sudo systemctl enable --now meadowrun-machine-agent.service",
-        )
 
     # TODO move this into the base image at some point
     await run_and_print(connection, f"mkdir -p {MACHINE_CACHE_FOLDER}")

@@ -3,7 +3,9 @@ import asyncio
 import functools
 import os.path
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, Any
+
+import asyncssh
 
 from ami_listings import BASE_AMIS, AMI_SIZES_GB
 from build_ami_helper import (
@@ -15,6 +17,49 @@ from build_ami_helper import (
 )
 from build_image_shared import upload_and_configure_meadowrun
 import meadowrun.aws_integration.machine_agent
+from meadowrun.ssh import write_text_to_file, run_and_print, run_and_capture_str
+
+
+async def _configure_meadowrun_ec2(
+    connection: asyncssh.SSHClientConnection, **kwargs: Any
+) -> str:
+    image_name = await upload_and_configure_meadowrun(connection, **kwargs)
+
+    home_dir = await run_and_capture_str(connection, "echo $HOME")
+    systemd_config_dir = "/etc/systemd/system/"
+
+    machine_agent_module = meadowrun.aws_integration.machine_agent.__name__
+
+    user = await run_and_capture_str(connection, "whoami")
+    await write_text_to_file(
+        connection,
+        "[Unit]\n"
+        "Description=The machine agent for Meadowrun\n"
+        "StartLimitIntervalSec=0\n"
+        "[Service]\n"
+        f"User={user}\n"
+        f"Group={user}\n"
+        f"ExecStart=/var/meadowrun/env/bin/python -m {machine_agent_module}\n"
+        "StandardOutput=append:/var/meadowrun/machine_agent.log\n"
+        "StandardError=append:/var/meadowrun/machine_agent.log\n"
+        f"Environment=HOME={home_dir}\n"
+        "Environment=PYTHONUNBUFFERED=1\n"
+        "Restart=always\n"
+        "RestartSec=2\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n",
+        f"{home_dir}/meadowrun-machine-agent.service",
+    )
+    await run_and_print(
+        connection,
+        f"sudo mv {home_dir}/meadowrun-machine-agent.service {systemd_config_dir}",
+    )
+    await run_and_print(
+        connection,
+        "sudo systemctl enable --now meadowrun-machine-agent.service",
+    )
+
+    return image_name
 
 
 async def build_meadowrun_ami(
@@ -60,12 +105,11 @@ async def build_meadowrun_ami(
         all_region_base_amis,
         AMI_SIZES_GB[ami_type],
         functools.partial(
-            upload_and_configure_meadowrun,
+            _configure_meadowrun_ec2,
             version=version,
             package_root_dir=package_root_dir,
             cloud_provider="EC2",
             image_name=new_ami_name,
-            machine_agent_module=meadowrun.aws_integration.machine_agent.__name__,
         ),
     )
 

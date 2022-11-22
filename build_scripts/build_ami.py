@@ -23,11 +23,44 @@ from meadowrun.ssh import write_text_to_file, run_and_print, run_and_capture_str
 async def _configure_meadowrun_ec2(
     connection: asyncssh.SSHClientConnection, **kwargs: Any
 ) -> str:
+    # TODO move into the base image!
+    await run_and_print(connection, "sudo apt remove -y unattended-upgrades")
+    await run_and_print(connection, "sudo apt update && sudo apt install -y nginx nscd")
+    await run_and_print(connection, "sudo rm -rf /var/cache/apt")
+
     image_name = await upload_and_configure_meadowrun(connection, **kwargs)
 
     home_dir = await run_and_capture_str(connection, "echo $HOME")
     systemd_config_dir = "/etc/systemd/system/"
 
+    # set up the nginx proxy for IMDS
+    await write_text_to_file(
+        connection,
+        "events {}\n"
+        "http {\n"
+        "   proxy_cache_path /data/nginx/cache keys_zone=mycache:10m;\n"
+        "   server {\n"
+        "       listen 81;\n"
+        "       proxy_cache mycache;\n"
+        "       location / {\n"
+        "           allow 127.0.0.1;\n"
+        "           proxy_pass http://169.254.169.254;\n"
+        "           proxy_cache_valid any 10s;\n"
+        "       }\n"
+        "   }\n"
+        "}\n",
+        f"{home_dir}/nginx.conf",
+    )
+    await run_and_print(
+        connection,
+        f"sudo mv {home_dir}/nginx.conf /etc/nginx/nginx.conf",
+    )
+    await run_and_print(
+        connection,
+        "sudo mkdir -p /data/nginx/cache",
+    )
+
+    # set up the machine agent
     machine_agent_module = meadowrun.aws_integration.machine_agent.__name__
 
     user = await run_and_capture_str(connection, "whoami")
@@ -44,6 +77,7 @@ async def _configure_meadowrun_ec2(
         "StandardError=append:/var/meadowrun/machine_agent.log\n"
         f"Environment=HOME={home_dir}\n"
         "Environment=PYTHONUNBUFFERED=1\n"
+        "Environment=AWS_EC2_METADATA_SERVICE_ENDPOINT=http://localhost:81\n"
         "Restart=always\n"
         "RestartSec=2\n"
         "[Install]\n"

@@ -121,10 +121,9 @@ def _resize_disk(
 ) -> int:
     """Returns number of blocks"""
     lsblk_output = loop.run_until_complete(
-        ssh.run_and_capture(connection, f"lsblk -f {path_to_disk}")
+        ssh.run_and_capture_str(connection, f"lsblk -f {path_to_disk}")
     )
-    assert isinstance(lsblk_output.stdout, str)  # just for mypy
-    if "ext4" not in lsblk_output.stdout:
+    if "ext4" not in lsblk_output:
         raise ValueError("Need to add handling for non-ext4 volumes")
 
     loop.run_until_complete(
@@ -226,21 +225,19 @@ def shrink_ami(
 
         # A couple sanity checks
         block_size = loop.run_until_complete(
-            ssh.run_and_capture(
+            ssh.run_and_capture_str(
                 connection, f"sudo blockdev --getbsz /dev/{sdf_maps_to}"
             )
         )
-        assert isinstance(block_size.stdout, str)
-        if block_size.stdout.strip() != "4096":
-            raise ValueError(f"Blocksize was not 4K as expected: {block_size.stdout}")
+        if block_size != "4096":
+            raise ValueError(f"Blocksize was not 4K as expected: {block_size}")
         sector_size = loop.run_until_complete(
-            ssh.run_and_capture(connection, f"sudo blockdev --getss /dev/{sdf_maps_to}")
-        )
-        assert isinstance(sector_size.stdout, str)
-        if sector_size.stdout.strip() != "512":
-            raise ValueError(
-                f"Sector size was not 512 as expected: {sector_size.stdout}"
+            ssh.run_and_capture_str(
+                connection, f"sudo blockdev --getss /dev/{sdf_maps_to}"
             )
+        )
+        if sector_size != "512":
+            raise ValueError(f"Sector size was not 512 as expected: {sector_size}")
 
         # move files around in filesystem in main partition so that we can resize the
         # partition and get the number of actual bytes in the partition
@@ -267,10 +264,11 @@ def shrink_ami(
 
         # now get the resulting size of the overall disk after the resize
         disk_partitions_json = loop.run_until_complete(
-            ssh.run_and_capture(connection, f"sudo sfdisk --json /dev/{sdf_maps_to}")
+            ssh.run_and_capture_str(
+                connection, f"sudo sfdisk --json /dev/{sdf_maps_to}"
+            )
         )
-        assert isinstance(disk_partitions_json.stdout, str)
-        disk_partitions = json.loads(disk_partitions_json.stdout)
+        disk_partitions = json.loads(disk_partitions_json)
         disk_size_sectors = max(
             partition["size"] + partition["start"]
             for partition in disk_partitions["partitiontable"]["partitions"]
@@ -308,10 +306,7 @@ def shrink_ami(
         new_disk_actual_size_output = loop.run_until_complete(
             ssh.run_and_capture(connection, f"sudo blockdev --getsz /dev/{sdh_maps_to}")
         )
-        assert isinstance(new_disk_actual_size_output.stdout, str)
-        new_disk_actual_size = (
-            int(new_disk_actual_size_output.stdout.strip()) * 512 / (1024**3)
-        )
+        new_disk_actual_size = int(new_disk_actual_size_output) * 512 / (1024**3)
         if new_disk_actual_size != disk_size_gb:
             raise ValueError(
                 f"The volume got mounted and it should be {disk_size_gb}GB but it is "
@@ -323,12 +318,13 @@ def shrink_ami(
 
         # now copy the partition metadata over
         partition_metadata = loop.run_until_complete(
-            ssh.run_and_capture(connection, f"sudo sfdisk --dump /dev/{sdf_maps_to}")
+            ssh.run_and_capture_str(
+                connection, f"sudo sfdisk --dump /dev/{sdf_maps_to}"
+            )
         )
-        assert isinstance(partition_metadata.stdout, str)
         modified_partition_metadata = "".join(
             line.replace(sdf_maps_to, sdh_maps_to)
-            for line in partition_metadata.stdout.splitlines(True)
+            for line in partition_metadata.splitlines(True)
             # first-lba and last-lba are optional so it's not worth recalculating them
             if not line.startswith("first-lba") and not line.startswith("last-lba")
         )

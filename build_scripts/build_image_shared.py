@@ -10,7 +10,7 @@ from meadowrun.run_job_local import MACHINE_CACHE_FOLDER
 if TYPE_CHECKING:
     from meadowrun.run_job_core import CloudProviderType
 from meadowrun.ssh import (
-    run_and_capture,
+    run_and_capture_str,
     run_and_print,
     upload_file,
     write_text_to_file,
@@ -55,13 +55,7 @@ async def upload_and_configure_meadowrun(
         check=False,
     )
 
-    output = (await run_and_capture(connection, "echo $HOME")).stdout
-    if output is None:
-        raise ValueError("Result of echo $HOME was None")
-    if isinstance(output, bytes):
-        home_dir = output.decode("utf-8").strip()
-    else:
-        home_dir = output.strip()
+    home_dir = await run_and_capture_str(connection, "echo $HOME")
     systemd_config_dir = "/etc/systemd/system/"
 
     # set deallocate_jobs to run via systemd timer
@@ -139,13 +133,7 @@ async def upload_and_configure_meadowrun(
     )
 
     if machine_agent_module:
-        user_output = (await run_and_capture(connection, "whoami")).stdout
-        if not user_output:
-            raise ValueError("whoami returned None")
-        if isinstance(user_output, bytes):
-            user = user_output.decode("utf-8").strip()
-        else:
-            user = user_output.strip()
+        user = await run_and_capture_str(connection, "whoami")
         await write_text_to_file(
             connection,
             "[Unit]\n"

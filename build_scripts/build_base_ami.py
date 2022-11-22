@@ -12,9 +12,8 @@ from build_ami_helper import (
     build_amis,
     _check_for_existing_amis,
     BEHAVIOR_OPTIONS,
-    _assert_str,
 )
-from meadowrun.ssh import run_and_print, run_and_capture, write_text_to_file
+from meadowrun.ssh import run_and_print, write_text_to_file, run_and_capture_str
 
 
 async def prepare_meadowrun_virtual_env(
@@ -143,9 +142,9 @@ async def cuda_base_image_actions_on_vm(
 
 
 async def parse_cuda_version(connection: asyncssh.SSHClientConnection) -> str:
-    nvcc_version = _assert_str(
-        (await run_and_capture(connection, "/usr/local/cuda/bin/nvcc --version")).stdout
-    ).strip()
+    nvcc_version = await run_and_capture_str(
+        connection, "/usr/local/cuda/bin/nvcc --version"
+    )
 
     match = re.match(
         r"Cuda compilation tools, release (?P<version_string>[\d.]+),",

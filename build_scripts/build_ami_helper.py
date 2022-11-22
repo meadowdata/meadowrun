@@ -5,7 +5,6 @@ import re
 import traceback
 from typing import (
     TYPE_CHECKING,
-    Any,
     Awaitable,
     Callable,
     Dict,
@@ -35,7 +34,7 @@ from meadowrun.aws_integration.ec2_ssh_keys import (
     ensure_meadowrun_key_pair,
 )
 from meadowrun.run_job_core import _retry
-from meadowrun.ssh import connect, run_and_capture
+from meadowrun.ssh import connect, run_and_capture_str
 
 if TYPE_CHECKING:
     from mypy_boto3_ec2 import EC2Client
@@ -249,17 +248,8 @@ async def build_amis(
                 )
 
 
-def _assert_str(s: Any) -> str:
-    """Helper function just for mypy"""
-    if not isinstance(s, str):
-        raise ValueError(f"Expected a string but got {type(s)}")
-    return s
-
-
 async def parse_ubuntu_version(connection: asyncssh.SSHClientConnection) -> str:
-    ubuntu_version = _assert_str(
-        (await run_and_capture(connection, "lsb_release -a")).stdout
-    ).strip()
+    ubuntu_version = await run_and_capture_str(connection, "lsb_release -a")
 
     match = re.match(
         r"Description:\s+Ubuntu (?P<version_string>[\d.]+)( LTS)?",
@@ -271,9 +261,7 @@ async def parse_ubuntu_version(connection: asyncssh.SSHClientConnection) -> str:
 
 
 async def parse_docker_version(connection: asyncssh.SSHClientConnection) -> str:
-    docker_version = _assert_str(
-        (await run_and_capture(connection, "docker --version")).stdout
-    ).strip()
+    docker_version = await run_and_capture_str(connection, "docker --version")
 
     match = re.match(r"Docker version (?P<version_string>[\d.]+),", docker_version)
     if match is None:
@@ -284,9 +272,7 @@ async def parse_docker_version(connection: asyncssh.SSHClientConnection) -> str:
 async def parse_python_version(
     connection: asyncssh.SSHClientConnection, python: str
 ) -> str:
-    python_version = _assert_str(
-        (await run_and_capture(connection, f"{python} --version")).stdout
-    ).strip()
+    python_version = await run_and_capture_str(connection, f"{python} --version")
 
     match = re.match(r"Python (?P<version_string>[\d.]+)", python_version)
     if match is None:

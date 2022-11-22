@@ -72,6 +72,18 @@ async def run_and_capture(
     return await connection.run(command, check=check)
 
 
+async def run_and_capture_str(
+    connection: asyncssh.SSHClientConnection, command: str
+) -> str:
+    output = (await run_and_capture(connection, command)).stdout
+    if output is None:
+        raise ValueError(f"Result of `{command}` was None")
+    if isinstance(output, bytes):
+        return output.decode("utf-8").strip()
+    else:
+        return output.strip()
+
+
 async def write_to_file(
     connection: asyncssh.SSHClientConnection, bys: bytes, remote_path: str
 ) -> None:

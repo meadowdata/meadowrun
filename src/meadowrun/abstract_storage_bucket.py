@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Optional, Type, Tuple, List, TYPE_CHECKING
+from typing import Optional, Type, Tuple, List, TYPE_CHECKING, Iterable
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -91,3 +91,7 @@ class AbstractStorageBucket(abc.ABC):
     @abc.abstractmethod
     async def delete_object(self, key: str) -> None:
         ...
+
+    async def delete_objects(self, keys: Iterable[str]) -> None:
+        for key in keys:
+            await self.delete_object(key)

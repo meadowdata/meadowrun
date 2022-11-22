@@ -821,14 +821,15 @@ class EC2GridJobInterface(GridJobCloudInterface):
             await self._sqs_client.__aexit__(exc_type, exc_val, exc_tb)
 
         if self._s3_bucket is not None:
-            for key in await self._s3_bucket.list_objects(
-                storage_prefix_outputs(self._base_job_id)
-            ):
-                await self._s3_bucket.delete_object(key)
-            for key in await self._s3_bucket.list_objects(
-                storage_prefix_inputs(self._base_job_id)
-            ):
-                await self._s3_bucket.delete_object(key)
+            keys_to_delete = itertools.chain(
+                await self._s3_bucket.list_objects(
+                    storage_prefix_outputs(self._base_job_id)
+                ),
+                await self._s3_bucket.list_objects(
+                    storage_prefix_inputs(self._base_job_id)
+                ),
+            )
+            await self._s3_bucket.delete_objects(keys_to_delete)
 
             await self._s3_bucket.__aexit__(exc_type, exc_val, exc_tb)
 

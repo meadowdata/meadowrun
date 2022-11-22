@@ -159,6 +159,12 @@ class GenericStorageBucket(AbstractStorageBucket):
     async def delete_object(self, key: str) -> None:
         await self._s3_client.delete_object(Bucket=self._bucket, Key=key)
 
+    async def delete_objects(self, keys: Iterable[str]) -> None:
+        await self._s3_client.delete_objects(
+            Bucket=self._bucket,
+            Delete={"Objects": [{"Key": key} for key in keys], "Quiet": True},
+        )
+
 
 class S3Bucket(GenericStorageBucket):
     """

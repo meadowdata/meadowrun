@@ -462,6 +462,8 @@ async def run_container(
             # https://stackoverflow.com/questions/31324981/how-to-access-host-port-from-docker-container/43541732#43541732
             "ExtraHosts": ["host.docker.internal:host-gateway"]
             + [f"{host_name}:{ip}" for host_name, ip in extra_hosts],
+            # See https://github.com/moby/moby/issues/42096
+            "NetworkMode": "host",
             # Ideally we would have some sort of "AutoRemove after 5 minutes". With
             # AutoRemove turned on, containers can get deleted before we are able to
             # read off their exit codes.

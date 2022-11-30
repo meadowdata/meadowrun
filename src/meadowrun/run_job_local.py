@@ -118,9 +118,7 @@ class _JobSpecTransformed:
     # expose files on the host machine for input/output with the container.
     container_binds: List[Tuple[str, str]]
 
-    environment_variables: Dict[str, str] = dataclasses.field(
-        default_factory=lambda: {}
-    )
+    environment_variables: Dict[str, str] = dataclasses.field(default_factory=dict)
     server: Optional[TaskWorkerServer] = None
 
 
@@ -1414,7 +1412,7 @@ async def run_local(
     compile_environment_in_container: bool = True,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """
-    Runs a job locally using the specified working_folder (or uses the default). Meant
+    Runs a job locally using the default working_folder. Meant
     to be called on the "server" where the client is calling e.g. run_function.
 
     Returns a tuple of (initial job state, continuation).

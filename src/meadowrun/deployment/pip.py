@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import tarfile
 from typing import Callable, Awaitable, Optional, List, TYPE_CHECKING
 
 import filelock
@@ -222,17 +223,8 @@ async def get_cached_or_create_pip_environment(
                 print("Unpacking cached pip environment")
                 os.makedirs(new_environment_path, exist_ok=True)
                 try:
-                    # TODO maybe cleaner to use the built-in python tar libraries?
-                    return_code = await (
-                        await asyncio.create_subprocess_exec(
-                            "tar", "-xzf", local_cached_file, "-C", new_environment_path
-                        )
-                    ).wait()
-                    if return_code != 0:
-                        raise ValueError(
-                            f"Unpacking cached pip environment {local_cached_file} "
-                            f"returned code {return_code}"
-                        )
+                    with tarfile.open(local_cached_file, "r:gz") as tar:
+                        tar.extractall(new_environment_path)
                     return new_environment_interpreter
                 except BaseException:
                     remove_corrupted_environment(new_environment_path)

@@ -43,6 +43,7 @@ if sys.platform == "win32":
 
 
 from meadowrun.aws_integration.ec2_instance_allocation import AllocEC2Instance
+from meadowrun.aws_integration.lambda_allocation import AllocLambda
 from meadowrun.aws_integration.management_lambdas.provisioning import Threshold
 from meadowrun.aws_integration.management_lambdas.config import ManagementConfig
 from meadowrun.azure_integration.azure_instance_allocation import AllocAzureVM
@@ -98,6 +99,7 @@ __all__ = [
     "AllocCloudInstance",
     "AllocEC2Instance",
     "AllocAzureVM",
+    "AllocLambda",
     "run_command",
     "run_function",
     "run_map",

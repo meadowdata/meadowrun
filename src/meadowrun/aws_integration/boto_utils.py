@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 
 from typing import (
     TYPE_CHECKING,
@@ -98,3 +99,30 @@ async def ignore_boto3_error_code_async(
                 return False, None, error["Code"]
 
         raise
+
+
+async def retry_boto3_error_code(
+    function: Callable[[], Awaitable[_T]],
+    error_codes: Union[str, Set[str]],
+    max_num_attempts: int = 3,
+    delay_seconds: float = 5,
+    message: str = "",
+) -> _T:
+    if isinstance(error_codes, str):
+        error_codes = {error_codes}
+    i = 0
+    while True:
+        try:
+            return await function()
+        except botocore.exceptions.ClientError as e:
+            if "Error" in e.response:
+                error = e.response["Error"]
+                if "Code" in error and error["Code"] in error_codes:
+                    i += 1
+                    if i >= max_num_attempts:
+                        raise
+                    if message:
+                        print(f"{message}: {e}")
+                    await asyncio.sleep(delay_seconds)
+                    continue
+            raise

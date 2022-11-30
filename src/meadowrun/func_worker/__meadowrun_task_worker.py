@@ -1,5 +1,5 @@
 """
-Like __meadowrun_func_worker, but connections to given agent.
+Like __meadowrun_func_worker, but connects to given agent.
 Listens for arguments, executes the function and returns the result.
 """
 

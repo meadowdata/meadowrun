@@ -26,12 +26,12 @@ from typing import TYPE_CHECKING
 import boto3
 
 if TYPE_CHECKING:
-    from typing_extensions import Literal
+    from typing_extensions import Final
 
 from build_ami_helper import REGION_TO_INSTANCE_TYPE
 
 LAYER_NAME = "meadowrun-dependencies"
-PYTHON_VERSION: Literal["python3.9"] = "python3.9"
+PYTHON_VERSION: Final = "python3.9"
 REGIONS = tuple(REGION_TO_INSTANCE_TYPE.keys())
 # uncomment this to only upload one region
 # REGIONS = ("us-east-2",)
@@ -57,6 +57,8 @@ def main() -> None:
             "--no-compile",  # don't zip up pyc files anyway
             "-c",
             "build_scripts/aws_lambda_constraints.txt",
+            "-r",
+            "build_scripts/aws_lambda_extra_requirements.txt",
             ".",
         ]
     )

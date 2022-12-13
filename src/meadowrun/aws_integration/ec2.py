@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
 import dataclasses
 import ipaddress
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Dict,
@@ -14,7 +16,6 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
-    cast,
 )
 
 import aiobotocore.session
@@ -48,6 +49,10 @@ from meadowrun.instance_selection import (
 )
 from meadowrun.shared import b62_encoded_uuid
 from meadowrun.version import __version__
+
+if TYPE_CHECKING:
+    from types_aiobotocore_ec2 import EC2Client
+    from types_aiobotocore_ec2.type_defs import InstanceTypeDef
 
 _T = TypeVar("_T")
 
@@ -415,6 +420,8 @@ async def launch_ec2_instance(
     Launches the specified EC2 instance. See derived classes of LaunchEC2InstanceResult
     for possible return values.
     """
+    if abort is None:
+        abort = asyncio.Event()
 
     optional_args: Dict[str, Any] = {
         # TODO allow users to specify the size of the EBS they need
@@ -458,7 +465,7 @@ async def launch_ec2_instance(
     else:
         raise ValueError(f"Unexpected value for on_demand_or_spot {on_demand_or_spot}")
 
-    if abort is not None and abort.is_set():
+    if abort.is_set():
         return LaunchEC2InstanceAborted()
 
     async with aiobotocore.session.get_session().create_client(
@@ -502,20 +509,22 @@ async def launch_ec2_instance(
             else:
                 raise ValueError(f"Unexpected boto3 error code {error_code}")
 
-    # types_aiobotocore seems to have the wrong types for instances
-    instances_untyped = cast(Any, instances)
-    if len(instances_untyped["Instances"]) != 1:
-        raise ValueError(
-            "run_instances succeeded but returned "
-            f"{len(instances_untyped['Instances'])} instances"
+        assert instances is not None
+        if len(instances["Instances"]) != 1:
+            raise ValueError(
+                "run_instances succeeded but returned "
+                f"{len(instances['Instances'])} instances"
+            )
+        instance_id = instances["Instances"][0]["InstanceId"]
+        return LaunchEC2InstanceSuccess(
+            _launch_instance_continuation(instance_id, region_name, abort),
+            instance_id,
         )
-    instance_id = instances_untyped["Instances"][0]["InstanceId"]
-    return LaunchEC2InstanceSuccess(
-        _launch_instance_continuation(instance_id, region_name, abort), instance_id
-    )
 
 
-async def describe_single_instance(ec2_client: Any, instance_id: str) -> Dict:
+async def describe_single_instance(
+    ec2_client: EC2Client, instance_id: str
+) -> InstanceTypeDef:
     response = await ec2_client.describe_instances(InstanceIds=[instance_id])
     reservations = response["Reservations"]
     if len(reservations) != 1:
@@ -526,8 +535,17 @@ async def describe_single_instance(ec2_client: Any, instance_id: str) -> Dict:
     return instances[0]
 
 
+async def _event_wait(evt: asyncio.Event, timeout: float) -> bool:
+    # suppress TimeoutError because we'll return False in case of timeout
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(evt.wait(), timeout)
+    return evt.is_set()
+
+
 async def _launch_instance_continuation(
-    instance_id: str, region_name: str, abort: Optional[asyncio.Event]
+    instance_id: str,
+    region_name: str,
+    abort: asyncio.Event,
 ) -> Optional[str]:
     """
     instance should be a boto3 EC2 instance, waits for the instance to be running and
@@ -535,19 +553,19 @@ async def _launch_instance_continuation(
     """
 
     # ideally we would reuse the ec2_client from the caller, but this is much simpler
-    i = 0
     async with aiobotocore.session.get_session().create_client(
         "ec2", region_name=region_name
     ) as ec2_client:
+
         try:
             # this is a reimplementation of
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Instance.wait_until_running
             # main difference is that we check every 7 seconds rather than every 15
             # seconds
+            i = 0
+            weird_state_count = 0
             while True:
-                await asyncio.sleep(7)
-                # ideally we would interrupt the above sleep if cancel becomes set
-                if abort is not None and abort.is_set():
+                if await _event_wait(abort, timeout=7):
                     await ec2_client.terminate_instances(InstanceIds=[instance_id])
                     return None
 
@@ -557,11 +575,16 @@ async def _launch_instance_continuation(
                 elif instance["State"]["Name"] == "pending":
                     pass
                 else:
-                    print(
+                    weird_state_count += 1
+                    msg = (
                         f"Unexpected instance state while waiting for {instance_id} to "
-                        f"start up: {instance['State']}. This instance may never start "
-                        "up."
+                        f"start up: {instance['State']}. Reason: "
+                        f"{instance['StateReason']['Message']}. This instance may "
+                        "never start up."
                     )
+                    if weird_state_count >= 5:
+                        raise ValueError(msg + " Giving up.")
+                    print(msg)
 
                 i += 1
                 if i >= 60:

@@ -448,12 +448,16 @@ def _sync_registration_and_actual_state(
                     "terminating because it was launched recently at "
                     f"{instance.instance.launch_time}",
                 )
-        elif instance.instance is None or instance.state != "running":
-            instance.add_action(
-                action=deregister_and_terminate,
-                reason=f"{instance_id} is registered but does not seem to be "
-                "running, so we will deregister it",
-            )
+        elif instance.registration is not None:
+            if instance.instance is None or instance.state not in (
+                "running",
+                "pending",
+            ):
+                instance.add_action(
+                    action=deregister_and_terminate,
+                    reason=f"{instance_id} is registered but does not seem to be "
+                    "pending or running, so we will deregister it",
+                )
 
 
 def lambda_handler(event: Any, context: Any) -> Dict[str, Any]:

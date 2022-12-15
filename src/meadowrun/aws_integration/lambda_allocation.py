@@ -23,7 +23,7 @@ from meadowrun.aws_integration.boto_utils import (
 )
 import meadowrun.aws_integration.lambda_run_job
 
-from meadowrun.config import EPHEMERAL_STORAGE_GB, MEMORY_GB
+from meadowrun.config import EPHEMERAL_STORAGE_GB, EVICTION_RATE_INVERSE, MEMORY_GB
 from meadowrun.meadowrun_pb2 import ProcessState
 from meadowrun.run_job_core import (
     Host,
@@ -92,6 +92,7 @@ class AllocLambda(Host):
 
         resources_required.consumable.setdefault(MEMORY_GB, 0.125)
         resources_required.non_consumable.setdefault(EPHEMERAL_STORAGE_GB, 0.5)
+        del resources_required.non_consumable[EVICTION_RATE_INVERSE]
         if (
             len(resources_required.consumable) > 1
             or len(resources_required.non_consumable) > 1
@@ -111,7 +112,11 @@ class AllocLambda(Host):
             "lambda", region_name=region_name
         ) as lambda_client:
 
-            lambda_name = "meadowrun_func"
+            lambda_memory_mb = round(resources_required.consumable[MEMORY_GB] * 1024)
+            lambda_ephemeral_storage_mb = round(
+                resources_required.non_consumable[EPHEMERAL_STORAGE_GB] * 1000
+            )
+            lambda_name = f"meadowrun_{lambda_memory_mb}_{lambda_ephemeral_storage_mb}"
             # create the lambda
             account_number = _get_account_number()
             lambda_handler = meadowrun.aws_integration.lambda_run_job.lambda_handler
@@ -129,7 +134,9 @@ class AllocLambda(Host):
                         f"{_LAMBDA_LAYER_REGION_TO_VERSION.get(region_name, _LAMBDA_LAYER_DEFAULT_VERSION)}"  # noqa
                     ],
                     Timeout=15 * 60,  # 15 minutes is the maximum
-                    MemorySize=1000,  # memory available in MB
+                    MemorySize=lambda_memory_mb,
+                    EphemeralStorage={"Size": lambda_ephemeral_storage_mb},
+                    Tags={"meadowrun": "true"},
                 ),
                 "ResourceConflictException",
             )

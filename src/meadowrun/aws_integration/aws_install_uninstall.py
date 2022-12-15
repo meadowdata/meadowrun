@@ -278,6 +278,10 @@ def delete_meadowrun_resources(region_name: str) -> None:
         lambda: lambda_client.delete_function(FunctionName=_CLEAN_UP_LAMBDA_NAME),
         "ResourceNotFoundException",
     )
+    for page in lambda_client.get_paginator("list_functions").paginate():
+        for function in page["Functions"]:
+            if function["FunctionName"].startswith("meadowrun_"):
+                lambda_client.delete_function(FunctionName=function["FunctionName"])
 
     logs_client = boto3.client("logs", region_name=region_name)
     ignore_boto3_error_code(

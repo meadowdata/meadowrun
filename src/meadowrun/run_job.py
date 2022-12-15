@@ -419,7 +419,7 @@ async def run_function(
     )
 
     job_completion = await host.run_job(
-        resources.to_internal_or_none(),
+        resources.to_internal(),
         job,
         WaitOption.WAIT_AND_TAIL_STDOUT if wait_for_result else WaitOption.DO_NOT_WAIT,
     )

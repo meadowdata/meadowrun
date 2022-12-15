@@ -1,3 +1,4 @@
+import os
 from typing import Tuple
 from meadowrun import (
     run_function,
@@ -7,6 +8,7 @@ from meadowrun import (
     MEADOWRUN_INTERPRETER,
 )
 import pytest
+from meadowrun.deployment_spec import LocalPipInterpreter
 
 from meadowrun.meadowrun_pb2 import EnvironmentSpec, EnvironmentType
 
@@ -95,17 +97,58 @@ async def test_server_environment_spec() -> None:
     result = await run_function(
         remote_function,
         AllocLambda(),
-        Resources(
-            memory_gb=0.25,
-        ),
+        Resources(memory_gb=1),
         Deployment(interpreter=interpreter_spec),
-        # Deployment.git_repo(
-        #     repo_url="https://github.com/meadowdata/test_repo",
-        #     branch="main",
-        #     path_to_source="example_package",
-        #     interpreter=PipRequirementsFile("requirements.txt", "3.9"),
-        # ),
         args=["5"],
     )
 
     assert result == (("2.28.1", "1.4.2"), "hello, 5")
+
+
+def _path_from_here(path: str) -> str:
+    """
+    Combines the specified path with the directory this file is in (tests). So e.g.
+    _relative_path_from_folder("../") is the root of this git repo
+    """
+    return os.path.join(os.path.dirname(__file__), path)
+
+
+@pytest.mark.asyncio
+async def test_mirror_local_pip() -> None:
+    # this requires creating a virtualenv in this git repo's parent directory.
+    # For Windows:
+    # > python -m virtualenv test_venv_windows
+    # > test_venv_windows/Scripts/activate.bat
+    # > pip install -r test_repo/requirements.txt
+    # For Linux:
+    # > python -m virtualenv test_venv_linux
+    # > source test_venv_linux/bin/activate
+    # > pip install -r test_repo/requirements.txt
+    test_venv_interpreter = _path_from_here("../../../../test_repo/env/bin/python")
+
+    def remote_function(arg: str) -> Tuple[Tuple[str, str], str]:
+        import importlib
+
+        # we could just do import requests, but that messes with mypy
+        pd = importlib.import_module("pandas")
+        requests = importlib.import_module("requests")
+        example = importlib.import_module("example")
+        return (
+            (requests.__version__, pd.__version__),
+            example.join_strings("hello", arg),
+        )
+
+    result = await run_function(
+        remote_function,
+        AllocLambda(),
+        Resources(memory_gb=0.8, ephemeral_storage_gb=1),
+        await Deployment.mirror_local(
+            interpreter=LocalPipInterpreter(test_venv_interpreter),
+            additional_sys_paths=[
+                _path_from_here("../../../../test_repo/example_package")
+            ],
+        ),
+        args=["5"],
+    )
+
+    assert result == (("2.28.1", "1.5.0"), "hello, 5")

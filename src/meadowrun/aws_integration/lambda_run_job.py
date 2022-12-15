@@ -10,7 +10,7 @@ import itertools
 import os
 from pathlib import Path
 import traceback
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple
 from meadowrun.deployment_manager import (
     compile_environment_spec_locally,
     get_code_paths,
@@ -29,9 +29,6 @@ from meadowrun.shared import pickle_exception
 import meadowrun.func_worker_storage_helper
 
 from meadowrun.meadowrun_pb2 import ProcessState, Job
-
-if TYPE_CHECKING:
-    from meadowrun.deployment_manager import StorageBucketFactoryType
 
 
 def _set_up_working_folder() -> Tuple[str, str, str, str]:
@@ -90,7 +87,6 @@ async def run_local(
     region_name: str,
     job: Job,
     job_id: str,
-    storage_bucket_factory: StorageBucketFactoryType = None,
 ) -> Tuple[ProcessState, Optional[asyncio.Task[ProcessState]]]:
     """ """
 
@@ -112,7 +108,7 @@ async def run_local(
                 local_copies_folder,
                 job,
                 None,
-                storage_bucket_factory,
+                storage_bucket,
             )
 
             # next, if we have a environment_spec_in_code, turn into a container

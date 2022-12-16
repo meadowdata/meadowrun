@@ -702,11 +702,11 @@ class AllocEC2Instance(AllocVM):
 
     async def run_job(
         self,
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         job: Job,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
-        if resources_required is None:
+        if resources_required.logical_cpu == 0.0 or resources_required.memory_gb == 0.0:
             raise ValueError(
                 "Resources.logical_cpu and memory_gb must be specified for "
                 "AllocEC2Instance"

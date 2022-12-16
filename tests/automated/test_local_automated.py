@@ -124,7 +124,7 @@ class LocalHost(Host):
 
     async def run_job(
         self,
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         job: Job,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
@@ -168,7 +168,7 @@ class LocalHost(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
@@ -195,7 +195,7 @@ class LocalHost(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,

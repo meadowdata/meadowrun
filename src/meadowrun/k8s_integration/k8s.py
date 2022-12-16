@@ -374,7 +374,7 @@ class Kubernetes(Host):
 
     async def run_job(
         self,
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         job: Job,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
@@ -419,7 +419,7 @@ class Kubernetes(Host):
     async def _run_direct_command_if_possible(
         self,
         job: Job,
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         indexed_completions: Optional[int],
         image_name: str,
         image_pull_secret_name: Optional[str],
@@ -517,7 +517,7 @@ class Kubernetes(Host):
         job: Job,
         image_name: str,
         image_pull_secret_name: Optional[str],
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
         # This is the "normal" way to run jobs on Kubernetes. We assume that the image
@@ -630,7 +630,7 @@ class Kubernetes(Host):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
@@ -795,7 +795,7 @@ class KubernetesGridJobDriver:
         self,
         function: Callable[[_T], _U],
         num_args: int,
-        resources_required_per_task: Optional[ResourcesInternal],
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         pickle_protocol: int,
         wait_for_result: WaitOption,
@@ -1174,7 +1174,7 @@ class KubernetesRemoteProcesses(abc.ABC):
         image_name: str,
         image_pull_secret_name: Optional[str],
         ports: List[int],
-        resources: Optional[ResourcesInternal],
+        resources: ResourcesInternal,
         storage_spec: StorageBucketSpec,
         job_id: str,
         # TODO this will probably eventually need to be replaced with an explicit list
@@ -1233,7 +1233,7 @@ class SingleUsePodRemoteProcesses(KubernetesRemoteProcesses):
         image_name: str,
         image_pull_secret_name: Optional[str],
         ports: List[int],
-        resources: Optional[ResourcesInternal],
+        resources: ResourcesInternal,
         storage_spec: StorageBucketSpec,
         job_id: str,
         num_executions: int,
@@ -1303,7 +1303,7 @@ async def _run_kubernetes_job(
     image_pull_secret_name: Optional[str],
     indexed_completions: Optional[int],
     ports: List[int],
-    resources: Optional[ResourcesInternal],
+    resources: ResourcesInternal,
     wait_for_result: WaitOption,
     pod_customization: Optional[
         Callable[

@@ -114,12 +114,6 @@ class Resources:
     def needs_cuda(self) -> bool:
         return self.uses_gpu() and _needs_cuda(self.flags)
 
-    def to_internal_or_none(self) -> Optional[ResourcesInternal]:
-        if self.logical_cpu is None or self.memory_gb is None:
-            return None
-        else:
-            return self.to_internal()
-
     def to_internal(self) -> ResourcesInternal:
         return ResourcesInternal.from_cpu_and_memory(
             self.logical_cpu,
@@ -152,7 +146,7 @@ class Host(abc.ABC):
     @abc.abstractmethod
     async def run_job(
         self,
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         job: Job,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
@@ -162,7 +156,7 @@ class Host(abc.ABC):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,
@@ -211,7 +205,7 @@ class Host(abc.ABC):
         self,
         function: Callable[[_T], _U],
         args: Sequence[_T],
-        resources_required_per_task: Optional[ResourcesInternal],
+        resources_required_per_task: ResourcesInternal,
         job_fields: Dict[str, Any],
         num_concurrent_tasks: int,
         pickle_protocol: int,

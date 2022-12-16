@@ -18,6 +18,9 @@ from meadowrun.deployment_manager import (
 from meadowrun.storage_grid_job import get_aws_s3_bucket
 from meadowrun.run_job_local import (
     _FUNC_WORKER_PATH,
+    _MEADOWRUN_CONTEXT_VARIABLES,
+    _MEADOWRUN_RESULT_FILE,
+    _MEADOWRUN_RESULT_PICKLE_PROTOCOL,
     _JobSpecTransformed,
     ProcessStateEnum,
     _launch_non_container_job,
@@ -46,6 +49,48 @@ def _set_up_working_folder() -> Tuple[str, str, str, str]:
         result.append(str(folder))
 
     return tuple(result)  # type: ignore
+
+
+def _prepare_py_command(job: Job, job_id: str, io_folder: str) -> _JobSpecTransformed:
+    """
+    Creates files in io_folder for the child process to use, and returns the
+    _JobSpecTransformed
+    """
+
+    environment = {}
+    io_files = []
+
+    # request the results file
+    result_path = os.path.join(io_folder, job_id + ".result")
+
+    io_files.append(job_id + ".result")
+    environment[_MEADOWRUN_RESULT_FILE] = result_path
+    environment[_MEADOWRUN_RESULT_PICKLE_PROTOCOL] = str(
+        job.result_highest_pickle_protocol
+    )
+
+    # write context variables to file
+    if job.py_command.pickled_context_variables:
+        context_variables_path = os.path.join(io_folder, job_id + ".context_variables")
+
+        context_variables_path_container = context_variables_path
+        with open(context_variables_path, "wb") as f:
+            f.write(job.py_command.pickled_context_variables)
+        io_files.append(job_id + ".context_variables")
+        # we can't communicate "directly" with the arbitrary command that the
+        # user is running so we'll use environment variables
+        environment[_MEADOWRUN_CONTEXT_VARIABLES] = context_variables_path_container
+
+    # get the command line
+    if not job.py_command.command_line:
+        raise ValueError("command_line must have at least one string")
+
+    return _JobSpecTransformed(
+        # we need a list, not a protobuf fake list
+        list(job.py_command.command_line),
+        [],
+        environment,
+    )
 
 
 def _prepare_py_function(job: Job, job_id: str, io_folder: str) -> _JobSpecTransformed:
@@ -144,7 +189,9 @@ async def run_local(
 
             job_spec_type = job.WhichOneof("job_spec")
 
-            if job_spec_type == "py_function":
+            if job_spec_type == "py_command":
+                job_spec_transformed = _prepare_py_command(job, job_id, io_folder)
+            elif job_spec_type == "py_function":
                 job_spec_transformed = _prepare_py_function(job, job_id, io_folder)
             else:
                 raise ValueError(f"Unsupported job_spec for lambda {job_spec_type}")

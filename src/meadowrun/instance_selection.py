@@ -47,6 +47,10 @@ class ResourcesInternal:
     def logical_cpu(self) -> float:
         return self.consumable.get(LOGICAL_CPU, 0.0)
 
+    @property
+    def memory_gb(self) -> float:
+        return self.consumable.get(MEMORY_GB, 0.0)
+
     def subtract(self, required: ResourcesInternal) -> Optional[ResourcesInternal]:
         """
         Interpreting self as "resources available" on an instance, subtracts "resources

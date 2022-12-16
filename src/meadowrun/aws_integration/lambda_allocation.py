@@ -56,6 +56,8 @@ if TYPE_CHECKING:
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
+_DEFAULT_LAMBDA_MEMORY_GB = 0.125
+_DEFAULT_LAMBDA_EPHEMERAL_STORAGE_GB = 0.512
 
 
 @dataclass()
@@ -79,29 +81,41 @@ class AllocLambda(Host):
     async def get_storage_bucket(self) -> AbstractStorageBucket:
         return get_aws_s3_bucket(self._get_region_name())
 
+    def _fix_resources(
+        self, resources_required: Optional[ResourcesInternal]
+    ) -> ResourcesInternal:
+        if resources_required is None:
+            resources_required = ResourcesInternal.from_cpu_and_memory(
+                logical_cpu=None,
+                memory_gb=_DEFAULT_LAMBDA_MEMORY_GB,
+                ephemeral_storage_gb=_DEFAULT_LAMBDA_EPHEMERAL_STORAGE_GB,
+            )
+
+        resources_required.consumable.setdefault(MEMORY_GB, _DEFAULT_LAMBDA_MEMORY_GB)
+        resources_required.non_consumable.setdefault(
+            EPHEMERAL_STORAGE_GB, _DEFAULT_LAMBDA_EPHEMERAL_STORAGE_GB
+        )
+        # TODO gets added by default higher up, just get rid of it
+        del resources_required.non_consumable[EVICTION_RATE_INVERSE]
+        return resources_required
+
     async def run_job(
         self,
-        resources_required: Optional[ResourcesInternal],
+        resources_required: ResourcesInternal,
         job: Job,
         wait_for_result: WaitOption,
     ) -> JobCompletion[Any]:
-        if resources_required is None:
-            resources_required = ResourcesInternal.from_cpu_and_memory(
-                logical_cpu=None, memory_gb=0.125, ephemeral_storage_gb=0.5
-            )
+        resources_required = self._fix_resources(resources_required)
 
-        resources_required.consumable.setdefault(MEMORY_GB, 0.125)
-        resources_required.non_consumable.setdefault(EPHEMERAL_STORAGE_GB, 0.5)
-        del resources_required.non_consumable[EVICTION_RATE_INVERSE]
         if (
             len(resources_required.consumable) > 1
             or len(resources_required.non_consumable) > 1
         ):
             raise ValueError(
-                "Only memory_gb and ephemeral_storage can be chosen for lambdas"
+                "Only memory_gb and ephemeral_storage can be specified for lambdas"
             )
 
-        if job.WhichOneof("job_spec") != "py_function":
+        if job.WhichOneof("job_spec") not in ("py_function", "py_command"):
             raise ValueError("Only run_function is supported for lambda at the moment")
 
         await self.set_defaults()
@@ -112,9 +126,12 @@ class AllocLambda(Host):
             "lambda", region_name=region_name
         ) as lambda_client:
 
-            lambda_memory_mb = round(resources_required.consumable[MEMORY_GB] * 1024)
-            lambda_ephemeral_storage_mb = round(
-                resources_required.non_consumable[EPHEMERAL_STORAGE_GB] * 1000
+            lambda_memory_mb = max(
+                128, round(resources_required.consumable[MEMORY_GB] * 1024)
+            )
+            lambda_ephemeral_storage_mb = max(
+                512,
+                round(resources_required.non_consumable[EPHEMERAL_STORAGE_GB] * 1000),
             )
             lambda_name = f"meadowrun_{lambda_memory_mb}_{lambda_ephemeral_storage_mb}"
             # create the lambda
@@ -176,7 +193,10 @@ class AllocLambda(Host):
             process_state = ProcessState()
             process_state.ParseFromString(process_state_bytes)
 
-            result = pickle.loads(process_state.pickled_result)
+            if process_state.pickled_result:
+                result = pickle.loads(process_state.pickled_result)
+            else:
+                result = None
             log_result = base64.b64decode(response["LogResult"]).decode("utf-8")
             print(f"Begin Lambda log{os.linesep}{log_result}{os.linesep}End Lambda log")
         return JobCompletion(
